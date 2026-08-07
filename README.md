@@ -44,6 +44,7 @@ uv sync
 uv run lucid init myproject
 uv run lucid -C myproject import VO.wav --clip-id vo
 uv run lucid -C myproject attach-transcript vo VO.json   # word-timed whisper JSON
+uv run lucid -C myproject transcribe vo                  # or: run whisper on vo directly
 uv run lucid -C myproject seed vo                        # auto-editor strips silences
 uv run lucid -C myproject transcript vo --search "here's the thing"
 uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
@@ -89,8 +90,7 @@ output differently on a second pass — so the diff is the artifact, and a
 `repeated` entry is the retake signal. Whisper is a subprocess, not a
 dependency: set `LUCID_WHISPER` if `whisper` is not on your `PATH`.
 
-`transcribe` and multi-track editing are not built yet — see the milestones in
-[PLAN.md](PLAN.md).
+Multi-track editing is not built yet — see the milestones in [PLAN.md](PLAN.md).
 
 ## Development
 

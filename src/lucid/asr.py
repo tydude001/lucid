@@ -14,8 +14,8 @@ Failures are frequently opaque: when another job holds the GPU, whisper exits
 non-zero with the real reason buried several frames up a CUDA traceback. So the
 tail of stderr is carried into the exception rather than dropped.
 
-This module has no lucid dependencies on purpose — `verify` uses it now and the
-`transcribe` tool will use it next.
+This module has no lucid dependencies on purpose — `verify` and the
+`transcribe` tool both call it.
 """
 
 from __future__ import annotations
