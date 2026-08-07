@@ -61,8 +61,7 @@ uv run pytest
 ```
 
 The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
-so a broken transport or tool registration fails the tests rather than
-surviving to runtime.
+so expect it to be a little slower than a pure unit suite.
 
 ## Planning
 
