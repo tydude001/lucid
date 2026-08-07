@@ -62,8 +62,16 @@ claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
 Word indices address the *original* recording and never renumber, so a range
 stays valid however many cuts have accumulated on top of it.
 
-`transcribe`, `add_captions` and multi-track editing are not built yet — see
-the milestones in [PLAN.md](PLAN.md).
+Captions are generated from the *timeline*, not the transcript, so they stay
+correct after cuts:
+
+```sh
+lucid captions subs.ass --preset karaoke     # sidecar ASS, Kdenlive loads it
+lucid captions subs.ass --burn render.mp4    # or burn in with ffmpeg
+```
+
+`transcribe` and multi-track editing are not built yet — see the milestones in
+[PLAN.md](PLAN.md).
 
 ## Development
 

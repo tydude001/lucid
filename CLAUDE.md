@@ -32,3 +32,7 @@ installed package or the upstream repo, not your memory.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).
+- Anything that emits times *for playback* maps through the edit
+  (`Edit.timeline_span`), never straight off the transcript. The transcript
+  indexes the source; the timeline is what plays. See PLAN.md § Captions came
+  out of the timeline.

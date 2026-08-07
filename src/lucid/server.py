@@ -152,6 +152,44 @@ def export(
     return ops.export(path, output, export_format=export_format, fps=fps)
 
 
+@mcp.tool()
+def add_captions(
+    path: str,
+    output: str,
+    clip_id: str | None = None,
+    preset: str = "clean",
+    max_words: int = 7,
+    max_gap: float = 0.7,
+    max_duration: float = 6.0,
+    hold: float = 0.3,
+    burn: str | None = None,
+    burn_output: str | None = None,
+) -> dict[str, Any]:
+    """Write word-timed ASS captions for the current timeline to `output`.
+
+    Timings follow the *timeline*, not the original recording, so captions stay
+    correct after cuts; words that were cut are omitted and counted as
+    `words_cut`. Presets are "clean", "karaoke" (per-word highlight) and
+    "boxed".
+
+    The sidecar .ass is the default exit — Kdenlive loads it and it stays
+    restylable. Pass `burn` (a render of THIS timeline) to burn the captions in
+    with ffmpeg instead; against any other video the timings will not line up.
+    """
+    return ops.add_captions(
+        path,
+        output,
+        clip_id=clip_id,
+        preset=preset,
+        max_words=max_words,
+        max_gap=max_gap,
+        max_duration=max_duration,
+        hold=hold,
+        burn=burn,
+        burn_output=burn_output,
+    )
+
+
 def serve() -> None:
     """Run the server on stdio. Blocks until the client disconnects."""
     mcp.run(transport="stdio")

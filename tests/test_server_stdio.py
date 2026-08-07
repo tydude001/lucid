@@ -36,6 +36,7 @@ EXPECTED_TOOLS = {
     "cut_by_transcript",
     "timeline_status",
     "undo",
+    "add_captions",
     "export",
 }
 
@@ -127,6 +128,7 @@ TOOL_TO_COMMAND = {
     "cut_by_transcript": "cut",
     "timeline_status": "status",
     "undo": "undo",
+    "add_captions": "captions",
     "export": "export",
 }
 
@@ -241,6 +243,61 @@ def test_cut_and_keep_are_mutually_exclusive(tmp_path: Path, sources: tuple[Path
     result = anyio.run(_with_server, body)
     assert result.is_error
     assert "exactly one" in result.content[0].text
+
+
+@needs_ffprobe
+def test_captions_follow_the_timeline_not_the_recording(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The whole point of generating captions from the project.
+
+    Words 2-3 are cut, so they must be absent from the .ass, and every word
+    after them must have moved earlier by the length of the cut.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    subtitles = tmp_path / "vo.ass"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        before = await client.call(
+            "add_captions", path=str(project), output=str(tmp_path / "before.ass")
+        )
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+        )
+        after = await client.call(
+            "add_captions", path=str(project), output=str(subtitles), max_words=2
+        )
+        return {"before": before, "after": after}
+
+    out = anyio.run(_with_server, body)
+    written = subtitles.read_text(encoding="utf-8")
+
+    # Eight words in, two cut, six captioned — and the drop is reported.
+    assert out["before"]["words"] == 8 and out["before"]["words_cut"] == 0
+    assert out["after"]["words"] == 6
+    assert out["after"]["words_cut"] == 2
+
+    # The fixture names words w<burst><n>, so indices 2-3 are the second burst.
+    assert "w10" not in written and "w11" not in written
+    assert "w00" in written and "w20" in written and "w30" in written
+
+    # w20 sat at source 6.0. Cutting 3.0-4.9 removed 1.9s ahead of it, so it is
+    # now heard at 4.1 — a caption still quoting 6.0 would be the bug.
+    assert "0:00:04.10" in written
+    assert "0:00:06.00" not in written
 
 
 needs_auto_editor = pytest.mark.skipif(

@@ -68,7 +68,7 @@ this machine the same day the fourth trial criterion was added:
 | `remove_silences` | auto-editor 31.4.2 | nothing — the plan already said shell out |
 | `render` | auto-editor v3 / `melt` | mapping layer, per the render decision |
 | `export_otio` | `auto-editor --export kdenlive` lands natively in the only NLE here | **near zero** — this was already "lower urgency than it looks"; the Linux NLE ceiling has now collapsed it. **Superseded by the render spike below — see § The handoff clause is not dead** |
-| `add_captions` | — | word-timed ASS, genuinely absent |
+| `add_captions` | — | word-timed ASS, genuinely absent. **Built 2026-08-07** — see § Captions came out of the timeline, not the transcript |
 | `cut_by_transcript` | — | **the differentiator, and the only one** |
 
 So the surviving thesis is thinner than "headless + CLI parity + OTIO-native
@@ -104,7 +104,7 @@ a real VO before assuming it needs lucid's architecture underneath.
 | `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
 | `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call |
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
-| `add_captions` | ffmpeg + ASS | burn-in, word-timed; styled via a small preset set |
+| `add_captions` | ffmpeg + ASS | word-timed, styled via a small preset set; sidecar `.ass` by default, burn-in opt-in. Built 2026-08-07 — § Captions came out of the timeline, not the transcript |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
 | `export_otio` | OTIO adapters | Lower urgency than it looks: auto-editor already exports six NLE formats via subprocess, and on Linux the ones that actually land are MLT (kdenlive/shotcut) — free Resolve decodes no H.264/AAC, so FCPXML only pays off for pre-transcoded footage. See PRIOR-ART.md |
 
@@ -372,3 +372,60 @@ renumber, and a range that has been cut is reported as absent rather than
 silently pointing somewhere else. That is what makes ranges stay addressable
 across a session, and it is the whole content of "addressable ranges over an
 accumulating edit."
+
+## Captions came out of the timeline, not the transcript — 2026-08-07
+
+`add_captions` is built — the last MVP tool the inventory table above did not
+collapse into auto-editor, and the first that had to reconcile the two clocks
+lucid keeps.
+
+- **A transcript indexes the source; a caption fires on the timeline.** Every
+  other tool so far reads source time and writes source time, so the
+  distinction never had to be resolved. A caption cannot dodge it: word 412's
+  timings are coordinates in the original recording, and by the time captions
+  are wanted the timeline is 68 segments of accumulated cuts. So words are
+  mapped through the edit and a cut word is simply not captioned. This is why
+  captions are generated from the *project* and not from the whisper JSON — the
+  JSON alone cannot know what was removed.
+- **The mapping needed one new primitive**, `Edit.timeline_span`, which is
+  `timeline_time` over an interval rather than an instant. It reports the part
+  of a source interval that survives, so a word straddling a cut is truncated
+  rather than stretched over material that is gone.
+- **Grouping is measured in timeline time, and that is a decision, not an
+  implementation detail.** Two words seconds apart in the recording but adjacent
+  after a cut belong to one caption, because that is how they now play.
+- **ASS rather than SRT, for a reason that only shows up at word level.** `\k`
+  karaoke tags are the only way any subtitle format expresses per-word timing
+  *within* a displayed line. Without them "word-timed" degrades to line-timed
+  with word-derived boundaries.
+- **`PlayResX/Y` is a reference canvas, not an output resolution.** Writing the
+  media's real dimensions there — which is the obvious thing to do, and what
+  the first version did — makes a 64pt caption fill a 240-line clip and vanish
+  on a 4K one. Height is now pinned at 1080 and width follows the aspect ratio,
+  because libass scales the axes independently and a 16:9 reference over
+  vertical footage stretches the glyphs. Caught by looking at a burned frame;
+  the tests were green.
+
+### Measured on the Scream VO
+
+Run against the same `Project/lucid-vo/` the slice built, at 68 segments and
+5:16.9:
+
+| | |
+|---|---|
+| Words in the transcript | 929 |
+| Captioned | 864, in 156 cues |
+| Dropped as cut | **65** |
+
+65 is the cross-check. `scream.md`'s retake table cuts word ranges 91–98,
+111–114, 284–307, 335–345, 390–394 and 545–557 — which is 65 words exactly, so
+the caption pass dropped precisely what the edit removed and nothing else. The
+phrase-level check agrees: "entire film", "unmask anybody" and "generally
+great" are absent, their keepers "entire movie", "unmask somebody" and
+"genuinely" are present, "You can't lift it out" appears once, and the retake
+left uncut still appears twice. Last cue ends at 316.53s inside a 316.901s
+timeline, no cues overlap.
+
+**The Scream video does not need this.** Captions appear nowhere in
+goodsometimes `pipeline.md` — the house format is film clips and graphics under
+VO. `add_captions` closes the MVP surface; it is not on that video's path.

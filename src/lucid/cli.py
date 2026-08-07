@@ -11,7 +11,7 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, ops
+from lucid import __version__, captions, ops
 from lucid.autoeditor import AutoEditorError
 from lucid.media import MediaError
 from lucid.project import ProjectError
@@ -98,6 +98,31 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="show the current timeline")
 
     sub.add_parser("undo", help="roll back the last timeline mutation")
+
+    p_cap = sub.add_parser("captions", help="write word-timed ASS captions for the timeline")
+    p_cap.add_argument("output", help="where to write the .ass subtitle file")
+    p_cap.add_argument(
+        "--clip-id", help="caption only this clip (default: every clip with a transcript)"
+    )
+    p_cap.add_argument(
+        "--preset", default="clean", choices=sorted(captions.PRESETS), help="caption style (clean)"
+    )
+    p_cap.add_argument("--max-words", type=int, default=7, help="words per caption line (7)")
+    p_cap.add_argument(
+        "--max-gap", type=float, default=0.7, help="silence that starts a new line (0.7s)"
+    )
+    p_cap.add_argument(
+        "--max-duration", type=float, default=6.0, help="longest a line stays up (6.0s)"
+    )
+    p_cap.add_argument(
+        "--hold", type=float, default=0.3, help="linger after the last word (0.3s)"
+    )
+    p_cap.add_argument(
+        "--burn", help="burn the captions into this video — must be a render of this timeline"
+    )
+    p_cap.add_argument(
+        "--burn-output", help="captioned video path (default: renders/<name>-captioned.<ext>)"
+    )
 
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
@@ -188,6 +213,23 @@ def _cmd_undo(args: argparse.Namespace) -> int:
     return _emit(ops.undo(args.project))
 
 
+def _cmd_captions(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.add_captions(
+            args.project,
+            args.output,
+            clip_id=args.clip_id,
+            preset=args.preset,
+            max_words=args.max_words,
+            max_gap=args.max_gap,
+            max_duration=args.max_duration,
+            hold=args.hold,
+            burn=args.burn,
+            burn_output=args.burn_output,
+        )
+    )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -216,6 +258,7 @@ _COMMANDS = {
     "cut": _cmd_cut,
     "status": _cmd_status,
     "undo": _cmd_undo,
+    "captions": _cmd_captions,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,
@@ -223,7 +266,14 @@ _COMMANDS = {
 
 #: Every failure lucid raises deliberately. Anything else is a bug and should
 #: keep its traceback rather than be flattened into a one-line message.
-_EXPECTED = (ProjectError, MediaError, TranscriptError, TimelineError, AutoEditorError)
+_EXPECTED = (
+    ProjectError,
+    MediaError,
+    TranscriptError,
+    TimelineError,
+    AutoEditorError,
+    captions.CaptionError,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

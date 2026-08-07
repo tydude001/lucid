@@ -15,7 +15,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from lucid import autoeditor, media
+from lucid import autoeditor, captions, media
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.project import Project, ProjectError
@@ -329,6 +329,107 @@ def export(
         "segments": len(edit.segments),
         "timeline_duration": edit.duration,
     }
+
+
+def _transcripts_for(project: Project, clip_id: str | None) -> dict[str, tx.Transcript]:
+    """The transcripts to caption from: one named clip, or every cached one."""
+    if clip_id is not None:
+        media.get_clip(project, clip_id)
+        return {clip_id: _transcript(project, clip_id)}
+
+    found: dict[str, tx.Transcript] = {}
+    for clip in project.read_manifest().get("clips", []):
+        cached = project.transcript_path(clip["clip_id"])
+        if cached.exists():
+            found[clip["clip_id"]] = tx.load(cached, clip_id=clip["clip_id"])
+    if not found:
+        raise tx.TranscriptError(
+            "no clip in this project has a transcript — attach one with "
+            "`lucid attach-transcript <clip_id> <whisper.json>` first"
+        )
+    return found
+
+
+def _caption_canvas(project: Project) -> tuple[int, int]:
+    """The reference canvas for captions: the picture's shape, not its size."""
+    for clip in project.read_manifest().get("clips", []):
+        if clip.get("has_video"):
+            return captions.canvas(clip.get("width"), clip.get("height"))
+    return captions.DEFAULT_RESOLUTION
+
+
+def add_captions(
+    path: Path | str,
+    output: Path | str,
+    *,
+    clip_id: str | None = None,
+    preset: str = "clean",
+    max_words: int = 7,
+    max_gap: float = 0.7,
+    max_duration: float = 6.0,
+    hold: float = 0.3,
+    burn: Path | str | None = None,
+    burn_output: Path | str | None = None,
+) -> dict[str, Any]:
+    """Write word-timed ASS captions for the current timeline.
+
+    Timings are the timeline's, not the recording's: every word is mapped
+    through the accumulated edit, and words that have been cut do not appear.
+    The count that did is reported as `words_cut`, so a missing sentence can be
+    told apart from a bug.
+
+    `burn` renders the captions into a video with ffmpeg. It has to be a render
+    of *this* timeline — burning onto the untrimmed source lines the captions up
+    against audio that has since moved. The default exit is the sidecar `.ass`,
+    which Kdenlive loads and can restyle.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    style = captions.preset(preset)
+    transcripts = _transcripts_for(project, clip_id)
+
+    placed, cut = captions.place(edit, transcripts)
+    if not placed:
+        raise captions.CaptionError(
+            "no transcribed word survives on the timeline — nothing to caption"
+        )
+    cues = captions.group(
+        placed, max_words=max_words, max_gap=max_gap, max_duration=max_duration, hold=hold
+    )
+
+    destination = Path(output).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        captions.to_ass(
+            cues,
+            style=style,
+            resolution=_caption_canvas(project),
+            title=project.read_manifest().get("name", "lucid"),
+        ),
+        encoding="utf-8",
+    )
+
+    result: dict[str, Any] = {
+        "output": str(destination),
+        "preset": preset,
+        "clips": sorted(transcripts),
+        "cues": len(cues),
+        "words": len(placed),
+        "words_cut": cut,
+        "captioned_duration": cues[-1].end - cues[0].start,
+        "timeline_duration": edit.duration,
+    }
+
+    if burn is not None:
+        source = Path(burn).expanduser()
+        target = (
+            Path(burn_output).expanduser()
+            if burn_output
+            else project.render_dir / f"{source.stem}-captioned{source.suffix}"
+        )
+        result["burned"] = str(captions.burn(source, destination, target))
+
+    return result
 
 
 def _export_fps(clips: dict[str, dict[str, Any]]) -> float:

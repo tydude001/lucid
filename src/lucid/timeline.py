@@ -90,6 +90,25 @@ class Edit:
             offset += seg.duration
         return None
 
+    def timeline_span(self, clip_id: str, start: float, end: float) -> tuple[float, float] | None:
+        """Where a source *interval* currently sits on the timeline.
+
+        Returns the part of `[start, end)` that survives in the first segment
+        overlapping it, mapped to timeline time — or None when the whole
+        interval has been cut. An interval straddling a cut comes back
+        truncated rather than stretched across material that is gone, which
+        matters for captions: a word half-removed by a cut should show for the
+        half that is still audible, not for its original length.
+        """
+        offset = 0.0
+        for seg in self.segments:
+            if seg.clip_id == clip_id:
+                a, b = max(seg.start, start), min(seg.end, end)
+                if b > a:
+                    return offset + (a - seg.start), offset + (b - seg.start)
+            offset += seg.duration
+        return None
+
     def covers(self, clip_id: str, start: float, end: float) -> float:
         """How much of a source interval is still present, in seconds."""
         total = 0.0
