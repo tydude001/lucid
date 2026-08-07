@@ -9,6 +9,7 @@ inspectable with ordinary tools::
       project.otio          the timeline; the source of truth tools mutate
       cache/
         transcripts/        <clip_id>.json — word-level timings, per clip
+        verify/             <render>.json — what a finished render was heard to say
       renders/              preview.mp4, final.mp4, …
 
 The OTIO file is authoritative for the edit; renders are derived from it and
@@ -34,9 +35,10 @@ MEDIA_DIR = "media"
 CACHE_DIR = "cache"
 TRANSCRIPT_DIR = "cache/transcripts"
 HISTORY_DIR = "cache/history"
+VERIFY_DIR = "cache/verify"
 RENDER_DIR = "renders"
 
-_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, HISTORY_DIR, RENDER_DIR)
+_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, HISTORY_DIR, VERIFY_DIR, RENDER_DIR)
 
 
 class ProjectError(Exception):
@@ -74,6 +76,10 @@ class Project:
     @property
     def history_dir(self) -> Path:
         return self.root / HISTORY_DIR
+
+    @property
+    def verify_dir(self) -> Path:
+        return self.root / VERIFY_DIR
 
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"

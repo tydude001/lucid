@@ -15,9 +15,13 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from lucid import autoeditor, captions, media
+from lucid import asr, autoeditor, captions, media
 from lucid import timeline as tl
 from lucid import transcript as tx
+
+# `verify` is also the name of the op below, so the module needs an alias here
+# or the function would shadow it at call time.
+from lucid import verify as vfy
 from lucid.project import Project, ProjectError
 
 WordRange = tuple[int, int]
@@ -438,3 +442,109 @@ def _export_fps(clips: dict[str, dict[str, Any]]) -> float:
         if clip.get("has_video") and clip.get("fps"):
             return float(clip["fps"])
     return DEFAULT_EXPORT_FPS
+
+
+# -- checking the render -------------------------------------------------
+
+
+def _shared_language(transcripts: dict[str, tx.Transcript]) -> str | None:
+    """The language every source transcript agrees on, if they agree at all.
+
+    Passing it to whisper stops it language-detecting the render from scratch,
+    which it occasionally gets wrong on a short or music-heavy one. Ambiguity
+    means letting whisper decide is the safer default.
+    """
+    languages = {t.language for t in transcripts.values() if t.language}
+    return languages.pop() if len(languages) == 1 else None
+
+
+def verify(
+    path: Path | str,
+    render: Path | str,
+    *,
+    clip_id: str | None = None,
+    transcript_path: Path | str | None = None,
+    model: str = asr.DEFAULT_MODEL,
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Transcribe a finished render and diff it against what the timeline says.
+
+    lucid already knows the words the timeline should play — every clip's
+    transcript mapped through the accumulated edit, exactly as captions are
+    placed. This transcribes the render itself and compares the two word
+    sequences.
+
+    It is the only check that catches a retake the transcript never contained:
+    whisper collapses an immediate repeat, so a phrase said twice can appear
+    once in the source transcript and be cut once, leaving the second take in
+    the render with nothing in lucid's index pointing at it (DOGFOOD § 2). The
+    render's own transcript has it twice; the timeline expects it once; the diff
+    says so.
+
+    `transcript_path` skips ASR and uses an existing transcript of the render —
+    the re-run, debugging and test path, and how a transcript produced on a
+    machine with a spare GPU gets used here.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    transcripts = _transcripts_for(project, clip_id)
+
+    placed, cut = captions.place(edit, transcripts)
+    if not placed:
+        raise vfy.VerifyError(
+            "no transcribed word survives on the timeline — there is nothing "
+            "for the render to be checked against"
+        )
+    expected = vfy.tokens(word.text for word in placed)
+
+    render_path = Path(render).expanduser()
+    result: dict[str, Any] = {}
+
+    if transcript_path is not None:
+        heard_transcript = tx.load(transcript_path, clip_id="render")
+    else:
+        payload = asr.transcribe(
+            render_path, model=model, language=language or _shared_language(transcripts)
+        )
+        # Whisper returns an empty `segments` list rather than failing when it
+        # hears no speech, and `parse_whisper` would then blame the missing
+        # word timestamps — which were requested. Say what actually happened.
+        if not payload.get("words") and not payload.get("segments"):
+            raise vfy.VerifyError(
+                f"whisper heard no speech at all in {render_path.name}. Either the "
+                "render has no dialogue on it — check that the export kept the "
+                "audio track — or the wrong file was passed."
+            )
+        heard_transcript = tx.parse_whisper(
+            payload, clip_id="render", origin=f"whisper:{model}"
+        )
+        # Keep the expensive artifact, but never read it back automatically: a
+        # re-render under the same filename would then verify against the
+        # previous render's audio and pass. Reuse is explicit, via
+        # `transcript_path`.
+        cached = project.verify_dir / f"{render_path.stem}.json"
+        tx.save(heard_transcript, cached)
+        result["heard_transcript"] = str(cached)
+
+    heard = vfy.tokens(word.text for word in heard_transcript.words)
+
+    result.update(
+        {
+            "render": str(render_path),
+            "clips": sorted(transcripts),
+            "expected_words": len(expected),
+            "heard_words": len(heard),
+            "words_cut_from_transcript": cut,
+            "timeline_duration": edit.duration,
+            **vfy.compare(expected, heard),
+        }
+    )
+
+    # Informational only, and never a failure: a render with a card hold or a
+    # music tail legitimately runs past the last spoken word.
+    try:
+        result["render_duration"] = media.probe(render_path).duration
+    except media.MediaError:
+        pass
+
+    return result

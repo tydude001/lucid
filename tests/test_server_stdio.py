@@ -37,6 +37,7 @@ EXPECTED_TOOLS = {
     "timeline_status",
     "undo",
     "add_captions",
+    "verify",
     "export",
 }
 
@@ -129,6 +130,7 @@ TOOL_TO_COMMAND = {
     "timeline_status": "status",
     "undo": "undo",
     "add_captions": "captions",
+    "verify": "verify",
     "export": "export",
 }
 
@@ -298,6 +300,102 @@ def test_captions_follow_the_timeline_not_the_recording(
     # now heard at 4.1 — a caption still quoting 6.0 would be the bug.
     assert "0:00:04.10" in written
     assert "0:00:06.00" not in written
+
+
+def _heard(path: Path, words: list[str]) -> Path:
+    """A transcript of a "render", as whisper would have dumped it.
+
+    Timings are plausible but arbitrary — `verify` compares word *order*, and
+    the timings of a render's own transcript are never trusted for anything
+    else (CLAUDE.md).
+    """
+    payload = {
+        "language": "en",
+        "words": [{"word": w, "start": n * 1.0, "end": n * 1.0 + 0.9} for n, w in enumerate(words)],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+async def _cut_project(client: Client, project: Path, audio: Path, transcript: Path) -> None:
+    """init -> import -> attach -> seed -> cut words 2-3, leaving six words."""
+    await client.call("init", path=str(project))
+    clip = await client.call("import_media", path=str(project), source=str(audio))
+    await client.call(
+        "attach_transcript",
+        path=str(project),
+        clip_id=clip["clip_id"],
+        transcript_path=str(transcript),
+    )
+    await client.call(
+        "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+    )
+    await client.call(
+        "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+    )
+
+
+@needs_ffprobe
+def test_verify_matches_a_render_that_says_what_the_timeline_expects(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The expected sequence is the timeline's, not the transcript's.
+
+    Words 2-3 were cut, so a render that plays the remaining six is clean —
+    against the untrimmed transcript those same six words would look like four
+    dropped ones.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    heard = _heard(tmp_path / "render.json", ["w00", "w01", "w20", "w21", "w30", "w31"])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _cut_project(client, project, audio, transcript)
+        # The wav stands in for a render of this timeline; the transcript is
+        # supplied, so no whisper is needed anywhere in this suite.
+        return await client.call(
+            "verify", path=str(project), render=str(audio), transcript_path=str(heard)
+        )
+
+    out = anyio.run(_with_server, body)
+
+    assert out["expected_words"] == 6 and out["heard_words"] == 6
+    assert out["similarity"] == 1.0
+    assert out["repeated"] == [] and out["dropped"] == []
+    assert out["diff"] == []
+    assert out["words_cut_from_transcript"] == 2
+    assert out["timeline_duration"] == pytest.approx(10.1, abs=0.05)
+    assert out["render_duration"] == pytest.approx(12.0, abs=0.05)
+    # ASR was skipped, so nothing was cached.
+    assert "heard_transcript" not in out
+
+
+@needs_ffprobe
+def test_verify_catches_a_phrase_the_render_plays_twice(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The retake case, which is why verify exists at all (DOGFOOD § 1)."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    heard = _heard(
+        tmp_path / "render.json",
+        ["w00", "w01", "w20", "w21", "w20", "w21", "w30", "w31"],
+    )
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _cut_project(client, project, audio, transcript)
+        return await client.call(
+            "verify", path=str(project), render=str(audio), transcript_path=str(heard)
+        )
+
+    out = anyio.run(_with_server, body)
+
+    assert out["repeated"] == [{"text": "w20 w21", "at_heard_word": 4}]
+    assert out["dropped"] == []
+    assert out["heard_words"] == 8 and out["expected_words"] == 6
+    assert out["similarity"] < 1.0
 
 
 needs_auto_editor = pytest.mark.skipif(

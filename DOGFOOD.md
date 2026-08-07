@@ -34,6 +34,11 @@ defect ships instead. **Keep this property. It is the product.**
 
 The highest-value thing lucid is missing, and it is small.
 
+> **Built 2026-08-07**, close to as specified below — including surfacing the
+> repeated phrase explicitly rather than leaving it in the diff. What it cost
+> and what a real run measured: [PLAN.md](PLAN.md) § `verify` checks the
+> render, because the transcript cannot.
+
 lucid knows what words the timeline *should* play: the transcript, filtered by
 the surviving ranges. Transcribing the finished render and diffing the two
 catches a class of defect nothing else does.
@@ -58,7 +63,9 @@ Notes for whoever writes it:
 - A repeated phrase in the render that appears once in the transcript is the
   signal that matters. Surface it explicitly rather than leaving it in a diff.
 - Frame count, `blackdetect` and spot frames cover the picture. Only the
-  re-transcription covers the audio. Both are needed.
+  re-transcription covers the audio. Both are needed. **The picture half is
+  still unbuilt** — `verify` is audio-only, and it lives with rendering rather
+  than with this.
 
 ## 2. Word durations are not addresses — only word *order* is
 

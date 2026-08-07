@@ -8,7 +8,7 @@ lives in the wiki, not here.
 
 ## Things that will bite you
 
-All three are cases where the training prior is confidently wrong. Check the
+All four are cases where the training prior is confidently wrong. Check the
 installed package or the upstream repo, not your memory.
 
 - **The MCP SDK is v2. `FastMCP` no longer exists** — it is `MCPServer`, from
@@ -18,6 +18,12 @@ installed package or the upstream repo, not your memory.
 - **auto-editor is Nim, and PyPI is stale.** `pip install auto-editor` gets
   29.3.1; upstream ships 31.x. There is no Python API — shell out to the binary,
   like ffmpeg.
+- **Whisper is a subprocess here, and it is not on PATH.** Do not `import
+  whisper` — that pulls torch and a GPU context into every `lucid` invocation,
+  including the ones that never touch audio. Go through `asr.transcribe()`,
+  which shells out to the binary it resolves via `LUCID_WHISPER` → PATH → a
+  sibling project's venv (`asr.SIBLING_VENV`). It is openai-whisper, not
+  faster-whisper, whatever PLAN.md's older tables say.
 - **OTIO's edit algorithms are C++ only.** `overwrite`/`insert`/`trim`/`slice`/
   `ripple`/`roll`/… have no Python bindings; `opentimelineio.algorithms` gives
   you only trimming, flattening, and transition expansion. Cutting means

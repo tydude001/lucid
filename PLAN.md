@@ -99,13 +99,14 @@ a real VO before assuming it needs lucid's architecture underneath.
 | Tool | Backed by | Notes |
 |---|---|---|
 | `import_media` | ffprobe | register clips, probe codecs/fps/duration |
-| `transcribe` | faster-whisper | word-level timestamps, cached per clip |
+| `transcribe` | openai-whisper subprocess | word-level timestamps, cached per clip. Written as faster-whisper; it is openai-whisper shelled out through `asr.py`, because that is the install that exists on this box and ASR is not worth importing torch into every `lucid status` for. The tool itself is still unbuilt — `verify` was the first caller and it only needed the module |
 | `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before lucid existed |
 | `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
 | `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call |
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | word-timed, styled via a small preset set; sidecar `.ass` by default, burn-in opt-in. Built 2026-08-07 — § Captions came out of the timeline, not the transcript |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
+| `verify` | openai-whisper + difflib | not in the original surface. Transcribe the finished render and diff it against the words the timeline should play — the only check that catches a retake the transcript never contained. Added after the dogfood found two of them in a shipped render. Built 2026-08-07 — § `verify` checks the render, because the transcript cannot |
 | `export_otio` | OTIO adapters | Lower urgency than it looks: auto-editor already exports six NLE formats via subprocess, and on Linux the ones that actually land are MLT (kdenlive/shotcut) — free Resolve decodes no H.264/AAC, so FCPXML only pays off for pre-transcoded footage. See PRIOR-ART.md |
 
 Deliberately absent from MVP: motion graphics (tier 1.5, Motion Canvas),
@@ -121,6 +122,12 @@ Nim, so it was never a Python dependency to weigh.
 
 This rests on OTIO alone, which is narrower than it looks. Revisit if
 performance actually hurts, or if OTIO stops being the source of truth.
+
+**And it now rests on OTIO literally alone.** auto-editor turned out to be Nim
+(PRIOR-ART.md), and ASR turned out to be a subprocess too once it was built —
+so of the three Python dependencies the paragraph above reasons from, one is
+left. The conclusion survives because it was always the load-bearing one, but
+"the stack is Python" is no longer a reason for anything.
 
 ## Decisions
 
@@ -447,3 +454,74 @@ timeline, no cues overlap.
 **The Scream video does not need this.** Captions appear nowhere in
 goodsometimes `pipeline.md` — the house format is film clips and graphics under
 VO. `add_captions` closes the MVP surface; it is not on that video's path.
+
+## `verify` checks the render, because the transcript cannot — 2026-08-07
+
+[DOGFOOD.md](DOGFOOD.md) § 1's top-ranked item. Two retakes reached the first
+full render of the Scream video, and *nothing lucid could read would have found
+them*: inspecting `project.otio` proves the cuts you made are the cuts you
+meant, and those two were never cut at all. `lucid verify <render>` transcribes
+the finished render and diffs that word sequence against the one the timeline
+should play.
+
+- **It is a check on word *order*, and that is forced, not chosen.** Timings
+  cannot detect this defect — whisper hides a whole retake inside the duration
+  of the following word (§ 2), so the source transcript agrees with the script
+  and reports nothing wrong. What does not lie is that the render's own
+  transcript contains the phrase twice while the timeline expects it once.
+- **The expected side is `captions.place`, unchanged.** "Which words survive,
+  and when do they play" is one question, and captions had already answered it.
+  So verify is a diff bolted onto an existing mapping rather than a second
+  model of the edit — which also means it inherits the overlap-not-containment
+  rule for free, and cannot drift away from what captions believe.
+- **Similarity is triage; the diff is the artifact.** Whisper spells its own
+  output differently on a second pass, so a clean render scores ~0.97 rather
+  than 1.0 and a threshold would be a coin flip. `repeated` and `dropped` are
+  heuristics *over* the diff — a heard run of ≥2 words that also appears in the
+  expected sequence is a phrase played twice; the mirror case is a cut that
+  reached too far. Both are best-effort, and both are named that way in the
+  tool docstring so an agent does not treat an empty `repeated` as a pass.
+- **The heard transcript is cached and never automatically reused.** It costs
+  minutes of GPU to produce, so it is written to `cache/verify/<render>.json`
+  and reported back. It is not read on the next run: a re-render under the same
+  filename would then verify against the previous render's audio and pass.
+  Reuse is explicit, via `--transcript`.
+- **ASR became its own module, `asr.py`, with no lucid imports.** Whisper is a
+  subprocess, not a library — importing it would pull torch and a GPU context
+  into `lucid status`. It is also **not on PATH on this box**; resolution is
+  `LUCID_WHISPER` → PATH → the openai-whisper in vaultmedia's `.venv-tag`. That
+  leaves the MVP's own `transcribe` tool as a wrapper over a module that
+  already exists.
+
+### Measured 2026-08-07 — on synthesised speech, not the Scream VO
+
+Stated plainly because it matters for how much this is worth: the Scream
+project is no longer on this box, so the run below is espeak-ng speech, not
+human speech. Everything *around* the comparison is real — real whisper
+(`small`) on both sides, a real `auto-editor` render of a real lucid edit.
+
+A 24-word read with one line spoken twice. Cutting words 12–15 removes the
+second take, leaving a 20-word timeline:
+
+| Render verified | Expected / heard | Similarity | `repeated` |
+|---|---|---|---|
+| the actual render of the edit | 20 / 20 | **1.0**, empty diff | none |
+| the uncut recording | 20 / **24** | 0.909 | `"nobody believes her yet"` @ heard word 12 |
+
+The second row is the Scream defect reproduced and caught. `render_duration`
+came back 9.158957s against a 9.159s timeline, which is the same
+millisecond-level agreement the first vertical slice measured.
+
+Two honest limits. The 1.0 in row one is *better* than real material will give
+— synthesised speech transcribes identically twice, where a human read scores
+~0.97 — so do not tighten anything to expect it. And whisper did **not** fold
+the doubled line into the previous word here, as it did on the real VO; this
+run proves verify catches a surviving retake, not that it reproduces the
+transcript infidelity that creates one.
+
+**One thing only the real run found.** Whisper returns an empty `segments` list
+rather than failing when it hears no speech, and `transcript.parse_whisper`
+then blames missing word timestamps — advice to pass `--word_timestamps True`,
+which `asr.transcribe` always passes. `verify` checks for that case first and
+says what actually happened: the render has no dialogue on it, so check the
+export kept the audio track.

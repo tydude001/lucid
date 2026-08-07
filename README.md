@@ -17,7 +17,7 @@ Every hard primitive under that product already exists as mature open source:
 | Capability | Open-source primitive |
 |---|---|
 | Cutting, concat, captions, rendering | ffmpeg |
-| Local transcription (30+ languages) | whisper.cpp / faster-whisper |
+| Local transcription (30+ languages) | whisper (openai / .cpp / faster-whisper) |
 | Silence and bad-take removal | auto-editor |
 | Timeline data model + NLE export | OpenTimelineIO (FCPXML, etc.) |
 | Programmatic motion graphics | Motion Canvas |
@@ -48,6 +48,7 @@ uv run lucid -C myproject seed vo                        # auto-editor strips si
 uv run lucid -C myproject transcript vo --search "here's the thing"
 uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
+uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
 ```
 
 `--render` exports media instead of an NLE project, and `undo` rolls back the
@@ -69,6 +70,24 @@ correct after cuts:
 lucid captions subs.ass --preset karaoke     # sidecar ASS, Kdenlive loads it
 lucid captions subs.ass --burn render.mp4    # or burn in with ffmpeg
 ```
+
+`verify` closes the loop the other way: it transcribes a finished render and
+diffs it against the words the timeline should play. That catches a class of
+defect nothing else does — a retake still in the picture. Whisper collapses an
+immediate repeat into one utterance, so a doubled phrase can be missing from
+the source transcript, never get cut, and survive into the render with nothing
+in the project file to show for it. Reading the timeline can only prove the
+cuts you made are the cuts you meant.
+
+```sh
+lucid verify final.mp4                       # transcribes with whisper
+lucid verify final.mp4 --transcript render.json   # or re-diff without re-running it
+```
+
+Similarity around 0.97 is normal on a clean render — whisper spells its own
+output differently on a second pass — so the diff is the artifact, and a
+`repeated` entry is the retake signal. Whisper is a subprocess, not a
+dependency: set `LUCID_WHISPER` if `whisper` is not on your `PATH`.
 
 `transcribe` and multi-track editing are not built yet — see the milestones in
 [PLAN.md](PLAN.md).

@@ -346,6 +346,15 @@ rather than by reading PyPI metadata alone.
   binaries over faster-whisper. Real signal, but lucid stays with faster-whisper:
   in-process and pip-installable matters more here than raw throughput, and it
   keeps the dependency graph free of a second hand-managed binary.
+
+  **Overturned 2026-08-07, when ASR was actually built.** lucid shells out to
+  an openai-whisper binary (`asr.py`), which is the same call auto-editor and
+  clipwright made and against the reasoning above. Two things decided it. The
+  box already had a working openai-whisper install and no faster-whisper one,
+  so "pip-installable" bought nothing that wasn't already paid for. And
+  in-process is a *cost* here, not a benefit: importing it drags torch and a
+  GPU context into `lucid status`, which never touches audio. The convergent
+  signal was right and the counter-argument was theoretical.
 - **Caption format.** kinocut ships word-timed ASS. Word-level highlighting is
   what burned-in captions are actually for, and SRT + ffmpeg `force_style`
   structurally cannot do it.

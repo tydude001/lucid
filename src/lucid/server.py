@@ -190,6 +190,46 @@ def add_captions(
     )
 
 
+@mcp.tool()
+def verify(
+    path: str,
+    render: str,
+    clip_id: str | None = None,
+    transcript_path: str | None = None,
+    model: str = "turbo",
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Transcribe a finished render and diff it against what the timeline says.
+
+    Run this after rendering, before calling an edit done. It transcribes the
+    render with whisper and compares that word sequence to the one the timeline
+    should play, which is the only check that catches a retake still in the
+    picture: whisper collapses an immediate repeat into a single utterance, so a
+    doubled phrase can be invisible in the source transcript and still be in the
+    render.
+
+    Read `repeated` first — an entry there is a phrase the render plays more
+    times than the timeline expects, i.e. a surviving retake, with the heard word
+    index to look at. `dropped` is the opposite: words the timeline expects that
+    the render never says, usually a cut that reached too far.
+
+    `similarity` around 0.97 is normal on a *clean* render — whisper spells its
+    own output differently on a second pass ("whodunit" / "who done it", "4" /
+    "four"). Treat it as triage; `diff` is the artifact. Transcription takes
+    minutes on a long render, and the result is cached under
+    cache/verify/ and reported as `heard_transcript` — pass it back as
+    `transcript_path` to re-diff without re-transcribing.
+    """
+    return ops.verify(
+        path,
+        render,
+        clip_id=clip_id,
+        transcript_path=transcript_path,
+        model=model,
+        language=language,
+    )
+
+
 def serve() -> None:
     """Run the server on stdio. Blocks until the client disconnects."""
     mcp.run(transport="stdio")

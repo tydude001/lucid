@@ -11,12 +11,14 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, captions, ops
+from lucid import __version__, asr, captions, ops
+from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.media import MediaError
 from lucid.project import ProjectError
 from lucid.timeline import TimelineError
 from lucid.transcript import TranscriptError
+from lucid.verify import VerifyError
 
 
 def _word_range(value: str) -> list[int]:
@@ -124,6 +126,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "--burn-output", help="captioned video path (default: renders/<name>-captioned.<ext>)"
     )
 
+    p_verify = sub.add_parser(
+        "verify", help="transcribe a render and diff it against the timeline"
+    )
+    p_verify.add_argument("render", help="the finished render to check")
+    p_verify.add_argument(
+        "--clip-id",
+        "--clip",
+        dest="clip_id",
+        help="verify against only this clip (default: every clip with a transcript)",
+    )
+    p_verify.add_argument(
+        "--transcript",
+        dest="transcript_path",
+        help="use this transcript of the render instead of running whisper",
+    )
+    p_verify.add_argument(
+        "--model", default=asr.DEFAULT_MODEL, help=f"whisper model ({asr.DEFAULT_MODEL})"
+    )
+    p_verify.add_argument("--language", help="force a language instead of detecting one")
+
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -230,6 +252,19 @@ def _cmd_captions(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.verify(
+            args.project,
+            args.render,
+            clip_id=args.clip_id,
+            transcript_path=args.transcript_path,
+            model=args.model,
+            language=args.language,
+        )
+    )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -259,6 +294,7 @@ _COMMANDS = {
     "status": _cmd_status,
     "undo": _cmd_undo,
     "captions": _cmd_captions,
+    "verify": _cmd_verify,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,
@@ -273,6 +309,8 @@ _EXPECTED = (
     TimelineError,
     AutoEditorError,
     captions.CaptionError,
+    ASRError,
+    VerifyError,
 )
 
 
