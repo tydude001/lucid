@@ -150,14 +150,13 @@ performance actually hurts, or if OTIO stops being the source of truth.
 
 ## Open questions
 
-- **Does OpenChatCut make lucid redundant?** The go/no-go question, decided by
-  milestone 2's trial rather than analysis. Stop lucid if OpenChatCut's Linux
-  AppImage runs acceptably on this box **and** its MCP session workflow handles
-  iterative addressable edits ("cut words 30–45; keep take 2, drop take 1") on
-  a real recording **and** the Electron-app-as-MCP-host is tolerable in an
-  agent-CLI workflow **and** its output can reach the finishing NLE (see the
-  fourth criterion below). Continue with the narrowed thesis above if any fails.
-  AGPL-3.0 is no obstacle to personal use.
+- **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
+  required all four criteria — runs acceptably on Linux **and** MCP handles
+  iterative addressable edits on a real recording **and** Electron-as-MCP-host
+  is tolerable in an agent-CLI workflow **and** the output reaches the
+  finishing NLE. Criterion 4 failed outright (FCPXML-only handoff) and 2 is
+  cloud-locked (AssemblyAI-only ASR); per-criterion evidence in milestone 2.
+  lucid continues with the narrowed thesis above.
 - **Fourth trial criterion, added 2026-08-07: does the edit get *out*?** The
   first three criteria were written assuming finishing happened elsewhere. It
   can't. Premiere does not run on Linux and the goodsometimes back catalog's
@@ -211,14 +210,43 @@ Which of these are done is tracked in the wiki's Open items table, not here.
    recording (criteria in Open questions). If it passes, archive lucid and
    adopt it; every milestone below exists only if it fails.
 
-   **Staged 2026-08-07.** The v0.1.9 AppImage is downloaded and executable at
-   `~/Applications/OpenChatCut-0.1.9-x86_64.AppImage` (689 MB). It unpacks and
-   its Electron runtime initializes; it was not launched because that needs a
-   desktop session, so criterion 1 is *unblocked, not yet answered* — Tyler runs
-   it. The trial material is the **Scream essay VO** (goodsometimes
-   `ideas/scream.md`), deliberately: it is a real scripted read arriving on its
-   own schedule, and running the gate on synthetic material would answer a
-   question nobody has.
+   **Ran 2026-08-07 — the gate fails; lucid continues.** Material was the
+   Scream essay VO (goodsometimes `ideas/scream.md` § VO), run live against
+   v0.1.9 on this box. Verdict per criterion:
+
+   - **1 · Runs on Linux: passes, with friction.** Launches and is stable under
+     KDE Wayland. UI defaults to Chinese (`cc.locale` in the app's
+     localStorage; a toolbar chip toggles EN). If its port 5199 is held at
+     startup it silently falls back to a random port, moving the MCP endpoint.
+   - **2 · Addressable edits on a real recording: unanswerable locally —
+     transcription is cloud-only.** ASR posts the audio to AssemblyAI and
+     without an `ASSEMBLYAI_API_KEY` fails with HTTP 503. The key store has no
+     alternative ASR provider (verified in `desktop-dist/main.mjs`; the bundled
+     transformers.js whisper models serve other features). The core feature of
+     the product does not run without shipping audio to a third-party cloud —
+     directly against the local-first premise lucid exists for.
+   - **3 · Electron-as-MCP-host in an agent workflow: heavy friction,
+     measured.** MCP endpoint is `http://127.0.0.1:5199/api/external-mcp/mcp`
+     (streamable HTTP) and works from the CLI, but: the GUI must be running
+     with the project open in an editor before the 100+ editor tools even
+     register; every project-touching tool's *first call per session* throws a
+     manual confirmation card with no "always allow"; and the transport goes
+     stale after an import, forcing a full re-init — new session, new edit
+     session, and all confirmations again. Three human approval clicks were
+     spent before reaching a single edit.
+   - **4 · Does the edit get out: fails, verified from the tool itself.**
+     `submit_export` emits flattened media (MP4/WebM/MP3/WAV), subtitles, or
+     FCPXML "for Premiere / Resolve / FCP" — no MLT, no OTIO. Nothing on this
+     box opens FCPXML (Premiere gone, free Resolve decodes no H.264/AAC, no
+     Mac), so the timeline is trapped inside the app unless the video is
+     finished there.
+
+   The gate required all four to pass; 4 fails outright and 2 cannot pass
+   locally. What OpenChatCut is *right* about is worth stealing: draft/review
+   edit sessions with explicit approval, transcript-as-address-space tooling,
+   and typed structured tool returns. The trial project ("Scream VO trial",
+   with the VO uploaded and its media copy in the app's storage) is left in
+   place for reference.
 3. **Render spike.** Hand-write a two-cut `project.otio`, map it to auto-editor
    v3, render it, verify the output. No transcription involved. This is ahead of
    transcribe deliberately: `transcribe` is a well-trodden path that will work,
