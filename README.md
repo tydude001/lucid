@@ -37,21 +37,33 @@ and caption the rest" becomes a chat message instead of an afternoon.
 
 ## Try it
 
+Trimming the retakes out of a voiceover, end to end:
+
 ```sh
 uv sync
-uv run lucid init myproject   # create a project directory
-uv run lucid info myproject   # show its manifest
-uv run lucid mcp              # serve MCP over stdio
+uv run lucid init myproject
+uv run lucid -C myproject import VO.wav --clip-id vo
+uv run lucid -C myproject attach-transcript vo VO.json   # word-timed whisper JSON
+uv run lucid -C myproject seed vo                        # auto-editor strips silences
+uv run lucid -C myproject transcript vo --search "here's the thing"
+uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
+uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
 ```
 
-To connect it to Claude Code:
+`--render` exports media instead of an NLE project, and `undo` rolls back the
+last mutation. Every subcommand is also an MCP tool — that parity is enforced
+by the test suite — so an agent drives the same operations:
 
 ```sh
+uv run lucid mcp                                          # serve MCP over stdio
 claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
 ```
 
-Only `ping` is wired up so far — the editing tools land in the milestones
-below.
+Word indices address the *original* recording and never renumber, so a range
+stays valid however many cuts have accumulated on top of it.
+
+`transcribe`, `add_captions` and multi-track editing are not built yet — see
+the milestones in [PLAN.md](PLAN.md).
 
 ## Development
 

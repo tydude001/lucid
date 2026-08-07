@@ -67,7 +67,7 @@ this machine the same day the fourth trial criterion was added:
 | `transcribe`, `get_transcript` | openai-whisper + goodsometimes `scripts/clipcut.py` (in use; it verified the Scream reveals) | packaging |
 | `remove_silences` | auto-editor 31.4.2 | nothing — the plan already said shell out |
 | `render` | auto-editor v3 / `melt` | mapping layer, per the render decision |
-| `export_otio` | `auto-editor --export kdenlive` lands natively in the only NLE here | **near zero** — this was already "lower urgency than it looks"; the Linux NLE ceiling has now collapsed it |
+| `export_otio` | `auto-editor --export kdenlive` lands natively in the only NLE here | **near zero** — this was already "lower urgency than it looks"; the Linux NLE ceiling has now collapsed it. **Superseded by the render spike below — see § The handoff clause is not dead** |
 | `add_captions` | — | word-timed ASS, genuinely absent |
 | `cut_by_transcript` | — | **the differentiator, and the only one** |
 
@@ -75,6 +75,15 @@ So the surviving thesis is thinner than "headless + CLI parity + OTIO-native
 handoff + thin stack." The handoff clause is dead — auto-editor already does it,
 better, to Kdenlive. What is actually left is **addressable ranges over an
 accumulating edit**, and nothing else.
+
+> **The handoff clause is not dead — corrected by the render spike, 2026-08-07.**
+> The row above reasons that auto-editor already exports Kdenlive, so lucid's
+> handoff adds nothing. That is only true of auto-editor's *own* filter-based
+> edit. The spike showed the same v3 timeline lucid builds for `render` also
+> takes `--export kdenlive`, so an **arbitrary addressable edit** reaches
+> Kdenlive through the mapping layer `render` needed anyway. One mapping, two
+> exits, no extra work. The handoff clause of the thesis survives, and it is
+> free rather than earned. Evidence in § Render spike below.
 
 **And for the workload that prompted this, there may be a cheaper shape than
 either.** The essay VO is a *scripted* read: 848 known words. The edit is not
@@ -91,7 +100,8 @@ a real VO before assuming it needs lucid's architecture underneath.
 |---|---|---|
 | `import_media` | ffprobe | register clips, probe codecs/fps/duration |
 | `transcribe` | faster-whisper | word-level timestamps, cached per clip |
-| `get_transcript` | cache | agent reads text + timings to plan cuts |
+| `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before lucid existed |
+| `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
 | `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call |
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | burn-in, word-timed; styled via a small preset set |
@@ -138,6 +148,11 @@ performance actually hurts, or if OTIO stops being the source of truth.
   it buys auto-editor's renderer and its `--preview` dry run for free.
   auto-editor is public domain, so porting its render logic later is
   unencumbered if the mapping leaks. Hand-rolled OTIO→ffmpeg stays the fallback.
+  **Verified 2026-08-07** (milestone 3), with one addition the decision did not
+  anticipate: the same mapping also exports to Kdenlive, so it is the NLE
+  handoff too. Its header fields are templated out of `auto-editor --edit none`
+  rather than reconstructed from ffprobe — `layout` and friends are not worth
+  guessing, and templating costs a probe instead of an audio analysis.
 - **Captions are word-timed ASS.** SRT + ffmpeg `force_style` structurally
   cannot do word-level highlighting, which is the thing burned-in captions are
   actually for. ASS is miserable to generate by hand; generate it from the
@@ -175,6 +190,14 @@ performance actually hurts, or if OTIO stops being the source of truth.
   robust than better ASR. Evidence that alignment alone is insufficient:
   rescript, a shipping transcript editor, added drag-to-adjust word edges.
   Decide after measuring on real footage.
+
+  **First measurement, 2026-08-07 — cheaper than feared on this material.** At
+  the six retake boundaries in the Scream VO the silence between the abandoned
+  take and the restart ran 0.34s–2.48s, so a flat `pad` of 0.1s put every cut
+  well inside the gap, and re-transcribing the render confirmed no word was
+  clipped at either edge. That is *not* a general answer: restart pauses are
+  the easiest case there is, and a cut mid-sentence has no such margin. Energy
+  minimum snapping stays the plan for tight cuts; it is just not urgent.
 - **Variable frame rate footage.** Phone/screen recordings are often VFR and
   break naive cut math. Current lean: do *not* transcode on import — it is slow
   and lossy, and cut-and-concat operates in the time domain where VFR is mostly
@@ -187,11 +210,21 @@ performance actually hurts, or if OTIO stops being the source of truth.
   video-use independently ships decision-point composites (filmstrip +
   waveform), which validates the idea and removes its uniqueness. An MP4 for the human and a web preview
   (tier 2) are separate questions — don't conflate them.
-- **Does the OTIO→v3 mapping hold?** The render decision assumes v3 can express
-  what lucid's timelines contain. Single-track cut-and-concat certainly maps;
-  transitions, speed changes, and multi-layer composites are unverified. This is
-  what the render spike is for, and it is the question most likely to force an
-  architecture change.
+- **Does the OTIO→v3 mapping hold? Partly answered 2026-08-07.** Single-track
+  cut-and-concat maps, in both directions, on real material — that is
+  milestones 3–5. What the spike did *not* touch is still exactly what it was:
+  transitions, speed changes and multi-layer composites are unverified, and
+  they are the ones that could force an architecture change. The current model
+  cannot even express them (see `timeline.py`: one track, A/V linked, no gaps),
+  so the question is now "what does widening the model cost", not "does v3
+  work".
+- **Laying clips and graphics over the VO is unmodelled, and that is the next
+  real decision.** The Scream video needs five film clips and nine cards on top
+  of the trimmed VO. Right now that is Kdenlive's job and lucid's output is an
+  audio bed to build on, which is a defensible split. But it is the difference
+  between "lucid trims your VO" and "lucid edits your video", and multi-track is
+  the whole cost. Decide against the *next* video, not this one — this one has a
+  working path.
 
 ## Non-goals (write them down so they stay dead)
 
@@ -253,6 +286,23 @@ Which of these are done is tracked in the wiki's Open items table, not here.
    whereas the timeline→pixels path is the one unproven assumption the whole
    architecture rests on, and it is cheaper to falsify now than after three
    tools have been shaped around it.
+
+   **Ran 2026-08-07 — the assumption holds, and it buys more than expected.**
+   A hand-written two-cut v3 against a synthetic clip:
+
+   - `auto-editor cut.v3 -o out.mp4` renders 4.000s exactly, and the frame at
+     output 2.5s is source 5.5s — offsets are honoured, not just durations.
+   - `auto-editor cut.v3 --export kdenlive` writes MLT with `in=0.000
+     out=1.967` and `in=5.000 out=6.967` as separate entries on linked
+     video *and* audio chains.
+   - Audio-only sources work the same way (`"v": []`), which is what the essay
+     VO needs.
+
+   Two consequences the plan did not anticipate. First, **the NLE handoff is
+   free** — see the correction in § How much of the MVP is left. Second, v3
+   accepts a **millisecond timebase** (`1000/1`), so audio cuts are not stuck
+   on a 33ms frame grid; auto-editor picks 30/1 for a wav but honours a finer
+   one on input.
 4. `import_media` + `transcribe` + `get_transcript` on a real clip — which is
    also what answers the word-timestamp and VFR questions with measurements
    instead of guesses.
@@ -260,3 +310,66 @@ Which of these are done is tracked in the wiki's Open items table, not here.
    from a Claude Code session. Includes timeline snapshotting.
 6. `remove_silences` (shell out), `add_captions` (word-timed ASS), `export_otio`.
 7. Dogfood on a real recording; promote pain points to the plan.
+
+## What the first vertical slice changed — 2026-08-07
+
+Milestones 4 and 5 were built together against the Scream essay VO rather than
+a fixture, and `render` was deliberately skipped: the video needs a `.kdenlive`
+to finish in, not an MP4. Three things only the real material exposed.
+
+- **A whisper transcript is an input, not something to regenerate.** The VO was
+  transcribed before lucid existed. `attach_transcript` ingests an existing
+  word-timed JSON; re-running ASR to obtain an index that already exists is
+  wasted GPU time and a second set of timings to disagree with. `transcribe`
+  is still wanted for material that has none, but it is no longer on the
+  critical path.
+- **Importing media cannot assume it can link.** The NAS rejects `symlink()`
+  outright (wiki `files.md` § the CIFS warnings has the constraint), and that is
+  where all the media lives. Import therefore degrades to referencing the file
+  in place rather than copying it, and records which of symlink/copy/reference
+  happened — so a `media/` entry is optional and paths resolve through
+  `media.media_path()`.
+- **The export timebase and the internal timebase are not the same thing, and
+  conflating them is a real bug.** The v3 `timebase` becomes MLT's
+  `<profile frame_rate_num>`, so exporting an audio project at its millisecond
+  rate handed Kdenlive a **1000fps** timeline. Media renders keep milliseconds;
+  NLE exports quantise to a frame rate — the picture's, or 30. This is what
+  "normalise only when exporting to an NLE" in § Open questions actually means
+  in practice.
+
+### The slice, measured on the Scream VO
+
+Project at `Videos/Every Scream Sequel…/Project/lucid-vo/`; the whole run is
+eight `lucid` commands.
+
+| Step | Result |
+|---|---|
+| `import` + `attach-transcript` | 385.8s of VO, 929 words |
+| `seed --threshold 0.04` | **62 segments, 5:35 kept from 6:25** |
+| `cut … --pad 0.1` (6 retakes) | 19.0s removed → 68 segments, 5:16.9 |
+| `export … .kdenlive` | 68 MLT entries at 30fps |
+
+The seed number is the cross-check that matters: goodsometimes `scream.md`
+independently records auto-editor at 0.04 producing "62 segments, 5:34 kept
+from 6:26" when run natively. lucid's v3 → OTIO import reproduces it exactly,
+so the round trip is not lossy.
+
+Verification was **re-transcription of the render**, not inspection of the
+timeline — whisper over the rendered result, then 13 assertions about which
+phrases survived. All six abandoned takes are absent, all six keepers intact,
+and the two retakes deliberately left alone are still present twice. Render
+duration matches the timeline to the millisecond (316.901s). `melt` parses the
+`.kdenlive` and renders audio from it.
+
+Two of the eight retakes in `scream.md` were **not** applied, because that
+file marks them as judgement calls rather than mechanical fixes: the
+"Fine, let's test it." / "Fine, test it." pair (recorded as Tyler's call) and
+the stray "it" at 5:05 ("micro-trim or leave"). Both are one `lucid cut` away.
+
+The word-index model that fell out of this is worth stating, because every
+tool depends on it: **the transcript indexes the source, never the timeline.**
+Word 412 means the same audio however many cuts have accumulated, indices never
+renumber, and a range that has been cut is reported as absent rather than
+silently pointing somewhere else. That is what makes ranges stay addressable
+across a session, and it is the whole content of "addressable ranges over an
+accumulating edit."

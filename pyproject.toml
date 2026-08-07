@@ -11,6 +11,7 @@ authors = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "mcp>=1.2",
+    "opentimelineio>=0.18.1",
 ]
 
 [project.scripts]

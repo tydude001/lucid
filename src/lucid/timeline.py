@@ -1,0 +1,242 @@
+"""The timeline, and the track surgery that mutates it.
+
+OTIO is the on-disk source of truth (`project.otio`), but it is a poor working
+representation for cutting: its edit algorithms — `overwrite`, `ripple`,
+`trim`, `slice` — are C++ only and have no Python bindings, so `algorithms`
+gives us trimming, flattening and transition expansion and nothing else (see
+CLAUDE.md). Everything here is therefore hand-rolled over a flat list of
+segments, and OTIO is used for serialisation and NLE interchange.
+
+The model is deliberately narrow, and the narrowness is the point for now:
+
+* One track. A/V are **linked** — a clip carries both streams, the way a NLE
+  treats a linked pair — so there is no way to cut picture without sound yet.
+* Cut-and-concat only. Removing an interval ripples: the hole closes. There
+  are no gaps, no overlaps, no transitions and no speed changes.
+
+Both restrictions match what the auto-editor v3 round-trip can express, and
+laying clips and graphics *over* a VO is currently Kdenlive's job. Widening
+this is a real change, not a config flag — see PLAN.md.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
+
+import opentimelineio as otio
+
+#: Segments shorter than this are dropped rather than emitted. A one-sample
+#: sliver is never a real edit; it is a rounding artifact from a cut boundary
+#: landing on top of an existing one.
+MIN_SEGMENT = 0.001
+
+
+class TimelineError(Exception):
+    """Raised when an edit operation cannot be applied."""
+
+
+@dataclass(frozen=True)
+class Segment:
+    """A half-open source interval `[start, end)` of one registered clip."""
+
+    clip_id: str
+    start: float
+    end: float
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "clip_id": self.clip_id,
+            "start": self.start,
+            "end": self.end,
+            "duration": self.duration,
+        }
+
+
+@dataclass
+class Edit:
+    """An ordered list of source segments — the whole timeline state."""
+
+    segments: list[Segment]
+
+    @property
+    def duration(self) -> float:
+        return sum(s.duration for s in self.segments)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "duration": self.duration,
+            "segments": [s.as_dict() for s in self.segments],
+        }
+
+    # -- addressing ------------------------------------------------------
+
+    def timeline_time(self, clip_id: str, source_time: float) -> float | None:
+        """Where a source instant currently sits on the timeline.
+
+        Returns None when that instant has been cut — which is the honest
+        answer, and the reason cuts are reported rather than silently skipped.
+        """
+        offset = 0.0
+        for seg in self.segments:
+            if seg.clip_id == clip_id and seg.start <= source_time < seg.end:
+                return offset + (source_time - seg.start)
+            offset += seg.duration
+        return None
+
+    def covers(self, clip_id: str, start: float, end: float) -> float:
+        """How much of a source interval is still present, in seconds."""
+        total = 0.0
+        for seg in self.segments:
+            if seg.clip_id != clip_id:
+                continue
+            overlap = min(seg.end, end) - max(seg.start, start)
+            if overlap > 0:
+                total += overlap
+        return total
+
+    # -- mutation --------------------------------------------------------
+
+    def remove(self, clip_id: str, start: float, end: float) -> int:
+        """Ripple-delete a source interval. Returns the segments it touched."""
+        if end <= start:
+            raise TimelineError(f"interval {start:.3f}-{end:.3f} is empty or backwards")
+
+        touched = 0
+        out: list[Segment] = []
+        for seg in self.segments:
+            if seg.clip_id != clip_id or seg.end <= start or seg.start >= end:
+                out.append(seg)
+                continue
+            touched += 1
+            out.extend(_subtract(seg, start, end))
+        self.segments = [s for s in out if s.duration >= MIN_SEGMENT]
+        return touched
+
+    def keep_only(self, clip_id: str, intervals: Iterable[tuple[float, float]]) -> None:
+        """Keep only these source intervals of `clip_id`; drop the rest of it.
+
+        Other clips are left alone, so this is "keep these bits of the VO",
+        not "throw away everything else on the timeline".
+        """
+        wanted = _merge(sorted((float(a), float(b)) for a, b in intervals))
+        if not wanted:
+            raise TimelineError("keep_only needs at least one interval")
+
+        out: list[Segment] = []
+        for seg in self.segments:
+            if seg.clip_id != clip_id:
+                out.append(seg)
+                continue
+            for lo, hi in wanted:
+                a, b = max(seg.start, lo), min(seg.end, hi)
+                if b - a >= MIN_SEGMENT:
+                    out.append(replace(seg, start=a, end=b))
+        self.segments = out
+
+
+def _subtract(seg: Segment, start: float, end: float) -> list[Segment]:
+    """Remove `[start, end)` from one segment: 0, 1 or 2 segments come back."""
+    pieces = []
+    if seg.start < start:
+        pieces.append(replace(seg, end=min(start, seg.end)))
+    if seg.end > end:
+        pieces.append(replace(seg, start=max(end, seg.start)))
+    return pieces
+
+
+def _merge(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Coalesce sorted, possibly overlapping intervals."""
+    merged: list[tuple[float, float]] = []
+    for lo, hi in intervals:
+        if hi <= lo:
+            continue
+        if merged and lo <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+# -- OTIO interchange ----------------------------------------------------
+
+
+def _rational(seconds: float, rate: float) -> otio.opentime.RationalTime:
+    return otio.opentime.RationalTime(round(seconds * rate), rate)
+
+
+def to_otio(
+    edit: Edit,
+    clips: dict[str, dict[str, Any]],
+    *,
+    rate: float,
+    name: str = "lucid",
+) -> otio.schema.Timeline:
+    """Serialise an `Edit` to OTIO, resolving clip_ids against the manifest."""
+    timeline = otio.schema.Timeline(name=name)
+    has_video = any(clips.get(s.clip_id, {}).get("has_video") for s in edit.segments)
+    track = otio.schema.Track(
+        name="V1" if has_video else "A1",
+        kind=otio.schema.TrackKind.Video if has_video else otio.schema.TrackKind.Audio,
+    )
+    timeline.tracks.append(track)
+
+    for n, seg in enumerate(edit.segments):
+        record = clips.get(seg.clip_id)
+        if record is None:
+            raise TimelineError(f"segment {n} references unregistered clip {seg.clip_id!r}")
+        reference = otio.schema.ExternalReference(
+            target_url=Path(record["source"]).as_uri(),
+            available_range=otio.opentime.TimeRange(
+                _rational(0.0, rate), _rational(float(record["duration"]), rate)
+            ),
+        )
+        clip = otio.schema.Clip(
+            name=f"{seg.clip_id}-{n:04d}",
+            media_reference=reference,
+            source_range=otio.opentime.TimeRange(
+                _rational(seg.start, rate), _rational(seg.duration, rate)
+            ),
+        )
+        clip.metadata["lucid"] = {"clip_id": seg.clip_id}
+        track.append(clip)
+
+    timeline.metadata["lucid"] = {"rate": rate}
+    return timeline
+
+
+def from_otio(timeline: otio.schema.Timeline) -> Edit:
+    """Read an `Edit` back out of an OTIO timeline written by `to_otio`."""
+    segments: list[Segment] = []
+    for track in timeline.tracks:
+        for item in track:
+            if not isinstance(item, otio.schema.Clip):
+                continue
+            meta = dict(item.metadata.get("lucid") or {})
+            clip_id = meta.get("clip_id")
+            if clip_id is None:
+                raise TimelineError(
+                    f"clip {item.name!r} has no lucid metadata — "
+                    "this timeline was not written by lucid"
+                )
+            source_range = item.source_range
+            start = source_range.start_time.to_seconds()
+            segments.append(
+                Segment(clip_id=clip_id, start=start, end=start + source_range.duration.to_seconds())
+            )
+        break  # single-track model; see the module docstring
+    return Edit(segments=segments)
+
+
+def read(path: Path | str) -> Edit:
+    return from_otio(otio.adapters.read_from_file(str(path)))
+
+
+def write(timeline: otio.schema.Timeline, path: Path | str) -> None:
+    otio.adapters.write_to_file(timeline, str(path))

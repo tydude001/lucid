@@ -19,6 +19,7 @@ a `clip_id` refers to, and where its media lives.
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,9 +33,10 @@ TIMELINE_NAME = "project.otio"
 MEDIA_DIR = "media"
 CACHE_DIR = "cache"
 TRANSCRIPT_DIR = "cache/transcripts"
+HISTORY_DIR = "cache/history"
 RENDER_DIR = "renders"
 
-_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, RENDER_DIR)
+_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, HISTORY_DIR, RENDER_DIR)
 
 
 class ProjectError(Exception):
@@ -69,8 +71,47 @@ class Project:
     def render_dir(self) -> Path:
         return self.root / RENDER_DIR
 
+    @property
+    def history_dir(self) -> Path:
+        return self.root / HISTORY_DIR
+
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"
+
+    # -- history ---------------------------------------------------------
+
+    def snapshots(self) -> list[Path]:
+        """Every saved timeline state, oldest first."""
+        if not self.history_dir.exists():
+            return []
+        return sorted(self.history_dir.glob("*.otio"), key=lambda p: int(p.stem))
+
+    def snapshot(self) -> Path | None:
+        """Copy the current timeline into history before it is overwritten.
+
+        A non-deterministic agent mutating a single source of truth in place is
+        exactly the case where undo is not a tier-2 feature (PLAN.md). Returns
+        None when there is no timeline yet — the first write has nothing to
+        lose.
+        """
+        if not self.timeline_path.exists():
+            return None
+        self.history_dir.mkdir(parents=True, exist_ok=True)
+        existing = self.snapshots()
+        nxt = (int(existing[-1].stem) + 1) if existing else 0
+        dest = self.history_dir / f"{nxt}.otio"
+        shutil.copy2(self.timeline_path, dest)
+        return dest
+
+    def restore(self) -> Path:
+        """Roll the timeline back to the most recent snapshot, consuming it."""
+        existing = self.snapshots()
+        if not existing:
+            raise ProjectError("nothing to undo — this project has no history")
+        latest = existing[-1]
+        shutil.copy2(latest, self.timeline_path)
+        latest.unlink()
+        return latest
 
     # -- lifecycle -------------------------------------------------------
 
