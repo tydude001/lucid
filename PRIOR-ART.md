@@ -29,11 +29,11 @@ What it has:
 
 | Capability | Detail |
 |---|---|
-| Transcription | `auto-editor whisper FILE MODEL` — whisper.cpp, NVIDIA Parakeet, or Apple Speech backends. `--format text\|srt\|json`, `--split-words` for per-word cues, `:mic` for live capture |
+| Transcription | `auto-editor whisper FILE MODEL` — whisper.cpp, NVIDIA Parakeet, or Apple Speech backends. `--format text\|srt\|json`, `--split-words` for per-word cues, `:mic` for live capture. **Not usable out of the box:** MODEL must already be on disk, there is no `download` subcommand, and a bare `base.en` fails with "Could not load whisper model" (run 2026-08-07) |
 | Transcript cutting | `--edit word:VALUE`, `--edit "subtitle:pattern=REGEX,ignore-case=#t"`, composable with `or`/`and`/`not`/`xor` |
 | Silence/motion cutting | `--edit audio:threshold=0.04`, `--edit motion:...`, `blackdetect`; labels 0–255 with per-label actions (`--edit:N` / `--when:N`) |
 | Timeline format | `.v1`/`.v2`/`.v3` — **both exported and imported/rendered** |
-| NLE export | `premiere` (fcp7 xml), `resolve` (fcpxml), `resolve-fcp7`, `final-cut-pro`, `shotcut` (.mlt), `kdenlive`, `clip-sequence` |
+| NLE export | `premiere` (fcp7 xml), `resolve` (fcpxml), `resolve-fcp7`, `final-cut-pro`, `shotcut` (.mlt), `kdenlive`, `clip-sequence`. All but `resolve-fcp7`/`clip-sequence` **run-verified on 31.4.2, 2026-08-07**; `kdenlive` emits a real MLT playlist — cuts as separate entries on linked video/audio chains, resources resolving — which `melt` rendered |
 | OTIO export | **Undocumented.** `src/exports/otio.nim`, selected by `--export premiere-otio` or an `.otio` output extension. Premiere-flavored (`PremierePro_OTIO` metadata), one-way |
 | Dry run | `--preview` prints what would be cut and exits without rendering |
 | Agent interface | `skills/auto-editor{,-transcribe,-export,-effects}` in-repo; `npx skills add WyattBlue/auto-editor` |
