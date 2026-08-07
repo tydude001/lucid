@@ -1,0 +1,26 @@
+[project]
+name = "lucid"
+version = "0.1.0"
+description = "Open-source, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
+readme = "README.md"
+authors = [
+    { name = "tydude001", email = "tylergrose321@gmail.com" }
+]
+# Pinned below 3.13: faster-whisper (via ctranslate2) and OpenTimelineIO ship
+# compiled wheels that lag new CPython releases. Revisit when both publish 3.13+.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mcp>=1.2",
+]
+
+[project.scripts]
+lucid = "lucid.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"

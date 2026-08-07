@@ -1,7 +1,8 @@
 # lucid — planning
 
-Working document for architecture and scope decisions. Nothing here is built
-yet; edits to this file are the project until the first line of code.
+Working document for architecture and scope decisions. Decisions that have
+been made move out of "Open questions" into "Decisions" below, with the
+reasoning that settled them.
 
 ## Tier 1 MVP — headless MCP server
 
@@ -16,6 +17,10 @@ A *project* is a directory: source media, a `project.otio` timeline, a
 transcript cache, and rendered outputs. Everything on disk, everything
 inspectable, nothing uploaded. The OTIO file is the single source of truth
 the MCP tools mutate; renders are derived from it.
+
+The concrete layout is implemented in `src/lucid/project.py`, whose docstring
+is the reference for it. `lucid.json` carries a `schema_version`; a project
+written by a newer lucid is refused rather than silently misread.
 
 ### MVP tool surface
 
@@ -40,11 +45,23 @@ the MCP SDK is solid; ffmpeg is subprocess either way. A Rust core would be
 nicer to ship but would mean reimplementing or FFI-wrapping all three
 primitives. Revisit only if performance actually hurts.
 
+## Decisions
+
+- **Timeline addressing: both transcript ranges and clip/segment IDs.**
+  Transcript-only is simpler, but it has no way to name footage with no
+  speech — b-roll, music beds, screen recordings with no narration — and
+  those are ordinary material, not edge cases. OTIO already gives every
+  segment an identity, so IDs are nearly free now and expensive later:
+  retrofitting them means changing the signature of every tool that was
+  shaped around transcript ranges. Word ranges stay the ergonomic path for
+  dialogue; IDs are the fallback that always works.
+- **Python 3.12, not 3.14.** faster-whisper (via ctranslate2) and
+  OpenTimelineIO both ship compiled wheels that lag new CPython releases, and
+  this box's system Python is 3.14. Pinned in `pyproject.toml`; `uv` fetches
+  3.12. Revisit once both publish 3.13+ wheels.
+
 ## Open questions
 
-- **Timeline semantics for the agent.** Does the agent address the timeline
-  by transcript ranges only, or also by clip/segment IDs? Transcript-only is
-  simpler but breaks down for footage with no speech (b-roll, music).
 - **Word-timestamp accuracy.** whisper word timings drift on long recordings;
   may need forced alignment (e.g. WhisperX-style) for frame-accurate cuts.
   Decide after testing on real footage.

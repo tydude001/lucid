@@ -35,6 +35,35 @@ and caption the rest" becomes a chat message instead of an afternoon.
 3. **Full desktop editor** — explicitly *not* a goal. OTIO export hands
    finishing work to Resolve/Premiere/Final Cut, same as Daydream does.
 
+## Try it
+
+```sh
+uv sync
+uv run lucid init myproject   # create a project directory
+uv run lucid info myproject   # show its manifest
+uv run lucid mcp              # serve MCP over stdio
+```
+
+To connect it to Claude Code:
+
+```sh
+claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
+```
+
+Only `ping` is wired up so far — the editing tools land in the milestones
+below.
+
+## Development
+
+```sh
+uv sync
+uv run pytest
+```
+
+The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
+so a broken transport or tool registration fails the tests rather than
+surviving to runtime.
+
 ## Planning
 
 See [PLAN.md](PLAN.md) for architecture, stack decisions, and open questions.
