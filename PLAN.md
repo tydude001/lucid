@@ -28,9 +28,9 @@ written by a newer lucid is refused rather than silently misread.
 ### What lucid is, stated narrowly
 
 Most of the MVP tool surface exists elsewhere already — see
-[PRIOR-ART.md](PRIOR-ART.md), particularly auto-editor. Three things do not, and
-they are the whole reason this project exists. Everything else is plumbing to
-make them usable:
+[PRIOR-ART.md](PRIOR-ART.md), particularly auto-editor. Three things were
+believed not to, and they were the original reason this project exists.
+Everything else is plumbing to make them usable:
 
 1. **Addressable ranges.** Every shipping transcript editor treats speech as a
    global declarative *filter* — "keep every section matching this regex."
@@ -46,6 +46,16 @@ make them usable:
 Scope discipline follows from this: if a capability is available by shelling out
 to an existing tool, shell out. Reimplementation is only justified where one of
 the three above requires it.
+
+**The second survey sweep weakened this thesis.** OpenChatCut (see
+[PRIOR-ART.md](PRIOR-ART.md)) plausibly covers all three: word-level text-based
+cuts, persistent projects with undo, and a real MCP endpoint with a
+proposal/review workflow. What it does not cover is the *form factor*: it is an
+Electron desktop app whose MCP endpoint requires the GUI process, with a custom
+JSON timeline, no NLE/OTIO export, and no CLI. lucid's surviving thesis, if it
+has one, is the narrower combination **headless + CLI parity + OTIO-native NLE
+handoff + thin Python stack** — and whether that justifies the project is
+decided by the trial gate in the milestones, not by argument.
 
 ### MVP tool surface
 
@@ -112,6 +122,13 @@ performance actually hurts, or if OTIO stops being the source of truth.
 
 ## Open questions
 
+- **Does OpenChatCut make lucid redundant?** The go/no-go question, decided by
+  milestone 2's trial rather than analysis. Stop lucid if OpenChatCut's Linux
+  AppImage runs acceptably on this box **and** its MCP session workflow handles
+  iterative addressable edits ("cut words 30–45; keep take 2, drop take 1") on
+  a real recording **and** the Electron-app-as-MCP-host is tolerable in an
+  agent-CLI workflow. Continue with the narrowed thesis above if any of the
+  three fails. AGPL-3.0 is no obstacle to personal use.
 - **Word-timestamp accuracy.** whisper word timings drift on long recordings.
   Forced alignment (WhisperX-style) is the obvious fix, but probably the wrong
   one: cut points want to land in the *silence between* words, so snapping the
@@ -127,8 +144,9 @@ performance actually hurts, or if OTIO stops being the source of truth.
   real screen recordings.
 - **Preview delivery in tier 1.** The consumer here is an agent, and an agent
   cannot watch an MP4. Leading option: a contact sheet of frames at ±0.5s around
-  each cut boundary, which a vision model can actually check. Cheap to render
-  and nobody else in the space does it. An MP4 for the human and a web preview
+  each cut boundary, which a vision model can actually check. Cheap to render;
+  video-use independently ships decision-point composites (filmstrip +
+  waveform), which validates the idea and removes its uniqueness. An MP4 for the human and a web preview
   (tier 2) are separate questions — don't conflate them.
 - **Does the OTIO→v3 mapping hold?** The render decision assumes v3 can express
   what lucid's timelines contain. Single-track cut-and-concat certainly maps;
@@ -148,16 +166,20 @@ Which of these are done is tracked in the wiki's Open items table, not here.
 
 1. Skeleton: package layout, `lucid mcp` serving a `ping` tool, project
    directory format.
-2. **Render spike.** Hand-write a two-cut `project.otio`, map it to auto-editor
+2. **OpenChatCut trial — go/no-go gate.** Install the Linux AppImage, connect
+   Claude Code to its MCP endpoint, run the addressable-edit test on a real
+   recording (criteria in Open questions). If it passes, archive lucid and
+   adopt it; every milestone below exists only if it fails.
+3. **Render spike.** Hand-write a two-cut `project.otio`, map it to auto-editor
    v3, render it, verify the output. No transcription involved. This is ahead of
    transcribe deliberately: `transcribe` is a well-trodden path that will work,
    whereas the timeline→pixels path is the one unproven assumption the whole
    architecture rests on, and it is cheaper to falsify now than after three
    tools have been shaped around it.
-3. `import_media` + `transcribe` + `get_transcript` on a real clip — which is
+4. `import_media` + `transcribe` + `get_transcript` on a real clip — which is
    also what answers the word-timestamp and VFR questions with measurements
    instead of guesses.
-4. `cut_by_transcript` + `render` — the first end-to-end "cut this sentence out"
+5. `cut_by_transcript` + `render` — the first end-to-end "cut this sentence out"
    from a Claude Code session. Includes timeline snapshotting.
-5. `remove_silences` (shell out), `add_captions` (word-timed ASS), `export_otio`.
-6. Dogfood on a real recording; promote pain points to the plan.
+6. `remove_silences` (shell out), `add_captions` (word-timed ASS), `export_otio`.
+7. Dogfood on a real recording; promote pain points to the plan.

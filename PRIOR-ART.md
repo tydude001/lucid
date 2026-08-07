@@ -1,7 +1,10 @@
 # Prior art — the agent-driven video editing landscape
 
-Survey conducted **2026-08-06**. Star counts, versions, and wheel matrices are
-snapshots from that date and go stale; the *conclusions* they support live in
+Survey conducted **2026-08-06**, in two sweeps the same day: the first missed
+the conversational-editor field entirely (see "Corrections"), and a second
+sweep prompted by the stop-or-continue question found OpenChatCut, video-use,
+and open-edit. Star counts, versions, and wheel matrices are snapshots from
+that date and go stale; the *conclusions* they support live in
 [PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
 evidence, not the decision.
 
@@ -71,6 +74,77 @@ Renderer internals worth reading (public domain, portable without attribution):
 4. **OTIO as native source of truth.** Its OTIO export is Premiere-flavored,
    one-way, and undocumented.
 
+## OpenChatCut — the project that decides lucid's fate
+
+[0xsline/OpenChatCut](https://github.com/0xsline/OpenChatCut) · 854★ ·
+**AGPL-3.0** · TypeScript (Electron 43 / React 19 / Remotion) · active, 338
+commits · v0.1.9 (2026-08-06) ships macOS dmg (arm64+x64), Windows exe, and a
+**Linux x86_64 AppImage**
+
+Missed by the first sweep. A local-first conversational editor whose pitch is
+lucid's pitch: agents (built-in via Vercel AI SDK, or external via MCP) editing
+a real multi-track timeline, with word-level transcription, text-based cuts,
+speaker labels, linked captions, and undo/redo. Projects persist to
+`~/.openchatcut` as JSON.
+
+Its MCP integration is the notable part: the desktop app serves an HTTP MCP
+endpoint (`localhost:5199/api/external-mcp/mcp`) exposing ~24 skills, with a
+`begin_edit_session` / `review_edit_session` proposal workflow — agent edits
+land atomically as a single undo step, optionally gated on in-app human
+approval. That proposal-review shape is arguably *better* for human-in-the-loop
+than raw tool calls.
+
+Against lucid's three differentiators, it plausibly covers all three:
+addressable word-level cuts (not just filters), persistent projects with undo,
+and real MCP with typed skills. What it does **not** cover:
+
+1. **Headless.** The MCP endpoint is served by the Electron app; a GUI process
+   has to be running. No CLI. Docs are macOS-flavored; the Linux AppImage is
+   unverified on this box.
+2. **OTIO / NLE handoff.** Custom JSON timeline rendered by Remotion + ffmpeg;
+   no FCPXML/Resolve/OTIO export found.
+3. **Thin dependency graph.** Electron 43 + Node 24 + Remotion versus a Python
+   package and three subprocesses.
+
+Whether that remainder justifies lucid is not answerable by reading — it is
+answerable by installing the AppImage and running the addressable-edit test
+("cut words 30–45; keep take 2, drop take 1", iteratively, via Claude Code
+over its MCP endpoint) on a real recording. That trial is the go/no-go gate in
+[PLAN.md](PLAN.md).
+
+## browser-use/video-use — the distribution threat, not a substitute
+
+[browser-use/video-use](https://github.com/browser-use/video-use) · 19.9k★ /
+2.5k forks · MIT · Python · young (18 commits; stars ride the browser-use
+org's distribution)
+
+Agent-driven editing via coding agents (Claude Code, Codex): filler-word
+removal, grading, subtitle burn-in, fades. Fails lucid's core constraint
+outright — transcription is **ElevenLabs Scribe cloud API only**, no local
+option — and has no MCP and no real timeline model (text-first: word-level
+transcript packed into ~12KB markdown, ffmpeg execution underneath).
+
+Two ideas worth stealing regardless:
+
+- **Decision-point composites.** Instead of frame-dumping, it renders PNG
+  composites (filmstrip + waveform + labels) only where the agent must make a
+  call. Convergent with lucid's contact-sheet preview lean — the first sweep's
+  "nobody else in the space does it" was wrong.
+- **`project.md` session memory** persisting editorial decisions across
+  sessions — a cheaper cousin of kinocut's receipts.
+
+## veedstudio/open-edit — open-core, not open
+
+[veedstudio/open-edit](https://github.com/veedstudio/open-edit) · 169★ ·
+Apache-2.0 editor over **PolyForm Shield** renderer binaries · TypeScript ·
+Apple Silicon macOS Tahoe only, 11 commits
+
+VEED's agent-driven caption/motion-graphics pipeline. Default transcription
+uploads audio to VEED (WhisperX local fallback exists); rendering is their
+closed-source binary. Same open-core-with-hosted-tier shape as openshorts.
+Not a lucid substitute — wrong platform, wrong openness — but it belongs in
+the field map: incumbents are now releasing agent-facing editors.
+
 ## kinocut — the cautionary tale
 
 [KyaniteLabs/kinocut](https://github.com/KyaniteLabs/mcp-video) · 101★ ·
@@ -100,9 +174,15 @@ engine over stateless ffmpeg instead — i.e. reinvented a weaker timeline model
 Worth stealing: the **Video Receipt** idea — per-operation JSON provenance with
 input/output hashes, ffmpeg version, and a resume cursor.
 
-## The OTIO + MCP niche is empty
+## The OTIO + MCP niche is empty — but the broader thesis is not
 
-Searched GitHub for anyone occupying lucid's exact thesis. The complete field:
+Searched GitHub for anyone occupying lucid's exact thesis. The *literal* niche
+— OTIO as native source of truth behind MCP — remains unoccupied (OpenChatCut
+uses a custom JSON timeline). But the first sweep's stronger reading, that
+nobody offers addressable ranges + persistent state + MCP together, was
+falsified by OpenChatCut above. What survives as differentiator is the
+narrower combination: headless, CLI-parity, OTIO-native, thin-stack. The
+micro-repos found by the first sweep:
 
 | Repo | ★ | Language | Notes |
 |---|---|---|---|
@@ -111,9 +191,10 @@ Searched GitHub for anyone occupying lucid's exact thesis. The complete field:
 | [chaoz23/otio-diff](https://github.com/chaoz23/otio-diff) | 1 | Python | Structural diff between two OTIO timelines — added/removed/retimed/moved clips. CLI + MCP. **Directly useful to lucid** as the "what did the agent just change?" primitive |
 | [plokdalberb-byte/cutible](https://github.com/plokdalberb-byte/cutible) | 0 | Python | Created and abandoned the same day (2026-06-22); ignore |
 
-The thesis is unoccupied — but also unproven. **Nobody has demonstrated
+The OTIO rendering thesis is also still unproven. **Nobody has demonstrated
 OTIO→ffmpeg rendering inside an agent loop.** That is the argument for spiking
-render before building on top of the assumption.
+render before building on top of the assumption — if the project continues
+past the OpenChatCut trial gate.
 
 ## Stateless-ffmpeg MCP servers
 
@@ -161,6 +242,18 @@ establish what the interaction *should* feel like.
 
 Recorded so they are not re-derived, and so the reasoning that depended on them
 can be found.
+
+### The first sweep missed the conversational-editor field
+
+The first sweep searched GitHub for lucid's *architecture* (OTIO, MCP, ffmpeg
+wrappers) and found micro-repos. A second sweep the same day searched the
+*product space* ("edit by transcript", "AI video editor agent") and immediately
+surfaced OpenChatCut (854★), browser-use/video-use (19.9k★), and
+veedstudio/open-edit — including the one project that plausibly covers lucid's
+differentiators. Lesson for the next re-survey: search what a user would type,
+not what the implementation contains. This also falsified the first sweep's
+claim that decision-point frame composites were unique to lucid's preview idea
+(video-use ships them).
 
 ### auto-editor is no longer Python
 
