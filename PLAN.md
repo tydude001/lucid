@@ -57,6 +57,34 @@ has one, is the narrower combination **headless + CLI parity + OTIO-native NLE
 handoff + thin Python stack** — and whether that justifies the project is
 decided by the trial gate in the milestones, not by argument.
 
+### How much of the MVP is left once the box is inventoried — 2026-08-07
+
+Measured, not argued. Everything below was verified installed and working on
+this machine the same day the fourth trial criterion was added:
+
+| MVP tool | Already covered by | Left for lucid |
+|---|---|---|
+| `transcribe`, `get_transcript` | openai-whisper + goodsometimes `scripts/clipcut.py` (in use; it verified the Scream reveals) | packaging |
+| `remove_silences` | auto-editor 31.4.2 | nothing — the plan already said shell out |
+| `render` | auto-editor v3 / `melt` | mapping layer, per the render decision |
+| `export_otio` | `auto-editor --export kdenlive` lands natively in the only NLE here | **near zero** — this was already "lower urgency than it looks"; the Linux NLE ceiling has now collapsed it |
+| `add_captions` | — | word-timed ASS, genuinely absent |
+| `cut_by_transcript` | — | **the differentiator, and the only one** |
+
+So the surviving thesis is thinner than "headless + CLI parity + OTIO-native
+handoff + thin stack." The handoff clause is dead — auto-editor already does it,
+better, to Kdenlive. What is actually left is **addressable ranges over an
+accumulating edit**, and nothing else.
+
+**And for the workload that prompted this, there may be a cheaper shape than
+either.** The essay VO is a *scripted* read: 848 known words. The edit is not
+"discover the good take interactively" — it is "align the recording against a
+script you already have, pick the best rendition of each sentence, assemble in
+script order." That is alignment over word timings whisper already emits, not a
+filter (auto-editor) and not interactive addressable editing (OpenChatCut).
+Neither tool does it; it is also not obviously a whole project. Size it against
+a real VO before assuming it needs lucid's architecture underneath.
+
 ### MVP tool surface
 
 | Tool | Backed by | Notes |
@@ -127,8 +155,20 @@ performance actually hurts, or if OTIO stops being the source of truth.
   AppImage runs acceptably on this box **and** its MCP session workflow handles
   iterative addressable edits ("cut words 30–45; keep take 2, drop take 1") on
   a real recording **and** the Electron-app-as-MCP-host is tolerable in an
-  agent-CLI workflow. Continue with the narrowed thesis above if any of the
-  three fails. AGPL-3.0 is no obstacle to personal use.
+  agent-CLI workflow **and** its output can reach the finishing NLE (see the
+  fourth criterion below). Continue with the narrowed thesis above if any fails.
+  AGPL-3.0 is no obstacle to personal use.
+- **Fourth trial criterion, added 2026-08-07: does the edit get *out*?** The
+  first three criteria were written assuming finishing happened elsewhere. It
+  can't. Premiere does not run on Linux and the goodsometimes back catalog's
+  last `.prproj` is 2025-10-30 — **the only NLE on this box is Kdenlive, and
+  Kdenlive cannot import FCPXML.** OpenChatCut's sole handoff is FCPXML, so it
+  is all-or-nothing: either the video is finished inside a v0.1.9 Electron app
+  using Remotion, or nothing leaves. For a video essay that needs quote cards,
+  chapter titles and lower-thirds, that is a real bet and it belongs in the gate.
+  Contrast measured the same day: `auto-editor --export kdenlive` writes a native
+  MLT project that Kdenlive opens and `melt` renders. See goodsometimes
+  `pipeline.md` § The NLE changed for the verified path.
 - **Word-timestamp accuracy.** whisper word timings drift on long recordings.
   Forced alignment (WhisperX-style) is the obvious fix, but probably the wrong
   one: cut points want to land in the *silence between* words, so snapping the
@@ -170,6 +210,15 @@ Which of these are done is tracked in the wiki's Open items table, not here.
    Claude Code to its MCP endpoint, run the addressable-edit test on a real
    recording (criteria in Open questions). If it passes, archive lucid and
    adopt it; every milestone below exists only if it fails.
+
+   **Staged 2026-08-07.** The v0.1.9 AppImage is downloaded and executable at
+   `~/Applications/OpenChatCut-0.1.9-x86_64.AppImage` (689 MB). It unpacks and
+   its Electron runtime initializes; it was not launched because that needs a
+   desktop session, so criterion 1 is *unblocked, not yet answered* — Tyler runs
+   it. The trial material is the **Scream essay VO** (goodsometimes
+   `ideas/scream.md`), deliberately: it is a real scripted read arriving on its
+   own schedule, and running the gate on synthetic material would answer a
+   question nobody has.
 3. **Render spike.** Hand-write a two-cut `project.otio`, map it to auto-editor
    v3, render it, verify the output. No transcription involved. This is ahead of
    transcribe deliberately: `transcribe` is a well-trodden path that will work,
