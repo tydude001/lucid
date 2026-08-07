@@ -107,5 +107,6 @@ so expect it to be a little slower than a pure unit suite.
 See [PLAN.md](PLAN.md) for architecture, stack decisions, and open questions,
 and [PRIOR-ART.md](PRIOR-ART.md) for the survey of what else exists in this
 space and what lucid does that they don't. [DOGFOOD.md](DOGFOOD.md) is what
-came back from the first real video. Project status is tracked in the wiki's
-Open items table, not here.
+came back from the first real video, and [ROADMAP.md](ROADMAP.md) is the build
+order that fell out of it. Project status is tracked in the wiki's Open items
+table, not here.
