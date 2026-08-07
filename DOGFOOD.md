@@ -63,9 +63,9 @@ Notes for whoever writes it:
 - A repeated phrase in the render that appears once in the transcript is the
   signal that matters. Surface it explicitly rather than leaving it in a diff.
 - Frame count, `blackdetect` and spot frames cover the picture. Only the
-  re-transcription covers the audio. Both are needed. **The picture half is
-  still unbuilt** — `verify` is audio-only, and it lives with rendering rather
-  than with this.
+  re-transcription covers the audio. Both are needed. `verify` deliberately
+  covers only the audio half — the picture checks belong with rendering, not
+  with this.
 
 ## 2. Word durations are not addresses — only word *order* is
 
