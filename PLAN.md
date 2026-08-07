@@ -324,11 +324,10 @@ to finish in, not an MP4. Three things only the real material exposed.
   is still wanted for material that has none, but it is no longer on the
   critical path.
 - **Importing media cannot assume it can link.** The NAS rejects `symlink()`
-  outright (wiki `files.md` § the CIFS warnings has the constraint), and that is
-  where all the media lives. Import therefore degrades to referencing the file
-  in place rather than copying it, and records which of symlink/copy/reference
-  happened — so a `media/` entry is optional and paths resolve through
-  `media.media_path()`.
+  outright (wiki `files.md`), and that is where all the media lives. Copying
+  instead would duplicate gigabytes to route around a filesystem limitation, so
+  import degrades to referencing the file in place and records which of
+  symlink/copy/reference happened. The resulting convention is in CLAUDE.md.
 - **The export timebase and the internal timebase are not the same thing, and
   conflating them is a real bug.** The v3 `timebase` becomes MLT's
   `<profile frame_rate_num>`, so exporting an audio project at its millisecond

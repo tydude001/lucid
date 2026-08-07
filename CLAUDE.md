@@ -29,3 +29,6 @@ installed package or the upstream repo, not your memory.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
   whether it is registered or reachable.
+- Resolve media through `media.media_path()`, never `root / clip["media"]`. A
+  `media/` entry is optional — the NAS rejects symlinks, so import falls back to
+  referencing the source in place (wiki `files.md`).
