@@ -65,5 +65,7 @@ so expect it to be a little slower than a pure unit suite.
 
 ## Planning
 
-See [PLAN.md](PLAN.md) for architecture, stack decisions, and open questions.
-Project status is tracked in the wiki's Open items table, not here.
+See [PLAN.md](PLAN.md) for architecture, stack decisions, and open questions,
+and [PRIOR-ART.md](PRIOR-ART.md) for the survey of what else exists in this
+space and what lucid does that they don't. Project status is tracked in the
+wiki's Open items table, not here.

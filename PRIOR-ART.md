@@ -1,0 +1,227 @@
+# Prior art — the agent-driven video editing landscape
+
+Survey conducted **2026-08-06**. Star counts, versions, and wheel matrices are
+snapshots from that date and go stale; the *conclusions* they support live in
+[PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
+evidence, not the decision.
+
+Re-run this survey before any major scope change.
+
+## Why this survey happened
+
+The plan was written from priors about who else was in this space. Two of those
+priors turned out to be wrong (see "Corrections to earlier assumptions"), and
+one project — auto-editor — turned out to occupy far more of the MVP tool
+surface than the plan assumed.
+
+## auto-editor — the project that matters most
+
+[WyattBlue/auto-editor](https://github.com/WyattBlue/auto-editor) · 4.7k★ ·
+**Unlicense (public domain)** · pushed daily · Nim
+
+Originally treated in the plan as a silence-removal library. It is now
+effectively a headless NLE, and it ships an agent interface.
+
+What it has:
+
+| Capability | Detail |
+|---|---|
+| Transcription | `auto-editor whisper FILE MODEL` — whisper.cpp, NVIDIA Parakeet, or Apple Speech backends. `--format text\|srt\|json`, `--split-words` for per-word cues, `:mic` for live capture |
+| Transcript cutting | `--edit word:VALUE`, `--edit "subtitle:pattern=REGEX,ignore-case=#t"`, composable with `or`/`and`/`not`/`xor` |
+| Silence/motion cutting | `--edit audio:threshold=0.04`, `--edit motion:...`, `blackdetect`; labels 0–255 with per-label actions (`--edit:N` / `--when:N`) |
+| Timeline format | `.v1`/`.v2`/`.v3` — **both exported and imported/rendered** |
+| NLE export | `premiere` (fcp7 xml), `resolve` (fcpxml), `resolve-fcp7`, `final-cut-pro`, `shotcut` (.mlt), `kdenlive`, `clip-sequence` |
+| OTIO export | **Undocumented.** `src/exports/otio.nim`, selected by `--export premiere-otio` or an `.otio` output extension. Premiere-flavored (`PremierePro_OTIO` metadata), one-way |
+| Dry run | `--preview` prints what would be cut and exits without rendering |
+| Agent interface | `skills/auto-editor{,-transcribe,-export,-effects}` in-repo; `npx skills add WyattBlue/auto-editor` |
+
+### The v3 timeline format
+
+Flat, LLM-legible JSON — essentially a flattened OTIO track with different field
+names. This is what makes auto-editor usable as lucid's render backend:
+
+```json
+{"version":"3","timebase":"30/1","background":"#000","resolution":[1280,720],
+ "samplerate":48000,"layout":"stereo","langs":["eng","eng"],
+ "v":[[{"src":"example.mp4","start":0,"dur":26,"offset":0,"stream":0}]],
+ "a":[[{"src":"example.mp4","start":0,"dur":26,"offset":0,"stream":0}]]}
+```
+
+- `v` / `a` are `Clip[][]` — layers, compositing bottom-to-top, `v[0]` the base.
+  Empty layers are rejected.
+- Clip fields: `src`, `start` (timeline position), `dur`, `offset` (start point
+  in the source), `stream`, optional `effects`.
+- All times are in **timebase units**, timebase is a rational (`"30000/1001"`).
+- `auto-editor timeline.v3 -o render.mp4` renders it.
+
+Renderer internals worth reading (public domain, portable without attribution):
+`src/render/{video,audio,h264,hevc,smart,partialplan,subtitle,format}.nim`.
+
+### What auto-editor cannot do — lucid's remaining differentiator
+
+1. **Addressable ranges.** Its transcript editing is a *global declarative
+   filter* — "keep every section whose subtitle matches this regex." There is no
+   way to say "cut words 30–45" or "keep take 2 of that sentence, drop take 1."
+   Filter, not edit. This is the single most important gap, because addressable
+   ranges are exactly what an agent needs for iterative work.
+2. **Persistent project state.** Each invocation is source → output. No
+   accumulating edit, no refinement across turns, no undo.
+3. **MCP proper.** Skills driving a CLI are not typed tools with schemas and
+   structured returns.
+4. **OTIO as native source of truth.** Its OTIO export is Premiere-flavored,
+   one-way, and undocumented.
+
+## kinocut — the cautionary tale
+
+[KyaniteLabs/kinocut](https://github.com/KyaniteLabs/mcp-video) · 101★ ·
+Apache-2.0 · Python · pushed daily
+
+Closest neighbour by intent: local-first, MCP + CLI, "guardrailed video editing
+for AI agents." **161 MCP tools and 140 CLI commands** at v1.11.1.
+
+The tool count is the lesson. A surface that large degrades agent tool selection
+and consumes context before any work begins. Their ROADMAP is correspondingly
+dense with governance apparatus — policy engines, release gates, human-only
+acceptance items, "agents must not invent closed." That is what an agent-built
+project looks like after a year of unchecked accretion.
+
+Two things they got right, arrived at independently:
+
+- **Durable edit projects** — content-addressed store, async render/resume,
+  ordered events, workflow receipt lineage (`kinocut/projectstore/`). Two
+  projects converging separately on persistent project state is decent evidence
+  it is load-bearing rather than gold-plating.
+- **Word-timed ASS captions.** Their choice, shipped. Alongside disfluency cuts
+  and project-recipe export/replay.
+
+They do **not** use OTIO (3 incidental code hits). They built a JSON workflow
+engine over stateless ffmpeg instead — i.e. reinvented a weaker timeline model.
+
+Worth stealing: the **Video Receipt** idea — per-operation JSON provenance with
+input/output hashes, ffmpeg version, and a resume cursor.
+
+## The OTIO + MCP niche is empty
+
+Searched GitHub for anyone occupying lucid's exact thesis. The complete field:
+
+| Repo | ★ | Language | Notes |
+|---|---|---|---|
+| [satoh-y-0323/clipwright](https://github.com/satoh-y-0323/clipwright) | 2 | Python | Closest match — MCP server *suite* wrapping FFmpeg/OTIO, split per domain (`clipwright-stabilize`, `clipwright-transcribe`, …). Careful work; runtime depends only on ffprobe, uses whisper.cpp + ggml models |
+| [alexrienzie/open-post-production](https://github.com/alexrienzie/open-post-production) | 2 | Python | Transcribe/search/cut at documentary scale, local hardware |
+| [chaoz23/otio-diff](https://github.com/chaoz23/otio-diff) | 1 | Python | Structural diff between two OTIO timelines — added/removed/retimed/moved clips. CLI + MCP. **Directly useful to lucid** as the "what did the agent just change?" primitive |
+| [plokdalberb-byte/cutible](https://github.com/plokdalberb-byte/cutible) | 0 | Python | Created and abandoned the same day (2026-06-22); ignore |
+
+The thesis is unoccupied — but also unproven. **Nobody has demonstrated
+OTIO→ffmpeg rendering inside an agent loop.** That is the argument for spiking
+render before building on top of the assumption.
+
+## Stateless-ffmpeg MCP servers
+
+Useful only as reference for tool naming and parameter conventions. None carries
+edit state; each invocation is a one-shot ffmpeg call.
+
+- [misbahsy/video-audio-mcp](https://github.com/misbahsy/video-audio-mcp) — 83★, MIT, Python, last pushed 2025-05
+- [chandler767/mcp-video-editor](https://github.com/chandler767/mcp-video-editor) — 5★, Go, no license, last pushed 2026-02
+- [hyepartners-gmail/vibevideo-mcp](https://github.com/hyepartners-gmail/vibevideo-mcp) — agentic editing plus a front-end editor
+
+## Transcript-based editors (the UX prior art)
+
+None of these are agent-driven; they are humans editing text to cut video. They
+establish what the interaction *should* feel like.
+
+- [wassgha/rescript](https://github.com/wassgha/rescript) — 630★, TypeScript,
+  browser. transformers.js running `whisper-*_timestamped` (WebGPU, WASM
+  fallback) in a worker; `pyannote-segmentation-3.0` ONNX for speakers; deletions
+  become cut ranges; export via multi-threaded ffmpeg.wasm.
+  **Notable:** they shipped drag-to-adjust word edges — direct field evidence
+  that ASR word alignment alone is not accurate enough for clean cuts.
+- [DataAnts-AI/CutScript](https://github.com/DataAnts-AI/CutScript) — 184★, MIT,
+  TypeScript, local-first Descript-alike. Last pushed 2026-03
+- [Ekaanth/OpenCut-AI](https://github.com/Ekaanth/OpenCut-AI) — Whisper
+  word-level timestamps, one-click filler-word removal, silence detection
+- [OpenScript](https://tryopenscript.vercel.app/) — same category
+
+## Adjacent
+
+- [mutonby/openshorts](https://github.com/mutonby/openshorts) — 2.9k★, MIT with
+  a commercial-license exception on `cloud/`. Opus Clip alternative: long video →
+  9:16 shorts, moment detection, face tracking, dubbing. Has an MCP server. Open
+  core with a hosted tier — a different business shape, not a direct competitor.
+  Relevant only for caption burn-in technique.
+- [samuelgursky/davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp)
+  — 2k★, MIT. The other end of the finishing handoff. Note Resolve's scripting
+  API deliberately withholds colour wheel/curve access.
+- [OpenTimelineIO](https://github.com/AcademySoftwareFoundation/OpenTimelineIO) —
+  1.9k★, Apache-2.0, C++ with Python bindings.
+- [Agent-Driven-Editing-2026](https://github.com/12georgiadis/open-source-cinema/blob/master/Agent-Driven-Editing-2026.md)
+  — landscape writeup; independently lands on "OTIO is JSON, so an LLM can read
+  and generate timelines directly" as the key insight.
+
+## Corrections to earlier assumptions
+
+Recorded so they are not re-derived, and so the reasoning that depended on them
+can be found.
+
+### auto-editor is no longer Python
+
+`ae.nimble` at the repo root — it is Nim. PyPI is frozen at **29.3.1**; GitHub
+ships **31.4.2** (2026-07-31). `pip install auto-editor` silently installs a
+stale, diverged version. auto-editor must be treated as a subprocess dependency
+with a version floor, like ffmpeg.
+
+This falsified the plan's stack-decision rationale ("faster-whisper,
+OpenTimelineIO, and auto-editor are all Python" → now 2 of 3).
+
+### OTIO's editing algorithms are C++ only
+
+`overwrite`, `insert`, `trim`, `slice`, `slip`, `slide`, `ripple`, `roll`,
+`fill`, `remove` all exist in `src/opentimelineio/algo/editAlgorithm.{h,cpp}`
+with C++ tests (`tests/test_editAlgorithm.cpp`). A repo-wide search for
+`editAlgorithm` returns only C++ sources and CMakeLists — **there are no Python
+bindings.**
+
+Verified against the installed package, not just repo source — `dir()` on
+`opentimelineio.algorithms` from OpenTimelineIO 0.18.1 on CPython 3.13.14 gives
+exactly:
+
+```
+filter, filtered_composition, filtered_with_sequence_context, flatten_stack,
+stack_algo, timeline_algo, timeline_trimmed_to_range, top_clip_at_time,
+track_algo, track_trimmed_to_range, track_with_expanded_transitions
+```
+
+No `overwrite`, `insert`, `trim`, `slice`, `slip`, `slide`, `ripple`, `roll`,
+`fill`, or `remove`.
+
+Consequence: `cut_by_transcript` hand-rolls track surgery over Track/Clip/Gap
+and `source_range`. Tractable for single-track cut-and-lift, but it is real work
+and not a library call.
+
+### The Python 3.12 pin's revisit condition was already met
+
+Wheel availability as of 2026-08-06:
+
+| Package | Version | CPython wheels |
+|---|---|---|
+| OpenTimelineIO | 0.18.1 | cp39–**cp313** (no cp314) |
+| ctranslate2 | 4.8.1 | cp310–**cp314** (incl. free-threaded `cp314t`) |
+| onnxruntime | 1.28.0 | cp311–**cp314** |
+| av (PyAV) | 18.0.0 | `cp311-abi3` → covers 3.12/3.13/3.14 |
+| tokenizers | 0.23.1 | `cp310-abi3` → covers 3.10+ |
+
+OpenTimelineIO is the sole blocker on 3.14. Everything supports 3.13 — confirmed
+by actually installing `opentimelineio` 0.18.1 and `faster-whisper` 1.2.1 (with
+ctranslate2, onnxruntime, av, tokenizers) on CPython 3.13.14 and importing them,
+rather than by reading PyPI metadata alone.
+
+## Convergent signals worth noting
+
+- **Transcription backend.** Both auto-editor and clipwright chose whisper.cpp
+  binaries over faster-whisper. Real signal, but lucid stays with faster-whisper:
+  in-process and pip-installable matters more here than raw throughput, and it
+  keeps the dependency graph free of a second hand-managed binary.
+- **Caption format.** kinocut ships word-timed ASS. Word-level highlighting is
+  what burned-in captions are actually for, and SRT + ffmpeg `force_style`
+  structurally cannot do it.
+- **Persistent project state.** kinocut built it; auto-editor's lack of it is its
+  clearest structural limit. Both point the same direction.
