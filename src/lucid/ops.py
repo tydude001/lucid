@@ -93,6 +93,43 @@ def attach_transcript(
     }
 
 
+def transcribe(
+    path: Path | str,
+    clip_id: str,
+    *,
+    model: str = asr.DEFAULT_MODEL,
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Transcribe a clip's own media with whisper and attach the result.
+
+    `attach_transcript`'s ASR-driven sibling: use that when the recording
+    already has a transcript (common — the Scream VO was transcribed before
+    lucid existed), use this when it doesn't and whisper has to make one.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    source = media.media_path(project, clip)
+    payload = asr.transcribe(source, model=model, language=language)
+    # Whisper returns an empty `segments` list rather than failing when it
+    # hears no speech, and parse_whisper would then blame the missing word
+    # timestamps — which were requested. Say what actually happened (verify
+    # hits the same case transcribing a render).
+    if not payload.get("words") and not payload.get("segments"):
+        raise asr.ASRError(
+            f"whisper heard no speech at all in {source.name}. Either this "
+            "clip has no dialogue on it, or the wrong clip was transcribed."
+        )
+    parsed = tx.parse_whisper(payload, clip_id=clip_id, origin=f"whisper:{model}")
+    tx.save(parsed, project.transcript_path(clip_id))
+    return {
+        "clip_id": clip_id,
+        "words": len(parsed),
+        "language": parsed.language,
+        "cached": str(project.transcript_path(clip_id)),
+        "duration": parsed.words[-1].end,
+    }
+
+
 def _transcript(project: Project, clip_id: str) -> tx.Transcript:
     cached = project.transcript_path(clip_id)
     if not cached.exists():

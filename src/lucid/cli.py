@@ -68,6 +68,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_attach.add_argument("clip_id")
     p_attach.add_argument("transcript", help="path to the whisper JSON")
 
+    p_transcribe = sub.add_parser("transcribe", help="transcribe a clip's media with whisper")
+    p_transcribe.add_argument("clip_id")
+    p_transcribe.add_argument(
+        "--model", default=asr.DEFAULT_MODEL, help=f"whisper model ({asr.DEFAULT_MODEL})"
+    )
+    p_transcribe.add_argument("--language", help="force a language instead of detecting one")
+
     p_tx = sub.add_parser("transcript", help="read a clip's transcript")
     p_tx.add_argument("clip_id")
     p_tx.add_argument("--first", type=int, help="first word index (inclusive)")
@@ -193,6 +200,12 @@ def _cmd_attach_transcript(args: argparse.Namespace) -> int:
     return _emit(ops.attach_transcript(args.project, args.clip_id, args.transcript))
 
 
+def _cmd_transcribe(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.transcribe(args.project, args.clip_id, model=args.model, language=args.language)
+    )
+
+
 def _cmd_transcript(args: argparse.Namespace) -> int:
     return _emit(
         ops.get_transcript(
@@ -288,6 +301,7 @@ _COMMANDS = {
     "info": _cmd_info,
     "import": _cmd_import,
     "attach-transcript": _cmd_attach_transcript,
+    "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
     "seed": _cmd_seed,
     "cut": _cmd_cut,

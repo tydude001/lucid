@@ -31,6 +31,7 @@ EXPECTED_TOOLS = {
     "init",
     "import_media",
     "attach_transcript",
+    "transcribe",
     "get_transcript",
     "seed_timeline",
     "cut_by_transcript",
@@ -59,8 +60,8 @@ class Client:
         return payload
 
 
-async def _with_server(body: Any) -> Any:
-    async with stdio_client(SERVER) as (read, write):
+async def _with_server(body: Any, server: StdioServerParameters = SERVER) -> Any:
+    async with stdio_client(server) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             return await body(session)
@@ -124,6 +125,7 @@ TOOL_TO_COMMAND = {
     "init": "init",
     "import_media": "import",
     "attach_transcript": "attach-transcript",
+    "transcribe": "transcribe",
     "get_transcript": "transcript",
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
@@ -245,6 +247,71 @@ def test_cut_and_keep_are_mutually_exclusive(tmp_path: Path, sources: tuple[Path
     result = anyio.run(_with_server, body)
     assert result.is_error
     assert "exactly one" in result.content[0].text
+
+
+def _fake_whisper(path: Path) -> Path:
+    """A whisper stand-in for `LUCID_WHISPER`: writes a fixed transcript.
+
+    Real whisper's CLI shape, minus the GPU — `asr.transcribe` only cares that
+    the binary accepts these flags and drops `<stem>.json` in `--output_dir`.
+    """
+    script = path / "fake-whisper.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import argparse, json\n"
+        "from pathlib import Path\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('media')\n"
+        "p.add_argument('--model')\n"
+        "p.add_argument('--output_format')\n"
+        "p.add_argument('--word_timestamps')\n"
+        "p.add_argument('--output_dir')\n"
+        "p.add_argument('--language', default=None)\n"
+        "args = p.parse_args()\n"
+        "words = [\n"
+        "    {'word': 'hello', 'start': 0.0, 'end': 0.4},\n"
+        "    {'word': 'from', 'start': 0.5, 'end': 0.8},\n"
+        "    {'word': 'the', 'start': 0.9, 'end': 1.0},\n"
+        "    {'word': 'stub', 'start': 1.1, 'end': 1.5},\n"
+        "]\n"
+        "out = Path(args.output_dir) / f'{Path(args.media).stem}.json'\n"
+        "out.write_text(json.dumps({'language': args.language or 'en', 'words': words}))\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@needs_ffprobe
+def test_transcribe_runs_whisper_and_attaches_the_result(tmp_path: Path) -> None:
+    """transcribe wires asr.transcribe -> parse_whisper -> the transcript cache.
+
+    No real GPU here — LUCID_WHISPER points the server subprocess at a stand-in
+    that writes a fixed transcript, so this checks the wiring, not whisper.
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 2.0)], duration=3.0)
+    project = tmp_path / "proj"
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "lucid.cli", "mcp"],
+        env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        transcribed = await client.call("transcribe", path=str(project), clip_id=clip["clip_id"])
+        found = await client.call("get_transcript", path=str(project), clip_id=clip["clip_id"])
+        return {"transcribed": transcribed, "found": found}
+
+    out = anyio.run(lambda: _with_server(body, server))
+
+    assert out["transcribed"]["words"] == 4
+    assert out["transcribed"]["language"] == "en"
+    assert Path(out["transcribed"]["cached"]).exists()
+    assert out["found"]["text"] == "hello from the stub"
 
 
 @needs_ffprobe

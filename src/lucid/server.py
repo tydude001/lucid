@@ -66,6 +66,19 @@ def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str
 
 
 @mcp.tool()
+def transcribe(
+    path: str, clip_id: str, model: str = "turbo", language: str | None = None
+) -> dict[str, Any]:
+    """Transcribe a clip's own media with whisper, and attach the result.
+
+    attach_transcript's ASR-driven sibling: use that when the recording
+    already has a transcript, this when it needs one made. Takes minutes on a
+    long recording — there is no timeout, so let it run.
+    """
+    return ops.transcribe(path, clip_id, model=model, language=language)
+
+
+@mcp.tool()
 def get_transcript(
     path: str,
     clip_id: str,
