@@ -198,6 +198,12 @@ performance actually hurts, or if OTIO stops being the source of truth.
   clipped at either edge. That is *not* a general answer: restart pauses are
   the easiest case there is, and a cut mid-sentence has no such margin. Energy
   minimum snapping stays the plan for tight cuts; it is just not urgent.
+
+  **Narrowed once that video was rendered: this covers drift, not infidelity.**
+  It sampled the retakes lucid knew about. Two it did not know about were
+  missing from the transcript altogether — whisper had folded them into the
+  duration of the following word — and no amount of edge-snapping finds a take
+  the transcript never recorded. [DOGFOOD.md](DOGFOOD.md) § 2.
 - **Variable frame rate footage.** Phone/screen recordings are often VFR and
   break naive cut math. Current lean: do *not* transcode on import — it is slow
   and lossy, and cut-and-concat operates in the time domain where VFR is mostly
@@ -225,6 +231,11 @@ performance actually hurts, or if OTIO stops being the source of truth.
   between "lucid trims your VO" and "lucid edits your video", and multi-track is
   the whole cost. Decide against the *next* video, not this one — this one has a
   working path.
+
+  **The decision is cheaper now.** `goodsometimes/scripts/assemble_scream.py`
+  shipped that video: a cue table of `(source_word_index, asset)` mapped through
+  the surviving ranges. It is a worked reference for what lucid would absorb,
+  including the MLT details that cost the most time. [DOGFOOD.md](DOGFOOD.md) § 3.
 
 ## Non-goals (write them down so they stay dead)
 
@@ -310,6 +321,13 @@ Which of these are done is tracked in the wiki's Open items table, not here.
    from a Claude Code session. Includes timeline snapshotting.
 6. `remove_silences` (shell out), `add_captions` (word-timed ASS), `export_otio`.
 7. Dogfood on a real recording; promote pain points to the plan.
+
+   **Ran 2026-08-07 — lucid cut the goodsometimes Scream essay's VO**, eight
+   retakes across 5:10.9, and the video was rendered and verified around it.
+   The core thesis held under the test that mattered: two retakes found *after*
+   the picture was built cost two commands and one re-run, because every cue
+   was addressed by source word index. Findings and the four things worth
+   building next are in [DOGFOOD.md](DOGFOOD.md).
 
 ## What the first vertical slice changed — 2026-08-07
 
