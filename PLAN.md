@@ -52,7 +52,7 @@ the three above requires it.
 cuts, persistent projects with undo, and a real MCP endpoint with a
 proposal/review workflow. What it does not cover is the *form factor*: it is an
 Electron desktop app whose MCP endpoint requires the GUI process, with a custom
-JSON timeline, no NLE/OTIO export, and no CLI. lucid's surviving thesis, if it
+JSON timeline, cuts-only FCPXML as its whole NLE handoff, and no CLI. lucid's surviving thesis, if it
 has one, is the narrower combination **headless + CLI parity + OTIO-native NLE
 handoff + thin Python stack** — and whether that justifies the project is
 decided by the trial gate in the milestones, not by argument.
@@ -68,7 +68,7 @@ decided by the trial gate in the milestones, not by argument.
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | burn-in, word-timed; styled via a small preset set |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
-| `export_otio` | OTIO adapters | FCPXML etc. Lower urgency than it looks: auto-editor already exports six NLE formats via subprocess |
+| `export_otio` | OTIO adapters | Lower urgency than it looks: auto-editor already exports six NLE formats via subprocess, and on Linux the ones that actually land are MLT (kdenlive/shotcut) — free Resolve decodes no H.264/AAC, so FCPXML only pays off for pre-transcoded footage. See PRIOR-ART.md |
 
 Deliberately absent from MVP: motion graphics (tier 1.5, Motion Canvas),
 b-roll generation, any GUI.

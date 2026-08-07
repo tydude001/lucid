@@ -101,8 +101,13 @@ and real MCP with typed skills. What it does **not** cover:
 1. **Headless.** The MCP endpoint is served by the Electron app; a GUI process
    has to be running. No CLI. Docs are macOS-flavored; the Linux AppImage is
    unverified on this box.
-2. **OTIO / NLE handoff.** Custom JSON timeline rendered by Remotion + ffmpeg;
-   no FCPXML/Resolve/OTIO export found.
+2. **OTIO.** Custom JSON timeline rendered by Remotion + ffmpeg. It does export
+   FCPXML 1.10 (`src/export/fcpxml.ts`, plus a Resolve-flavoured `fcp_xml_resolve`
+   variant that adds `colorSpace` to `<format>`), and transcript-deleted words
+   are emitted as separate `asset-clip`s so the cuts survive — but that is cuts,
+   clip placement and lanes only. Transitions, effects, volume and titles do not
+   cross, and motion graphics become a `<gap>` unless pre-rendered to ProRes.
+   Captions leave separately as SRT. No OTIO.
 3. **Thin dependency graph.** Electron 43 + Node 24 + Remotion versus a Python
    package and three subprocesses.
 
@@ -111,6 +116,27 @@ answerable by installing the AppImage and running the addressable-edit test
 ("cut words 30–45; keep take 2, drop take 1", iteratively, via Claude Code
 over its MCP endpoint) on a real recording. That trial is the go/no-go gate in
 [PLAN.md](PLAN.md).
+
+## NLE handoff on Linux has a ceiling
+
+"OTIO-native NLE handoff" is only worth something if a Linux NLE can receive it.
+Checked 2026-08-06:
+
+- **DaVinci Resolve** imports FCPXML, but free Resolve on Linux decodes no
+  H.264/H.265 and no AAC at all — a licensing restriction, not a bug, and Studio
+  buys back only the video half. An FCPXML pointing at camera MP4s therefore
+  opens as a timeline of offline clips. A working handoff means transcoding to
+  DNxHR/ProRes + PCM first and referencing the transcodes. Install on Bazzite:
+  `ujust install-resolve`, or [davincibox](https://github.com/zelikos/davincibox).
+- **Kdenlive** has no FCPXML import. The way in is
+  [KDE/kdenlive-opentimelineio](https://github.com/KDE/kdenlive-opentimelineio)
+  plus `otio-fcpx-xml-adapter` — two lossy hops.
+- **Shotcut / Olive / Blender VSE** take MLT or nothing.
+
+So the handoff formats that actually land on this box are MLT (`kdenlive`,
+`shotcut`), both of which auto-editor already emits, with FCPXML useful only for
+an already-transcoded Resolve project. That is a further argument for OTIO as
+lucid's *internal* source of truth rather than as the pitch.
 
 ## browser-use/video-use — the distribution threat, not a substitute
 
@@ -254,6 +280,13 @@ differentiators. Lesson for the next re-survey: search what a user would type,
 not what the implementation contains. This also falsified the first sweep's
 claim that decision-point frame composites were unique to lucid's preview idea
 (video-use ships them).
+
+### "No FCPXML export" was a search failure
+
+The second sweep read OpenChatCut's README and releases and concluded it had no
+NLE export. The README names FCPXML in three places and the serializer is 387
+lines of `src/export/fcpxml.ts`. Grep the repo for format names; a feature list
+read at skim depth is not evidence of absence.
 
 ### auto-editor is no longer Python
 
