@@ -854,10 +854,23 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
 2. **The shot projection.** `build_shots` minus all XML — map each cue's word
    through the surviving ranges, each shot running to the next cue. ~150–200
    lines. `assemble_scream.py` is the worked reference; take its arithmetic,
-   not its structure.
+   not its structure. **Built 2026-08-08** — HISTORY.md § The shot
+   projection, step 2 of the layered timeline. Also resolves `asset` to a
+   checked path (`card:name` under a new `assets/cards/`, else a registered
+   video clip_id), per the division `cue_add`'s own docstring already
+   committed to at step 1.
 3. **Refuse to build when a cue lands in a cut range.** This fired correctly
    twice on Scream, both times catching a stale cue after a recut. It is the
-   safety property of the whole feature and it is not optional. Test it first.
+   safety property of the whole feature and it is not optional. Test it
+   first. **Shipped inside step 2, not after it** — the frame arithmetic has
+   nothing to return for a cut word, so the refusal could not be deferred.
+   What step 2 got wrong on the first pass and step 3's own tests exist to
+   guard: it used `Edit.timeline_time` (containment of the word's *start*
+   instant) rather than `Edit.timeline_span` (overlap across the whole
+   word), and disagreed with `assemble_scream.py`'s own arithmetic on the
+   real Scream VO at word 115 — a swallowed false start whose survival
+   depends on its tail, not its start. Fixed before shipping; HISTORY.md
+   § The shot projection has the numbers.
 4. **The MLT writer**, multi-source path only. Owns the `<blank>` and
    declared-length constraints named above. Every emitted length asserted
    against the `Edit`'s own frame total from `autoeditor.frame_layout` — never
@@ -873,7 +886,12 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
 Seed the cue table from `assemble_scream.py`'s existing 37 cues, so the first
 layered timeline lucid builds is **this video**, checkable against a file that
 has already been watched — rather than an empty project that can only be
-checked against itself.
+checked against itself. **Done as a verification, not yet as a fixture:**
+step 2 was checked against a scratch copy of the real `Project/lucid-vo`
+project and the real 37 cues, but the NAS project's own manifest was not
+written to — the actual seeding (a persistent cue table on that project)
+is still open, and belongs with step 4 or whenever the real render is
+next rebuilt. HISTORY.md § The shot projection has the numbers.
 
 ### What stays blocked, and it is not lucid
 

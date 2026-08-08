@@ -143,7 +143,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cue_add = cue_sub.add_parser("add", help="add a cue: from this word onward, show asset")
     p_cue_add.add_argument("clip_id")
     p_cue_add.add_argument("word_index", type=int)
-    p_cue_add.add_argument("asset", help="a media key or path — the shot projection resolves it")
+    p_cue_add.add_argument(
+        "asset", help="card:name, or a registered video clip_id — `lucid shots` resolves it"
+    )
 
     p_cue_rm = cue_sub.add_parser("rm", help="remove a cue")
     p_cue_rm.add_argument("clip_id")
@@ -151,6 +153,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
     p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
+
+    sub.add_parser(
+        "shots", help="project the cue table into contiguous shots over the current edit"
+    )
 
     p_seed = sub.add_parser("seed", help="lay a clip down as the timeline")
     p_seed.add_argument("clip_id")
@@ -521,6 +527,10 @@ def _cmd_cue(args: argparse.Namespace) -> int:
     return _emit(ops.cue_ls(args.project, clip_id=args.clip_id))
 
 
+def _cmd_shots(args: argparse.Namespace) -> int:
+    return _emit(ops.build_shots(args.project))
+
+
 def _cmd_seed(args: argparse.Namespace) -> int:
     return _emit(
         ops.seed_timeline(
@@ -723,6 +733,7 @@ _COMMANDS = {
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
     "cue": _cmd_cue,
+    "shots": _cmd_shots,
     "seed": _cmd_seed,
     "cut": _cmd_cut,
     "cut-at": _cmd_cut_at,

@@ -13,6 +13,8 @@ inspectable with ordinary tools::
         frames/             <render-stem>/*.png — spot-check frames pulled from a render
         attenuated/         <clip_id>.<ext> — derived, gain-reduced copies of clip media
         waveform/           <clip_id>.json — RMS envelope, keyed by media size+mtime
+      assets/
+        cards/              <name>.png — static picture cards a `card:<name>` cue resolves to
       renders/              preview.mp4, final.mp4, …
 
 The OTIO file is authoritative for the edit; renders are derived from it and
@@ -44,6 +46,7 @@ FRAMES_DIR = "cache/frames"
 ATTENUATED_DIR = "cache/attenuated"
 WAVEFORM_DIR = "cache/waveform"
 RENDER_DIR = "renders"
+CARDS_DIR = "assets/cards"
 
 _SUBDIRS = (
     MEDIA_DIR,
@@ -55,6 +58,7 @@ _SUBDIRS = (
     ATTENUATED_DIR,
     WAVEFORM_DIR,
     RENDER_DIR,
+    CARDS_DIR,
 )
 
 
@@ -109,6 +113,10 @@ class Project:
     @property
     def waveform_dir(self) -> Path:
         return self.root / WAVEFORM_DIR
+
+    @property
+    def cards_dir(self) -> Path:
+        return self.root / CARDS_DIR
 
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"

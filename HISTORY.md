@@ -1521,3 +1521,73 @@ process end to end, plus a manual `lucid cue add|rm|ls` run over a real
 ffprobe-imported clip. Not yet verified against the Scream VO itself — that
 happens when step 2 seeds the table from `assemble_scream.py`'s 37 cues, per
 the build order.
+
+## The shot projection, step 2 of the layered timeline — 2026-08-08
+
+PLAN.md § The layered timeline, build order step 2. `ops.build_shots` (CLI
+`lucid shots`, MCP `build_shots`): reads the cue table, maps each cue's word
+through the edit to a timeline frame, resolves `asset` to a checked path, and
+runs each shot to the next cue — `assemble_scream.py`'s `build_shots` minus
+the XML, per the plan's own instruction to take its arithmetic and not its
+structure. Step 3 (refuse a cut cue) shipped inside this one rather than
+after it: the frame arithmetic has nothing to return for a cut word, so the
+refusal could not be deferred to a later step.
+
+- **`asset` resolution is real, not deferred.** `cue_add`'s docstring
+  committed to this at step 1 ("the shot projection resolves it, the same
+  way `assemble_scream.py`'s CUES table did by hand"), so `_resolve_asset`
+  does it here: `card:name` resolves under a new `assets/cards/` project
+  directory (`project.py` gained `CARDS_DIR`, no schema bump needed — it is
+  a directory, not a manifest field), anything else resolves as a
+  registered video clip_id through `media.get_clip`/`media.media_path`.
+  Both are checked against disk before `build_shots` returns, refusing a
+  typo'd clip_id, an audio-only clip used as a picture asset, or a missing
+  card rather than handing the MLT writer (step 4) a path that does not
+  exist.
+- **What step 2 deliberately does not do: per-clip playback cursors.**
+  `assemble_scream.py`'s `build_shots` also decides *where in the source
+  clip* each shot reads from, so three uses of one clip show three
+  different stretches rather than repeating. That decision is about what
+  the MLT writer actually shows for a duration this step already computed,
+  so it stays with the XML that consumes it (step 4) — this step only
+  answers *when* and *for how long*.
+- **The first pass used the wrong addressing method, and real data caught
+  it before a unit test could.** `Edit.timeline_time(clip_id, word.start)`
+  — containment of the word's *start instant* — looked right (HISTORY.md §
+  The multi-track costing spike had already validated `timeline_span`
+  against `assemble_scream.py`'s own arithmetic, but `timeline_time` reads
+  as the more direct method for a single point) and passed all nine unit
+  tests, because every hand-built fixture word sat entirely inside one
+  segment. Verified against the real Scream VO — a scratch copy of the real
+  `Project/lucid-vo` project (67 segments, 310.875s) fed the real 37 cues
+  from `assemble_scream.py`'s `CUES` table, the real clips from `Source/`,
+  and the real cards from `Assets/Cards/` — word 115 ("here's", the
+  surviving half of a false start: "Here's the thing I, here's the thing I
+  want...") raised as cut. It is not cut: `is_cut`/`timeline_span` are an
+  *overlap* test across the whole word, and word 115's own start (45.04s)
+  sits in a 0.267s gap while its tail (to 46.44s) spills into the next
+  surviving segment (from 45.2s) — exactly the CLAUDE.md rule ("survival is
+  an overlap test against the kept ranges, never containment") stated for
+  masking audio, now confirmed to bind shot projection too. Switched to
+  `Edit.timeline_span(clip_id, word.start, word.end)`, which truncates to
+  the surviving portion the same way `_word_placements` already does for
+  `timeline_view`. A regression test
+  (`test_build_shots_survives_a_word_whose_start_is_cut_but_whose_tail_overlaps`)
+  locks in the shape: a word starting in a gap whose tail overlaps the next
+  segment must resolve to that segment's start, not refuse.
+- **Re-verified after the fix: 35 of 37 real cues agree with
+  `assemble_scream.py`'s own arithmetic to sub-frame precision** (matching
+  HISTORY.md § The multi-track costing spike's earlier -0.013s to +0.027s
+  band), zero cut/survive disagreements. The remaining two (words 430, 433)
+  sit ~0.02–0.034s apart — about one frame at 30fps, and both land entirely
+  inside the same surviving segment in both computations, so the gap is
+  accumulated floating-point drift between OTIO's rational-time storage and
+  the reference script's direct timecode parsing, not a disagreement about
+  what survived or where a cut falls. Verification was against a disposable
+  scratch copy — the real `Project/lucid-vo` manifest on the NAS was read,
+  never written; seeding a persistent cue table there is still open, noted
+  in PLAN.md.
+- Ten unit tests (`tests/test_ops_shots.py`) cover the arithmetic, the
+  overlap-vs-containment regression above, the monotonic-tie refusal (two
+  cues resolving to the same instant), and every asset-resolution failure
+  mode; parity asserted the usual way in `test_server_stdio.py`.

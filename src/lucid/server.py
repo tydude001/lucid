@@ -108,11 +108,11 @@ def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, A
     """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
 
     Source-addressed like a word range — `asset` is an opaque key or path,
-    not checked against disk here; the shot projection (not built yet)
-    resolves it, the same way assemble_scream.py's CUES table did by hand.
-    Refused if a cue already sits at that exact word; cue_rm it first to
-    replace it. Echoes the resolved word plus three either side, the same
-    convention every word-indexed tool follows.
+    not checked against disk here; `build_shots` resolves it, the same way
+    assemble_scream.py's CUES table did by hand. Refused if a cue already
+    sits at that exact word; cue_rm it first to replace it. Echoes the
+    resolved word plus three either side, the same convention every
+    word-indexed tool follows.
     """
     return ops.cue_add(path, clip_id, word_index, asset)
 
@@ -129,9 +129,22 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
     Read-only. Omit `clip_id` to see every clip's cues. Ordered by
     `(clip_id, word_index)`, not by resolved timeline position — that needs
-    the edit's surviving ranges, which is the shot projection's job.
+    the edit's surviving ranges, which is `build_shots`'s job.
     """
     return ops.cue_ls(path, clip_id=clip_id)
+
+
+@mcp.tool()
+def build_shots(path: str) -> dict[str, Any]:
+    """Project the cue table into contiguous shots over the current edit.
+
+    Maps each cue's word through the edit's surviving ranges to a timeline
+    frame, resolves its `asset` to a checked path (`card:name` under
+    `assets/cards/`, else a registered video clip_id), and runs each shot to
+    the next cue — the last to the edit's own frame total. Refuses if a
+    cue's word was cut from the edit; fix it with cue_rm/cue_add first.
+    """
+    return ops.build_shots(path)
 
 
 @mcp.tool()

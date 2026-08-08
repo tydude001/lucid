@@ -285,8 +285,8 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
 
     Read-only. `clip_id` narrows to one clip's cues; omit it to see every
     cue in the project. Ordered by `(clip_id, word_index)`, not by resolved
-    timeline position — that ordering is the shot projection's job, once it
-    exists (step 2), because it depends on the edit's surviving ranges.
+    timeline position — that ordering is `build_shots`'s job, because it
+    depends on the edit's surviving ranges.
     """
     project = Project.open(path)
     cues = project.read_manifest().get("cues", [])
@@ -308,6 +308,134 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
             }
         )
     return {"cues": entries, "count": len(entries)}
+
+
+def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:
+    """Turn a cue's opaque `asset` into a checked path, the way
+    `assemble_scream.py`'s `resolve_media()` did by hand: `card:name` is a
+    static picture under `assets/cards/`, anything else is a `clip_id`
+    already registered with `import_media`. Raises if the asset does not
+    resolve to real media — the projection is meant to catch a missing card
+    or a typo'd clip_id here, not hand it to the MLT writer to find out.
+    """
+    if asset.startswith("card:"):
+        name = asset.removeprefix("card:")
+        if not name:
+            raise ProjectError(f"asset {asset!r} names no card")
+        resolved = project.cards_dir / f"{name}.png"
+        is_image = True
+    else:
+        clip = media.get_clip(project, asset)
+        if not clip.get("has_video"):
+            raise ProjectError(
+                f"asset {asset!r} is clip_id {asset!r}, which has no video — "
+                "a picture cue needs a video clip or a card:name"
+            )
+        resolved = media.media_path(project, clip)
+        is_image = False
+    if not resolved.is_file():
+        raise ProjectError(f"asset {asset!r} resolves to {resolved}, which does not exist")
+    return {"asset_path": str(resolved), "is_image": is_image}
+
+
+def build_shots(path: Path | str) -> dict[str, Any]:
+    """Project the cue table into contiguous shots over the current edit.
+
+    Step 2 of the layered timeline (PLAN.md § The layered timeline):
+    `assemble_scream.py`'s `build_shots` minus the XML. Each cue's word maps
+    to a timeline frame via `edit.timeline_span(clip_id, word.start,
+    word.end)` — an overlap test across the whole word, never containment of
+    its start instant alone (CLAUDE.md: "survival is an overlap test... never
+    containment"). A word whose *start* lands in a gap but whose tail spills
+    into the next surviving segment is exactly the case that distinction
+    exists for, and it is not a corner case: it is what a cue riding a
+    swallowed retake looks like, and the real Scream VO has one (word 115,
+    the "here's" that survived a false start). `timeline_time` on the start
+    alone was tried first and disagreed with `assemble_scream.py`'s own
+    arithmetic on that exact word — this is HISTORY.md § The multi-track
+    costing spike's validation, redone with the right method. A cue whose
+    word has no overlap at all refuses rather than silently snapping
+    forward: `timeline_span` returns None for a fully-cut word, and that is
+    the safety property PLAN.md calls out as step 3 — it cannot be deferred
+    past step 2, because the frame arithmetic has nothing to return
+    otherwise.
+
+    Cues are ordered by resolved timeline position, not by `(clip_id,
+    word_index)` (`cue_ls`'s order) — the whole reason this is its own step
+    rather than a `cue_ls` sort key: two clips' cues only have a shared order
+    once mapped through the edit. The first shot is forced to frame 0 — the
+    picture track is contiguous by construction, so whichever cue comes first
+    covers from the open, not from wherever its own word happens to land.
+    Every other shot runs from its cue's frame to the next cue's; the last
+    runs to `autoeditor.frame_total`, never to a summed duration (CLAUDE.md).
+
+    What this does *not* do, deliberately: no per-clip playback cursor, no
+    source in/out points. Those decide what the MLT writer (step 4) actually
+    shows for the duration computed here, and belong with the XML that
+    consumes them — this step only says when and for how long.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    rate = _rate(project)
+    total_frames = autoeditor.frame_total(edit, rate)
+
+    cues = project.read_manifest().get("cues", [])
+    if not cues:
+        raise tl.TimelineError(
+            "this project has no cues yet — add one with cue_add "
+            "(CLI: `lucid cue add`) before projecting shots"
+        )
+
+    transcripts: dict[str, tx.Transcript] = {}
+    marks: list[dict[str, Any]] = []
+    for cue in cues:
+        clip_id = cue["clip_id"]
+        if clip_id not in transcripts:
+            transcripts[clip_id] = _transcript(project, clip_id)
+        echo = _cue_echo(transcripts[clip_id], cue["word_index"])
+        span = edit.timeline_span(clip_id, echo["start"], echo["end"])
+        if span is None:
+            raise tl.TimelineError(
+                f"cue at {clip_id!r} word {cue['word_index']} ({echo['text']!r}) "
+                "was cut from the edit — remove or move the cue (cue_rm/cue_add) "
+                "before projecting shots"
+            )
+        timeline_start, _ = span
+        marks.append(
+            {
+                "clip_id": clip_id,
+                "word_index": cue["word_index"],
+                "text": echo["text"],
+                "asset": cue["asset"],
+                **_resolve_asset(project, cue["asset"]),
+                "start_frame": round(timeline_start * rate),
+            }
+        )
+
+    marks.sort(key=lambda m: m["start_frame"])
+    marks[0]["start_frame"] = 0
+
+    for previous, current in pairwise(marks):
+        if current["start_frame"] <= previous["start_frame"]:
+            raise tl.TimelineError(
+                f"cue at {current['clip_id']!r} word {current['word_index']} lands "
+                f"at or before the previous cue ({previous['clip_id']!r} word "
+                f"{previous['word_index']}) — two cues resolved to the same instant"
+            )
+
+    shots = []
+    for index, mark in enumerate(marks):
+        end_frame = marks[index + 1]["start_frame"] if index + 1 < len(marks) else total_frames
+        frames = end_frame - mark["start_frame"]
+        shots.append(
+            {
+                **mark,
+                "frames": frames,
+                "start": mark["start_frame"] / rate,
+                "duration": frames / rate,
+            }
+        )
+    return {"shots": shots, "count": len(shots), "rate": rate, "total_frames": total_frames}
 
 
 # -- timeline ------------------------------------------------------------

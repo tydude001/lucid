@@ -53,8 +53,9 @@ and caption the rest" becomes a chat message instead of an afternoon.
    **The multi-track question "full editor" implies is answered too, decided
    2026-08-08: lucid edits your video.** Clips and cards lay over the VO from a
    cue table addressed by *word index*, so a recut recomputes shot positions
-   instead of invalidating them. Not built yet — [PLAN.md](PLAN.md) § The
-   layered timeline.
+   instead of invalidating them. The cue table and the shot projection are
+   built; the MLT render and the picture lane are not —
+   [PLAN.md](PLAN.md) § The layered timeline has the build order.
 
    **And "the same workflow" became "the same product", decided 2026-08-08:**
    lucid copies Daydream's full feature set and warm-paper look. The whole
@@ -213,8 +214,10 @@ are:
 lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
 ```
 
-Multi-track editing is **decided but not built** — [PLAN.md](PLAN.md) § The
-layered timeline has the design and the six-step build order.
+Multi-track editing is **decided and partway built** — the cue table and the
+shot projection ship; the MLT render and the picture lane don't yet —
+[PLAN.md](PLAN.md) § The layered timeline has the design and the six-step
+build order.
 
 ## Development
 
