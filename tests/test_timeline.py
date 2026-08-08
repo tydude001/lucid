@@ -137,6 +137,64 @@ def test_covers_measures_surviving_overlap() -> None:
     assert edit.covers("vo", 4.0, 6.0) == pytest.approx(0.0)
 
 
+def test_source_spans_matches_a_simple_offset_inside_one_segment() -> None:
+    edit = _edit((10.0, 20.0))
+    assert edit.source_spans(2.0, 5.0) == [("vo", 12.0, 15.0)]
+
+
+def test_source_spans_splits_across_a_ripple_closed_seam() -> None:
+    """A cut in the middle closes the timeline; a render-time range straddling
+    where the seam now sits must come back as two pieces of the same clip,
+    non-adjacent in source time, that together cover exactly the request.
+    """
+    edit = _edit((0.0, 4.0), (6.0, 10.0))  # source 4.0-6.0 already cut
+    pieces = edit.source_spans(3.0, 5.0)
+
+    assert [p[0] for p in pieces] == ["vo", "vo"]
+    assert pieces[0][1:] == pytest.approx((3.0, 4.0))
+    assert pieces[1][1:] == pytest.approx((6.0, 7.0))
+    assert sum(b - a for _, a, b in pieces) == pytest.approx(2.0)
+
+
+def test_source_spans_crosses_a_clip_boundary() -> None:
+    """Representable now even though `seed_timeline` doesn't build it yet."""
+    edit = Edit([Segment("vo", 0.0, 4.0), Segment("cam", 0.0, 4.0)])
+    pieces = edit.source_spans(3.0, 5.0)
+
+    assert [p[0] for p in pieces] == ["vo", "cam"]
+    assert pieces[0][1:] == pytest.approx((3.0, 4.0))
+    assert pieces[1][1:] == pytest.approx((0.0, 1.0))
+
+
+def test_source_spans_rejects_past_the_end() -> None:
+    edit = _edit((0.0, 10.0))
+    with pytest.raises(TimelineError, match="outside the timeline"):
+        edit.source_spans(8.0, 11.0)
+
+
+def test_source_spans_rejects_empty_or_backwards() -> None:
+    edit = _edit((0.0, 10.0))
+    with pytest.raises(TimelineError, match="empty or backwards"):
+        edit.source_spans(5.0, 5.0)
+    with pytest.raises(TimelineError, match="empty or backwards"):
+        edit.source_spans(6.0, 5.0)
+
+
+def test_source_spans_rejects_negative_start() -> None:
+    edit = _edit((0.0, 10.0))
+    with pytest.raises(TimelineError, match="outside the timeline"):
+        edit.source_spans(-1.0, 5.0)
+
+
+def test_source_spans_zero_length_at_the_very_end_is_still_refused() -> None:
+    """Pinning the "zero-length never allowed" decision, rather than leaving
+    it to fall out of the `end<=start` check by accident.
+    """
+    edit = _edit((0.0, 10.0))
+    with pytest.raises(TimelineError, match="empty or backwards"):
+        edit.source_spans(10.0, 10.0)
+
+
 # -- OTIO ----------------------------------------------------------------
 
 

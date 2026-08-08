@@ -12,6 +12,7 @@ wants something to print as JSON.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -434,6 +435,242 @@ def cut_by_transcript(
         "duration_before": before,
         "duration_after": edit.duration,
         "removed": before - edit.duration,
+        "segments": len(edit.segments),
+    }
+    if plan:
+        result["plan"] = True
+        result["suspect_boundaries"] = flagged
+    return result
+
+
+def _reject_overlapping_spans(requests: Sequence[tuple[float, float]]) -> None:
+    """Refuse a same-call span overlap rather than resolve and apply it twice.
+
+    Every span resolves against the pre-cut timeline before any is applied
+    (so a list of notes from one watch stays valid together), which is
+    exactly what makes an overlap between two spans in one call unsafe to
+    just apply in order: it is almost certainly one flub logged twice, not a
+    thing to merge (`vo_trim.py`'s own choice).
+    """
+    ordered = sorted(requests)
+    for (a_start, a_end), (b_start, b_end) in pairwise(ordered):
+        if b_start < a_end:
+            raise tl.TimelineError(
+                f"spans {a_start:.3f}-{a_end:.3f} and {b_start:.3f}-{b_end:.3f} "
+                "overlap in this call — resolve the overlap before cutting, "
+                "since applying one would shift the timeline the other addresses"
+            )
+
+
+def _overlap_words(parsed: tx.Transcript, lo: float, hi: float) -> list[dict[str, Any]]:
+    """Words a `[lo, hi)` render-time-derived span overlaps.
+
+    Unlike `_pad_reach`, there is no known first/last word to stay relative
+    to here, so this walks the whole transcript. Overlap, never containment
+    (CLAUDE.md): a word half inside the span still counts.
+    """
+    return [
+        {"index": w.index, "text": w.text, "start": w.start, "end": w.end}
+        for w in parsed.words
+        if w.start < hi and w.end > lo
+    ]
+
+
+def _nearest_context(parsed: tx.Transcript, lo: float, hi: float) -> dict[str, Any]:
+    """Flanking words for a span that landed entirely in silence.
+
+    Treats the silence gap as though it were the (empty) resolved range
+    between the nearest word ending at/before `lo` and the nearest one
+    starting at/after `hi`, so `_context` can be reused unmodified rather
+    than reporting no context at all for a legitimate "cut some dead air" span.
+    """
+    before_idx = -1
+    for word in parsed.words:
+        if word.end <= lo:
+            before_idx = word.index
+        else:
+            break
+    after_idx = len(parsed)
+    for word in parsed.words:
+        if word.start >= hi:
+            after_idx = word.index
+            break
+    return _context(parsed, before_idx + 1, after_idx - 1)
+
+
+def cut_by_time(
+    path: Path | str,
+    *,
+    spans: Sequence[Sequence[float]],
+    pad: float = 0.0,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Cut spans of render/timeline time — what a human reports watching an export.
+
+    Each span is `[start, end)` in the seconds the current export plays at,
+    not source time and not word indices. Every span is converted to the
+    source interval(s) it plays — `Edit.source_spans`, the aggregate inverse
+    of the mapping captions and playback use — and cut through the exact same
+    `Edit.remove` path `cut_by_transcript` uses. The render timestamp itself
+    is never stored: the conversion happens once, here, at call time, so the
+    roadmap's core property (every persisted coordinate is source time) holds.
+
+    All spans resolve against the timeline as it stood before any of them was
+    applied, so a list of notes taken against one watch stays valid together
+    even though a real cut would shift every later timestamp. Overlapping
+    spans in one call are refused rather than silently double-applied.
+
+    Every piece a span produced (more than one when it crossed an earlier cut
+    or a clip boundary) echoes the words it overlaps there — an overlap test,
+    never containment — plus the words either side, reusing `cut_by_transcript`'s
+    own echo convention. A span landing entirely in silence still gets its
+    nearest flanking words, so there is always something to check the
+    timestamp against. A clip with no transcript attached still gets cut;
+    `words_overlapped` is null and `transcript_missing` is set instead of
+    refusing a valid render-time cut just because a picture-only clip was
+    never transcribed.
+
+    `pad` widens only the two true OUTER edges of each requested span, never
+    an inner seam the span happened to cross — padding an inner seam would
+    reach toward whatever now sits on the far side of a prior cut, which is
+    material the caller never named.
+
+    Refused the same way `cut_by_transcript` is if a span overlaps a word with
+    a suspect duration (PLAN.md § Suspect word durations), unless
+    `confirm_suspect=True` or `plan=True` — under `plan` they are reported as
+    `suspect_boundaries` instead.
+
+    `plan=True` runs the identical code path and simply skips the write, same
+    as `cut_by_transcript` (PLAN.md § `cut --plan`).
+    """
+    if not spans:
+        raise tl.TimelineError("cut_by_time needs at least one span")
+    requests: list[tuple[float, float]] = []
+    for item in spans:
+        if len(item) != 2:
+            raise tl.TimelineError(f"span {item!r} must be [start, end]")
+        requests.append((float(item[0]), float(item[1])))
+    _reject_overlapping_spans(requests)
+
+    project = Project.open(path)
+    edit = _load_edit(project)
+    before = edit.duration
+
+    # Resolved against the pre-cut timeline, all at once, before any span is
+    # applied — this is what makes a list of notes taken against one watch
+    # stay valid together.
+    pieces_by_span = [edit.source_spans(start, end) for start, end in requests]
+
+    transcripts: dict[str, tx.Transcript | None] = {}
+    suspects: dict[str, dict[int, dict[str, Any]]] = {}
+    flagged: list[dict[str, Any]] = []
+    span_pieces: list[list[dict[str, Any]]] = []
+
+    for (req_start, req_end), pieces in zip(requests, pieces_by_span):
+        built: list[dict[str, Any]] = []
+        last_i = len(pieces) - 1
+        for i, (clip_id, start, end) in enumerate(pieces):
+            lo = max(0.0, start - pad) if i == 0 else start
+            hi = end + pad if i == last_i else end
+
+            if clip_id not in transcripts:
+                try:
+                    transcripts[clip_id] = _transcript(project, clip_id)
+                except tx.TranscriptError:
+                    transcripts[clip_id] = None
+                suspects[clip_id] = (
+                    {item["index"]: item for item in _suspect_durations(transcripts[clip_id])}
+                    if transcripts[clip_id] is not None
+                    else {}
+                )
+            parsed = transcripts[clip_id]
+
+            if parsed is None:
+                built.append(
+                    {
+                        "clip_id": clip_id,
+                        "lo": lo,
+                        "hi": hi,
+                        "words_overlapped": None,
+                        "transcript_missing": True,
+                        "context_before": [],
+                        "context_after": [],
+                    }
+                )
+                continue
+
+            words = _overlap_words(parsed, lo, hi)
+            for word in words:
+                hit = suspects[clip_id].get(word["index"])
+                if hit:
+                    flagged.append({**hit, "clip_id": clip_id, "span": [req_start, req_end]})
+            ctx = (
+                _context(parsed, words[0]["index"], words[-1]["index"])
+                if words
+                else _nearest_context(parsed, lo, hi)
+            )
+            built.append(
+                {"clip_id": clip_id, "lo": lo, "hi": hi, "words_overlapped": words, **ctx}
+            )
+        span_pieces.append(built)
+
+    if flagged and not (plan or confirm_suspect):
+        hit = flagged[0]
+        raise tl.TimelineError(
+            f"word {hit['index']} ({hit['text']!r}) in clip {hit['clip_id']!r} claims "
+            f"{hit['duration']}s, more than {hit['limit']}s (the transcript's median x "
+            "energy.CAP) — it likely hides a retake rather than ending where it "
+            "claims, so it is refused as a cut boundary (PLAN.md § Suspect "
+            "word durations). Check it, then retry with confirm_suspect=True "
+            "(CLI: --confirm-suspect) if the boundary is actually fine, or pick "
+            "a different span."
+        )
+
+    applied: list[dict[str, Any]] = []
+    for (req_start, req_end), built in zip(requests, span_pieces):
+        piece_results: list[dict[str, Any]] = []
+        for piece in built:
+            clip_id, lo, hi = piece["clip_id"], piece["lo"], piece["hi"]
+            present = edit.covers(clip_id, lo, hi)
+            touched = edit.remove(clip_id, lo, hi)
+            entry = {
+                "clip_id": clip_id,
+                "source_start": lo,
+                "source_end": hi,
+                "words_overlapped": piece["words_overlapped"],
+                "context_before": piece["context_before"],
+                "context_after": piece["context_after"],
+                "segments_touched": touched,
+                "already_cut": present <= 0.0,
+            }
+            if piece.get("transcript_missing"):
+                entry["transcript_missing"] = True
+            piece_results.append(entry)
+        applied.append(
+            {"requested_start": req_start, "requested_end": req_end, "pieces": piece_results}
+        )
+
+    removed = before - edit.duration
+    requested_removed = sum(end - start for start, end in requests)
+    if pad == 0.0 and abs(removed - requested_removed) > tl.MIN_SEGMENT:
+        raise tl.TimelineError(
+            f"internal invariant failed: requested {requested_removed:.3f}s "
+            f"removed but the timeline shrank by {removed:.3f}s — "
+            "source_spans and remove disagree with each other; this should "
+            "be unreachable"
+        )
+
+    if not plan:
+        _save_edit(project, edit)
+
+    result: dict[str, Any] = {
+        "mode": "cut",
+        "applied": applied,
+        "duration_before": before,
+        "duration_after": edit.duration,
+        "removed": removed,
+        "requested_removed": requested_removed,
         "segments": len(edit.segments),
     }
     if plan:

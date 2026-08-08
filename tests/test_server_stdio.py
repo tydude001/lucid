@@ -40,6 +40,7 @@ EXPECTED_TOOLS = {
     "get_transcript",
     "seed_timeline",
     "cut_by_transcript",
+    "cut_by_time",
     "timeline_status",
     "undo",
     "add_captions",
@@ -142,6 +143,7 @@ TOOL_TO_COMMAND = {
     "get_transcript": "transcript",
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
+    "cut_by_time": "cut-at",
     "timeline_status": "status",
     "undo": "undo",
     "add_captions": "captions",
@@ -507,6 +509,402 @@ def test_cut_and_keep_are_mutually_exclusive(tmp_path: Path, sources: tuple[Path
     result = anyio.run(_with_server, body)
     assert result.is_error
     assert "exactly one" in result.content[0].text
+
+
+@needs_ffprobe
+def test_cut_by_time_converts_render_time_to_source_and_cuts(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Render time equals source time before any cut has landed, so the
+    conversion is checkable directly against the fixture's own word times.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call("cut_by_time", path=str(project), spans=[[3.0, 3.9]])
+
+    out = anyio.run(_with_server, body)
+
+    assert len(out["applied"]) == 1
+    pieces = out["applied"][0]["pieces"]
+    assert len(pieces) == 1
+    assert [w["text"] for w in pieces[0]["words_overlapped"]] == ["w10"]
+    assert pieces[0]["context_after"][0]["text"] == "w11"
+
+
+@needs_ffprobe
+def test_cut_by_time_uses_render_time_not_source_time_once_a_prior_cut_has_landed(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The core "this is the inverse of timeline_span" claim, pinned against
+    the real server rather than only timeline.py.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        # Cut w00/w01 (source 0.0-1.9), which shifts the whole timeline left.
+        earlier = await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[0, 1]]
+        )
+        # w10/w11 now sit at render time 1.1-2.9, not their source time 3.0-4.9.
+        cut = await client.call("cut_by_time", path=str(project), spans=[[1.1, 2.0]])
+        return {"earlier": earlier, "cut": cut}
+
+    out = anyio.run(_with_server, body)
+
+    removed_earlier = out["earlier"]["removed"]
+    assert removed_earlier == pytest.approx(1.9, abs=0.01)
+
+    piece = out["cut"]["applied"][0]["pieces"][0]
+    assert piece["source_start"] == pytest.approx(1.1 + removed_earlier, abs=0.01)
+    assert piece["source_end"] == pytest.approx(2.0 + removed_earlier, abs=0.01)
+
+
+@needs_ffprobe
+def test_cut_by_time_spanning_a_prior_cut_splits_into_two_source_pieces(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The end-to-end version of the roadmap's headline scenario: a render-time
+    note straddling a seam a prior cut created resolves into two source pieces
+    of the same clip, non-adjacent by exactly the earlier cut's width.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        earlier = await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+        )
+        cut = await client.call("cut_by_time", path=str(project), spans=[[2.5, 3.5]])
+        return {"earlier": earlier, "cut": cut}
+
+    out = anyio.run(_with_server, body)
+
+    pieces = out["cut"]["applied"][0]["pieces"]
+    assert len(pieces) == 2
+    assert pieces[0]["clip_id"] == pieces[1]["clip_id"]
+    gap = pieces[1]["source_start"] - pieces[0]["source_end"]
+    assert gap == pytest.approx(out["earlier"]["removed"], abs=0.01)
+
+
+@needs_ffprobe
+def test_cut_by_time_pad_widens_only_the_outer_edges(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The one spot a wrong implementation would silently over-cut a live
+    neighbour across the seam: pad must reach only the two true outer edges,
+    never the inner seam a multi-piece span crosses.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+        )
+        return await client.call(
+            "cut_by_time", path=str(project), spans=[[2.5, 3.5]], pad=0.2
+        )
+
+    out = anyio.run(_with_server, body)
+    pieces = out["applied"][0]["pieces"]
+    assert len(pieces) == 2
+
+    # Outer edges padded...
+    assert pieces[0]["source_start"] == pytest.approx(2.3, abs=0.01)
+    assert pieces[1]["source_end"] == pytest.approx(5.6, abs=0.01)
+    # ...but the inner seam is not, so a narrow gap on the far side stays intact.
+    assert pieces[0]["source_end"] == pytest.approx(3.0, abs=0.01)
+    assert pieces[1]["source_start"] == pytest.approx(4.9, abs=0.01)
+
+
+@needs_ffprobe
+def test_cut_by_time_plan_matches_the_real_cut(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """PLAN.md § `cut --plan`: a plan runs the identical code path and simply
+    skips the write, so a plan and the real cut that follows must agree exactly.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        planned = await client.call(
+            "cut_by_time", path=str(project), spans=[[3.0, 3.9]], plan=True
+        )
+        status_after_plan = await client.call("timeline_status", path=str(project))
+        cut = await client.call("cut_by_time", path=str(project), spans=[[3.0, 3.9]])
+        return {"planned": planned, "status_after_plan": status_after_plan, "cut": cut}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["plan"] is True
+    assert out["status_after_plan"]["undo_depth"] == 0
+    assert out["cut"]["duration_after"] == pytest.approx(out["planned"]["duration_after"], abs=1e-9)
+    assert out["cut"]["removed"] == pytest.approx(out["planned"]["removed"], abs=1e-9)
+    assert out["cut"]["applied"] == out["planned"]["applied"]
+
+
+@needs_ffprobe
+def test_cut_by_time_reports_requested_removed_versus_removed(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`removed == requested_removed` is asserted, not just reported, at
+    `pad == 0.0` — spans address the current timeline, so every requested
+    render-second is live by construction. `pad > 0` legitimately removes more.
+    """
+    audio, transcript = sources
+
+    async def _flow(project: Path, pad: float) -> dict[str, Any]:
+        async def body(session: ClientSession) -> dict[str, Any]:
+            client = Client(session)
+            await client.call("init", path=str(project))
+            clip = await client.call("import_media", path=str(project), source=str(audio))
+            await client.call(
+                "attach_transcript",
+                path=str(project),
+                clip_id=clip["clip_id"],
+                transcript_path=str(transcript),
+            )
+            await client.call(
+                "seed_timeline",
+                path=str(project),
+                clip_id=clip["clip_id"],
+                remove_silences=False,
+            )
+            return await client.call(
+                "cut_by_time", path=str(project), spans=[[3.0, 3.9]], pad=pad
+            )
+
+        return await _with_server(body)
+
+    unpadded = anyio.run(_flow, tmp_path / "unpadded", 0.0)
+    padded = anyio.run(_flow, tmp_path / "padded", 0.5)
+
+    assert unpadded["removed"] == pytest.approx(unpadded["requested_removed"], abs=1e-9)
+    assert padded["removed"] > padded["requested_removed"]
+
+
+@needs_ffprobe
+def test_cut_by_time_rejects_overlapping_spans_in_one_call(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Overlapping spans are refused, not merged or applied twice — an overlap
+    between two watch-notes is almost certainly one flub logged twice.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await session.call_tool(
+            "cut_by_time", {"path": str(project), "spans": [[3.0, 4.0], [3.5, 5.0]]}
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    text = result.content[0].text
+    assert "overlap" in text
+
+
+@needs_ffprobe
+def test_cut_by_time_rejects_a_span_past_the_end(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await session.call_tool(
+            "cut_by_time", {"path": str(project), "spans": [[11.0, 20.0]]}
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+
+
+@needs_ffprobe
+def test_cut_by_time_refuses_a_suspect_boundary_without_confirmation(tmp_path: Path) -> None:
+    """A word overlapped by a (padded) span is refused just like
+    `cut_by_transcript`'s own boundary word check.
+    """
+    audio, transcript = _suspect_duration_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        blocked = await session.call_tool(
+            "cut_by_time", {"path": str(project), "spans": [[2.0, 2.5]]}
+        )
+        confirmed = await client.call(
+            "cut_by_time", path=str(project), spans=[[2.0, 2.5]], confirm_suspect=True
+        )
+        return {"blocked": blocked, "confirmed": confirmed}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["blocked"].is_error
+    assert "hides a retake" in out["blocked"].content[0].text
+    assert out["confirmed"]["removed"] > 0
+
+
+@needs_ffprobe
+def test_cut_by_time_with_plan_reports_a_suspect_boundary_instead_of_refusing(
+    tmp_path: Path,
+) -> None:
+    """Refusing to *look* at a flagged boundary under `plan` would be
+    backwards — checking the word is exactly what the refusal above asks for.
+    """
+    audio, transcript = _suspect_duration_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        planned = await client.call(
+            "cut_by_time", path=str(project), spans=[[2.0, 2.5]], plan=True
+        )
+        status = await client.call("timeline_status", path=str(project))
+        return {"planned": planned, "status": status}
+
+    out = anyio.run(_with_server, body)
+
+    flagged = out["planned"]["suspect_boundaries"]
+    assert [hit["index"] for hit in flagged] == [3]
+    assert flagged[0]["text"] == "bit"
+    assert out["status"]["undo_depth"] == 0
+
+
+@needs_ffprobe
+def test_cut_by_time_on_an_untranscribed_clip_still_cuts(tmp_path: Path) -> None:
+    """The cut is the load-bearing operation; the echo is the safety net, and
+    degrading it beats refusing a valid render-time cut on a picture-only clip.
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 8.0)])
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call("cut_by_time", path=str(project), spans=[[2.0, 3.0]])
+
+    out = anyio.run(_with_server, body)
+
+    piece = out["applied"][0]["pieces"][0]
+    assert piece["words_overlapped"] is None
+    assert piece["transcript_missing"] is True
+    assert out["duration_after"] == pytest.approx(out["duration_before"] - 1.0, abs=0.01)
 
 
 def _fake_whisper(path: Path) -> Path:

@@ -120,6 +120,44 @@ class Edit:
                 total += overlap
         return total
 
+    def source_spans(self, start: float, end: float) -> list[tuple[str, float, float]]:
+        """Where a timeline (render) interval currently maps back to source.
+
+        The aggregate inverse of `timeline_span`: that walks source->timeline
+        for one clip and returns the single truncated survivor, this walks
+        timeline->source across however many segments (and, in a future
+        multi-clip timeline, clips) `[start, end)` touches, in playback order.
+
+        `[start, end)` is timeline time, half-open, like every interval in
+        this module. Past-the-end is refused rather than clamped — unlike
+        `pad`'s deliberate overreach, it names material that is not on the
+        timeline at all.
+
+        Segments are laid contiguously in timeline coordinates (only source
+        coordinates have gaps), so a valid `[start, end)` inside
+        `[0, duration)` can never come back with zero pieces. A range crossing
+        a prior cut comes back as >=2 pieces of the same clip_id, now
+        non-adjacent in source time; a range crossing a clip boundary comes
+        back with a different clip_id per piece.
+        """
+        if end <= start:
+            raise TimelineError(f"interval {start:.3f}-{end:.3f} is empty or backwards")
+        if start < -1e-6 or end > self.duration + 1e-6:
+            raise TimelineError(
+                f"interval {start:.3f}-{end:.3f} is outside the timeline "
+                f"(0.000-{self.duration:.3f}) — it names material that is not "
+                "on the timeline at all"
+            )
+
+        pieces: list[tuple[str, float, float]] = []
+        offset = 0.0
+        for seg in self.segments:
+            lo, hi = max(offset, start), min(offset + seg.duration, end)
+            if hi > lo:
+                pieces.append((seg.clip_id, seg.start + (lo - offset), seg.start + (hi - offset)))
+            offset += seg.duration
+        return pieces
+
     # -- mutation --------------------------------------------------------
 
     def remove(self, clip_id: str, start: float, end: float) -> int:

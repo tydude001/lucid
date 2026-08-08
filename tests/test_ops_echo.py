@@ -85,3 +85,30 @@ def test_pad_reach_is_an_overlap_test_not_a_containment_one(parsed: tx.Transcrip
 
     assert [w["index"] for w in contained] == [3, 6]
     assert [w["index"] for w in partial] == [3, 6]
+
+
+def test_overlap_words_is_an_overlap_test_not_containment(parsed: tx.Transcript) -> None:
+    """A word whose (inflated, suspect-style) duration spans past `hi` still
+    counts, because `word.start < hi` — containment would miss it.
+    """
+    words = tx.Transcript(
+        clip_id="vo",
+        words=(
+            tx.Word(index=0, text="so", start=0.0, end=0.3),
+            tx.Word(index=1, text="bit", start=0.5, end=4.86),
+            tx.Word(index=2, text="on", start=5.0, end=5.3),
+        ),
+    )
+    overlapping = ops._overlap_words(words, 0.4, 0.6)
+    assert [w["index"] for w in overlapping] == [1]
+
+
+def test_nearest_context_anchors_on_the_flanking_words_when_nothing_overlaps(
+    parsed: tx.Transcript,
+) -> None:
+    """A `[lo, hi)` landing in silence between two words returns the two
+    flanking words as context, with nothing "inside".
+    """
+    ctx = ops._nearest_context(parsed, 2.35, 2.45)
+    assert [w["index"] for w in ctx["context_before"]] == [2, 3, 4]
+    assert [w["index"] for w in ctx["context_after"]] == [5, 6, 7]

@@ -35,6 +35,54 @@ def _word_range(value: str) -> list[int]:
     return [lo, hi]
 
 
+def _parse_timecode(value: str) -> float:
+    """Parse a colon-separated timecode, parts optional from the right.
+
+    `"4.4"` -> 4.4, `"0:40.4"` -> 40.4, `"1:00:40.4"` -> 3640.4 — the same
+    surface `vo_trim.parse_tc` uses.
+    """
+    parts = value.split(":")
+    if not 1 <= len(parts) <= 3:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a timecode — use [[H:]M:]S, e.g. 0:40.4"
+        )
+    try:
+        seconds = 0.0
+        for part in (float(p) for p in parts):
+            seconds = seconds * 60 + part
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a timecode — use [[H:]M:]S, e.g. 0:40.4"
+        ) from None
+    return seconds
+
+
+def _time_span(value: str) -> list[float]:
+    """Parse a render-time span: `START+DURATION` or `START-END`.
+
+    `+DURATION` is primary — it's how a watch-note is phrased ("cut 0:40.4
+    for 4.4s"), a start and a length rather than two timestamps someone has
+    to compute. `-END` is kept for a note phrased as two timestamps, matching
+    `vo_trim`'s own surface.
+    """
+    if "+" in value:
+        start_str, _, duration_str = value.partition("+")
+        start = _parse_timecode(start_str)
+        try:
+            duration = float(duration_str)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"{value!r} is not START+DURATION — duration must be seconds"
+            ) from None
+        return [start, start + duration]
+    if "-" in value:
+        start_str, _, end_str = value.partition("-")
+        return [_parse_timecode(start_str), _parse_timecode(end_str)]
+    raise argparse.ArgumentTypeError(
+        f"{value!r} is not a span — use START-END or START+DURATION, e.g. 0:40.4+4.4"
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lucid",
@@ -113,6 +161,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan",
         action="store_true",
         help="show what these ranges resolve to and what the edit would become, "
+        "without touching the timeline",
+    )
+
+    p_cut_at = sub.add_parser(
+        "cut-at", help="cut render/timeline-time spans from watching an export"
+    )
+    p_cut_at.add_argument(
+        "spans", nargs="+", type=_time_span, metavar="START-END|START+DURATION"
+    )
+    p_cut_at.add_argument(
+        "--pad", type=float, default=0.0, help="widen each span's outer edges by N seconds"
+    )
+    p_cut_at.add_argument(
+        "--confirm-suspect",
+        action="store_true",
+        help="allow an overlapped word flagged with a suspect duration (see `transcript`)",
+    )
+    p_cut_at.add_argument(
+        "--plan",
+        action="store_true",
+        help="show what these spans resolve to and what the edit would become, "
         "without touching the timeline",
     )
 
@@ -283,6 +352,18 @@ def _cmd_cut(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_cut_at(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.cut_by_time(
+            args.project,
+            spans=args.spans,
+            pad=args.pad,
+            confirm_suspect=args.confirm_suspect,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     return _emit(ops.status(args.project))
 
@@ -355,6 +436,7 @@ _COMMANDS = {
     "transcript": _cmd_transcript,
     "seed": _cmd_seed,
     "cut": _cmd_cut,
+    "cut-at": _cmd_cut_at,
     "status": _cmd_status,
     "undo": _cmd_undo,
     "captions": _cmd_captions,

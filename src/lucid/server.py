@@ -171,6 +171,42 @@ def cut_by_transcript(
 
 
 @mcp.tool()
+def cut_by_time(
+    path: str,
+    spans: Sequence[Sequence[float]],
+    pad: float = 0.0,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Cut spans of RENDER/TIMELINE time — what a human reports watching an export.
+
+    Each span is [start, end) in the seconds the current export plays at
+    (what timeline_status/verify describe), not source time and not word
+    indices. lucid converts each span to the source interval(s) it plays —
+    the inverse of the mapping captions and playback use — and cuts those
+    through the same Edit.remove path cut_by_transcript uses. The render
+    timestamp is never stored: the conversion happens once, here, at call
+    time.
+
+    All spans resolve against the CURRENT timeline before any is applied, so a
+    list of notes from one watch stays valid together even though a real cut
+    would shift every later timestamp. Overlapping spans are refused rather
+    than silently double-applied.
+
+    Every piece echoes the source interval it produced (more than one when the
+    span crosses an earlier cut or a clip boundary) and the words it overlaps
+    there, plus three neighbours either side — the human check that the
+    timestamp actually hit the intended flub. `pad` widens only the OUTER
+    edges of each requested span. `plan=True` resolves and reports without
+    writing, identically to cut_by_transcript.
+
+    Refused the same way cut_by_transcript is if a span overlaps a word with a
+    suspect duration; `confirm_suspect=True` or `plan=True` behave the same.
+    """
+    return ops.cut_by_time(path, spans=spans, pad=pad, confirm_suspect=confirm_suspect, plan=plan)
+
+
+@mcp.tool()
 def timeline_status(path: str) -> dict[str, Any]:
     """Report the current timeline: duration, segment count, undo depth."""
     return ops.status(path)
