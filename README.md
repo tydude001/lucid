@@ -32,10 +32,14 @@ and caption the rest" becomes a chat message instead of an afternoon.
    remove silences, caption, render, export MP4/OTIO. ~70% of the value for
    anyone already living in an agent CLI. This is the MVP.
 2. **Preview/timeline web UI** — see what the agent did before rendering.
-3. **Full desktop editor** — explicitly *not* a goal, unlike Daydream, which
-   is one. OTIO export hands finishing work to Resolve/Premiere/Final Cut
-   instead — headless, CLI-first, and open where Daydream is a closed,
-   metered GUI app.
+   Read-only, on localhost, out of the same package. Queued next:
+   [ROADMAP.md](ROADMAP.md) § Next.
+3. **Full desktop editor** — not a goal, and not how lucid finishes: OTIO/MLT
+   export hands that work to Resolve/Premiere/Kdenlive, which is what keeps
+   lucid headless, CLI-first and open where Daydream — which *is* a full
+   desktop NLE — is a closed, metered GUI app. Reopened as a question behind
+   tier 2 rather than flatly out; ROADMAP.md's closing note has what it would
+   have to answer.
 
 ## Try it
 

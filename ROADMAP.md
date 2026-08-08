@@ -28,6 +28,9 @@ Billy/Stu never had, carry the numbers; this file does not restate them.
 Two CLI gaps the same run surfaced also closed, neither ever a roadmap item:
 PLAN.md § `locate` and § `init` stops silently ignoring `-C`.
 
+**Next** refilled the same day with the tier-2 preview/timeline web UI, which
+this file had never named.
+
 **Ordering answers to measured defects, not to competitors.** A prior-art pass
 the same day found Daydream to be a full desktop NLE rather than the chat front
 end the README claimed — it corrected the pitch and moved nothing here, because
@@ -67,44 +70,31 @@ REVEAL/VO/VO.json`, mounted at `~/TheVaultData`. Its word indices address
 **the v1 recording**; the pending re-record produces a different file with
 different indices and does not retire the recorded findings as evidence.
 
-## Next — cleared
+## Next — the preview/timeline web UI
 
-All three items queued here shipped the same day, against the real Scream VO,
-with an adversarial review finding and fixing seven correctness bugs across
-the batch before any of it counted as done.
+README's tier 2, queued **2026-08-08** rather than left waiting on the gate
+below: see what the agent did before rendering.
 
-Picture-side render checks are now complete: the frame count was already
-built, and `check_black`/`spot_frames` (CLI `black`/`spots`) close out
-blackdetect and spot frames — the first correctly refused to explain away a
-genuine 11.8s dark outro card as the known auto-editor tail-frame defect, and
-along the way turned up a measured ffmpeg quirk (a black run reaching EOF
-reports zero duration) that shaped the tool's own default. PLAN.md
-§ `check_black` and `spot_frames`, the rest of the picture-side checks,
-carries the numbers.
+It ranks here because every check that exists answers a *machine's* question.
+`verify` diffs the render's words, `frames`/`black`/`spots` read counts and
+pixels, and the contact sheet in PLAN.md § Open questions is framed for a
+vision model to check — deliberately, since a tier-1 agent cannot watch a
+preview. None of them let a person see an edit before committing to a render,
+which is the whole of what tier 2 promises.
 
-Attenuate noises shipped as `attenuate_noises` (CLI `attenuate`), and its most
-useful result on real material is a negative one: at every default, the
-Scream VO attenuates **nothing** — the safety filter this item asked for
-disqualified all thirteen candidate events by gap width and withheld five more
-as suspect neighbours, which is the filter working, not failing to fire. The
-review caught two write-affecting bugs here — `export` was silently reading
-past attenuated audio back to the original file, and a `plan=True` preview
-could promise a write the matching real call would not perform — both fixed.
-PLAN.md § `attenuate_noises`, pulling noise down instead of cutting it, has
-the detail.
+Two constraints, and they are what keep it cheap:
 
-Accepting cuts in render time shipped as `cut_by_time` (CLI `cut-at`) —
-`Edit.source_spans`, the timeline→source inverse of `Edit.timeline_span`,
-resolves every span against the pre-cut timeline before any of them applies,
-padding only the two true outer edges and echoing words the same way
-`cut --plan` does. PLAN.md § `cut_by_time`, cuts addressed by what an export
-played, carries the numbers. Its mirror — `vo_extend`, appending real tail
-time — is **not** built, on purpose: lucid never writes MLT itself, so the two
-constraints that mirror would inherit (a real `silence` producer rather than a
-`<blank>`; four declared-length spots swept in step) only become lucid's
-problem the day it starts mutating an MLT project in place instead of
-regenerating one through auto-editor, which is not on the table now. Nothing
-is queued behind it.
+- **Read-only.** Mutation stays in the CLI and MCP tools, where the parity
+  convention lives. This is also what keeps the item tier 2 rather than tier 3.
+- **Local, in-package.** Served on localhost out of the same Python package —
+  no accounts, no upload, and no second stack to install
+  (PLAN.md § Non-goals, § Stack decision).
+
+**Done, minimally:** the current `Edit` drawn as a timeline with word-indexed
+cut boundaries, playable against the source. Single-track is the right target
+even with the gate open — the picture track is a derived projection, so a view
+built against today's `Edit` widens with the model rather than blocking on it,
+and read-only means nothing downstream depends on the shape it draws.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -178,6 +168,12 @@ validated:
 
 ## Parked — deliberately, with the reasoning
 
+- **`vo_extend`, the mirror of `cut_by_time`.** Appending real tail time only
+  becomes lucid's problem the day it mutates an MLT project in place instead
+  of regenerating one through auto-editor, which is not on the table. The two
+  constraints it would inherit are written down so they are not rediscovered
+  as a surprise: PLAN.md § The `vo_extend` mirror is a deliberate non-goal,
+  for now.
 - **Energy-snapping cut edges.** Measured non-urgent on Scream-like material:
   every known retake boundary had 0.34–2.48 s of silence and a flat 0.1 s pad
   never clipped. The failures that *looked* like drift were transcript
@@ -192,4 +188,18 @@ validated:
   reshuffle then.
 
 Non-goals stay where they are: PLAN.md § Non-goals, written down so they stay
-dead.
+dead — cloud, competing on finishing, a plugin system before two users.
+
+**One scope line moved, and it is not one of those.** README's tier 3, a full
+desktop editor, has read "explicitly *not* a goal" since the tiers were
+written, and the prior-art pass that found Daydream to *be* one left that
+standing. It is now **revisitable — a question behind the web UI, not queued
+work.** What reopens it is the read-only wall above: if that turns out to be
+the thing a real edit keeps hitting, the honest question is whether tier 3 is
+a non-goal or merely an expensive goal. What it would have to answer first is
+already measured rather than argued, and none of it has changed — the
+Electron-as-MCP-host friction from the OpenChatCut trial (the GUI must be
+running before its tools register, a confirmation card per tool per session, a
+transport that goes stale after an import) and its dependency scale against
+lucid's Python package and three subprocesses. PLAN.md § First milestones,
+the trial; [PRIOR-ART.md](PRIOR-ART.md) § OpenChatCut.

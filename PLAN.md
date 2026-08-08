@@ -239,7 +239,8 @@ left. The conclusion survives because it was always the load-bearing one, but
   each cut boundary, which a vision model can actually check. Cheap to render;
   video-use independently ships decision-point composites (filmstrip +
   waveform), which validates the idea and removes its uniqueness. An MP4 for the human and a web preview
-  (tier 2) are separate questions — don't conflate them.
+  (tier 2, now queued — [ROADMAP.md](ROADMAP.md) § Next) are separate
+  questions — don't conflate them.
 - **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than lucid
   uses.** Single-track cut-and-concat maps in both directions on real material
   (milestones 3–5), and v3 turns out to express the three things this bullet
@@ -894,8 +895,8 @@ showed the live timeline untouched.
 ### The `vo_extend` mirror is a deliberate non-goal, for now
 
 `vo_extend.py` in goodsometimes appends real tail time the same way
-`vo_trim.py` removes it, and ROADMAP.md names two constraints any lucid
-timeline mutation inherits once it does the same:
+`vo_trim.py` removes it. Two constraints any lucid timeline mutation inherits
+once it does the same:
 
 - the added time must be a real MLT `silence` producer entry, **not** a
   `<blank>` — a cue table addressed by word index cannot see a blank, so a
