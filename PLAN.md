@@ -821,3 +821,337 @@ pointing at the NLE project as the thing to count instead.
 container's `nb_frames`, which is a header a muxer can write wrong, and returns
 both so a disagreement between two ffprobe readings of one file is reported
 rather than resolved silently.
+
+## `cut_by_time`, cuts addressed by what an export played — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Accept cuts in render time — and its mirror,
+added time. Closes the first half of that item: a human watching an export
+reports a flub at the timestamp they saw, not a source word index, and
+`cut_by_time` (CLI `cut-at`) takes it exactly that way. The mirror — added
+time — is not built; see below for why.
+
+- **`Edit.source_spans` is the timeline→source inverse `timeline_span` was
+  missing.** `timeline_span` walks source time to timeline time for one clip;
+  `source_spans` walks the other direction, across however many segments (and,
+  once the model is multi-clip, clips) a `[start, end)` render-time span
+  touches, in playback order. Past-the-end is refused rather than clamped —
+  unlike `pad`'s deliberate overreach, a timestamp naming material that was
+  never on the timeline at all is almost certainly a mistake worth stopping
+  on, not silently trimming to fit.
+- **All spans in one call resolve against the timeline as it stood before any
+  of them was applied.** A list of notes taken against one watch stays valid
+  together even though a real cut would shift every later timestamp by the
+  time it removed. Overlapping spans in the same call are refused rather than
+  silently double-applied.
+- **`pad` widens only the two true outer edges of a span**, never an inner
+  seam a multi-piece span happened to cross. Padding an inner seam would reach
+  toward whatever now sits on the far side of a prior cut — material the
+  caller never named.
+- **`requested_removed == removed` is asserted, not just reported, when
+  `pad == 0.0`.** `source_spans` and `Edit.remove` are two independent walks
+  over the same segments; a mismatch between what was asked for and what
+  actually shrank means the two disagree with each other, which the code
+  calls "unreachable" and raises on rather than returning a wrong number.
+  `pad` widens the request on purpose, so the invariant only holds where
+  nothing was added.
+- **The word echo reuses `cut_by_transcript`'s own convention rather than
+  inventing a second one.** Every piece a span produced echoes the words it
+  overlaps — overlap, never containment — plus `context_before`/
+  `context_after` either side, and a span landing entirely in silence still
+  gets its nearest flanking words so there is always something to check the
+  timestamp against. Suspect boundaries (PLAN.md § Suspect word durations)
+  are refused the same way, with the same `confirm_suspect`/`plan` escape
+  hatches `cut --plan` established.
+- **A clip with no transcript still gets cut.** `words_overlapped` comes back
+  null and `transcript_missing` is set instead of refusing a valid
+  render-time cut just because a picture-only clip was never transcribed.
+
+### Measured on the Scream VO
+
+Timeline segment 33.500–36.933s ("I have never given one of them more than a
+3.5.") cut by watch-note timestamp, not word index:
+
+| `cut-at 33.9+2.9 --plan` | value |
+|---|---|
+| requested (timeline time) | 33.9 → 36.8 |
+| resolved | 1 piece, source 38.433–41.333 |
+| `words_overlapped` | idx 100–110, "have never given one of them more than a 3 .5." |
+| `context_before` / `context_after` | idx 97–99 "of them, I" / idx 111–113 "Here's the thing" |
+| `requested_removed` vs `removed` | 2.8999999999999986 vs 2.8999999999999773 — float precision only |
+| `duration_before` → `duration_after` | 335.901 → 333.001, segments 62 → 63 |
+| determinism | two identical `--plan` calls, byte-identical output |
+| past-the-end | `cut-at 500+10 --plan` → exit 1, "interval 500.000-510.000 is outside the timeline (0.000-335.901) — it names material that is not on the timeline at all" |
+
+The only word lost against the intended phrase is the leading "I" — the
+requested span started 0.013s after its onset, a clean boundary trim rather
+than a wrong range. All runs used `--plan`; `lucid status` afterward still
+showed the live timeline untouched.
+
+### The `vo_extend` mirror is a deliberate non-goal, for now
+
+`vo_extend.py` in goodsometimes appends real tail time the same way
+`vo_trim.py` removes it, and ROADMAP.md names two constraints any lucid
+timeline mutation inherits once it does the same:
+
+- the added time must be a real MLT `silence` producer entry, **not** a
+  `<blank>` — a cue table addressed by word index cannot see a blank, so a
+  `<blank>` silently adds runtime every downstream cue is blind to;
+- four declared-length spots have to be swept in step — both tractors' `out`,
+  the sequence track's `out`, `producer0`'s length.
+
+Neither is coded here, and the reason is structural rather than an oversight:
+**lucid never writes MLT.** It shells out to `auto-editor --export kdenlive`
+and auto-editor owns the XML, so `export` regenerates a timeline rather than
+mutating one in place. The day lucid mutates an MLT project directly instead
+of regenerating it, it owns both constraints above — until then they are
+documented so they are not rediscovered as a surprise, not implemented.
+
+## `check_black` and `spot_frames`, the rest of the picture-side checks — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Picture-side render checks — the rest of them.
+`check_frames` (PLAN.md § `check_frames`) is the load-bearing third of this
+item, run before a render exists; these two read a render that already does.
+
+- **`KNOWN_TAIL_FRAME` reasoning is broadened from NLE projects to bare
+  renders, deliberately.** `check_frames` only ever compares the constant
+  against an NLE-project target, because a `melt -consumer xml` read is the
+  only place the tail frame shows up before anything renders. `check_black`
+  extends the same reasoning to a finished file: the trailing frame that
+  defect produces is actually encoded, not just declared in the project XML,
+  so it can equally turn up after rendering. A run is `explained` only when
+  it sits at the tail *and* the frame delta between the target and the
+  timeline equals `picture.KNOWN_TAIL_FRAME` exactly — position has to match
+  the known defect, not just the count, so a run sitting inside the declared
+  picture is never waved away regardless of delta.
+- **blackdetect's EOF runs report `duration: 0`, measured against the
+  installed ffmpeg (8.1.2), not assumed.** `blackdetect` derives a run's
+  reported duration from the *next* frame's timestamp; a black run that
+  reaches end of stream has no next frame, so it reports zero regardless of
+  how many black frames it actually holds. That is exactly the trailing
+  kdenlive-export frame this tool exists to explain, so `min_duration`
+  defaults to **0**, not the half-frame grid the rest of this module
+  measures against — a positive default would read as "half a frame of
+  slack" and silently drop the one event the check is for. Every other run's
+  duration is a real multiple of the frame interval, never a fraction of
+  one, so nothing spurious gets in at 0 that would not already pass at
+  half a frame.
+- **`signalstats` is parsed from ffmpeg's stderr, not stdout — measured, not
+  assumed.** `extract_frame`'s `-vf signalstats,metadata=print` writes
+  through the ordinary log, which ffmpeg sends to stderr; `parse_signalstats`
+  is written against that, and the function's own parameter is named
+  `output`, not `stdout`, because of it.
+- **PNGs land in `cache/frames/<render-stem>/`.** `spot_frames` samples
+  `count` evenly-spaced frames (midpoint-sampled, so a sample never lands
+  exactly on frame 0 or the last one) plus any explicit `--at` times, each
+  extracted with `picture.extract_frame` and ranked darkest-first by `YAVG`.
+- **Word/clip mapping only fires when the render's probed duration agrees
+  with the current timeline within a frame (`mapping_trusted`).** A stale
+  render silently mapping to the wrong words would be worse than no mapping
+  at all; when it is not trusted, every frame still gets its PNG and stats,
+  only `clip_id`/`source_time`/`word` are withheld. The adversarial review
+  caught this comparing against `edit.duration` — the unquantised sum of
+  segment durations — instead of `expected_duration`, the same
+  `frame_layout` quantisation gap CLAUDE.md already warns about for
+  `check_frames`. A multi-dozen-cut export could disagree with `edit.duration`
+  by more than a frame while matching `expected_duration` exactly, marking a
+  perfectly fresh render as untrustworthy. Fixed to compare against
+  `expected_duration`, already computed one line above for the frame-count
+  gate, so the two checks cannot drift apart on this point either.
+
+### Measured on the Scream VO
+
+`Exports/Video Final v5.mp4`, 314.112s, 9423 frames, `check_frames` agreeing
+exactly (`delta: 0`) — so nothing here is explainable by the known tail-frame
+defect, and the tool has to get that right rather than wave the finding away.
+
+| `lucid black`, `pix_th` | `clean` | run |
+|---|---|---|
+| 0.10 (default) | false | 302.300–314.067s, duration 11.767s, inside picture, `explained: false` |
+| 0.05 | false | 314.067–314.067s, duration 0.0s, inside picture, `explained: false` |
+
+Both runs are correctly *not* auto-explained: `delta` is 0 and the run sits
+inside the declared picture, not past it, so the tool refuses to file a real
+11.8-second static outro card under the auto-editor tail-frame defect. Reading
+the frame confirms it by eye — `cache/frames/…/00_305.000s.png` is a dark
+"movies are good sometimes" subscribe card, held static to the end.
+
+| `lucid spots` (default 6) | time | YAVG |
+|---|---|---|
+| darkest | 235.584s | 24.887 (real dark movie still, low-key horror lighting) |
+| brightest | 26.176s | 223.748 (a Letterboxd-style review card) |
+
+Five explicit outro samples (305, 308, 310, 313, 313.9s) all read
+**YAVG 38.1592 to four decimals** — the same static card, confirmed identical
+rather than merely similar. With no transcript attached to this project,
+`clip_id`/`source_time` still populate (`mapping_trusted: true`); only `word`
+is silently withheld rather than raising, because `_transcript()`'s
+`TranscriptError` is caught here specifically.
+
+### What this does not cover
+
+Neither tool corrects anything — `check_black`'s `explained` is a label, not
+a subtraction, same as `check_frames`'s `agrees`. Multi-track compositing is
+still unmodelled, so both read a single flattened render; a project with
+picture on more than one track has no representative export for either to
+scan yet.
+
+## `attenuate_noises`, pulling noise down instead of cutting it — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Attenuate noises; don't cut them.
+
+- **Two independent gates, tagged separately.** `_classify_noise_events`
+  marks every loud run in every gap `"attenuated"`, `"suspect_neighbour"`, or
+  `"disqualified"`, with a `reasons` list — length and gap-width failures are
+  never collapsed into one reason, so a caller can tell which side of the
+  filter actually caught a given event.
+- **An event qualifies only when it is short (`max_event_seconds`, default
+  1.5s) *and* sits in a gap narrow enough to prove the map is dense around it
+  (`max_gap_seconds`, default 2.0s).** A wide gap disqualifies even a very
+  short, very loud event, because a narrow event duration is not evidence the
+  *map* is trustworthy there — the Scream v1 false positive was exactly this,
+  0.4–0.9s "events" that turned out to be speech inside a 4.12s hole the
+  transcript never wrote down (DOGFOOD.md § 2).
+- **Disqualified events have no override; suspect-neighbour ones do.** An
+  event whose bounding word carries a suspect duration (PLAN.md § Suspect
+  word durations) is withheld from writing unless `--confirm-suspect` — the
+  neighbour might itself be hiding a swallowed retake, which would make the
+  "gap is narrow" evidence unsound. An event that is simply too long or in
+  too wide a gap is never written, no confirmation overrides it. Both tiers
+  are reported in full regardless of `confirm_suspect`/`plan` — a deliberate
+  divergence from `cut_by_transcript`'s `suspect_boundaries`, which only
+  surfaces under `plan`, because this is an automatic scan that can turn up
+  many independent candidates and refusing the whole pass over one distant
+  ambiguous candidate would defeat the point.
+- **Padded spans (±`pad`, default 0.05s) are merged before writing.** The
+  adversarial review found that two loud runs in the same gap closer together
+  than `2*pad` produce overlapping padded spans, and ffmpeg's comma-chained
+  `volume=...:enable=between(...)` filters attenuate the overlap twice,
+  multiplicatively — reproduced live at roughly double the requested dB drop
+  in the shared window. Fixed by merging `(padded_start, padded_end)` pairs
+  with `speech.merge_runs(max_gap=0.0)` before building the filtergraph.
+  Write-side only: `events`/`attenuated` still report one entry per detected
+  run.
+- **Always reads the original media, never a previous attenuated copy.**
+  `media.original_media_path` is the source for every run, so re-running with
+  different parameters fully overwrites `cache/attenuated/<clip_id>.<ext>`
+  rather than compounding gain on top of an earlier pass.
+- **`media_path()` now prefers `clip["attenuated"]`, and `export` was the one
+  caller that didn't go through it.** The docstring promise — that
+  `media_path()` "picks the attenuated copy up automatically everywhere
+  downstream" — was false for exports: `autoeditor.to_v3` built each v3
+  entry's `"src"` from the manifest's raw, immutable `"source"` field, so a
+  render or kdenlive export taken after `attenuate_noises` silently used the
+  original, un-quieted file while still reporting success. Fixed: `export`
+  now resolves every clip through `media.media_path()` before handing records
+  to `to_v3`.
+- **`plan` and a real write now agree on what gets written.** `include_suspect`
+  used to be `confirm_suspect or plan`, so a `plan=True` preview always
+  included `suspect_neighbour` events regardless of `confirm_suspect` — a plan
+  could report an `output_media` path and an event count that the matching
+  real call, at the default `confirm_suspect=False`, would never actually
+  write. `to_write` is now gated by `confirm_suspect` alone on both paths, so
+  the plan's `attenuated`/`output_media` genuinely mirrors what the identical
+  non-plan call produces.
+
+### Measured on the Scream VO
+
+`lucid attenuate vo --plan` at every default: **`attenuated: []`.** Zero
+events attenuated on real material — this is the safety filter working, not
+attenuation failing to fire:
+
+| status | count | reason |
+|---|---|---|
+| `disqualified` | 13 | gap wider than `max_gap_seconds=2.0` — every one, e.g. 4 events at 55.72–58.10s in a 3.48s gap between suspect word 137 "in" (4.26s claimed) and word 138 "the", peak up to -5.7 dB |
+| `suspect_neighbour` | 5 | gap narrow enough (1.24s, 1.44s) but the bounding word (446/447 "wants"/"to", or 890/891 "not"/"making") itself carries a suspect duration |
+| `attenuated` | 0 | — |
+
+`lucid attenuate vo --confirm-suspect` promotes the 5 `suspect_neighbour`
+events and writes them (`written: true`). Measured against
+`cache/attenuated/vo.wav` with `ffmpeg -af volumedetect`:
+
+| span | original | attenuated | drop |
+|---|---|---|---|
+| 367.83–368.58s (1 event) | mean -16.4 dB / max -0.0 dB | mean -28.4 dB / max -12.0 dB | exactly -12.0 dB, both readings |
+| 189.87–190.78s (4 sub-events, merged) | mean -19.6 dB / max -2.1 dB | mean -28.4 dB / max -6.1 dB | -8.8 / -4.0 dB — less than -12 because the padded window mixes attenuated and untouched audio, which is correct |
+| 10–15s (untouched) | mean -19.1 / max 0.0 | identical | 0 |
+
+A second `--confirm-suspect` run wrote the same 5 events to the same path with
+identical dB readings on both spans — no compounding, because the source read
+is always the original file.
+
+### What this does not cover
+
+Default `attenuate` (no flags) is a **complete no-op on the real Scream VO**:
+every candidate loud event was disqualified by gap width or withheld as a
+suspect neighbour, and that is stated here rather than implied away — the
+filter is doing exactly what DOGFOOD.md § 2 asked for, not failing to attenuate
+anything. Nothing here snaps a cut edge or fixes a transcript; it only ever
+changes gain on an already-qualified span.
+
+## `speech_overlap`, the ducking prerequisite Billy/Stu never had — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Decision gate. Closes the paragraph that used to
+read "its prerequisite is a check lucid does not have" — the check now
+exists. The mid-September multi-track DECISION itself is unchanged and still
+open; this only answers "can this clip speak here?", which the gate said had
+to exist whichever way the call falls.
+
+- **Clip words map by offset against the proposal; VO words map through
+  `Edit.timeline_span`.** `clip_id` is not on the timeline yet — the current
+  model is single-track, and usually the clip being asked about isn't placed
+  — so its words map directly against the proposed `[at, at + (clip_out -
+  clip_in))` window. The VO's words map through the existing edit exactly as
+  captions do, so a VO word already cut is never counted as spoken. This is a
+  third use of a clip's own transcript, alongside `attach_transcript`/
+  `transcribe` and `cut_by_transcript`.
+- **Both sides are trimmed through `energy.believable` before anything else
+  happens** (CLAUDE.md; DOGFOOD.md § 2) — an inflated word duration hides a
+  real seam behind it. The review found the clip side trimmed only against
+  the words inside the proposed window (`clip_hits`), which for a short
+  window can be dominated by the very outlier it exists to catch — a 2-word
+  window whose median *is* the swallowed-retake word trims nothing at all.
+  Fixed: the clip's full transcript is trimmed first
+  (`clip_full_trimmed = energy.believable([...full clip words...])`) and then
+  filtered down to the window, matching how the VO side and every other
+  `believable()` caller in the codebase already derives its median from the
+  whole population being reasoned about.
+- **Merged into runs with `max_gap` tolerance** (default 0.3s) — a 0.05s gap
+  between two words is not a usable seam to duck into.
+- **Overlap, never containment, and in timeline coordinates.** `overlaps`
+  (`speech.intersect_runs`) means the placement steps on VO speech, not empty
+  air. `clean_seams` (`speech.subtract_runs`, at least `min_seam` wide,
+  default 0.5s) are the windows where `clip_id` could speak without touching
+  it.
+- **Read-only.** Nothing is written and there is no `plan=` — there is
+  nothing to preview a write of; this is the decision aid asked for before any
+  ducking mechanism is designed, not a mutation.
+
+### Measured on the Scream VO — the Billy/Stu clip
+
+This VO take does **not** contain the literal "movies make psychos more
+creative" line the gate names — searched and confirmed empty. The measurement
+below uses the VO's actual nearest thesis region instead (words ~280–334,
+source ~120.8–140.56s, "Billy and Stu spend the entire movie explaining the
+rules of a horror movie to you... The killer is the movie's argument"),
+mapped to timeline time 106.266–120.566s.
+
+| placement | `clip_speech_s` | `overlap_s` | overlap % | `clean_seam_s` | seam % | `clip_runs` |
+|---|---|---|---|---|---|---|
+| thesis region, `--at 106.4` | 18.1 | 15.401 | ~85% | 1.74 | ~9.6% | 7 |
+| start of timeline, `--at 0.0` (comparison) | 18.4 | 13.62 | ~74% | 3.14 | ~17% | 6 |
+
+Clean seams at the thesis placement: 110.566–111.186 (0.620s),
+122.659–123.279 (0.620s), 130.380–130.880 (0.500s) — every one narrower than a
+single word, none of them a real insertion point. At an arbitrary placement
+against dense VO speech the story is the same shape, just slightly less
+overlap. Either way the clip's own speech overlaps VO speech 74–85% of its
+own runtime with only sub-second clean seams — the same "no seam" conclusion
+that shelved the duck for v4, now measured by the tool rather than by hand.
+
+### What this does not cover
+
+The duck itself — splitting a shot into muted/unmuted producers plus a `mix`
+transition — is unbuilt; this answers "can it speak here", not "how to duck
+it". `vo_clip_id` assumes one VO clip on the timeline unless named explicitly,
+and `clip_id`'s placement is hypothetical throughout — nothing here puts the
+clip on a timeline that cannot yet hold it.

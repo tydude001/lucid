@@ -12,12 +12,18 @@ once all cited "ROADMAP.md item 1" meaning four different items. Anything
 built gets a named `##` section in [PLAN.md](PLAN.md); cite that instead — it
 is stable, and it is where the evidence is.
 
-Last reshuffled **2026-08-07**, which cleared the **Now** list: `verify
---windowed`, adjacent-near-duplicate and suspect-duration flagging, and the
-word-index echo with `cut --plan` under it were all built and run against the
-real Scream VO that day. The frame-count half of picture-side checks followed,
-and found a real defect on its first run. Each has its own named section in
-PLAN.md carrying the numbers; this file does not restate them.
+Last reshuffled **2026-08-08**, which clears everything that was in **Next**:
+render-time cuts, the rest of the picture-side render checks, attenuating
+noises instead of cutting them, and the decision gate's prerequisite overlap
+check were all built and run against the real Scream VO the same day. An
+adversarial review found and fixed seven correctness bugs across that work —
+notably that `export` was silently skipping attenuated audio and that a
+`plan=True` preview of `attenuate_noises` could promise a write the matching
+real call would not perform — both now fixed. PLAN.md § `cut_by_time`, cuts
+addressed by what an export played; § `check_black` and `spot_frames`, the
+rest of the picture-side checks; § `attenuate_noises`, pulling noise down
+instead of cutting it; and § `speech_overlap`, the ducking prerequisite
+Billy/Stu never had, carry the numbers; this file does not restate them.
 
 **Ordering answers to measured defects, not to competitors.** A prior-art pass
 the same day found Daydream to be a full desktop NLE rather than the chat front
@@ -58,56 +64,44 @@ REVEAL/VO/VO.json`, mounted at `~/TheVaultData`. Its word indices address
 **the v1 recording**; the pending re-record produces a different file with
 different indices and does not retire the recorded findings as evidence.
 
-## Next — feature-sized, shape known from the Scream one-offs
+## Next — cleared
 
-### 1. Picture-side render checks — the rest of them
+All three items queued here shipped the same day, against the real Scream VO,
+with an adversarial review finding and fixing seven correctness bugs across
+the batch before any of it counted as done.
 
-The frame count is **built**: `lucid frames` / `check_frames`, run against
-`melt -consumer xml` before a render or against the render after. PLAN.md
-§ `check_frames` carries the numbers, including what it found on its first real
-run — auto-editor's kdenlive export is one frame long and the frame is black.
+Picture-side render checks are now complete: the frame count was already
+built, and `check_black`/`spot_frames` (CLI `black`/`spots`) close out
+blackdetect and spot frames — the first correctly refused to explain away a
+genuine 11.8s dark outro card as the known auto-editor tail-frame defect, and
+along the way turned up a measured ffmpeg quirk (a black run reaching EOF
+reports zero duration) that shaped the tool's own default. PLAN.md
+§ `check_black` and `spot_frames`, the rest of the picture-side checks,
+carries the numbers.
 
-What is left of this item is `blackdetect` and spot frames. Both were done by
-hand for Scream, both belong with rendering/export rather than with `verify`,
-and neither is load-bearing the way the count was: the count is what made 68 cut
-positions trustworthy *before* anything rendered, where these two read a render
-that already exists.
+Attenuate noises shipped as `attenuate_noises` (CLI `attenuate`), and its most
+useful result on real material is a negative one: at every default, the
+Scream VO attenuates **nothing** — the safety filter this item asked for
+disqualified all thirteen candidate events by gap width and withheld five more
+as suspect neighbours, which is the filter working, not failing to fire. The
+review caught two write-affecting bugs here — `export` was silently reading
+past attenuated audio back to the original file, and a `plan=True` preview
+could promise a write the matching real call would not perform — both fixed.
+PLAN.md § `attenuate_noises`, pulling noise down instead of cutting it, has
+the detail.
 
-### 2. Attenuate noises; don't cut them
-
-Short, loud, non-speech events between words get pulled down (Scream used
-−12 dB), not removed — a hole where a breath was reads as an edit; a quiet
-breath reads as a person. The subtlety worth porting is the *safety filter*:
-loud audio outside the word map is **not** automatically noise, because the
-map has holes — the loudest "events" on Scream turned out to be speech inside
-a 4-second hole. Only events that are short *and* sit in a gap narrow enough
-to prove the map is dense around them qualify. Evidence: goodsometimes
-`ideas/scream.md` § Seven noises.
-
-### 3. Accept cuts in render time — and its mirror, added time
-
-A human watching an export reports flubs as render timestamps. goodsometimes
-`scripts/vo_trim.py` takes cuts that way and converts to source itself — the
-inverse of `Edit.timeline_span`. Give lucid the same shape, so "cut 0:40.4 for
-4.4 s" works directly off someone's watch notes without hand-converting
-through the edit.
-
-`vo_extend.py` is now its mirror — appending real tail time, built to give the
-Scream postscript room before the outro card — and it carries two constraints
-any lucid timeline mutation inherits:
-
-- The added time must be a real MLT `silence` producer entry, **not** a
-  `<blank>`. Cue tables addressed by word index cannot see blanks, so a
-  `<blank>` adds runtime every downstream cue is blind to.
-- Four declared-length spots have to be swept in step — both tractors' `out`,
-  the sequence track's `out`, `producer0`'s `length`. Same bug class as
-  trimming, opposite sign; `vo_trim.py` sweeps the same four.
-
-Neither is lucid's problem *yet*, and the reason is worth writing down so it
-isn't rediscovered as a surprise: lucid never writes MLT itself. It shells out
-to `auto-editor --export kdenlive` (`autoeditor.py`) and auto-editor owns the
-XML, so lucid regenerates timelines rather than mutating them. The day it
-mutates one in place, it owns both constraints above.
+Accepting cuts in render time shipped as `cut_by_time` (CLI `cut-at`) —
+`Edit.source_spans`, the timeline→source inverse of `Edit.timeline_span`,
+resolves every span against the pre-cut timeline before any of them applies,
+padding only the two true outer edges and echoing words the same way
+`cut --plan` does. PLAN.md § `cut_by_time`, cuts addressed by what an export
+played, carries the numbers. Its mirror — `vo_extend`, appending real tail
+time — is **not** built, on purpose: lucid never writes MLT itself, so the two
+constraints that mirror would inherit (a real `silence` producer rather than a
+`<blank>`; four declared-length spots swept in step) only become lucid's
+problem the day it starts mutating an MLT project in place instead of
+regenerating one through auto-editor, which is not on the table now. Nothing
+is queued behind it.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -130,19 +124,26 @@ not a joke), and left inert in `assemble_scream.py` rather than deleted. It is
 blocked only on the re-record opening a clean seam. If lucid cannot express
 this edit, it trims your VO.
 
-**Its prerequisite is a check lucid does not have.** Billy/Stu was rejected for
-v4 on measurement, not taste: a word-level whisper pass on the *source clip* put
-the line at 105.35–109.15 s against VO's own thesis sentence at 105.97–109.85 s
-— no seam, so ducking there would cut a load-bearing VO line rather than empty
-air. That is a third use for `transcribe`, which until now ran against the VO
-and against renders. The missing piece is the comparison: **does this clip's
-speech overlap VO's speech once both are mapped through the edit?** Both sides
-map through `Edit.timeline_span`, making it an overlap test in timeline
-coordinates — and it wants building whichever way the gate falls, because
-"can this clip speak here?" is asked before any ducking is designed.
+**Its prerequisite now exists.** Billy/Stu was rejected for v4 on measurement,
+not taste: a word-level whisper pass on the *source clip* put the line at
+105.35–109.15 s against VO's own thesis sentence at 105.97–109.85 s — no seam,
+so ducking there would cut a load-bearing VO line rather than empty air. The
+missing comparison — does this clip's speech overlap VO's speech once both are
+mapped through the edit? — is `speech_overlap` (CLI `speech-overlap`): clip
+words against a proposed placement, VO words through `Edit.timeline_span`
+exactly as captions map them, both trimmed through `energy.believable` first,
+overlap tested in timeline coordinates rather than containment. Run against
+the actual Billy/Stu clip and the VO's own nearest thesis region, it measured
+74–85% overlap with only sub-second clean seams — the same "no seam" verdict
+that shelved the duck for v4, now from the tool rather than by hand. PLAN.md
+§ `speech_overlap`, the ducking prerequisite Billy/Stu never had, has the
+numbers. What it does not do is design or build the duck itself, and the
+DECISION stays open at mid-September regardless — the check answers "can this
+clip speak here", not "should lucid grow tracks to let it".
 
-Until then, `assemble_scream.py` (534 lines, stdlib) is the worked reference,
-and the decision is cheaper than it was because the model is validated:
+`assemble_scream.py` (534 lines, stdlib) is still the worked reference for the
+mechanism, and the decision is cheaper than it was because the model is
+validated:
 
 - A cue table of `(source_word_index, asset)` — nothing positioned in
   timeline coordinates. Each cue runs to the next.

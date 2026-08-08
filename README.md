@@ -51,6 +51,7 @@ uv run lucid -C myproject seed vo                        # auto-editor strips si
 uv run lucid -C myproject transcript vo --search "here's the thing"
 uv run lucid -C myproject cut vo 111:114 --plan          # what do those indices say?
 uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
+uv run lucid -C myproject cut-at 40.4+4.4                # or cut by what an export played
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
 uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
 ```
@@ -125,6 +126,37 @@ on its first real run — that **auto-editor's kdenlive export is one frame
 longer than your edit, and the frame is black**. That one is upstream's, it is
 reported rather than corrected, and `export --render` does not have it. PLAN.md
 § `check_frames` has the measurements.
+
+`black` and `spots` read a render that already exists. `black` runs ffmpeg's
+blackdetect and only ever explains away a run as that known kdenlive tail
+frame when it sits at the end *and* the frame count says so — a real dark
+scene, or a dark outro card, is reported, not waved off. `spots` pulls sample
+frames out as PNGs, darkest first, with the word and clip they land on when
+the render still agrees with the timeline:
+
+```sh
+lucid black final.mp4                        # black stretches, explained or not
+lucid spots final.mp4                        # sample frames, ranked darkest-first
+```
+
+Short loud noises between words get pulled down, not cut — a hole where a
+breath was reads as an edit; a quiet breath reads as a person. `attenuate`
+only acts automatically on an event short enough, in a gap narrow enough, to
+trust the transcript around it; anything riskier is reported and left alone
+unless confirmed:
+
+```sh
+lucid attenuate vo --plan                    # what would be attenuated, and why not the rest
+lucid attenuate vo --confirm-suspect         # write it, including the edge cases
+```
+
+Before laying a clip's own audio over the VO, `speech-overlap` checks whether
+the two would collide, both mapped through the timeline the same way captions
+are:
+
+```sh
+lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
+```
 
 Multi-track editing is not built yet — see the milestones in [PLAN.md](PLAN.md).
 
