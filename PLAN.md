@@ -1748,7 +1748,7 @@ exist, and `--permission-mode` takes `manual` among others. There is **no
 
 ```
 claude -p --verbose --input-format stream-json --output-format stream-json
-       --mcp-config <generated: one server, lucid mcp -C <project>>
+       --mcp-config <generated: one server, lucid -C <project> mcp>
        --strict-mcp-config
        --tools ''
        --allowedTools 'mcp__lucid__*'
@@ -1796,9 +1796,15 @@ on this box that is Gmail, Google Drive and Calendar. A video editor's agent
 panel silently holding a mail client is exactly the kind of privilege nobody
 audits later. The flag confines it to the one generated config.
 
-The subprocess also runs with the project as its working directory, and its
-lucid MCP server is bound to that one project with `-C`, so it cannot wander
-to another project even through the tools it *is* allowed.
+The subprocess runs with the project as its working directory and its MCP
+server is spawned as `lucid -C <project> mcp` (`-C` is a global flag and
+must precede the subcommand — `lucid mcp -C` does not parse). **But the
+project binding is weaker than this section originally claimed**, found
+while building: `_cmd_mcp` ignores `-C` entirely, and every MCP tool takes
+its own explicit `path` argument — so nothing yet stops the agent pointing
+a tool it *is* allowed at a different project directory. Confinement to
+lucid's ops holds; confinement to *this project's* ops does not. The fix is
+binding `path` server-side to the `-C` value; open item in the wiki.
 
 **Prompt injection is in scope and is bounded the same way.** The transcript is
 attacker-influenced content whenever the footage is not yours, and the agent

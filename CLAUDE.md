@@ -9,7 +9,7 @@ lives in the wiki, not here.
 
 ## Things that will bite you
 
-All four are cases where the training prior is confidently wrong. Check the
+Each is a case where the training prior is confidently wrong. Check the
 installed package or the upstream repo, not your memory.
 
 - **The MCP SDK is v2. `FastMCP` no longer exists** — it is `MCPServer`, from
@@ -27,6 +27,12 @@ installed package or the upstream repo, not your memory.
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
   PLAN.md's older tables say. Why it is not an import: `asr.py`'s docstring.
+- **`claude -p` stream-json output requires `--verbose`, and the
+  allow/disallow-tools flags do not gate built-in tools.** Without
+  `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in
+  tool named in neither list just runs, unprompted — `--tools ''` is what
+  actually confines the agent panel to lucid's MCP tools. Both verified by
+  reproduction. PLAN.md § The agent panel, in mechanism.
 - **OTIO's edit algorithms are C++ only.** `overwrite`/`insert`/`trim`/`slice`/
   `ripple`/`roll`/… have no Python bindings; `opentimelineio.algorithms` gives
   you only trimming, flattening, and transition expansion. Cutting means

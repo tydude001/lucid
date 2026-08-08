@@ -34,9 +34,11 @@ It bought more than the "see it before rendering" it was queued for: the page
 plays the source and jumps the seams, so **seeing an edit costs no render at
 all**. PLAN.md § The preview/timeline web UI.
 
-**Then it got worked in, and refilled Next again** — with the workspace that
-`lucid web` turned out not to be. Tier 3 is now the goal; the queue is under
-**Now** below. PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace.
+**Then it got worked in, refilled Next with the workspace `lucid web` turned
+out not to be — and the workspace shipped the same day as well.** Tier 3 is
+the goal, and its queue is now built; what little remains of it is in the
+wiki's Open items table. PLAN.md § Tier 3 is the goal — the Daydream-shaped
+workspace.
 
 **Ordering answers to measured defects, not to competitors**, and the
 workspace is not the exception it looks like. A prior-art pass on 2026-08-07
@@ -71,61 +73,33 @@ containment; anything emitting times for playback maps through
 
 ---
 
-## Now — the workspace
+## Now — the workspace is built; the gate is what's next
 
-**Tier 3 is the goal, decided 2026-08-08**, and this is the queue that follows
-from it. The decision, the evidence that drove it, and the trap it exists to
-prevent are in PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace;
-this file does not restate them.
+**The workspace queue shipped 2026-08-08** — shell, transcript-as-document,
+the real timeline, the agent panel, and render in the window, the last of
+which crossed the tier line. Verified in a real browser against the Scream
+VO, not a fixture. Evidence, and the two `claude`-flag traps the build found
+(`--verbose`, and `--tools ''` being what actually confines the agent):
+PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace.
 
-The trigger was use, not argument. `lucid web` shipped the same day it was
-queued and was then worked in, and what came back was that it is a correct
-instrument and a poor editor — every complaint being about the inside of the
-window, none about the handoff the tier-3 note had expected to be the wall.
+What remains of it is tracked in the wiki's Open items table: binding the
+spawned MCP server to its `-C` project (the gap between the shipped panel
+and the section's stated security boundary), and the video preview proxy,
+which waits on a project with real footage.
 
-In order, each item standing alone — the first four are the window, the fifth
-is the tier line:
+The verified bar for any future UI item is unchanged: run against the real
+Scream VO (NAS, `TheVaultData/content stuff/Good Sometimes/Videos/Every
+Scream Sequel Falls Apart At The REVEAL/VO/VO.json`, mounted at
+`~/TheVaultData`; its word indices address **the v1 recording**), and
+additionally in a browser — the flatpak-Chrome recipe and its silent trap
+are in wiki `tooling.md` § Headless browser.
 
-1. **App shell and design system.** Three panes over a bottom timeline; the
-   picture becomes the centre of the window rather than a 34vh strip above two
-   others. No framework and no build step — that constraint is unchanged.
-2. **The transcript as a document.** Paragraphs off whisper's own segments,
-   inline timestamps, a show-cuts toggle, cut text struck through in place,
-   scroll to the playing word. It is addressable already; this makes it
-   readable at the same time.
-3. **A real timeline.** Ruler, zoom, track headers, named clip blocks, and a
-   waveform from `energy.envelope` — cached, because it is a second read of
-   the media. **Lanes drawn over today's single-track `Edit` are projections
-   of one track and are labelled as such in the code.**
-4. **The agent panel.** A local `claude` subprocess with `lucid mcp` attached,
-   streamed to the page. This is the category difference and the only piece
-   with genuinely new plumbing; everything above it is front end. Its tool
-   allowlist is lucid's MCP tools and nothing else — **decided against the
-   looser options, not defaulted into**, and not a flag to widen mid-debug.
-5. **Render in the window.** Export produces a watermark-free MP4 from the
-   page, through a job model, with the existing render checks reported on the
-   completion card. `ops.export` already renders; what is new is the job, the
-   progress, and reading auto-editor's *output* rather than its exit code.
-   **This is the item that crosses the tier line** — everything above it is a
-   better window onto the tier-2 lucid that already exists.
-
-"Verified" is unchanged and is not negotiable for a UI item either: run
-against the real Scream VO, where the defects actually occurred, not a
-synthetic fixture. It is on the NAS at `TheVaultData/content stuff/Good
-Sometimes/Videos/Every Scream Sequel Falls Apart At The REVEAL/VO/VO.json`,
-mounted at `~/TheVaultData`. Its word indices address **the v1 recording**;
-the pending re-record produces a different file with different indices and
-does not retire the recorded findings as evidence. A UI item is additionally
-verified **in a browser** — the flatpak-Chrome recipe, and the silent trap in
-it, are in wiki `tooling.md` § Headless browser.
-
-The Decision gate below still does not move, and the workspace does not move
-it either — for the reason the web UI was queued ahead of it in the first
-place: the picture track is a derived projection, so a view built against
-today's `Edit` widens with the model rather than blocking on it. **The
-converse is the standing constraint on item 3:** the view must not widen
-*ahead* of the model, because the export degrades silently rather than
-failing.
+The workspace did not move the Decision gate below, for the reason the web
+UI was queued ahead of it in the first place: the picture track is a derived
+projection, so the view widens with the model rather than blocking on it.
+**The converse is the standing constraint on the timeline:** the view must
+not widen *ahead* of the model, because the export degrades silently rather
+than failing.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -222,9 +196,9 @@ Non-goals stay where they are: PLAN.md § Non-goals, written down so they stay
 dead — cloud, competing on finishing, a plugin system before two users.
 
 **What separates tier 2 from tier 3 is still finishing, not mutation** — the
-definition did not change, only lucid's intent to cross it, which § Now item 5
-is. The order is workspace first, finishing second, because the window is what
-makes the render path's gaps visible.
+definition did not change, and lucid crossed it on 2026-08-08: Export renders
+a watermark-free MP4 in the window, with the render checks reported on the
+completion card rather than left for a person to remember.
 
 **This note predicted the wrong wall, and the prediction stays on the record.**
 It expected tier 3 to reopen on evidence that the *handoff* was trapping
