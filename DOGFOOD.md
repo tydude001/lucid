@@ -114,7 +114,7 @@ what `verify` (§1) is for, and it is why §1 ranks above §3.
 
 PLAN.md § Open questions calls laying clips and graphics over the VO "the next
 real decision", to be made against the next video rather than this one. That
-still stands — but `assemble_scream.py` is now a worked reference (403 lines,
+still stands — but `assemble_scream.py` is now a worked reference (534 lines,
 stdlib only), so the decision can be made against a real implementation.
 
 **The model it validates:**

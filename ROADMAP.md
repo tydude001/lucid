@@ -14,6 +14,12 @@ cheaper because the windowed pass measures the same quantity. Evidence in
 (`ideas/scream.md` § v2 and v3, `pipeline.md` § One transcription of the whole
 file is not enough).
 
+Revised again the same evening off the Scream v4/v5 pass. It touched no VO
+content, so nothing in **Now** moved. What moved is downstream: the decision
+gate has a named edit to answer instead of a hypothetical, item 6 gained a
+mirror, and the property below gained a second proof. Evidence in goodsometimes
+`ideas/scream.md` § v4/v5.
+
 ## The property everything below defends
 
 **Word indices address the source and never renumber.** When two late retakes
@@ -21,6 +27,13 @@ shifted every downstream cut by 4.4 seconds, the whole 37-shot plan recomputed
 from two `lucid cut` commands — because no cue was written in timeline seconds.
 DOGFOOD.md § The core thesis calls this the product, and it is. Any item below
 that would trade it away is wrong regardless of what it buys.
+
+A second proof arrived from the audio side, and it widens the claim.
+`music_bed.py`'s cues carry explicit lengths tuned to the old 302 s runtime, so
+appending ~12 s of outro invalidated the whole bed at once — retuning it was
+correctly abandoned as wasted work rather than attempted. Same failure as a cue
+written in timeline seconds, on music rather than shots: **the property is about
+every cue in a project, not just the shot plan.**
 
 The corollaries, already conventions in [CLAUDE.md](CLAUDE.md): trust word
 *order*, never word *durations*; survival is an *overlap* test, never
@@ -32,7 +45,10 @@ containment; anything emitting times for playback maps through
 ## Now — small, each with a real failing case to test against
 
 These are ordered by value, but all are days-not-weeks and all can be verified
-against the Scream VO, where the defect they target actually occurred.
+against the Scream VO, where the defect they target actually occurred. Every
+word index named below addresses **the v1 recording**, `VO.json` as it stands
+today — the pending re-record produces a different file with different indices,
+and does not retire these as fixtures.
 
 `verify --windowed` was item 1 and is built; what running it against the real
 exports established, including two ranking changes below, is in
@@ -99,7 +115,7 @@ a 4-second hole. Only events that are short *and* sit in a gap narrow enough
 to prove the map is dense around them qualify. Evidence: goodsometimes
 `ideas/scream.md` § Seven noises.
 
-### 6. Accept cuts in render time
+### 6. Accept cuts in render time — and its mirror, added time
 
 A human watching an export reports flubs as render timestamps. goodsometimes
 `scripts/vo_trim.py` takes cuts that way and converts to source itself — the
@@ -107,15 +123,56 @@ inverse of `Edit.timeline_span`. Give lucid the same shape, so "cut 0:40.4 for
 4.4 s" works directly off someone's watch notes without hand-converting
 through the edit.
 
+`vo_extend.py` is now its mirror — appending real tail time, built to give the
+Scream postscript room before the outro card — and it carries two constraints
+any lucid timeline mutation inherits:
+
+- The added time must be a real MLT `silence` producer entry, **not** a
+  `<blank>`. Cue tables addressed by word index cannot see blanks, so a
+  `<blank>` adds runtime every downstream cue is blind to.
+- Four declared-length spots have to be swept in step — both tractors' `out`,
+  the sequence track's `out`, `producer0`'s `length`. Same bug class as
+  trimming, opposite sign; `vo_trim.py` sweeps the same four.
+
+Neither is lucid's problem *yet*, and the reason is worth writing down so it
+isn't rediscovered as a surprise: lucid never writes MLT itself. It shells out
+to `auto-editor --export kdenlive` (`autoeditor.py`) and auto-editor owns the
+XML, so lucid regenerates timelines rather than mutating them. The day it
+mutates one in place, it owns both constraints above.
+
 ## Decision gate — multi-track, decide mid-September
 
 **The call:** does lucid *trim your VO* (single track, done) or *edit your
 video* (tracks, cue tables, compositing)? PLAN.md § Open questions says to
-decide against the next real video, and that video now has a date: the
-**October Horror Bracket, part 1 due Oct 1**, format decisions wanted
-mid-September.
+decide against the next real video. That is no longer October: the **Scream VO
+re-record** comes first, and it drags a full re-cut, a re-carded beat map, a
+reapplied score and one specific multi-track edit behind it. The **October
+Horror Bracket, part 1 due Oct 1** still sets the outside date, format
+decisions wanted mid-September.
 
-Until then, `assemble_scream.py` (403 lines, stdlib) is the worked reference,
+**The gate now has a named edit to answer rather than a hypothetical.** Beat 3's
+Billy/Stu line — "Movies don't create psychos. Movies make psychos more
+creative." — is the film stating the video's own thesis, and the wanted edit is
+to duck VO under the clip's own audio and let it land. The mechanism exists:
+splitting a shot into muted and unmuted producers with an extra mix transition,
+built for the v4 postscript, rejected on the watch *there* for a reason that
+does not apply here (that line was merely adjacent dialogue, and adjacency is
+not a joke), and left inert in `assemble_scream.py` rather than deleted. It is
+blocked only on the re-record opening a clean seam. If lucid cannot express
+this edit, it trims your VO.
+
+**Its prerequisite is a check lucid does not have.** Billy/Stu was rejected for
+v4 on measurement, not taste: a word-level whisper pass on the *source clip* put
+the line at 105.35–109.15 s against VO's own thesis sentence at 105.97–109.85 s
+— no seam, so ducking there would cut a load-bearing VO line rather than empty
+air. That is a third use for `transcribe`, which until now ran against the VO
+and against renders. The missing piece is the comparison: **does this clip's
+speech overlap VO's speech once both are mapped through the edit?** Both sides
+map through `Edit.timeline_span`, making it an overlap test in timeline
+coordinates — and it wants building whichever way the gate falls, because
+"can this clip speak here?" is asked before any ducking is designed.
+
+Until then, `assemble_scream.py` (534 lines, stdlib) is the worked reference,
 and the decision is cheaper than it was because the model is validated:
 
 - A cue table of `(source_word_index, asset)` — nothing positioned in

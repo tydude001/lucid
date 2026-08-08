@@ -244,6 +244,13 @@ left. The conclusion survives because it was always the load-bearing one, but
   the surviving ranges. It is a worked reference for what lucid would absorb,
   including the MLT details that cost the most time. [DOGFOOD.md](DOGFOOD.md) § 3.
 
+  **And it now has a concrete test case.** Beat 3's Billy/Stu line wants VO
+  ducked under a clip's own audio, which breaks the assumption underneath the
+  split above — that clips are silent and lucid owns the only audio track. Its
+  prerequisite is unbuilt whichever way the call goes: an overlap test between a
+  clip's speech and the VO's, both mapped through `Edit.timeline_span`.
+  Sequence and what gates it: [ROADMAP.md](ROADMAP.md) § Decision gate.
+
 ## Non-goals (write them down so they stay dead)
 
 - Cloud anything. No accounts, no metering, no upload.
