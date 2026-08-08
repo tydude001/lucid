@@ -39,6 +39,9 @@ EXPECTED_TOOLS = {
     "attach_transcript",
     "transcribe",
     "get_transcript",
+    "cue_add",
+    "cue_rm",
+    "cue_ls",
     "seed_timeline",
     "cut_by_transcript",
     "cut_by_time",
@@ -148,6 +151,9 @@ TOOL_TO_COMMAND = {
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
+    "cue_add": "cue",
+    "cue_rm": "cue",
+    "cue_ls": "cue",
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
     "cut_by_time": "cut-at",
@@ -250,6 +256,73 @@ def test_cut_by_transcript_end_to_end(tmp_path: Path, sources: tuple[Path, Path]
     # Undo puts the timeline back exactly.
     assert out["undone"]["timeline_duration"] == pytest.approx(12.0, abs=0.05)
     assert out["undone"]["undo_depth"] == 0
+
+
+@needs_ffprobe
+def test_cue_table_add_ls_rm_end_to_end(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """The cue table over the wire — no timeline needed, only a transcript."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        added = await client.call(
+            "cue_add", path=str(project), clip_id=clip["clip_id"], word_index=2, asset="cold-open"
+        )
+        listed = await client.call("cue_ls", path=str(project))
+        removed = await client.call(
+            "cue_rm", path=str(project), clip_id=clip["clip_id"], word_index=2
+        )
+        empty = await client.call("cue_ls", path=str(project))
+        return {"clip": clip, "added": added, "listed": listed, "removed": removed, "empty": empty}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["added"]["asset"] == "cold-open"
+    assert out["added"]["text"] == "w10"  # word 2 of the 8-word `sources` transcript
+    assert out["listed"]["count"] == 1
+    assert out["listed"]["cues"][0]["word_index"] == 2
+    assert out["removed"]["asset"] == "cold-open"
+    assert out["empty"]["count"] == 0
+
+
+@needs_ffprobe
+def test_cue_add_refuses_a_duplicate_word_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip["clip_id"], word_index=0, asset="cold-open"
+        )
+        result = await session.call_tool(
+            "cue_add",
+            {"path": str(project), "clip_id": clip["clip_id"], "word_index": 0, "asset": "s4-reveal"},
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+    assert out["is_error"]
+    assert "already has a cue" in out["text"]
 
 
 @needs_ffprobe

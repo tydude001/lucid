@@ -137,6 +137,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tx.add_argument("--last", type=int, help="last word index (inclusive)")
     p_tx.add_argument("--search", help="locate a phrase; returns word ranges")
 
+    p_cue = sub.add_parser("cue", help="manage the picture cue table (word_index -> asset)")
+    cue_sub = p_cue.add_subparsers(dest="cue_command", required=True)
+
+    p_cue_add = cue_sub.add_parser("add", help="add a cue: from this word onward, show asset")
+    p_cue_add.add_argument("clip_id")
+    p_cue_add.add_argument("word_index", type=int)
+    p_cue_add.add_argument("asset", help="a media key or path — the shot projection resolves it")
+
+    p_cue_rm = cue_sub.add_parser("rm", help="remove a cue")
+    p_cue_rm.add_argument("clip_id")
+    p_cue_rm.add_argument("word_index", type=int)
+
+    p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
+    p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
+
     p_seed = sub.add_parser("seed", help="lay a clip down as the timeline")
     p_seed.add_argument("clip_id")
     p_seed.add_argument(
@@ -498,6 +513,14 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_cue(args: argparse.Namespace) -> int:
+    if args.cue_command == "add":
+        return _emit(ops.cue_add(args.project, args.clip_id, args.word_index, args.asset))
+    if args.cue_command == "rm":
+        return _emit(ops.cue_rm(args.project, args.clip_id, args.word_index))
+    return _emit(ops.cue_ls(args.project, clip_id=args.clip_id))
+
+
 def _cmd_seed(args: argparse.Namespace) -> int:
     return _emit(
         ops.seed_timeline(
@@ -699,6 +722,7 @@ _COMMANDS = {
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
+    "cue": _cmd_cue,
     "seed": _cmd_seed,
     "cut": _cmd_cut,
     "cut-at": _cmd_cut_at,

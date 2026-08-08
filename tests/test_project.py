@@ -17,6 +17,7 @@ def test_create_lays_out_the_directory(tmp_path: Path) -> None:
     assert manifest["schema_version"] == SCHEMA_VERSION
     assert manifest["name"] == "demo"
     assert manifest["clips"] == []
+    assert manifest["cues"] == []
 
 
 def test_create_refuses_to_clobber_an_existing_project(tmp_path: Path) -> None:

@@ -104,6 +104,37 @@ def get_transcript(
 
 
 @mcp.tool()
+def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
+    """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
+
+    Source-addressed like a word range — `asset` is an opaque key or path,
+    not checked against disk here; the shot projection (not built yet)
+    resolves it, the same way assemble_scream.py's CUES table did by hand.
+    Refused if a cue already sits at that exact word; cue_rm it first to
+    replace it. Echoes the resolved word plus three either side, the same
+    convention every word-indexed tool follows.
+    """
+    return ops.cue_add(path, clip_id, word_index, asset)
+
+
+@mcp.tool()
+def cue_rm(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Remove the cue at `clip_id` word `word_index`."""
+    return ops.cue_rm(path, clip_id, word_index)
+
+
+@mcp.tool()
+def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
+    """List the picture cue table, each entry echoed with its resolved word.
+
+    Read-only. Omit `clip_id` to see every clip's cues. Ordered by
+    `(clip_id, word_index)`, not by resolved timeline position — that needs
+    the edit's surviving ranges, which is the shot projection's job.
+    """
+    return ops.cue_ls(path, clip_id=clip_id)
+
+
+@mcp.tool()
 def seed_timeline(
     path: str,
     clip_id: str,

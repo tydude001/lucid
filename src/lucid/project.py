@@ -4,7 +4,7 @@ A project is a directory on disk. Nothing is uploaded, and every artifact is
 inspectable with ordinary tools::
 
     myproject/
-      lucid.json            manifest — schema version, clip registry, settings
+      lucid.json            manifest — schema version, clip registry, cue table, settings
       media/                imported source media (copies or symlinks)
       project.otio          the timeline; the source of truth tools mutate
       cache/
@@ -29,7 +29,8 @@ from pathlib import Path
 from typing import Any
 
 #: Bumped when the on-disk layout changes incompatibly.
-SCHEMA_VERSION = 1
+#: 2 added the cue table (`cues`, PLAN.md § The layered timeline).
+SCHEMA_VERSION = 2
 
 MANIFEST_NAME = "lucid.json"
 TIMELINE_NAME = "project.otio"
@@ -168,6 +169,7 @@ class Project:
                 "schema_version": SCHEMA_VERSION,
                 "name": name or project.root.name,
                 "clips": [],
+                "cues": [],
             }
         )
         return project

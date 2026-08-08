@@ -202,6 +202,114 @@ def get_transcript(
     }
 
 
+# -- cue table -------------------------------------------------------------
+#
+# Step 1 of the layered timeline (PLAN.md § The layered timeline): a picture
+# overlay addressed by source word, never by timeline position. A cue says
+# "from this word of this clip onward, show this asset"; the shot projection
+# (step 2) turns the table into contiguous shots by mapping each cue's word
+# through the edit's surviving ranges. Nothing here touches project.otio —
+# the cue table lives in the manifest and is metadata until step 2 reads it.
+
+
+def _cue_echo(parsed: tx.Transcript, word_index: int) -> dict[str, Any]:
+    """What a cue's word index resolved to — the same convention cut/locate
+    use for any tool that takes a word index (CLAUDE.md)."""
+    start, end = parsed.span(word_index, word_index)
+    word = parsed.words[word_index]
+    return {
+        "word_index": word_index,
+        "text": word.text,
+        "start": start,
+        "end": end,
+        **_context(parsed, word_index, word_index),
+    }
+
+
+def cue_add(path: Path | str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
+    """Add a cue: from `word_index` of `clip_id` onward, show `asset`.
+
+    Source-addressed, like every other word-indexed tool here — `asset` is
+    not resolved or checked against disk; that is the shot projection's job
+    (step 2), which also knows how to turn a `card:name` key into a path.
+    Refused if a cue already sits at this exact word; remove it first with
+    `cue_rm` to replace it, so a call can never silently pick a winner
+    between two assets at the same word.
+    """
+    project = Project.open(path)
+    media.get_clip(project, clip_id)
+    parsed = _transcript(project, clip_id)
+    word_index = int(word_index)
+    echo = _cue_echo(parsed, word_index)
+
+    manifest = project.read_manifest()
+    cues = manifest.setdefault("cues", [])
+    if any(c["clip_id"] == clip_id and c["word_index"] == word_index for c in cues):
+        raise tx.TranscriptError(
+            f"{clip_id!r} already has a cue at word {word_index} — remove it "
+            "with cue_rm first (CLI: `lucid cue rm`) if you meant to replace it"
+        )
+    cues.append({"clip_id": clip_id, "word_index": word_index, "asset": asset})
+    cues.sort(key=lambda c: (c["clip_id"], c["word_index"]))
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "asset": asset, "cues": len(cues), **echo}
+
+
+def cue_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Remove the cue at `clip_id` word `word_index`."""
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    cues = manifest.get("cues", [])
+    word_index = int(word_index)
+    match = next(
+        (c for c in cues if c["clip_id"] == clip_id and c["word_index"] == word_index), None
+    )
+    if match is None:
+        known = ", ".join(f"{c['clip_id']}:{c['word_index']}" for c in cues) or "none"
+        raise tx.TranscriptError(
+            f"no cue at {clip_id!r} word {word_index} (existing cues: {known}) — see cue_ls"
+        )
+    manifest["cues"] = [c for c in cues if c is not match]
+    project.write_manifest(manifest)
+    parsed = _transcript(project, clip_id)
+    return {
+        "clip_id": clip_id,
+        "asset": match["asset"],
+        "cues": len(manifest["cues"]),
+        **_cue_echo(parsed, word_index),
+    }
+
+
+def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
+    """List the cue table, each entry echoed with its resolved word.
+
+    Read-only. `clip_id` narrows to one clip's cues; omit it to see every
+    cue in the project. Ordered by `(clip_id, word_index)`, not by resolved
+    timeline position — that ordering is the shot projection's job, once it
+    exists (step 2), because it depends on the edit's surviving ranges.
+    """
+    project = Project.open(path)
+    cues = project.read_manifest().get("cues", [])
+    if clip_id is not None:
+        cues = [c for c in cues if c["clip_id"] == clip_id]
+    cues = sorted(cues, key=lambda c: (c["clip_id"], c["word_index"]))
+
+    transcripts: dict[str, tx.Transcript] = {}
+    entries = []
+    for cue in cues:
+        cid = cue["clip_id"]
+        if cid not in transcripts:
+            transcripts[cid] = _transcript(project, cid)
+        entries.append(
+            {
+                "clip_id": cid,
+                "asset": cue["asset"],
+                **_cue_echo(transcripts[cid], cue["word_index"]),
+            }
+        )
+    return {"cues": entries, "count": len(entries)}
+
+
 # -- timeline ------------------------------------------------------------
 
 

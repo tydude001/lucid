@@ -1485,3 +1485,39 @@ what actually reopened it was the *window* — every complaint from working in
 `lucid web` sat inside it, and the handoff was never reached. The
 Electron-as-MCP-host friction it held up as tier 3's cost stayed true and
 argued for a workspace rather than a desktop app.
+
+## The cue table, step 1 of the layered timeline — 2026-08-08
+
+PLAN.md § The layered timeline, build order step 1. `lucid.json` gets a
+`cues` list — `{clip_id, word_index, asset}`, source-addressed and nothing
+in timeline coordinates, matching `assemble_scream.py`'s `(word_index,
+media_key)` table it is meant to eventually replace. Ops `cue_add`/`cue_rm`/
+`cue_ls`, CLI `lucid cue add|rm|ls`, matching MCP tools — parity asserted the
+usual way in `test_server_stdio.py`'s tool-registry and CLI-mapping checks.
+
+- **`SCHEMA_VERSION` bumped 1 → 2**, the first bump since the field existed.
+  `Project.open`'s exact-match check (CLAUDE.md: "a project written by a
+  newer lucid is refused rather than silently misread") means this is a hard
+  break for any project directory created before today — there are none in
+  this repo, only `tmp_path` fixtures, so nothing needed migrating.
+- **`cue_add` reuses the word-index machinery `cut_by_transcript` already
+  has** — `Transcript.span` for bounds-checking, `_context` for the "three
+  words either side" echo (CLAUDE.md) — rather than growing a second
+  validator. A cue at a word that does not exist raises the same
+  `TranscriptError` a bad cut range would.
+- **A second cue at the same word is refused, not overwritten.** The table
+  has no ordering of its own beyond `(clip_id, word_index)`, so two assets
+  claiming one word would need a silent tie-break; refusing forces an
+  explicit `cue_rm` first instead.
+- **`asset` is opaque.** Neither `cue_add` nor `cue_ls` resolves it against
+  disk or a `card:`-key namespace — that is the shot projection's job (step
+  2), the same division `assemble_scream.py`'s `CUES` table and
+  `resolve_media()` already had.
+- Nothing here touches `project.otio`; the cue table is manifest metadata
+  until the shot projection reads it, so no snapshot/undo applies to it.
+
+Verified against a synthetic fixture (unit tests) and the real stdio server
+process end to end, plus a manual `lucid cue add|rm|ls` run over a real
+ffprobe-imported clip. Not yet verified against the Scream VO itself — that
+happens when step 2 seeds the table from `assemble_scream.py`'s 37 cues, per
+the build order.

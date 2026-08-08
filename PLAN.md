@@ -849,7 +849,8 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
 1. **The cue table.** `(clip_id, word_index, asset)` in the manifest,
    source-addressed, nothing in timeline coordinates. Ops `cue_add`, `cue_rm`,
    `cue_ls`; CLI `lucid cue add|rm|ls`; MCP to match. Bump `schema_version` and
-   keep the reader tolerant of manifests without the key.
+   keep the reader tolerant of manifests without the key. **Built
+   2026-08-08** — HISTORY.md § The cue table, step 1 of the layered timeline.
 2. **The shot projection.** `build_shots` minus all XML — map each cue's word
    through the surviving ranges, each shot running to the next cue. ~150–200
    lines. `assemble_scream.py` is the worked reference; take its arithmetic,
