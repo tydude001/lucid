@@ -1681,10 +1681,113 @@ out. The mix is at unity and always was.
 
 - **The render (step 5) and the picture lane in the web UI (step 6)** are
   still ahead. The UI lane stays illegal until `export` can *render* what it
-  would draw, not merely describe it (CLAUDE.md).
+  would draw, not merely describe it (CLAUDE.md). *Step 5 landed the same
+  day — the next section.*
 - **Kdenlive opening the file is unverified.** The document carries the bin,
   the `kdenlive:id` linkage and the two-playlists-per-track shape Kdenlive
   writes itself, but nothing here has opened it in the GUI. melt is the
   consumer this step was built for.
 - **Seeding the real Scream cue table is still open** — same note as step 2:
-  the NAS project's manifest has been read, never written.
+  the NAS project's manifest has been read, never written. *Closed at step 5,
+  and it turned out to name a different project — see below.*
+
+## Rendering through `melt`, step 5 of the layered timeline — 2026-08-08
+
+PLAN.md § The layered timeline, build order step 5. `export(export_format=None)`
+on a multi-source timeline **renders it** now, where step 4 refused: lucid
+writes the MLT, hands it to `melt`, and then measures the file that came out.
+New in `picture.py`: `scratch()`, `render()`, `render_problems()`. `ops` grew
+`_build_mlt`/`_render_mlt` — one document builder, so the thing rendered is the
+same document `export` would have written rather than a second construction of
+it — and `timeline_view` grew `layered`.
+
+- **The exit code is trusted for nothing, in both directions.** melt exits 0
+  having rendered nothing, and exits 0 having rendered the wrong length, so the
+  render is bracketed by two checks that read numbers instead. *Before* the
+  encode: `project_frames` (`-consumer xml`) resolves the document without
+  encoding a frame, and a disagreement there refuses rather than spending the
+  encode to discover it. *After*: ffprobe's resolution and packet count against
+  what the timeline promised. A render that disagrees **is not copied to the
+  destination** — it stays in its scratch directory and the error names it,
+  because the evidence for what melt did is the file it wrote.
+- **The three traps are handled, not hoped past** (HISTORY.md § 4): the
+  consumer gets `vcodec crf preset acodec` and nothing else, a missing display
+  is a refusal rather than a warning, and everything melt has to read or write
+  lives under `$HOME`. The `systemd-run --user --scope` memory cap from
+  `goodsometimes/scripts/render.py` came across too, and says so in the reply
+  (`memory_cap`) rather than being assumed.
+- **The fourth trap, which the first three imply and none of them states:
+  `WAYLAND_DISPLAY` is not a display.** It is a socket *name*, resolved under
+  `XDG_RUNTIME_DIR`, and the two have to travel together. `display_env()` found
+  the socket and exported only the name, which is fine from a shell and fatal
+  from a **scrubbed environment** — and scrubbed is what the MCP stdio
+  transport hands its server: the SDK's `DEFAULT_INHERITED_ENV_VARS` is exactly
+  `HOME, LOGNAME, PATH, SHELL, TERM, USER` on POSIX — read off the installed
+  package, not remembered — and `XDG_RUNTIME_DIR` is not in it.
+  Measured: `Failed to create wl_display`, then no Qt platform plugin at all,
+  then melt **aborts printing nothing** — which the empty-output guard reads as
+  "the project could not be loaded", pointing at the wrong thing entirely. The
+  fix is one line and the finding is worth more than the fix: the first stdio
+  test to render for real is what surfaced it, and nothing that ran melt from a
+  shell ever could have.
+- **Staged, then copied.** The render is written into `~/lucid-render/<run>/`
+  and copied to the destination only once it agrees. A render that dies halfway
+  would otherwise leave a half-muxed file at the destination that looks
+  finished — and the destination may be on the NAS, which the flatpak's writes
+  should not be aimed at mid-encode either.
+- **The window picks a container that can hold picture.** `RenderJob` named its
+  output after the primary clip's media, which on a layered timeline is the VO's
+  `.wav` — melt would have been asked to mux h264 into a wav. It asks
+  `ops.timeline_view` whether the timeline is layered rather than reading the
+  manifest itself; the UI never decides (CLAUDE.md).
+
+### Seeded and rendered against the real material, which moved which project that means
+
+**The 37 cues do not address `Project/lucid-vo`.** `assemble_scream.py` says so
+in a comment that had not been read against lucid's own project: the indices are
+into `VO/VO2-windowed.json`, the **re-recorded** VO, re-found by phrase after
+the re-record moved every index. `lucid-vo` holds the v1 VO and a 929-word
+transcript, and the table runs to word 1118 — so seeding it there would not have
+failed loudly, it would have put 37 cues on 37 wrong words. The seeded project
+is a new one on `VO2.wav` + the windowed transcript (1150 words, word 18 =
+"The", word 83 = "might" — the phrases the table's own comments name).
+
+| | result |
+|---|---|
+| timeline | 73 segments, 410.963s — a plain silence cut, so the retakes the finished VO trimmed are still in |
+| the real 37 cues | **all 37 added, none refused**; 9 film clips from `Source/`, 12 cards from `Assets/Cards/` |
+| distinct sources in the document | **22** |
+| `melt -consumer xml`, before the encode | **9856** frames, against 9856 declared |
+| the render | **1920x816**, **9856 frames**, h264 + aac, `agrees: true` |
+| wall clock | **102s** for 411s of video, inside the 6G `systemd-run` cap |
+| `check_frames` against the render | `delta: 0`, `agrees: true` |
+| the picture at a card cue (190.9s) | the actual "Scream* — two fans of the movies" card, pillarboxed into the canvas — so `qimage` and `qtblend` both loaded |
+| the picture at a film cue (405.0s) | the Scream 4 car, full frame |
+
+**The one refusal was real, and it was `plan_picture`'s**: word 318's shot ran
+34.6s against a 30.1s clip, because this timeline keeps retakes the shot plan
+was written against a trimmed VO for. Split with one extra cue on the same
+asset — mechanical, not editorial, since the cursor rewinds and each half fits.
+That is the refusal working: the alternative is a frozen frame for four seconds
+and exit 0.
+
+**`check_black` found one 3.29s run and it is the card, not a hole.** The
+reveal-scream2022 card is near-black by design, so a luma scan reads it as
+black; the frame pulled at 190.9s has the type on it. Worth stating because the
+run reports `explained: false` and the honest reading of that is "a dark card",
+not "a missing shot" — the check cannot tell them apart and does not pretend to.
+
+### What this does not cover
+
+- **Kdenlive opening the file is still unverified** — unchanged from step 4.
+- **The canvas comes from the first picture clip**, and on this material that
+  is a cropped 1920x816 film scope frame rather than the 1920x1080 the
+  hand-built assembly used. The render agrees with the profile it declared, so
+  every check passes — but the consequence is visible: the film fills the frame
+  and the 16:9 cards are pillarboxed into it, where the assembly put the film
+  in a letterbox and gave the cards the full frame. Which is right is editorial
+  (`_mlt_resolution`'s rule that cards never size the canvas is doing exactly
+  what it says), and real material has now raised it. Left as a question rather
+  than answered by a renderer.
+- **The picture lane in the web UI (step 6)** is what this makes legal. It was
+  illegal until `export` could render what the lane would draw, and now it can.

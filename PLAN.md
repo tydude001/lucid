@@ -330,9 +330,10 @@ the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
 
 The gate is decided: **lucid edits your video.** Six shippable steps, with
 design, evidence, and what stays blocked, in § The layered timeline — the
-gate is decided, and `melt` renders it. **Steps 1–4 shipped 2026-08-08**;
-next is step 5, rendering through `melt`, then step 6, the picture lane in
-the window. Three constraints this ordering owns:
+gate is decided, and `melt` renders it. **Steps 1–5 shipped 2026-08-08**;
+next is step 6, the picture lane in the window, which step 5 has just made
+legal — `export` can now produce what that lane would draw. Three constraints
+this ordering owns:
 the cue table stays source-addressed (`(clip_id, word_index, asset)`, nothing
 in timeline coordinates); **refuse-to-build when a cue lands in a cut range**
 is built before the thing it guards; and the picture lane lands in the same
@@ -881,14 +882,18 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
    against the `Edit`'s own frame total from `autoeditor.frame_layout` — never
    from a duration (CLAUDE.md). **Built 2026-08-08** — HISTORY.md § The MLT
    writer, step 4 of the layered timeline. It also took the per-clip playback
-   cursor step 2 deferred to it, and `export` now refuses to *render* a
-   multi-source timeline rather than letting auto-editor degrade it — that
-   refusal is what step 5 replaces.
+   cursor step 2 deferred to it, and made `export` refuse to *render* a
+   multi-source timeline rather than let auto-editor degrade it — the refusal
+   step 5 then replaced with the render itself.
 5. **Render through `melt`**, HISTORY.md § 4's three traps handled, exit code
    trusted for nothing. Assert the output's **resolution and frame count**, not
    its status. The measurements to beat are already on file: the step-4 spike
    rendered its own document at 1920x1080 and exactly the declared frame
-   count, by hand.
+   count, by hand. **Built 2026-08-08** — HISTORY.md § Rendering through
+   `melt`, step 5 of the layered timeline. It also found the fourth trap the
+   first three imply and none of them states: `WAYLAND_DISPLAY` without
+   `XDG_RUNTIME_DIR` is not a display, and that is the pair a scrubbed
+   environment — the MCP stdio transport's — hands the renderer.
 6. **The picture lane in the web UI.** This becomes legal for the first time
    here and not before: the timeline may not draw a lane `export` cannot
    produce, so V2 lands in the same change that makes `export` able to produce
@@ -897,14 +902,14 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
 Seed the cue table from `assemble_scream.py`'s existing 37 cues, so the first
 layered timeline lucid builds is **this video**, checkable against a file that
 has already been watched — rather than an empty project that can only be
-checked against itself. **Done as a verification, not yet as a fixture:**
-step 2 was checked against a scratch copy of the real `Project/lucid-vo`
-project and the real 37 cues, but the NAS project's own manifest was not
-written to — the actual seeding (a persistent cue table on that project)
-is still open. Step 4 shipped without it too, verified instead against
-synthetic media it could render end to end; it now belongs with **step 5**,
-where a real render is the point. HISTORY.md § The shot projection and
-§ The MLT writer have the numbers.
+checked against itself. **Done at step 5, and it moved which project that
+means.** The 37 cues address `VO/VO2-windowed.json` — the re-recorded VO,
+re-found by phrase — while `Project/lucid-vo` holds the *v1* VO and a
+929-word transcript, so pasting the table onto that project would have put
+every cue on the wrong word. The seeded project is a new one on VO2.wav plus
+the windowed transcript, where all 37 land and the render is real:
+HISTORY.md § Rendering through `melt` has the numbers, and § The shot
+projection and § The MLT writer have the two before it.
 
 ### What stays blocked, and it is not lucid
 

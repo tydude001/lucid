@@ -13,9 +13,12 @@ render and 361 is the number this file is entitled to expect.
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
-from lucid import autoeditor, picture
+from lucid import autoeditor, media, picture
 from lucid.timeline import Edit, Segment
 
 MELT_XML = """<?xml version="1.0"?>
@@ -84,6 +87,42 @@ def test_an_unreadable_or_countless_document_raises_rather_than_guesses() -> Non
 
     with pytest.raises(picture.PictureError, match="no frame count"):
         picture.parse_melt_xml('<mlt version="7.40.0"><playlist id="p"/></mlt>')
+
+
+def test_a_wayland_socket_travels_with_the_directory_it_lives_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`WAYLAND_DISPLAY` is a socket name, and Qt resolves it under
+    `XDG_RUNTIME_DIR`. Naming one without the other is how melt aborts printing
+    nothing under a scrubbed environment — which is the environment the MCP
+    stdio transport hands its server (measured 2026-08-08)."""
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    (tmp_path / "wayland-0").touch()
+    (tmp_path / "wayland-0.lock").touch()
+
+    env = picture.display_env()
+
+    assert env["WAYLAND_DISPLAY"] == "wayland-0"
+    assert env["XDG_RUNTIME_DIR"] == str(tmp_path)
+
+
+def test_an_inherited_display_is_left_alone_but_still_kept_whole(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A session that already names a display is not second-guessed — the pair
+    is only ever completed, never replaced."""
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-9")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    (tmp_path / "wayland-9").touch()
+    (tmp_path / "wayland-0").touch()
+
+    env = picture.display_env()
+
+    assert env["WAYLAND_DISPLAY"] == "wayland-9"
+    assert env["XDG_RUNTIME_DIR"] == str(tmp_path)
 
 
 def test_melt_command_prefers_an_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,6 +205,195 @@ def test_parse_signalstats_reads_every_lavfi_key() -> None:
     assert stats["YMAX"] == 240.0
     assert stats["YDIF"] == pytest.approx(0.983398)
     assert isinstance(stats["YMIN"], float)
+
+
+# -- rendering, and what the render is checked against -------------------
+
+
+def _measured(**overrides: object) -> dict[str, object]:
+    """A 5s 1080p render at 30fps, as `render()` measures one off disk."""
+    return {
+        "width": 1920,
+        "height": 1080,
+        "frames": 150,
+        "duration": 5.0,
+        "has_video": True,
+        "has_audio": True,
+    } | overrides
+
+
+def test_a_degraded_resolution_is_a_problem_however_melt_exited() -> None:
+    """720x576 is auto-editor's multi-source downgrade signature, and the whole
+    reason the pixels are checked rather than the status."""
+    problems = picture.render_problems(
+        _measured(width=720, height=576), expect_resolution=(1920, 1080)
+    )
+
+    assert len(problems) == 1
+    assert "720x576" in problems[0]
+
+
+def test_a_frame_count_that_padded_the_render_is_a_problem() -> None:
+    problems = picture.render_problems(_measured(frames=181), expect_frames=150)
+
+    assert len(problems) == 1
+    assert "+31" in problems[0]
+
+
+def test_duration_is_not_compared_when_there_are_frames_to_count() -> None:
+    """An mp4's duration is the longest of its streams, and an AAC stream
+    routinely outruns the video by a frame of padding. Comparing it on a video
+    render would fail correct ones — the frame count is the exact check."""
+    assert picture.render_problems(
+        _measured(duration=5.07), expect_frames=150, expect_duration=5.0
+    ) == []
+
+
+def test_an_audio_only_render_falls_back_to_its_duration() -> None:
+    """The ordinary shape for a VO project with two clips and no picture: there
+    are no frames to count, so the container duration is the only length."""
+    audio_only = _measured(frames=None, has_video=False, width=None, height=None, duration=5.6)
+
+    problems = picture.render_problems(
+        audio_only, expect_frames=150, expect_resolution=(1920, 1080), expect_duration=5.0
+    )
+
+    assert len(problems) == 1
+    assert "no video stream" in problems[0]
+    # And inside the tolerance it is not a problem — AAC pads to 1024 samples.
+    assert picture.render_problems(audio_only | {"duration": 5.02}, expect_duration=5.0) == []
+
+
+class _FakeMelt:
+    """A melt that writes the file it was asked for and reports nothing else.
+
+    The render path is a subprocess, a probe and a copy; this replaces the
+    subprocess so the other two can be asserted on. What a real melt does with
+    a real document is measured against a real render instead — no fake can
+    establish that.
+    """
+
+    def __init__(self) -> None:
+        self.command: list[str] = []
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        self.command = command
+        target = next(a for a in command if a.startswith("avformat:")).removeprefix("avformat:")
+        Path(target).write_bytes(b"a render, honestly")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+
+@pytest.fixture
+def melt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _FakeMelt:
+    fake = _FakeMelt()
+    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
+    monkeypatch.setattr(picture.subprocess, "run", fake)
+    monkeypatch.setattr(picture.media, "probe", lambda p: _PROBE)
+    monkeypatch.setattr(
+        picture.media,
+        "count_frames",
+        lambda p: {"frames": 150, "container_frames": 150, "duration": 5.0, "has_video": True},
+    )
+    return fake
+
+
+_PROBE = media.MediaInfo(
+    duration=5.0,
+    has_video=True,
+    has_audio=True,
+    fps=30.0,
+    width=1920,
+    height=1080,
+    sample_rate=48000,
+    channels=2,
+    video_codec="h264",
+    audio_codec="aac",
+    vfr=False,
+)
+
+
+def test_the_consumer_gets_the_codec_and_nothing_else(
+    melt: _FakeMelt, tmp_path: Path
+) -> None:
+    """Restating the project profile on the consumer is what the 14.6 GB that
+    froze the machine correlated with, and no single one of the four extra
+    properties reproduces it alone (HISTORY.md § 4) — so the assertion is that
+    none of them is there at all."""
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    picture.render(project, tmp_path / "out.mp4", expect_frames=150)
+
+    assert melt.command[-4:] == list(picture.RENDER_ARGS)
+    assert not [a for a in melt.command if a.split("=")[0] in {"width", "height", "progressive", "ab"}]
+
+
+def test_the_render_is_staged_under_the_scratch_root_then_copied(
+    melt: _FakeMelt, tmp_path: Path
+) -> None:
+    """Staged because the flatpak cannot see the host's `/tmp`, and because a
+    render that dies halfway would otherwise leave a half-muxed file at the
+    destination that looks finished."""
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+    output = tmp_path / "renders" / "out.mp4"
+
+    result = picture.render(project, output, expect_frames=150, expect_resolution=(1920, 1080))
+
+    staged = next(a for a in melt.command if a.startswith("avformat:")).removeprefix("avformat:")
+    assert Path(staged).is_relative_to(tmp_path / "scratch")
+    assert output.is_file()
+    assert result["agrees"] is True
+    assert result["frames"] == 150
+    assert not (tmp_path / "scratch").exists() or not list((tmp_path / "scratch").iterdir())
+
+
+def test_a_render_that_disagrees_is_not_copied_into_place(
+    melt: _FakeMelt, tmp_path: Path
+) -> None:
+    """The staged file is kept and named: the evidence for what melt did is the
+    file it wrote."""
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+    output = tmp_path / "out.mp4"
+
+    with pytest.raises(picture.PictureError, match="disagrees with the timeline"):
+        picture.render(project, output, expect_frames=99)
+
+    assert not output.exists()
+    staged = next(a for a in melt.command if a.startswith("avformat:")).removeprefix("avformat:")
+    assert Path(staged).is_file()
+
+
+def test_a_render_with_no_display_refuses_rather_than_dropping_the_picture_lane(
+    melt: _FakeMelt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a display every `qimage` producer and the `qtblend` transition
+    refuse to load, the picture lane vanishes and melt still exits 0
+    (HISTORY.md § 4) — so this is a refusal, not a warning."""
+    monkeypatch.setattr(picture, "display_env", dict)
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    with pytest.raises(picture.PictureError, match="no display"):
+        picture.render(project, tmp_path / "out.mp4")
+
+
+def test_a_render_melt_did_not_write_is_a_failure_whatever_it_exited(
+    melt: _FakeMelt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        picture.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "", "melt: eh"),
+    )
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    with pytest.raises(picture.PictureError, match="rendered nothing"):
+        picture.render(project, tmp_path / "out.mp4")
 
 
 def test_blackdetect_missing_target_raises() -> None:

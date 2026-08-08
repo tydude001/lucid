@@ -453,7 +453,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser(
         "export",
         help="export or render the timeline (multi-source projects are written as MLT "
-        "by lucid; everything else goes through auto-editor)",
+        "by lucid and rendered by melt; everything else goes through auto-editor)",
     )
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -465,12 +465,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_export.add_argument(
         "--render",
         action="store_true",
-        help="render media instead of exporting an NLE project",
+        help="render media instead of exporting an NLE project (melt on a "
+        "multi-source timeline, auto-editor otherwise)",
     )
     p_export.add_argument(
         "--fps",
         type=float,
-        help="frame rate for the NLE timeline (default: the picture's, else 30)",
+        help="frame rate for the NLE timeline, and for a multi-source render "
+        "(default: the picture's, else 30)",
     )
 
     return parser

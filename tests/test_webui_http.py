@@ -27,6 +27,8 @@ from urllib.parse import urlsplit
 import pytest
 
 from lucid import ops, webui
+from lucid import timeline as tl
+from lucid.project import Project
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -697,6 +699,56 @@ def _next_render_event(events: Iterator[tuple[str, Any]], job_id: str) -> dict[s
         if event == "render" and data.get("job_id") == job_id and data.get("status") != "running":
             return data
     raise AssertionError(f"no completion event arrived for render {job_id}")
+
+
+def test_a_layered_project_renders_into_a_container_melt_can_mux(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The suffix follows the primary clip — except on a layered timeline.
+
+    That one is rendered by melt with `vcodec=libx264`, and the VO it lays
+    picture over is a `.wav`: naming the output after it would ask melt to mux
+    h264 into a wav. The fact that the timeline is layered comes from
+    `ops.timeline_view`, not from a second reading of the manifest here —
+    the window never decides (CLAUDE.md).
+    """
+    second = project.parent / "vo2.wav"
+    _make_wav(second)
+    ops.import_media(project, second, clip_id="vo2")
+    view = ops.timeline_view(str(project))
+    tl.write(
+        tl.to_otio(
+            tl.Edit([tl.Segment("vo", 0.0, 2.0), tl.Segment("vo2", 0.0, 2.0)]),
+            {c["clip_id"]: c for c in Project.open(project).read_manifest()["clips"]},
+            rate=view["timebase"],
+            name="proj",
+        ),
+        Project.open(project).timeline_path,
+    )
+    assert ops.timeline_view(str(project))["layered"] is True
+    seen: dict[str, str] = {}
+
+    def _stub(path: str, output: str, **kwargs: Any) -> dict[str, Any]:
+        seen["output"] = output
+        _make_wav(Path(output), duration=0.3)
+        return {"output": output, "format": "media", "writer": "melt"}
+
+    monkeypatch.setattr(ops, "export", _stub)
+    monkeypatch.setattr(ops, "verify", lambda *a, **k: {"agrees": True, "stub": True})
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {})
+        assert status == 202
+        assert _next_render_event(events, payload["job_id"])["status"] == "done"
+    finally:
+        conn.close()
+
+    assert Path(seen["output"]).suffix == ".mp4"
 
 
 def test_render_accepted_returns_a_job_id(server: str, monkeypatch: pytest.MonkeyPatch) -> None:

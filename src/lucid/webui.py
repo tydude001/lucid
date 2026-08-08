@@ -532,6 +532,12 @@ class RenderJob:
         The suffix follows the primary clip's own media — the same clip
         `ops.export` treats as primary (`edit.segments[0]`) — so the
         container this picks matches the one auto-editor is about to write.
+        **Except on a layered timeline**, which melt renders as picture over
+        the VO: a `.wav` primary would then name a container that cannot hold
+        the video the render is for. `layered` is `ops.timeline_view`'s answer,
+        not a second reading of the manifest here — the UI never decides
+        (CLAUDE.md).
+
         Everything here can raise before any job state is touched, which is
         what makes an empty timeline a 400 rather than a job that starts only
         to immediately error.
@@ -542,7 +548,7 @@ class RenderJob:
         if not segments:
             raise WebUIError("the timeline is empty — nothing to render")
         clip = media.get_clip(project, segments[0]["clip_id"])
-        suffix = media.media_path(project, clip).suffix or ".mp4"
+        suffix = ".mp4" if view.get("layered") else (media.media_path(project, clip).suffix or ".mp4")
         return project.render_dir / f"web-{job_id}{suffix}"
 
     def start(self, preset: str | None) -> str:

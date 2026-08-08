@@ -3178,13 +3178,26 @@ def test_a_cue_table_makes_export_write_mlt_itself(tmp_path: Path) -> None:
 
 @needs_ffprobe
 @needs_ffmpeg
-def test_rendering_a_cued_project_refuses_instead_of_degrading(tmp_path: Path) -> None:
-    """auto-editor renders two sources at 720x576 and exits 0, so there is no
-    safe fallback to make — the refusal is the feature."""
-    audio, transcript = _make_sources(tmp_path)
-    film = tmp_path / "film.mp4"
+@needs_melt
+def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
+    visible_tmp: Path,
+) -> None:
+    """Step 5, end to end and against a real melt: a cued project renders.
+
+    Everything here is the thing itself — a real film clip, a real cue, a real
+    encode — because every failure this path routes around produces a file and
+    exit 0 rather than an error. auto-editor would render this at 720x576;
+    melt has no source-count gate, and what proves which one ran is the
+    resolution ffprobe reads back off the finished file.
+
+    Under `$HOME` (`visible_tmp`), not `tmp_path`: the flatpak cannot see the
+    host's /tmp, and a project it cannot read renders nothing while exiting 0.
+    """
+    audio, transcript = _make_sources(visible_tmp)
+    film = visible_tmp / "film.mp4"
     _make_video(film, duration=12.0)
-    project = tmp_path / "proj"
+    project = visible_tmp / "proj"
+    output = visible_tmp / "out.mp4"
 
     async def body(session: ClientSession) -> Any:
         client = Client(session)
@@ -3193,12 +3206,24 @@ def test_rendering_a_cued_project_refuses_instead_of_degrading(tmp_path: Path) -
         await client.call(
             "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
         )
-        return await session.call_tool(
-            "export",
-            {"path": str(project), "output": str(tmp_path / "out.mp4"), "export_format": None},
+        rendered = await client.call(
+            "export", path=str(project), output=str(output), export_format=None
+        )
+        return rendered, await client.call(
+            "check_frames", path=str(project), target=str(output)
         )
 
-    result = anyio.run(_with_server, body)
+    rendered, frames = anyio.run(_with_server, body)
 
-    assert result.is_error
-    assert "720x576" in result.content[0].text
+    assert rendered["writer"] == "melt"
+    assert rendered["format"] == "media"
+    # melt's own answer before the encode, and the file's after it.
+    assert rendered["melt_frames"] == rendered["frames"] == 360
+    assert rendered["rendered"]["frames"] == 360
+    assert (rendered["rendered"]["width"], rendered["rendered"]["height"]) == (160, 120)
+    assert rendered["rendered"]["has_video"] and rendered["rendered"]["has_audio"]
+    assert Path(rendered["output"]).is_file()
+    # And the picture-side check agrees with it, with no tail frame to explain:
+    # that defect is auto-editor's kdenlive export, and this document is lucid's.
+    assert frames["delta"] == 0
+    assert frames["agrees"] is True

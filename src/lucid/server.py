@@ -338,13 +338,16 @@ def export(
     pass straight through.
 
     A **multi-source** timeline — one with a cue table, or with two clips on
-    it — is written by lucid itself as MLT ("kdenlive" or "mlt"), because
-    auto-editor refuses to export a second source and renders it at 720x576
-    while exiting 0. That path cannot render yet; export the project and hand
-    it to melt. The reply says which writer ran.
+    it — is written by lucid itself as MLT ("kdenlive" or "mlt") and rendered
+    by melt, because auto-editor refuses to export a second source and renders
+    it at 720x576 while exiting 0. The reply says which writer ran
+    ("auto-editor", "mlt" or "melt"), and a melt render reports the resolution
+    and frame count measured off the finished file rather than melt's exit code.
 
     `fps` sets the NLE timeline's frame rate; it defaults to the picture's rate,
-    or 30 for an audio-only project. It is ignored when rendering media.
+    or 30 for an audio-only project. It sets the render's frame rate too on the
+    multi-source path, where lucid owns the profile; it is ignored when
+    auto-editor renders a single-source timeline.
     """
     return ops.export(path, output, export_format=export_format, fps=fps)
 

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from lucid import autoeditor, mlt, ops
+from lucid import autoeditor, mlt, ops, picture
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.project import Project, ProjectError
@@ -85,6 +86,13 @@ def project(tmp_path: Path) -> Project:
 
 def _document(path: Path) -> ET.Element:
     return ET.fromstring(path.read_text(encoding="utf-8"))
+
+
+def _declared(path: Path) -> int:
+    """What a stand-in melt would report for a document: its own declared
+    length. `mlt.declared_frames` has already refused a document whose spots
+    disagree, so there is exactly one number to read back."""
+    return next(iter(set(mlt.declared_frames(_document(path)).values())))
 
 
 def test_a_cue_table_routes_the_export_through_the_mlt_writer(
@@ -165,15 +173,79 @@ def test_a_second_clip_on_the_timeline_routes_through_mlt_without_any_cues(
     assert result["sources"] == 2
 
 
-def test_rendering_a_multi_source_timeline_refuses_rather_than_degrading(
-    project: Project, tmp_path: Path
+def test_rendering_a_multi_source_timeline_goes_to_melt_not_auto_editor(
+    project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The failure this guards is silent: auto-editor renders two sources at
-    720x576 and exits 0, so falling back to it would produce a file that looks
-    like a success."""
+    """The failure this routes around is silent: auto-editor renders two
+    sources at 720x576 and exits 0, so a fallback would write a file that looks
+    like a success. melt has no source-count gate."""
     ops.cue_add(project.root, "vo", 0, "film")
+    seen: dict[str, Any] = {}
 
-    with pytest.raises(ProjectError, match="720x576"):
+    def fake_render(project_file: Path, output: Path, **kwargs: Any) -> dict[str, Any]:
+        seen["project_file"] = Path(project_file)
+        seen["expect"] = kwargs
+        return {"output": str(output), "width": 1920, "height": 1080, "frames": 150}
+
+    monkeypatch.setattr(
+        autoeditor,
+        "run_timeline",
+        lambda *a, **k: pytest.fail("auto-editor must never be handed a multi-source timeline"),
+    )
+    monkeypatch.setattr(picture, "project_frames", lambda p: _declared(Path(p)))
+    monkeypatch.setattr(picture, "render", fake_render)
+
+    result = ops.export(project.root, tmp_path / "out.mp4", export_format=None)
+
+    assert result["writer"] == "melt"
+    assert result["format"] == "media"
+    assert result["rendered"]["width"] == 1920
+    # What melt was handed, and what it was checked against.
+    assert seen["expect"]["expect_frames"] == result["frames"]
+    assert seen["expect"]["expect_resolution"] == (1920, 1080)
+    assert seen["expect"]["expect_duration"] == pytest.approx(result["frames"] / EXPORT_FPS)
+
+
+def test_the_rendered_document_is_written_where_melt_can_read_it(
+    project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not `/tmp`: melt runs from a flatpak that cannot see the host's, and
+    exits 0 having read nothing (CLAUDE.md). The document is also the same one
+    `export` would have written, not a second construction of it."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
+    handed: dict[str, Any] = {}
+
+    def fake_project_frames(path: Path) -> int:
+        handed["path"] = Path(path)
+        handed["text"] = Path(path).read_text(encoding="utf-8")
+        return _declared(Path(path))
+
+    monkeypatch.setattr(picture, "project_frames", fake_project_frames)
+    monkeypatch.setattr(
+        picture, "render", lambda p, output, **k: {"output": str(output), "frames": 150}
+    )
+
+    ops.export(project.root, tmp_path / "out.mp4", export_format=None)
+    exported = ops.export(project.root, tmp_path / "out.kdenlive")
+
+    assert handed["path"].is_relative_to(tmp_path / "scratch")
+    assert handed["text"] == Path(exported["output"]).read_text(encoding="utf-8")
+
+
+def test_a_render_is_refused_before_encoding_when_melt_disagrees(
+    project: Project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """melt renders to the longest declared length it finds, so a document it
+    already reads as a different length would render that long and exit 0.
+    Cheaper to catch with `-consumer xml` than with an encode."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    monkeypatch.setattr(picture, "project_frames", lambda p: _declared(Path(p)) + 1)
+    monkeypatch.setattr(
+        picture, "render", lambda *a, **k: pytest.fail("the encode must not be spent")
+    )
+
+    with pytest.raises(ProjectError, match="refusing to spend an encode"):
         ops.export(project.root, tmp_path / "out.mp4", export_format=None)
 
 

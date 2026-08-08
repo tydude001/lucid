@@ -12,6 +12,7 @@ wants something to print as JSON.
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -672,6 +673,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     no transcript still returns segments and seams; `words` is null and
     `transcript_missing` is set, matching `locate`'s policy rather than
     refusing a valid question about a picture-only clip.
+
+    `layered` says whether this timeline names more than one source — a cue
+    table or a second clip — which is what decides whether `export` writes and
+    renders it through MLT/melt or hands it to auto-editor. It is reported here
+    rather than recomputed by a front end for the usual reason: the answer is
+    what routes around a silent failure, and a second implementation of it
+    would be a second chance to get it wrong.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -707,6 +715,7 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "timeline_duration": edit.duration,
         "timebase": _rate(project),
         "undo_depth": len(project.snapshots()),
+        "layered": _is_layered(project, edit),
         "segments": _placed_segments(edit),
         "seams": _seams(edit, clip_id, placements),
     }
@@ -1914,37 +1923,20 @@ def _mlt_resolution(project: Project) -> tuple[int, int]:
     return mlt.DEFAULT_RESOLUTION
 
 
-def _export_mlt(
-    project: Project,
-    edit: tl.Edit,
-    output: Path | str,
-    *,
-    export_format: str | None,
-    fps: float | None,
-) -> dict[str, Any]:
-    """Write the multi-source timeline as MLT — step 4 of the layered timeline.
+def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[str, Any]:
+    """The MLT document for this timeline, plus the facts it was built from.
 
     The frame grid is settled once, here, and everything downstream is handed
     it: the edit's entries come from `autoeditor.frame_layout` and the picture
     lane from `build_shots(fps=rate)`, so the two are quantised on the same
     grid by construction rather than by agreeing afterwards. `mlt.document`
     then refuses the pair if they still do not sum to the same total.
-    """
-    if export_format is None:
-        raise ProjectError(
-            "rendering a multi-source timeline is step 5 of the layered timeline "
-            "and is not built yet — and auto-editor must not be handed it as a "
-            "fallback, because it degrades a two-source render to 720x576 and "
-            "exits 0. Export the project (the default) and render that with melt."
-        )
-    if export_format not in MLT_EXPORT_FORMATS:
-        raise ProjectError(
-            f"this timeline has more than one source, so lucid writes it itself, "
-            f"and what it writes is MLT — {export_format!r} would have to go "
-            "through auto-editor, whose exporter refuses a second source (exit 2). "
-            f"Ask for one of {sorted(MLT_EXPORT_FORMATS)}."
-        )
 
+    Shared by the two things that can be done with a multi-source timeline —
+    handing it to an NLE (`_export_mlt`) and rendering it (`_render_mlt`) — so
+    that what gets rendered is the same document that would have been exported,
+    rather than a second construction of it.
+    """
     rate = float(fps) if fps else _export_fps(_clips_by_id(project))
     audio = []
     for segment, (offset, frames) in zip(edit.segments, autoeditor.frame_layout(edit, rate)):
@@ -1959,30 +1951,124 @@ def _export_mlt(
         )
 
     shots: list[dict[str, Any]] = []
-    picture: list[mlt.Entry] = []
+    lane: list[mlt.Entry] = []
     if project.read_manifest().get("cues"):
         shots = build_shots(project.root, fps=rate)["shots"]
-        picture = mlt.plan_picture(shots, rate)
+        lane = mlt.plan_picture(shots, rate)
 
+    resolution = _mlt_resolution(project)
     document = mlt.document(
         audio=audio,
-        picture=picture,
+        picture=lane,
         rate=rate,
-        resolution=_mlt_resolution(project),
+        resolution=resolution,
         name=project.read_manifest().get("name") or project.root.name,
     )
-    written = mlt.write(document, output)
     return {
-        "output": str(written),
-        "format": export_format,
-        "writer": "mlt",
-        "timebase": rate,
-        "segments": len(edit.segments),
-        "shots": len(shots),
-        "sources": len({entry.resource for entry in [*audio, *picture]}),
+        "document": document,
+        "rate": rate,
+        "resolution": resolution,
+        "shots": shots,
         "frames": sum(entry.frames for entry in audio),
-        "timeline_duration": edit.duration,
+        "sources": len({entry.resource for entry in [*audio, *lane]}),
     }
+
+
+def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, Any]:
+    """The fields both multi-source roads report, so they cannot drift apart."""
+    return {
+        "writer": extra.pop("writer"),
+        "timebase": built["rate"],
+        "segments": len(edit.segments),
+        "shots": len(built["shots"]),
+        "sources": built["sources"],
+        "frames": built["frames"],
+        "timeline_duration": edit.duration,
+        **extra,
+    }
+
+
+def _export_mlt(
+    project: Project,
+    edit: tl.Edit,
+    output: Path | str,
+    *,
+    export_format: str | None,
+    fps: float | None,
+) -> dict[str, Any]:
+    """Write the multi-source timeline as MLT — step 4 of the layered timeline."""
+    if export_format is None:
+        return _render_mlt(project, edit, output, fps=fps)
+    if export_format not in MLT_EXPORT_FORMATS:
+        raise ProjectError(
+            f"this timeline has more than one source, so lucid writes it itself, "
+            f"and what it writes is MLT — {export_format!r} would have to go "
+            "through auto-editor, whose exporter refuses a second source (exit 2). "
+            f"Ask for one of {sorted(MLT_EXPORT_FORMATS)}."
+        )
+
+    built = _build_mlt(project, edit, fps=fps)
+    written = mlt.write(built["document"], output)
+    return _mlt_reply(built, edit, writer="mlt", output=str(written), format=export_format)
+
+
+def _render_mlt(
+    project: Project, edit: tl.Edit, output: Path | str, *, fps: float | None
+) -> dict[str, Any]:
+    """Render the multi-source timeline through `melt` — step 5.
+
+    auto-editor never sees this timeline: it degrades a two-source render to
+    720x576 and exits 0 (CLAUDE.md), which is a file that looks like a success.
+    `melt` has no source-count gate — it rendered the real 23-source Scream
+    assembly at 1920x1080 (PLAN.md § The layered timeline).
+
+    Three things this owes a reader, in the order they happen:
+
+    * **The document goes under `$HOME`**, via `picture.scratch()`. melt runs
+      from a flatpak that cannot see the host's `/tmp` and exits 0 having read
+      nothing, so a project written to a temp dir would render silence.
+    * **melt is asked what it would render before anything is encoded.**
+      `project_frames` resolves the document without encoding a frame, and
+      exact agreement there is what made 68 cut positions trustworthy before a
+      render existed (HISTORY.md § 3). Disagreement refuses here rather than
+      spending the encode to discover it.
+    * **The finished file is measured, not believed** — `picture.render` does
+      that, and only copies a render that agrees into place.
+
+    The scratch directory survives a failure on purpose: the document melt was
+    given is the evidence for what it did with it.
+    """
+    built = _build_mlt(project, edit, fps=fps)
+    expected = built["frames"]
+    work = picture.scratch("timeline-")
+    project_file = mlt.write(built["document"], work / "timeline.mlt")
+
+    declared = picture.project_frames(project_file)
+    if declared != expected:
+        raise ProjectError(
+            f"melt reads {project_file} as {declared} frames where the timeline is "
+            f"{expected} — refusing to spend an encode on a document that already "
+            "disagrees with the edit. melt renders to the longest declared length "
+            "it finds, so the render would have been that long too, and exited 0."
+        )
+
+    rendered = picture.render(
+        project_file,
+        output,
+        expect_frames=expected,
+        expect_resolution=built["resolution"],
+        expect_duration=expected / built["rate"],
+    )
+    shutil.rmtree(work, ignore_errors=True)
+    return _mlt_reply(
+        built,
+        edit,
+        writer="melt",
+        output=rendered["output"],
+        format="media",
+        melt_frames=declared,
+        rendered=rendered,
+    )
 
 
 def export(
@@ -2005,13 +2091,15 @@ def export(
     wanted, and cut points land in inter-word silence where a 33ms grid is
     irrelevant.
 
-    **A multi-source project takes a different road entirely** (step 4 of the
-    layered timeline): lucid generates the MLT itself, through `mlt`, because
-    auto-editor refuses to export more than one `src` (exit 2) and degrades
-    the render to 720x576 with exit 0. The choice is made from the project,
-    not from a flag — a cue table or a second clip on the timeline *is* a
-    multi-source timeline, and there is no combination of arguments that
-    should route one through the path that silently ruins it.
+    **A multi-source project takes a different road entirely** (steps 4 and 5
+    of the layered timeline): lucid generates the MLT itself, through `mlt`,
+    and renders it with `melt`, because auto-editor refuses to export more than
+    one `src` (exit 2) and degrades the render to 720x576 with exit 0. The
+    choice is made from the project, not from a flag — a cue table or a second
+    clip on the timeline *is* a multi-source timeline, and there is no
+    combination of arguments that should route one through the path that
+    silently ruins it. The reply says which road was taken: `"writer"` is
+    `"auto-editor"`, `"mlt"`, or `"melt"`.
     """
     project = Project.open(path)
     edit = _load_edit(project)

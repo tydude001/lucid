@@ -73,8 +73,9 @@ installed package or the upstream repo, not your memory.
     lane `export` cannot produce** — the multi-source render degrades silently
     (see auto-editor above), so the window would look right and the file would
     be wrong. The view widens when the model does, never ahead of it.
-    PLAN.md § Tier 3 is the goal. The picture lane is queued and still
-    illegal — it lands in the same change that teaches `export` to produce it.
+    PLAN.md § Tier 3 is the goal. The picture lane is **legal now and not yet
+    drawn** — `export` renders a layered timeline as of step 5, which is what
+    the rule was waiting on.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a
@@ -108,7 +109,15 @@ installed package or the upstream repo, not your memory.
   `/tmp`.** It has no host package here; resolve it through
   `picture.melt_command()`. Pointed at a project under `/tmp` it prints
   `Failed to load` and **exits 0**, so its exit code proves nothing — check its
-  output. Anything writing a project for melt to read puts it under `$HOME`.
+  output. Anything writing a project for melt to read puts it under `$HOME`,
+  and that includes what it *writes*: `picture.render` stages into
+  `~/lucid-render/` and copies out only after the file agrees with the timeline.
+  - **`WAYLAND_DISPLAY` alone is not a display.** It names a socket that Qt
+    resolves under `XDG_RUNTIME_DIR`; with only the name, melt aborts printing
+    nothing and the empty output reads as an unloadable project. Go through
+    `picture.display_env()`, which exports both — and note the environment it
+    is compensating for is the **MCP stdio transport's**, which passes HOME,
+    PATH and little else. HISTORY.md § Rendering through `melt`.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

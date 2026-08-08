@@ -21,6 +21,13 @@ background track nobody had touched.
 `melt_command` resolves it, and `display_env` carries the Qt trap that costs a
 render its card track — both ported from goodsometimes `scripts/render.py`
 rather than rediscovered.
+
+`render()` is the other half of that port: melt is also what *renders* a
+multi-source timeline, since auto-editor degrades one to 720x576 while exiting
+0 (CLAUDE.md). Its three traps and the memory cap are handled there, and
+nothing about the render is believed on the strength of an exit code — the
+finished file is probed, and the numbers it comes back with are compared
+against the numbers the timeline promised.
 """
 
 from __future__ import annotations
@@ -30,8 +37,12 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
+
+from lucid import media
 
 #: Suffixes routed to `melt` rather than to ffprobe. `.xml` is here because
 #: that is what a bare MLT document is called; auto-editor writes `.kdenlive`.
@@ -125,14 +136,27 @@ def display_env() -> dict[str, str]:
     than rendering one, but a project melt could not fully load is a project
     whose reported length is not the length it would render, so the display
     goes in either way.
+
+    **`WAYLAND_DISPLAY` alone is not a display**: it is a socket *name*, and Qt
+    resolves it under `XDG_RUNTIME_DIR`. Both have to travel together, which
+    they do not when lucid is launched from a scrubbed environment — the MCP
+    stdio transport passes a handful of variables (HOME, PATH, USER, …) and
+    `XDG_RUNTIME_DIR` is not among them. Measured 2026-08-08: naming the socket
+    without the directory gives `Failed to create wl_display`, Qt then finds no
+    platform plugin at all, and **melt aborts printing nothing** — which the
+    empty-output guards read as a project that could not be loaded. So the
+    directory this searched is exported alongside the socket it found.
     """
     env = dict(os.environ)
+    runtime = Path(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
     if env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"):
+        if env.get("WAYLAND_DISPLAY") and (runtime / env["WAYLAND_DISPLAY"]).exists():
+            env["XDG_RUNTIME_DIR"] = str(runtime)
         return env
-    runtime = Path(env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
     for socket in sorted(runtime.glob("wayland-*")):
         if socket.suffix != ".lock":
             env["WAYLAND_DISPLAY"] = socket.name
+            env["XDG_RUNTIME_DIR"] = str(runtime)
             return env
     if Path("/tmp/.X11-unix/X0").exists():
         env["DISPLAY"] = ":0"
@@ -225,6 +249,245 @@ _TMP_HINT = (
 def _invisible_to_flatpak(path: Path, command: list[str]) -> bool:
     """Is this the flatpak reading a path its sandbox does not have?"""
     return command[:1] == ["flatpak"] and path.resolve().is_relative_to(Path("/tmp"))
+
+
+# -- rendering a project: melt, its three traps, and the measurement -----
+
+
+#: Where a render is staged before it is copied where it was asked for. Under
+#: `$HOME` because the flatpak's `/tmp` is not the host's, and staged at all
+#: because a render that dies halfway leaves a file behind — at the
+#: destination it would be a half-muxed file that looks finished.
+RENDER_SCRATCH = Path.home() / "lucid-render"
+
+#: **The consumer gets the codec and nothing else.** Restating the project
+#: profile on it is what unbounded memory growth correlated with: 2167 MB peak
+#: with `vcodec crf preset acodec` alone, still climbing past 6873 MB once
+#: `ab`, `width`, `height` and `progressive` were added, on the way to the
+#: 14.6 GB that froze the machine. No single one of the four reproduces it
+#: alone, so the rule is the whole list rather than a suspect (HISTORY.md § 4).
+RENDER_ARGS = ("vcodec=libx264", "crf=18", "preset=medium", "acodec=aac")
+
+#: The backstop for whatever the next surprise is: the render runs inside a
+#: systemd scope that gets OOM-killed at this rather than swapping the desktop
+#: out. Skipped — with a note in the reply, never silently — where
+#: `systemd-run` is not available.
+RENDER_MAX_MEMORY = "6G"
+RENDER_MAX_SWAP = "1G"
+
+#: How long to wait on an encode. Generous: this is a whole video through
+#: libx264 at `preset=medium`, not a document being read.
+RENDER_TIMEOUT = 4 * 3600
+
+#: How far a render's duration may sit from the timeline's before it counts as
+#: a disagreement. Only ever consulted for a render with **no frames to
+#: count** — an audio-only one — where a container duration is all there is.
+#: A frame of AAC is 1024 samples (~23 ms) and the muxer pads to it, so a
+#: tolerance below that would fail correct renders.
+RENDER_DURATION_TOLERANCE = 0.15
+
+
+def scratch(prefix: str = "render-") -> Path:
+    """A fresh working directory somewhere melt can actually read.
+
+    Under `$HOME`, not `/tmp`: the flatpak cannot see the host's `/tmp` and
+    exits 0 having read nothing (CLAUDE.md), so `tempfile.mkdtemp()`'s default
+    would produce a project melt silently ignores.
+    """
+    RENDER_SCRATCH.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=RENDER_SCRATCH))
+
+
+def render_problems(
+    measured: dict[str, Any],
+    *,
+    expect_frames: int | None = None,
+    expect_resolution: tuple[int, int] | None = None,
+    expect_duration: float | None = None,
+    tolerance: float = RENDER_DURATION_TOLERANCE,
+) -> list[str]:
+    """Every way this render disagrees with the timeline it was made from.
+
+    Split from `render()` for the reason `parse_melt_xml` is split from
+    `project_frames`: the interesting cases are a dict in and a list out, and
+    stating them exactly should not cost an encode.
+
+    The frame count is the check that matters and the resolution is the one
+    that catches a degraded render. **Duration is a fallback, applied only
+    when there are no frames to count** — an mp4's duration is the longest of
+    its streams and an audio stream routinely outruns the video by a frame of
+    AAC padding, so comparing it on a video render would fail correct ones.
+    """
+    problems: list[str] = []
+    width, height = measured.get("width"), measured.get("height")
+    if expect_resolution and measured.get("has_video") and (width, height) != expect_resolution:
+        problems.append(
+            f"rendered {width}x{height} where the timeline's profile declares "
+            f"{expect_resolution[0]}x{expect_resolution[1]}. This is the shape a "
+            "silently degraded render has (auto-editor's multi-source downgrade "
+            "is 720x576, with exit 0) — the pixels, not the status, are what say so"
+        )
+
+    frames = measured.get("frames")
+    if expect_frames is not None and frames is not None and frames != expect_frames:
+        problems.append(
+            f"rendered {frames} frames where the timeline is {expect_frames} "
+            f"({frames - expect_frames:+d}). melt renders to the longest declared "
+            "length in the document rather than to the playlist, so a difference "
+            "here is a length that disagreed with the edit and padded or truncated it"
+        )
+
+    duration = measured.get("duration")
+    if (
+        expect_duration is not None
+        and frames is None
+        and duration is not None
+        and abs(duration - expect_duration) > tolerance
+    ):
+        problems.append(
+            f"rendered {duration:.3f}s where the timeline is {expect_duration:.3f}s. "
+            "This render has no video stream, so its duration is the only length "
+            f"there is to compare (tolerance {tolerance}s)"
+        )
+    return problems
+
+
+def render(
+    project: Path | str,
+    output: Path | str,
+    *,
+    expect_frames: int | None = None,
+    expect_resolution: tuple[int, int] | None = None,
+    expect_duration: float | None = None,
+    max_memory: str | None = RENDER_MAX_MEMORY,
+    timeout: int = RENDER_TIMEOUT,
+) -> dict[str, Any]:
+    """Render an MLT project with `melt`, and check what actually came out.
+
+    melt is the renderer for a multi-source timeline because auto-editor gates
+    one to 720x576 while exiting 0 (CLAUDE.md). Its own three traps all produce
+    output rather than an error, so all three are handled here rather than
+    hoped past (HISTORY.md § 4):
+
+    * **the codec and nothing else** goes on the consumer — `RENDER_ARGS`;
+    * **Qt needs a display**, or every `qimage` producer and the `qtblend`
+      transition refuse to load, the picture lane vanishes and the render still
+      exits 0. Missing one is a refusal here, not a warning, because the
+      resulting file looks like a success;
+    * **the flatpak's `/tmp` is not the host's**, so the staging directory is
+      under `$HOME` (`scratch()`), and the project has to be somewhere melt can
+      read too.
+
+    Plus the memory cap `goodsometimes/scripts/render.py` added after a
+    hand-run render filled 16 GB of swap and froze the machine.
+
+    **The exit code is trusted for nothing.** The staged file is probed and its
+    resolution, frame count and duration compared against what the timeline
+    promised; only a render that agrees is copied to `output`. One that does
+    not is left in its scratch directory and named in the error, because the
+    evidence is the file.
+    """
+    path = Path(project).expanduser()
+    if not path.exists():
+        raise PictureError(f"no such NLE project to render: {path}")
+    destination = Path(output).expanduser()
+
+    env = display_env()
+    if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")):
+        raise PictureError(
+            "no display for MLT's Qt module to open, so this render would drop "
+            "every `qimage` producer and the `qtblend` transition — the picture "
+            "lane would be missing and melt would still exit 0 (HISTORY.md § 4). "
+            "Set WAYLAND_DISPLAY or DISPLAY, or run this where a session exists."
+        )
+
+    work = scratch("render-")
+    staged = work / (destination.name or "render.mp4")
+    melt = melt_command()
+    command = [*melt, str(path), "-consumer", f"avformat:{staged}", *RENDER_ARGS]
+    capped = bool(max_memory) and shutil.which("systemd-run") is not None
+    if capped:
+        command = [
+            "systemd-run", "--user", "--scope", "--quiet",
+            "-p", f"MemoryMax={max_memory}",
+            "-p", f"MemorySwapMax={RENDER_MAX_SWAP}",
+            "nice", "-n", "10",
+            *command,
+        ]  # fmt: skip
+
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, env=env, timeout=timeout, check=False
+        )
+    except FileNotFoundError as exc:
+        raise PictureError(f"could not run melt: {' '.join(command)}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PictureError(
+            f"melt did not finish rendering {path} within {timeout}s. The partial "
+            f"render is at {staged}."
+        ) from exc
+
+    if not staged.exists() or staged.stat().st_size == 0:
+        detail = (completed.stderr or completed.stdout or "").strip()[-2000:]
+        raise PictureError(
+            f"melt rendered nothing for {path} (exit {completed.returncode}, which "
+            f"proves nothing either way — the missing file is the finding).\n{detail}"
+            f"{_TMP_HINT if _invisible_to_flatpak(path, melt) else ''}"
+        )
+
+    info = media.probe(staged)
+    counts = media.count_frames(staged)
+    measured: dict[str, Any] = {
+        "width": info.width,
+        "height": info.height,
+        "frames": counts["frames"],
+        "container_frames": counts["container_frames"],
+        "duration": counts["duration"],
+        "has_video": info.has_video,
+        "has_audio": info.has_audio,
+        "video_codec": info.video_codec,
+        "audio_codec": info.audio_codec,
+    }
+    problems = render_problems(
+        measured,
+        expect_frames=expect_frames,
+        expect_resolution=expect_resolution,
+        expect_duration=expect_duration,
+    )
+    if problems:
+        raise PictureError(
+            f"the render disagrees with the timeline it was made from, so it has "
+            f"not been copied to {destination}. It is at {staged}, kept so the "
+            "numbers can be checked against it:\n- " + "\n- ".join(problems)
+        )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(staged, destination)
+    shutil.rmtree(work, ignore_errors=True)
+
+    notes: list[str] = []
+    if measured["frames"] is None:
+        notes.append(
+            "this render has no video stream, so there were no frames to count "
+            "and its duration was compared instead"
+        )
+    if max_memory and not capped:
+        notes.append(
+            f"systemd-run is not available here, so the render ran without the "
+            f"{max_memory} memory cap"
+        )
+    return {
+        "output": str(destination),
+        "project": str(path),
+        "exit_code": completed.returncode,
+        "memory_cap": max_memory if capped else None,
+        "consumer": list(RENDER_ARGS),
+        **measured,
+        "expected_frames": expect_frames,
+        "expected_resolution": list(expect_resolution) if expect_resolution else None,
+        "agrees": True,
+        "notes": notes,
+    }
 
 
 # -- reading a render directly: black runs and spot-checked frames -------

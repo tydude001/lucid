@@ -53,10 +53,12 @@ and caption the rest" becomes a chat message instead of an afternoon.
    **The multi-track question "full editor" implies is answered too, decided
    2026-08-08: lucid edits your video.** Clips and cards lay over the VO from a
    cue table addressed by *word index*, so a recut recomputes shot positions
-   instead of invalidating them. The cue table, the shot projection and the
-   MLT writer are built — `export` writes a real two-lane project — and what
-   is left is rendering it and drawing it in the window.
-   [PLAN.md](PLAN.md) § The layered timeline has the build order.
+   instead of invalidating them. The cue table, the shot projection, the MLT
+   writer and the `melt` render are built — `export` writes a real two-lane
+   project **and renders it**, measuring the finished file rather than
+   trusting a renderer that exits 0 on failure. What is left is drawing the
+   lane in the window. [PLAN.md](PLAN.md) § The layered timeline has the
+   build order.
 
    **And "the same workflow" became "the same product", decided 2026-08-08:**
    lucid copies Daydream's full feature set and warm-paper look. The whole
@@ -100,8 +102,12 @@ uv run lucid -C myproject view            # the same read model as JSON
 ```
 
 `--render` exports media instead of an NLE project, and `undo` rolls back the
-last mutation. Every subcommand is also an MCP tool — that parity is enforced
-by the test suite — so an agent drives the same operations:
+last mutation. A timeline with a cue table or a second clip on it is written
+as MLT by lucid and rendered by `melt` — auto-editor never sees one, because
+it degrades a two-source render to 720x576 and exits 0.
+
+Every subcommand is also an MCP tool — that parity is enforced by the test
+suite — so an agent drives the same operations:
 
 ```sh
 uv run lucid mcp                                          # serve MCP over stdio
