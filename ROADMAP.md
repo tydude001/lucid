@@ -80,21 +80,30 @@ It ranks here because every check that exists answers a *machine's* question.
 pixels, and the contact sheet in PLAN.md § Open questions is framed for a
 vision model to check — deliberately, since a tier-1 agent cannot watch a
 preview. None of them let a person see an edit before committing to a render,
-which is the whole of what tier 2 promises.
+let alone change one from where they are looking at it.
+
+**It edits — and what that needs is already built.** Every mutating tool takes
+`plan=True`, which runs the identical code path and reports without writing;
+every real mutation snapshots first, `undo` rolls one back and `undo_depth`
+says how many remain (`ops.py`, `project.py`). A view is the best consumer
+that pair has had — select a range, the plan payload *is* what the panel
+draws, apply commits it, undo backs it out — and none of it is new work.
 
 Two constraints, and they are what keep it cheap:
 
-- **Read-only.** Mutation stays in the CLI and MCP tools, where the parity
-  convention lives. This is also what keeps the item tier 2 rather than tier 3.
+- **No privileged path.** Mutations go through the same `ops` functions the
+  CLI and MCP tools call. The UI is a third client, never a third
+  implementation of a cut — that is the parity convention in CLAUDE.md, which
+  a window is the most tempting thing to break it with.
 - **Local, in-package.** Served on localhost out of the same Python package —
   no accounts, no upload, and no second stack to install
   (PLAN.md § Non-goals, § Stack decision).
 
 **Done, minimally:** the current `Edit` drawn as a timeline with word-indexed
-cut boundaries, playable against the source. Single-track is the right target
-even with the gate open — the picture track is a derived projection, so a view
-built against today's `Edit` widens with the model rather than blocking on it,
-and read-only means nothing downstream depends on the shape it draws.
+cut boundaries, playable against the source, with cut, plan-preview and undo
+driven from the view. Single-track is the right target even with the gate
+open — the picture track is a derived projection, so a view built against
+today's `Edit` widens with the model rather than blocking on it.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -194,10 +203,16 @@ dead — cloud, competing on finishing, a plugin system before two users.
 desktop editor, has read "explicitly *not* a goal" since the tiers were
 written, and the prior-art pass that found Daydream to *be* one left that
 standing. It is now **revisitable — a question behind the web UI, not queued
-work.** What reopens it is the read-only wall above: if that turns out to be
-the thing a real edit keeps hitting, the honest question is whether tier 3 is
-a non-goal or merely an expensive goal. What it would have to answer first is
-already measured rather than argued, and none of it has changed — the
+work.**
+
+**What separates tier 2 from tier 3 is finishing, not mutation.** The web UI
+writes (§ Next); what keeps it tier 2 is that the edit still leaves through
+OTIO/MLT instead of being finished in place. That is the failure the
+OpenChatCut trial actually measured — its export was flattened media,
+subtitles or FCPXML, none of which opens on this box, so the timeline was
+trapped in the app unless the video was finished there. So what reopens tier 3
+is evidence that the *handoff* is the wall, not wanting to click a cut. What
+it would have to answer first is already measured rather than argued — the
 Electron-as-MCP-host friction from the OpenChatCut trial (the GUI must be
 running before its tools register, a confirmation card per tool per session, a
 transport that goes stale after an import) and its dependency scale against
