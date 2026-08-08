@@ -189,6 +189,11 @@ def to_v3(
 
     Segments are laid end to end: each clip's `start` is the running total of
     the durations before it, so the timeline is gapless by construction.
+
+    Each entry's `"src"` is `clips[clip_id]["source"]`, used verbatim — this
+    function does no media resolution of its own. Callers that want an
+    attenuated (or symlink-fallback) copy picked up must resolve `"source"`
+    through `media.media_path()` before calling this, e.g. `ops.export`.
     """
     payload = dict(header)
     rate = float(timebase) if timebase else _timebase(header)

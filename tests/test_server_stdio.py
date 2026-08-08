@@ -793,6 +793,10 @@ def test_cut_by_time_rejects_overlapping_spans_in_one_call(
 def test_cut_by_time_rejects_a_span_past_the_end(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
+    """Distinguished from the overlap refusal above by message content, not just
+    is_error — an over-eager or wrongly-routed boundary check would still leave
+    is_error True while refusing for the wrong reason.
+    """
     audio, transcript = sources
     project = tmp_path / "proj"
 
@@ -815,6 +819,8 @@ def test_cut_by_time_rejects_a_span_past_the_end(
 
     result = anyio.run(_with_server, body)
     assert result.is_error
+    text = result.content[0].text
+    assert "outside the timeline" in text
 
 
 @needs_ffprobe
@@ -1733,6 +1739,75 @@ def test_spot_frames_echoes_the_word_at_a_sample(tmp_path: Path) -> None:
 @needs_ffprobe
 @needs_ffmpeg
 @needs_auto_editor
+def test_spot_frames_trusts_a_render_checked_at_a_different_export_rate(
+    tmp_path: Path,
+) -> None:
+    """`edit.duration` is fixed to whatever rate the project's timeline was
+    last persisted at (a 24fps source here) and cannot see a *different*
+    `fps` a caller asks `spot_frames` to check against — `expected_duration`
+    (`frame_total(edit, rate) / rate`), computed at that same `fps`, can.
+
+    Twelve 0.07s keep-ranges against a 24fps source persist to exactly
+    1.000s of `edit.duration`. The identical timeline, independently laid
+    out at 30fps (a legitimate, supported `spot_frames(..., fps=...)`
+    override — e.g. checking a render taken at a different rate than the
+    project's own), really runs to 31 frames / 1.0333s, not 1.000s. A render
+    built to exactly that 31-frame length is the genuinely correct answer at
+    `fps=30`; comparing it against `edit.duration` (1.000s, a different
+    rate's number) instead would wrongly call it stale.
+    """
+    source = tmp_path / "pic.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=160x120:rate=24:duration=41.0",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=41.0",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30",
+            "-frames:v", "31", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(render),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.07} for i in range(12)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip,
+            keep=[[i, i] for i in range(12)],
+        )
+        return await client.call(
+            "spot_frames", path=str(project), target=str(render), count=1, fps=30.0
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["expected_duration"] == pytest.approx(31 / 30, abs=1e-6)
+    assert result["mapping_trusted"] is True
+    assert "notes" not in result
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
 def test_spot_frames_refuses_word_mapping_on_a_stale_render(tmp_path: Path) -> None:
     """A render taken before a second cut must not silently map to the wrong words."""
     source = tmp_path / "pic.mp4"
@@ -2010,6 +2085,15 @@ def test_attenuate_noises_refuses_to_touch_a_wide_map_hole_even_though_it_is_lou
 def test_attenuate_noises_plan_reports_without_writing(tmp_path: Path) -> None:
     """Mirrors `cut --plan`'s "same numbers" contract: a plan and a real run
     against the same project must agree on everything except `written`.
+
+    Run against two fixtures. `_attenuate_sources` has no `suspect_neighbour`
+    event, so it cannot see a real bug: `include_suspect = confirm_suspect or
+    plan` used to let `plan=True` alone pull a suspect event into
+    `to_write`/`output_media`, previewing a write a subsequent real call
+    (confirm_suspect defaulting to False) would never actually perform.
+    `_suspect_neighbour_sources` has exactly one such event, so it is the one
+    that would have caught that divergence — `to_write` must now be gated by
+    `confirm_suspect` alone in both the plan and the real path.
     """
     audio, transcript = _attenuate_sources(tmp_path)
     project = tmp_path / "proj"
@@ -2036,6 +2120,31 @@ def test_attenuate_noises_plan_reports_without_writing(tmp_path: Path) -> None:
     assert planned["output_media"] == real["output_media"]
     assert planned["attenuated"] == real["attenuated"]
     assert planned["disqualified"] == real["disqualified"]
+
+    suspect_audio, suspect_transcript = _suspect_neighbour_sources(tmp_path)
+    suspect_project = tmp_path / "suspect-proj"
+
+    async def suspect_body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, suspect_project, suspect_audio, suspect_transcript)
+        planned = await client.call(
+            "attenuate_noises", path=str(suspect_project), clip_id=clip_id, plan=True
+        )
+        real = await client.call(
+            "attenuate_noises", path=str(suspect_project), clip_id=clip_id
+        )
+        return planned, real
+
+    suspect_planned, suspect_real = anyio.run(_with_server, suspect_body)
+
+    assert len(suspect_planned["suspect_neighbours"]) == 1
+    # Neither call confirmed the suspect neighbour, so a plan's preview and
+    # the matching real call must agree it was withheld from both.
+    assert suspect_planned["attenuated"] == []
+    assert suspect_real["attenuated"] == []
+    assert suspect_planned["written"] is False
+    assert suspect_real["written"] is False
+    assert suspect_planned["output_media"] == suspect_real["output_media"] is None
 
 
 @needs_ffprobe
@@ -2089,6 +2198,97 @@ def test_attenuate_noises_re_run_does_not_compound_gain(tmp_path: Path) -> None:
     after_first = energy.envelope(energy.decode(Path(first["output_media"])))
     after_second = energy.envelope(energy.decode(Path(second["output_media"])))
     assert _db_at(after_second, 1.75) == pytest.approx(_db_at(after_first, 1.75), abs=1.0)
+
+
+def _overlapping_runs_sources(root: Path) -> tuple[Path, Path]:
+    """Two loud runs ~0.02s apart (after envelope quantisation) in one 1.3s
+    gap — closer than `2*pad` (default `pad=0.05s`), so their padded spans
+    overlap. Both independently qualify as `"attenuated"`; the write side
+    must merge them before building the filtergraph, or ffmpeg's
+    comma-chained `volume` filters double-attenuate the overlap.
+    """
+    audio = root / "vo.wav"
+    _write_wav_at_rate(
+        audio,
+        tones=[(0.0, 1.0), (1.5, 1.75), (1.79, 2.05), (2.3, 3.3)],
+        duration=5.0,
+        rate=energy.RATE,
+    )
+    words = [
+        {"word": "well", "start": 0.0, "end": 1.0},
+        {"word": "so", "start": 2.3, "end": 3.3},
+    ]
+    transcript = root / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_merges_overlapping_padded_runs_before_writing(tmp_path: Path) -> None:
+    """Two loud runs in one gap, padded closer together than they are apart,
+    must not stack. `energy.attenuate` comma-chains one `volume` filter per
+    span, so an unmerged overlap gets attenuated twice — roughly double the
+    requested `db` there, with no error and no warning, while `result["gain"]`
+    keeps reporting the single-pass value that does not describe what
+    actually happened in the overlap.
+    """
+    audio, transcript = _overlapping_runs_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        return await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["written"] is True
+    # Per-event detail survives the write-side merge: two distinct runs are
+    # still two distinct reported events.
+    assert len(result["attenuated"]) == 2
+    assert all(e["status"] == "attenuated" for e in result["attenuated"])
+
+    before = energy.envelope(energy.decode(audio))
+    after = energy.envelope(energy.decode(Path(result["output_media"])))
+
+    # A point inside only the first run's padded span, a point inside the
+    # overlap of both padded spans, and a point inside only the second run's.
+    for t in (1.55, 1.82, 2.00):
+        assert _db_at(after, t) == pytest.approx(_db_at(before, t) - 12.0, abs=2.0)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_export_renders_the_attenuated_copy_not_the_original(tmp_path: Path) -> None:
+    """`media_path()` prefers `clip["attenuated"]`, but `autoeditor.to_v3`
+    used to build each segment's `"src"` from `record["source"]` directly,
+    bypassing `media_path()` entirely — so a render taken after
+    `attenuate_noises` still carried the original noise burst at full
+    volume, with `written: true` giving no sign anything had been bypassed.
+    Doubles as the regression test for that bypass: without routing
+    `to_v3`'s `"src"` through `media.media_path()`, this render measures the
+    *pre*-attenuation level, not the post-attenuation one.
+    """
+    audio, transcript = _attenuate_sources(tmp_path)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.wav"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip_id, remove_silences=False
+        )
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+
+    anyio.run(_with_server, body)
+
+    before = energy.envelope(energy.decode(audio))
+    after = energy.envelope(energy.decode(render))
+    assert _db_at(after, 1.75) == pytest.approx(_db_at(before, 1.75) - 12.0, abs=2.0)
 
 
 @needs_ffprobe
@@ -2286,6 +2486,67 @@ def test_speech_overlap_trims_a_suspect_vo_word_before_testing_overlap(
     seam = result["clean_seams"][0]
     assert seam["timeline_start"] == pytest.approx(3.0)
     assert seam["timeline_end"] == pytest.approx(3.5)
+
+
+@needs_ffprobe
+def test_speech_overlap_trims_a_suspect_clip_b_word_using_the_whole_clip_not_the_window(
+    tmp_path: Path,
+) -> None:
+    """Clip B's own words are not in the edit, so they map by direct offset
+    against the proposed `[clip_in, clip_out)` window — and the window here
+    is narrow enough (one word) that the old bug's local median was set by
+    the very outlier it was supposed to catch: with only the inflated word
+    in `clip_hits`, `_median_limit` took *its own* duration as the median,
+    so `believable` trimmed nothing. The fix computes the cap from clip_b's
+    whole transcript (mirroring the VO side, `_suspect_durations`, and
+    `attenuate_noises`), so the same 6.0s outlier is still caught even
+    though the proposed window only ever sees it alone.
+    """
+    project = tmp_path / "proj"
+    vo_audio = tmp_path / "vo.wav"
+    _make_wav(vo_audio, tones=[], duration=12.0)
+    vo_transcript = tmp_path / "vo.json"
+    _write_words(vo_transcript, [{"word": "hush", "start": 0.0, "end": 0.4}])
+
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[], duration=10.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(
+        b_transcript,
+        [
+            {"word": "so", "start": 0.0, "end": 0.5},
+            {"word": "we", "start": 0.6, "end": 1.0},
+            {"word": "bit", "start": 1.1, "end": 1.5},
+            {"word": "later", "start": 3.0, "end": 9.0},
+            {"word": "it", "start": 9.6, "end": 10.0},
+        ],
+    )
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, vo_audio, vo_transcript)
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        # Narrow enough that only "later" falls in clip_hits — "bit" ends at
+        # 1.5 (<= clip_in), "it" starts at 9.6 (>= clip_out).
+        return await client.call(
+            "speech_overlap",
+            path=str(project),
+            clip_id=clip_b,
+            clip_in=2.0,
+            clip_out=9.5,
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert [w["text"] for w in result["clip_words"]] == ["later"]
+    trimmed = result["clip_words"][0]
+    assert trimmed["source_end"] == pytest.approx(9.0)
+    # Full-population median of [0.4, 0.4, 0.4, 0.5, 6.0] is 0.4, cap=3.0 ->
+    # limit=1.2, so believable_end = 3.0 + 1.2 = 4.2. Under the bug, the
+    # single-word window's own median was the 6.0s outlier itself, so
+    # believable_end stayed 9.0 (untrimmed).
+    assert trimmed["believable_end"] == pytest.approx(4.2)
+    assert trimmed["believable_end"] != trimmed["source_end"]
 
 
 @needs_ffprobe

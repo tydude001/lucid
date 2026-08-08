@@ -770,8 +770,13 @@ def speech_overlap(
 
     # Clip B side: not in the edit, so words map by direct offset against the
     # proposed [clip_in, clip_out) -> [at, at + (clip_out - clip_in)) window.
+    clip_full_trimmed = energy.believable([(w.start, w.end) for w in clip_parsed.words], cap=cap)
     clip_hits = [w for w in clip_parsed.words if w.start < clip_out and w.end > clip_in]
-    clip_trimmed = energy.believable([(w.start, w.end) for w in clip_hits], cap=cap)
+    clip_trimmed = [
+        trimmed
+        for word, trimmed in zip(clip_parsed.words, clip_full_trimmed)
+        if word.start < clip_out and word.end > clip_in
+    ]
     clip_words: list[dict[str, Any]] = []
     clip_spans: list[tuple[float, float]] = []
     for word, (bs, be) in zip(clip_hits, clip_trimmed):
@@ -1051,10 +1056,13 @@ def attenuate_noises(
     Three tiers: an event that qualifies on duration+gap-width *and* whose
     bounding words carry no suspect duration is attenuated automatically. An
     event whose bounding word does carry one (`suspect_neighbour`) is
-    withheld unless `confirm_suspect=True` or `plan=True` — the neighbour
+    withheld from writing unless `confirm_suspect=True` — the neighbour
     might itself be hiding a swallowed retake, which would make the "gap is
-    narrow" evidence unsound. An event too long, or in too wide a gap
-    (`disqualified`), is never written — no confirmation overrides it.
+    narrow" evidence unsound. `suspect_neighbours` is reported in full
+    regardless of `confirm_suspect`/`plan`, so a caller can review before
+    confirming; only whether it gets *written* depends on `confirm_suspect`.
+    An event too long, or in too wide a gap (`disqualified`), is never
+    written — no confirmation overrides it.
 
     Always reads the clip's *original* media (`media.original_media_path`),
     never a previous `"attenuated"` copy, so re-running with different
@@ -1062,9 +1070,11 @@ def attenuate_noises(
     gain. `media_path()` picks the attenuated copy up automatically
     everywhere downstream once this has run.
 
-    `plan=True` runs the identical classification and reports the same
-    payload — including `output_media`, the path a real run would write to —
-    without calling ffmpeg or touching the manifest.
+    `plan=True` runs the identical classification — `to_write` is gated by
+    `confirm_suspect` alone, exactly as a real run gates it — and reports the
+    same payload, including `output_media`, the path a real run with the same
+    `confirm_suspect` would write to, without calling ffmpeg or touching the
+    manifest.
     """
     project = Project.open(path)
     clip = media.get_clip(project, clip_id)
@@ -1089,12 +1099,11 @@ def attenuate_noises(
         suspect=suspect,
     )
 
-    include_suspect = confirm_suspect or plan
     to_write = [
         event
         for event in events
         if event["status"] == "attenuated"
-        or (event["status"] == "suspect_neighbour" and include_suspect)
+        or (event["status"] == "suspect_neighbour" and confirm_suspect)
     ]
 
     output_media: Path | None = None
@@ -1103,7 +1112,13 @@ def attenuate_noises(
         output_media = project.attenuated_dir / f"{clip_id}{source.suffix}"
         if not plan:
             project.attenuated_dir.mkdir(parents=True, exist_ok=True)
-            spans = [(event["padded_start"], event["padded_end"]) for event in to_write]
+            # Padded spans from adjacent runs in one gap can overlap; merge
+            # them before building the filtergraph so ffmpeg's comma-chained
+            # `volume` filters never double-attenuate the same window. This
+            # is write-side only — `to_write`/`events` still report one entry
+            # per detected event.
+            raw_spans = [(event["padded_start"], event["padded_end"]) for event in to_write]
+            spans = sp.merge_runs(raw_spans, max_gap=0.0)
             energy.attenuate(
                 source, spans, db=db, has_video=bool(clip.get("has_video")), output=output_media
             )
@@ -1187,7 +1202,15 @@ def export(
         timebase = _rate(project)
     else:
         timebase = float(fps) if fps else _export_fps(clips)
-    payload = autoeditor.to_v3(edit, clips, header=header, timebase=timebase)
+    # `to_v3` reads each entry's "src" straight off the record it is given —
+    # resolve every clip through media_path() here so an attenuated copy
+    # (or a NAS symlink fallback) is what actually gets rendered/exported,
+    # not the raw, immutable `source` field.
+    resolved_clips = {
+        clip_id: {**record, "source": str(media.media_path(project, record))}
+        for clip_id, record in clips.items()
+    }
+    payload = autoeditor.to_v3(edit, resolved_clips, header=header, timebase=timebase)
 
     written = autoeditor.run_timeline(payload, output, export=export_format)
     return {
@@ -1606,15 +1629,15 @@ def spot_frames(
     expected_frames = autoeditor.frame_total(edit, rate)
     expected_duration = expected_frames / rate
     half_frame = 0.5 / rate
-    mapping_trusted = abs(target_duration - edit.duration) <= half_frame
+    mapping_trusted = abs(target_duration - expected_duration) <= half_frame
 
     notes: list[str] = []
     if not mapping_trusted:
         notes.append(
             f"target_duration ({target_duration:.3f}s) disagrees with the current "
-            f"timeline ({edit.duration:.3f}s) by more than a frame at {rate}fps — "
-            "this render may be stale, so clip/word mapping is refused. Run "
-            "check_frames against it for the stronger check."
+            f"timeline's export grid ({expected_duration:.3f}s) by more than a frame "
+            f"at {rate}fps — this render may be stale, so clip/word mapping is "
+            "refused. Run check_frames against it for the stronger check."
         )
 
     sampled: list[tuple[float, str]] = []
