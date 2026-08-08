@@ -206,10 +206,10 @@ def suspect_durations(
     """Which spans, by index, claim more than `cap` times the median duration.
 
     The same rule `believable` masks by (see `CAP`), surfaced as a finding
-    instead of only ever being consumed silently downstream: ROADMAP.md item 1.
-    No word is legitimately three times the median word long, so whatever a
-    span this long covers is not just the word — usually a swallowed retake
-    (DOGFOOD.md § 2).
+    instead of only ever being consumed silently downstream. No word is
+    legitimately three times the median word long, so whatever a span this
+    long covers is not just the word — usually a swallowed retake
+    (DOGFOOD.md § 2). PLAN.md § Suspect word durations at `attach-transcript`.
     """
     if not spans:
         return []

@@ -6,35 +6,24 @@ This file exists so a session can start building without re-deriving the
 priority order — each item says why it ranks where it does and what "done"
 looks like.
 
-Last reshuffled **2026-08-07**, after building `verify --windowed` and running
-it against the shipping Scream exports. Two things moved: a check `verify`
-structurally cannot perform is now item 1, and suspect-duration flagging got
-cheaper because the windowed pass measures the same quantity. Evidence in
-[PLAN.md](PLAN.md) § `verify --windowed`, and in goodsometimes
-(`ideas/scream.md` § v2 and v3, `pipeline.md` § One transcription of the whole
-file is not enough).
+**Cite items by name, never by number.** The numbers renumber every time
+something ships, and they have: four separate things in `src/` and `tests/`
+once all cited "ROADMAP.md item 1" meaning four different items. Anything
+built gets a named `##` section in [PLAN.md](PLAN.md); cite that instead — it
+is stable, and it is where the evidence is.
 
-Revised again the same evening off the Scream v4/v5 pass. It touched no VO
-content, so nothing in **Now** moved. What moved is downstream: the decision
-gate has a named edit to answer instead of a hypothetical, item 6 gained a
-mirror, and the property below gained a second proof. Evidence in goodsometimes
-`ideas/scream.md` § v4/v5.
+Last reshuffled **2026-08-07**, which cleared the **Now** list: `verify
+--windowed`, adjacent-near-duplicate and suspect-duration flagging, and the
+word-index echo with `cut --plan` under it were all built and run against the
+real Scream VO that day. Each has its own named section in PLAN.md carrying
+the numbers; this file does not restate them.
 
-Revised again after building and shipping item 1. Run against the real
-`VO/VO.json` rather than a synthetic fixture, it reported 621/627 and every
-other self-comparison-shaped retake `ideas/scream.md`'s own trim table already
-names by hand — full numbers in [PLAN.md](PLAN.md) § Adjacent near-duplicate
-phrases at `attach-transcript`. Suspect-duration flagging moves up to item 1.
-
-Revised again after building and shipping suspect-duration flagging, item 1
-after the reshuffle above. Run against the real `VO/VO.json`, it flagged 13 of
-929 words, including both words the near-duplicate check structurally cannot
-catch (446 "wants", 890 "not") —
-full numbers in [PLAN.md](PLAN.md) § Suspect word durations at
-`attach-transcript`. That section also corrects an example this file carried
-since the `verify --windowed` pass: the 3.96 s "bit" traces to a render's own
-transcript, not to `VO.json`. Echo resolved words on every word-index argument
-moves up to item 1.
+**Ordering answers to measured defects, not to competitors.** A prior-art pass
+the same day found Daydream to be a full desktop NLE rather than the chat front
+end the README claimed — it corrected the pitch and moved nothing here, because
+it produced no failing case and has no Linux build to test against.
+PLAN.md § What lucid is, stated narrowly holds the conclusion;
+[PRIOR-ART.md](PRIOR-ART.md) § Daydream the evidence.
 
 ## The property everything below defends
 
@@ -58,33 +47,19 @@ containment; anything emitting times for playback maps through
 
 ---
 
-## Now — small, each with a real failing case to test against
+## Now — cleared
 
-These are ordered by value, but all are days-not-weeks and all can be verified
-against the Scream VO, where the defect they target actually occurred. Every
-word index named below addresses **the v1 recording**, `VO.json` as it stands
-today — the pending re-record produces a different file with different indices,
-and does not retire these as fixtures. The real file (not a fixture) is on the
-NAS: `TheVaultData/content stuff/Good Sometimes/Videos/Every Scream Sequel
-Falls Apart At The REVEAL/VO/VO.json`, mounted at `~/TheVaultData`.
-
-`verify --windowed`, adjacent-near-duplicate flagging, and suspect-duration
-flagging — all at `attach-transcript` — are built. What running each against
-the real exports established is in [PLAN.md](PLAN.md) § `verify --windowed`,
-§ Adjacent near-duplicate phrases at `attach-transcript`, and § Suspect word
-durations at `attach-transcript`.
-
-### 1. Echo resolved words on every word-index argument
-
-Six cues in the Scream shot plan pointed one word past the intended phrase —
-invisible in the index, obvious the moment `--plan` printed the words each
-index resolved to. Generalise that: **any lucid command or MCP tool that
-accepts a word index echoes back the text it resolved to.** DOGFOOD.md § 3,
-last paragraph. Cheapest item on this list, and it pays on every future video.
+Nothing is queued ahead of **Next**. What "verified" means for anything that
+lands here: run against the real Scream VO, where the defect actually
+occurred, not a synthetic fixture. It is on the NAS at `TheVaultData/content
+stuff/Good Sometimes/Videos/Every Scream Sequel Falls Apart At The
+REVEAL/VO/VO.json`, mounted at `~/TheVaultData`. Its word indices address
+**the v1 recording**; the pending re-record produces a different file with
+different indices and does not retire the recorded findings as evidence.
 
 ## Next — feature-sized, shape known from the Scream one-offs
 
-### 2. Picture-side render checks
+### 1. Picture-side render checks
 
 `verify` deliberately covers only audio. The picture half — frame count equals
 the timeline's computed total, `blackdetect`, spot frames — was done by hand
@@ -92,7 +67,7 @@ for Scream and belongs with rendering/export, not with `verify`. The frame
 count check is the load-bearing one: exact agreement with `melt`'s count is
 what made 68 cut positions trustworthy before anything rendered.
 
-### 3. Attenuate noises; don't cut them
+### 2. Attenuate noises; don't cut them
 
 Short, loud, non-speech events between words get pulled down (Scream used
 −12 dB), not removed — a hole where a breath was reads as an edit; a quiet
@@ -103,7 +78,7 @@ a 4-second hole. Only events that are short *and* sit in a gap narrow enough
 to prove the map is dense around them qualify. Evidence: goodsometimes
 `ideas/scream.md` § Seven noises.
 
-### 4. Accept cuts in render time — and its mirror, added time
+### 3. Accept cuts in render time — and its mirror, added time
 
 A human watching an export reports flubs as render timestamps. goodsometimes
 `scripts/vo_trim.py` takes cuts that way and converts to source itself — the

@@ -108,6 +108,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow a boundary word flagged with a suspect duration (see `transcript`)",
     )
+    p_cut.add_argument(
+        "--plan",
+        action="store_true",
+        help="show what these ranges resolve to and what the edit would become, "
+        "without touching the timeline",
+    )
 
     sub.add_parser("status", help="show the current timeline")
 
@@ -256,6 +262,7 @@ def _cmd_cut(args: argparse.Namespace) -> int:
             keep=ranges if args.keep else None,
             pad=args.pad,
             confirm_suspect=args.confirm_suspect,
+            plan=args.plan,
         )
     )
 

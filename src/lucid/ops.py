@@ -74,10 +74,10 @@ def import_media(
 def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
     """Flag adjacent near-duplicate phrases in a just-attached transcript.
 
-    Called from both attach paths — ROADMAP.md item 1: the retake `verify`
-    structurally cannot catch is one the timeline keeps both takes of, so
-    there is nothing to diff against. Catching it means looking at attach
-    time, before an edit exists.
+    Called from both attach paths. The retake `verify` structurally cannot
+    catch is one the timeline keeps both takes of, so there is nothing to diff
+    against. Catching it means looking at attach time, before an edit exists.
+    PLAN.md § Adjacent near-duplicate phrases at `attach-transcript`.
     """
     return vfy.find_adjacent_repeats(vfy.tokens(w.text for w in parsed.words))
 
@@ -85,10 +85,11 @@ def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
 def _suspect_durations(parsed: tx.Transcript) -> list[dict[str, Any]]:
     """Flag words whose claimed duration is a lie about something.
 
-    ROADMAP.md item 1: `energy.believable` already computes this same 3x-median
-    cutoff to mask audio for `verify --windowed`'s envelope pass — this just
-    surfaces it as a finding at attach time, before it is ever used as a cut
-    boundary (`cut_by_transcript` refuses those without confirmation).
+    `energy.believable` already computes this same 3x-median cutoff to mask
+    audio for `verify --windowed`'s envelope pass — this just surfaces it as a
+    finding at attach time, before it is ever used as a cut boundary
+    (`cut_by_transcript` refuses those without confirmation).
+    PLAN.md § Suspect word durations at `attach-transcript`.
     """
     spans = [(w.start, w.end) for w in parsed.words]
     flagged = energy.suspect_durations(spans)
@@ -264,6 +265,74 @@ def _resolve(parsed: tx.Transcript, ranges: Iterable[Sequence[int]]) -> list[tup
     return resolved
 
 
+#: Words shown either side of a resolved range. The defect this echo exists to
+#: catch is an index one word past the intended phrase (DOGFOOD.md § 3), and
+#: resolved text alone cannot show that — "the words I meant, plus one" reads
+#: perfectly well on its own. It only looks wrong next to where the phrase
+#: should have ended, so the neighbours travel with every echo.
+CONTEXT_WORDS = 3
+
+
+def _context(parsed: tx.Transcript, first: int, last: int) -> dict[str, Any]:
+    """The words just outside a range, kept separate from the ones inside it."""
+    before = parsed.window(max(0, first - CONTEXT_WORDS), max(0, first - 1))
+    after = parsed.window(min(len(parsed) - 1, last + 1), last + CONTEXT_WORDS)
+    return {
+        "context_before": [{"index": w.index, "text": w.text} for w in before if w.index < first],
+        "context_after": [{"index": w.index, "text": w.text} for w in after if w.index > last],
+    }
+
+
+def _pad_reach(
+    parsed: tx.Transcript, first: int, last: int, lo: float, hi: float
+) -> list[dict[str, Any]]:
+    """Words outside `first`..`last` that the padded span nonetheless touches.
+
+    `pad` widens a cut in *seconds*, so the echoed text — which is the words
+    themselves — understates what the cut removes whenever the padding reaches
+    into a neighbour. That disagreement between the number and the words is
+    the same class of error the echo exists to prevent, so name the words the
+    padding actually eats.
+
+    Overlap, never containment (CLAUDE.md): a neighbour half-swallowed by the
+    padding is exactly the case worth reporting, and containment would miss it.
+    """
+    reached = []
+    for word in parsed.words:
+        if first <= word.index <= last:
+            continue
+        if word.start < hi and word.end > lo:
+            reached.append(
+                {
+                    "index": word.index,
+                    "text": word.text,
+                    "side": "before" if word.index < first else "after",
+                }
+            )
+    return reached
+
+
+def _echo(
+    parsed: tx.Transcript, first: int, last: int, lo: float, hi: float
+) -> dict[str, Any]:
+    """What a word range resolved to, in words rather than indices."""
+    start, end = parsed.span(first, last)
+    echo: dict[str, Any] = {
+        "first_word": first,
+        "last_word": last,
+        "text": " ".join(w.text for w in parsed.window(first, last)),
+        # The range's own edges, before padding — so the pair below can be
+        # compared against `source_start`/`source_end` to see what pad did.
+        "word_start": start,
+        "word_end": end,
+        **_context(parsed, first, last),
+    }
+    reach = _pad_reach(parsed, first, last, lo, hi)
+    if reach:
+        echo["pad_reach"] = reach
+    return echo
+
+
 def cut_by_transcript(
     path: Path | str,
     clip_id: str,
@@ -272,6 +341,7 @@ def cut_by_transcript(
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
     confirm_suspect: bool = False,
+    plan: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep word ranges — the operation lucid exists for.
 
@@ -284,10 +354,19 @@ def cut_by_transcript(
     was read as "cut" would produce the precise inverse of the intended edit,
     so there is no default.
 
-    A range whose first or last word claims a suspect duration (ROADMAP.md
-    item 1) is refused unless `confirm_suspect=True`: that word's `start`/`end`
+    A range whose first or last word claims a suspect duration
+    (PLAN.md § Suspect word durations) is refused unless `confirm_suspect=True`: that word's `start`/`end`
     is what the cut boundary resolves to, and a boundary that long is usually
     hiding a retake rather than ending where it claims.
+
+    `plan=True` resolves everything and returns the same payload without
+    writing: no snapshot, no timeline mutation. It runs the identical code path
+    — the edit is mutated in memory and simply never saved — so the numbers it
+    reports are the real ones, not a second implementation's guess at them.
+    Six cues in the Scream shot plan pointed one word past the intended phrase
+    and were caught exactly this way (DOGFOOD.md § 3). Planning also *reports*
+    suspect boundaries rather than refusing them: looking is the thing you do
+    before deciding, so refusing to look would be backwards.
     """
     if bool(cut) == bool(keep):
         raise tx.TranscriptError("pass exactly one of cut= or keep=")
@@ -298,20 +377,24 @@ def cut_by_transcript(
     edit = _load_edit(project)
     before = edit.duration
 
-    if not confirm_suspect:
-        suspect = {item["index"]: item for item in _suspect_durations(parsed)}
-        for first, last in cut or keep or []:
-            hit = suspect.get(int(first)) or suspect.get(int(last))
-            if hit:
-                raise tx.TranscriptError(
-                    f"word {hit['index']} ({hit['text']!r}) claims {hit['duration']}s, "
-                    f"more than {hit['limit']}s (the transcript's median x "
-                    f"energy.CAP) — it likely hides a retake rather than ending "
-                    "where it claims, so it is refused as a cut boundary "
-                    "(ROADMAP.md item 1). Check it, then retry with "
-                    "confirm_suspect=True (CLI: --confirm-suspect) if the "
-                    "boundary is actually fine, or pick a different word."
-                )
+    suspect = {item["index"]: item for item in _suspect_durations(parsed)}
+    flagged: list[dict[str, Any]] = []
+    for first, last in cut or keep or []:
+        hit = suspect.get(int(first)) or suspect.get(int(last))
+        if not hit:
+            continue
+        flagged.append({**hit, "range": [int(first), int(last)]})
+        if plan or confirm_suspect:
+            continue
+        raise tx.TranscriptError(
+            f"word {hit['index']} ({hit['text']!r}) claims {hit['duration']}s, "
+            f"more than {hit['limit']}s (the transcript's median x "
+            f"energy.CAP) — it likely hides a retake rather than ending "
+            "where it claims, so it is refused as a cut boundary "
+            "(PLAN.md \u00a7 Suspect word durations). Check it, then retry "
+            "with confirm_suspect=True (CLI: --confirm-suspect) if the "
+            "boundary is actually fine, or pick a different word."
+        )
 
     applied: list[dict[str, Any]] = []
     if cut:
@@ -321,11 +404,9 @@ def cut_by_transcript(
             touched = edit.remove(clip_id, lo, hi)
             applied.append(
                 {
-                    "first_word": int(first),
-                    "last_word": int(last),
+                    **_echo(parsed, int(first), int(last), lo, hi),
                     "source_start": lo,
                     "source_end": hi,
-                    "text": " ".join(w.text for w in parsed.window(int(first), int(last))),
                     "segments_touched": touched,
                     "already_cut": present <= 0.0,
                 }
@@ -338,16 +419,15 @@ def cut_by_transcript(
         for (first, last), (start, end) in zip(keep or [], intervals):
             applied.append(
                 {
-                    "first_word": int(first),
-                    "last_word": int(last),
+                    **_echo(parsed, int(first), int(last), start, end),
                     "source_start": start,
                     "source_end": end,
-                    "text": " ".join(w.text for w in parsed.window(int(first), int(last))),
                 }
             )
 
-    _save_edit(project, edit)
-    return {
+    if not plan:
+        _save_edit(project, edit)
+    result = {
         "clip_id": clip_id,
         "mode": "cut" if cut else "keep",
         "applied": applied,
@@ -356,6 +436,10 @@ def cut_by_transcript(
         "removed": before - edit.duration,
         "segments": len(edit.segments),
     }
+    if plan:
+        result["plan"] = True
+        result["suspect_boundaries"] = flagged
+    return result
 
 
 def undo(path: Path | str) -> dict[str, Any]:

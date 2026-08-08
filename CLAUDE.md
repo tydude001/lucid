@@ -3,7 +3,7 @@
 Architecture, stack decisions, and open questions live in [PLAN.md](PLAN.md).
 The competitor/dependency survey behind those decisions is in
 [PRIOR-ART.md](PRIOR-ART.md). What the first real video exposed, and the four
-things worth building next, is in [DOGFOOD.md](DOGFOOD.md). The build order
+things it said to build next, is in [DOGFOOD.md](DOGFOOD.md). The build order
 and the rationale behind it is [ROADMAP.md](ROADMAP.md). Open-item status
 lives in the wiki, not here.
 
@@ -36,6 +36,13 @@ installed package or the upstream repo, not your memory.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
   whether it is registered or reachable.
+- **Anything taking a word index echoes the words it resolved to, plus the
+  three either side.** The neighbours are the point: an index one past the
+  intended phrase reads correctly on its own. Mutating tools also take a
+  `plan` that resolves without writing. PLAN.md § `cut --plan`.
+- **Cite roadmap items by name, never by number** — the numbers renumber on
+  every ship, and four things once cited "item 1" meaning four different
+  items. Point at the named PLAN.md `##` section instead. ROADMAP.md header.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

@@ -49,6 +49,7 @@ uv run lucid -C myproject attach-transcript vo VO.json   # word-timed whisper JS
 uv run lucid -C myproject transcribe vo                  # or: run whisper on vo directly
 uv run lucid -C myproject seed vo                        # auto-editor strips silences
 uv run lucid -C myproject transcript vo --search "here's the thing"
+uv run lucid -C myproject cut vo 111:114 --plan          # what do those indices say?
 uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
 uv run lucid -C myproject verify final.mp4               # did the render say what you edited?

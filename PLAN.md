@@ -57,6 +57,23 @@ has one, is the narrower combination **headless + CLI parity + OTIO-native NLE
 handoff + thin Python stack** — and whether that justifies the project is
 decided by the trial gate in the milestones, not by argument.
 
+**The third pass, 2026-08-07, did not weaken it further.** Daydream is the
+product the README pitches lucid against and the most prominent competitor by
+mindshare, and neither sweep had checked it — it has no GitHub repo, so a
+GitHub-shaped search skipped it silently. Checked directly, it clears none of
+the narrowed thesis: a closed macOS GUI app fronting a local MCP server (not
+headless, no CLI), undocumented per-target XML/FCPXML export with no evidence
+of a timeline IR underneath (not OTIO-native), and a product surface —
+b-roll search, motion graphics, multi-format export — implying OpenChatCut's
+dependency scale rather than a Python package and three subprocesses. It is
+also a full desktop NLE that renders in-app, which falsified the README's
+claim that it hands finishing work off the way lucid does. Evidence in
+[PRIOR-ART.md](PRIOR-ART.md) § Daydream.
+
+What it cannot do is stand in for a trial. There is no Linux build, so unlike
+OpenChatCut it cannot be run on this box at all — the differentiators above are
+checked against its docs and pricing page, not against the software.
+
 ### How much of the MVP is left once the box is inventoried — 2026-08-07
 
 Measured, not argued. Everything below was verified installed and working on
@@ -102,7 +119,7 @@ a real VO before assuming it needs lucid's architecture underneath.
 | `transcribe` | openai-whisper subprocess | word-level timestamps, cached per clip. Written as faster-whisper; it is openai-whisper shelled out through `asr.py`, because that is the install that exists on this box and ASR is not worth importing torch into every `lucid status` for. Built 2026-08-07 — `verify` needed the module first, and the tool itself was then a thin wrapper over it |
 | `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before lucid existed |
 | `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
-| `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call |
+| `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call. Echoes the words each index resolved to and takes `plan=True` to resolve without writing — § `cut --plan` |
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | word-timed, styled via a small preset set; sidecar `.ass` by default, burn-in opt-in. Built 2026-08-07 — § Captions came out of the timeline, not the transcript |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
@@ -674,3 +691,53 @@ one of the single-pass run's 46 suspect durations. In `VO.json` itself "bit" is
 an ordinary 0.16 s word; the span actually hiding the "falls apart a bit in the
 second half" hole DOGFOOD documents is index 137, "in", at 4.26 s. 446 and 890
 are the words this item's own done-when criterion can be checked against.
+
+## `cut --plan`, and echoing what a word index resolved to — 2026-08-07
+
+ROADMAP item 1, built and run against the real `VO/VO.json`. Three parts, and
+the smallest of them turned out to carry the item.
+
+**`plan=True` runs the same code path and skips the write.** The edit is loaded,
+mutated in memory, and simply never saved — no snapshot, no `project.otio`
+write. So `duration_after`, `removed`, `segments` and `segments_touched` are the
+real numbers rather than a second implementation's prediction of them; the
+stdio test asserts a plan and the cut that follows it agree exactly. This
+replaces the cut-read-undo loop, which for an agent costs a full turn per undo
+and leaves snapshots behind for an edit that was never wanted.
+
+**Every range echoes the words either side of it, and that is the part that
+works.** Resolved text alone cannot show an off-by-one — "the words I meant,
+plus one" reads perfectly well on its own, which is why six Scream cues shipped
+with it. Live, planning `cut vo 111:114 --pad 0.1`:
+
+| field | value |
+|---|---|
+| `text` | `Here's the thing I,` |
+| `context_before` | 108 `a`, 109 `3`, 110 `.5.` |
+| `context_after` | 115 `here's`, 116 `the`, 117 `thing` |
+
+The restart is sitting in `context_after`. The range is correct — it takes the
+abandoned "Here's the thing I," and leaves the real one — but *nothing in the
+resolved text says so*, and a range ending at 117 instead of 114 would read
+just as well. Three words of context is what makes the two distinguishable.
+
+**`pad` is in seconds and the echoed text is not**, so a padded cut can eat a
+neighbour the words never mention. `pad_reach` names any word the padded span
+overlaps from outside the range, `side`-labelled. Overlap, never containment
+(CLAUDE.md) — a neighbour half-swallowed by the padding is precisely the case
+worth reporting, and containment would report neither of the two the unit test
+covers. `word_start`/`word_end` now ship alongside `source_start`/`source_end`
+so the padding's effect is readable rather than inferred.
+
+**Planning reports suspect boundaries instead of refusing them.** The refusal
+added above tells the caller to go and check the word; refusing to let them
+look would be circular. Under `plan=True` the same hits come back as
+`suspect_boundaries` with the range that triggered each. Verified live on word
+446: `cut vo 446:450` still refuses with the full message, `--plan` on the same
+range returns the finding and touches nothing.
+
+One thing this did *not* change, and it is correct: the suspect check reads
+only a range's first and last word. Planning `444:448` reports no suspect
+boundary even though interior word 446 is flagged, because 446 is not what the
+cut edge resolves to. Interior words are removed wholesale; only the edges
+carry the risk.

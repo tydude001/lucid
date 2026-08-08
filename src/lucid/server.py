@@ -135,6 +135,7 @@ def cut_by_transcript(
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
     confirm_suspect: bool = False,
+    plan: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep inclusive word ranges, e.g. cut=[[30, 45], [120, 131]].
 
@@ -142,14 +143,30 @@ def cut_by_transcript(
     in seconds, to land the cut in the silence between words. The timeline is
     snapshotted first, so this is undoable.
 
+    Every range echoes back the words it resolved to, plus the few words either
+    side of it — an index one past the intended phrase reads fine on its own
+    and is only visibly wrong next to its neighbours. `pad_reach` names any
+    neighbour the padding eats, since padding is in seconds and the echoed text
+    is not.
+
+    `plan=True` returns that whole payload — including what the timeline would
+    become — without writing anything. Prefer it over cutting and undoing.
+
     Refused if a range's first or last word claims a suspect duration (see
     `attach_transcript`/`transcribe`'s `suspect_durations`) — that word's
     `end`/`start` is what the cut boundary resolves to, and it is usually
     hiding a retake rather than ending where it claims. Check the word, then
-    retry with `confirm_suspect=True` if the boundary is actually fine.
+    retry with `confirm_suspect=True` if the boundary is actually fine. Under
+    `plan=True` these are reported as `suspect_boundaries` instead of refused.
     """
     return ops.cut_by_transcript(
-        path, clip_id, cut=cut, keep=keep, pad=pad, confirm_suspect=confirm_suspect
+        path,
+        clip_id,
+        cut=cut,
+        keep=keep,
+        pad=pad,
+        confirm_suspect=confirm_suspect,
+        plan=plan,
     )
 
 

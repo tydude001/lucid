@@ -129,7 +129,8 @@ def test_the_diff_is_word_per_line() -> None:
 
 
 def test_a_retake_both_takes_survive_into_the_edit_is_still_flagged() -> None:
-    """ROADMAP item 1: the one retake `verify` can never catch.
+    """The one retake `verify` can never catch.
+    PLAN.md § Adjacent near-duplicate phrases at `attach-transcript`.
 
     From the Scream v1 export, words 621/627: "I don't think that it's a
     coincidence" then "I don't think that's a coincidence". The timeline

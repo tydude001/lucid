@@ -221,10 +221,95 @@ def test_cut_by_transcript_end_to_end(tmp_path: Path, sources: tuple[Path, Path]
 
 
 @needs_ffprobe
+def test_cut_plan_resolves_without_touching_the_timeline(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Look before you cut, and see the words either side.
+    PLAN.md § `cut --plan`, and echoing what a word index resolved to.
+
+    The numbers a plan reports are the real ones — it runs the same code path
+    and skips the write — so the assertion that matters is that the plan and
+    the cut that follows it agree exactly, while the plan alone leaves no
+    snapshot behind.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        planned = await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            cut=[[2, 3]],
+            plan=True,
+        )
+        padded = await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            cut=[[2, 3]],
+            pad=1.2,
+            plan=True,
+        )
+        after_plan = await client.call("timeline_status", path=str(project))
+        cut = await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+        )
+        after_cut = await client.call("timeline_status", path=str(project))
+        return {
+            "planned": planned,
+            "padded": padded,
+            "after_plan": after_plan,
+            "cut": cut,
+            "after_cut": after_cut,
+        }
+
+    out = anyio.run(_with_server, body)
+    planned, applied = out["planned"], out["planned"]["applied"][0]
+
+    assert planned["plan"] is True
+
+    # The indices resolve to their words, and to the words either side of them.
+    assert applied["text"] == "w10 w11"
+    assert [w["index"] for w in applied["context_before"]] == [0, 1]
+    assert [w["index"] for w in applied["context_after"]] == [4, 5, 6]
+    assert applied["word_start"] == pytest.approx(3.0) and applied["word_end"] == pytest.approx(4.9)
+    assert "pad_reach" not in applied
+
+    # A pad wide enough to reach the neighbouring words says so — the echoed
+    # text is the same two words either way, which is the whole problem.
+    reach = {w["index"]: w["side"] for w in out["padded"]["applied"][0]["pad_reach"]}
+    assert reach == {1: "before", 4: "after"}
+    assert out["padded"]["applied"][0]["text"] == "w10 w11"
+
+    # Planning wrote nothing: same duration, and no snapshot to roll back.
+    assert out["after_plan"]["timeline_duration"] == pytest.approx(12.0, abs=0.05)
+    assert out["after_plan"]["undo_depth"] == 0
+
+    # And the plan was exact — same removal, same resulting segment count.
+    assert out["cut"]["removed"] == pytest.approx(planned["removed"], abs=1e-9)
+    assert out["cut"]["segments"] == planned["segments"] == 2
+    assert out["after_cut"]["undo_depth"] == 1
+
+
+@needs_ffprobe
 def test_attach_transcript_flags_adjacent_near_duplicate_phrases(tmp_path: Path) -> None:
-    """ROADMAP item 1, over the wire: attach reports a retake `verify` can
-    never catch, before any edit exists to diff it against (test_verify.py
-    exercises the detector itself; this checks it is actually wired in).
+    """Over the wire: attach reports a retake `verify` can never catch,
+    before any edit exists to diff it against (test_verify.py exercises the
+    detector itself; this checks it is actually wired in).
+    PLAN.md § Adjacent near-duplicate phrases at `attach-transcript`.
     """
     audio = tmp_path / "vo.wav"
     _make_wav(audio, tones=[(0.0, 8.0)])
@@ -274,8 +359,9 @@ def _suspect_duration_sources(tmp_path: Path) -> tuple[Path, Path]:
 
 @needs_ffprobe
 def test_attach_transcript_flags_suspect_word_durations(tmp_path: Path) -> None:
-    """ROADMAP item 1, over the wire: a word running past 3x the median is a
-    lie about something, usually a swallowed retake (DOGFOOD.md § 2).
+    """Over the wire: a word running past 3x the median is a lie about
+    something, usually a swallowed retake (DOGFOOD.md § 2).
+    PLAN.md § Suspect word durations at `attach-transcript`.
     """
     audio, transcript = _suspect_duration_sources(tmp_path)
     project = tmp_path / "proj"
@@ -338,6 +424,46 @@ def test_cut_refuses_a_suspect_boundary_word_without_confirmation(tmp_path: Path
     assert out["blocked"].is_error
     assert "hides a retake" in out["blocked"].content[0].text
     assert out["confirmed"]["removed"] > 0
+
+
+@needs_ffprobe
+def test_cut_plan_reports_a_suspect_boundary_instead_of_refusing_it(tmp_path: Path) -> None:
+    """Refusing to *look* at a flagged boundary would be backwards — checking
+    the word is exactly what the refusal above asks the caller to go and do.
+    """
+    audio, transcript = _suspect_duration_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        planned = await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            cut=[[3, 4]],
+            plan=True,
+        )
+        return {"planned": planned, "status": await client.call("timeline_status", path=str(project))}
+
+    out = anyio.run(_with_server, body)
+
+    flagged = out["planned"]["suspect_boundaries"]
+    assert [hit["index"] for hit in flagged] == [3]
+    assert flagged[0]["text"] == "bit"
+    assert flagged[0]["range"] == [3, 4]
+    # Reported, not applied — the timeline is still untouched.
+    assert out["status"]["undo_depth"] == 0
 
 
 @needs_ffprobe
