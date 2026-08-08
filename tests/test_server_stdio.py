@@ -3130,3 +3130,75 @@ def test_timeline_view_words_carry_a_paragraph_field(
     # edit one.
     assert words[2]["present"] is False
     assert words[2]["paragraph"] == 0
+
+
+# -- the layered timeline over the wire ----------------------------------
+#
+# `export` grew a second writer (PLAN.md § The layered timeline, step 4): a
+# project with a cue table is written as MLT by lucid itself, because
+# auto-editor refuses a second source on export and renders one at 720x576
+# while exiting 0. Which writer ran is a property of the project, never of an
+# argument, so these go through the real tool calls that build that project.
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_cue_table_makes_export_write_mlt_itself(tmp_path: Path) -> None:
+    audio, transcript = _make_sources(tmp_path)
+    film = tmp_path / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = tmp_path / "proj"
+    out = tmp_path / "out.kdenlive"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=4, asset=asset["clip_id"]
+        )
+        shots = await client.call("build_shots", path=str(project), fps=30)
+        return {
+            "shots": shots,
+            "export": await client.call("export", path=str(project), output=str(out)),
+        }
+
+    result = anyio.run(_with_server, body)
+
+    assert result["export"]["writer"] == "mlt"
+    assert result["export"]["shots"] == 2
+    # The lane is quantised on the export's grid, not on the project's
+    # millisecond timebase — asking for shots on 30 gives the same total.
+    assert result["shots"]["total_frames"] == result["export"]["frames"]
+    assert 'frame_rate_num="30"' in out.read_text(encoding="utf-8")
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_rendering_a_cued_project_refuses_instead_of_degrading(tmp_path: Path) -> None:
+    """auto-editor renders two sources at 720x576 and exits 0, so there is no
+    safe fallback to make — the refusal is the feature."""
+    audio, transcript = _make_sources(tmp_path)
+    film = tmp_path / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        return await session.call_tool(
+            "export",
+            {"path": str(project), "output": str(tmp_path / "out.mp4"), "export_format": None},
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "720x576" in result.content[0].text

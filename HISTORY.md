@@ -1591,3 +1591,100 @@ refusal could not be deferred to a later step.
   overlap-vs-containment regression above, the monotonic-tie refusal (two
   cues resolving to the same instant), and every asset-resolution failure
   mode; parity asserted the usual way in `test_server_stdio.py`.
+
+## The MLT writer, step 4 of the layered timeline — 2026-08-08
+
+PLAN.md § The layered timeline, build order step 4. New module
+`src/lucid/mlt.py`: `Entry`, `plan_picture`, `document`, `declared_frames`,
+`write`. `ops.export` grew a second road — a multi-source timeline is now
+written by lucid as MLT instead of being handed to auto-editor, which refuses
+to export a second `src` (exit 2) and renders one at 720x576 while exiting 0.
+
+- **Which writer runs is a property of the project, never of an argument.**
+  `_is_layered` says yes to a cue table *or* to an edit naming two clip_ids —
+  both are two `src` files, and the failure they route around is silent, so a
+  flag that can be left off is not a safe way to choose. The reply now carries
+  `"writer": "mlt"` or `"writer": "auto-editor"` so the road taken is visible
+  without inspecting the file. Single-source export is untouched: same
+  auto-editor call, same output, and `test_ops_export_mlt.py` asserts that
+  from the other side.
+- **Rendering a multi-source timeline refuses rather than falling back.**
+  That is step 5, and until it lands the honest answer is an error naming
+  720x576 — an auto-editor fallback would write a file that looks like a
+  success.
+- **Positions are frame integers, not `HH:MM:SS.mmm`.** Kdenlive and
+  auto-editor both write clock time; millisecond text cannot name a 1/29.97 s
+  edge, and it is the form that cost auto-editor its tail frame. MLT parses a
+  bare integer as a frame position — verified by rendering, not assumed.
+- **`declared_frames()` is the assertion PLAN.md asked for instead of a
+  comment.** melt renders to the longest declared length in the document, so
+  every one of them (the two track tractors' `out`, the sequence tractor's,
+  the outer project tractor's and its track's, and the black background
+  producer's `length`) is written from one number, then **read back off the
+  built tree** and checked before the document is returned. A value that was
+  right in a variable and wrong in an attribute is the exact bug this exists
+  for. A still image's four-hour `qimage` length is deliberately not swept —
+  it is not a statement about the timeline.
+- **No `<blank>`, ever.** Both playlists are contiguous by construction, and a
+  picture lane whose frames do not sum to exactly the edit's total is refused
+  in both directions: short pads with blank (runtime every downstream cue is
+  blind to), long runs the render past the audio.
+- **`build_shots` grew `fps`.** It answered on the project's timebase, which
+  for an audio-only project is 1000 — milliseconds, not frames. The export
+  passes its own rate straight through rather than converting the answer
+  afterwards, so the two halves of the document are quantised on one grid by
+  construction. CLI `lucid shots --fps`, MCP `build_shots(fps=)`.
+- **The per-clip playback cursor landed here, as step 2 said it would.**
+  `plan_picture` carries a cursor per asset so a clip used three times shows
+  three different stretches; a shot that would overrun rewinds to the start
+  rather than clamping (a clamp holds a frozen frame, which reads as a render
+  bug rather than a re-use), and a shot longer than its whole asset refuses.
+  `_resolve_asset` now returns `asset_duration` for exactly this — the cursor
+  cannot tell a re-use from an overrun without it.
+- **`set.test_video` is per source, not per document.** The first pass took a
+  single `audio_has_video` flag; a wav and an mp4 on the same track cannot
+  answer that question once, and answering it wrong tells MLT to render black
+  frames off the wav. It is a field on `Entry` now.
+- **The sequence uuid is derived from the project name, not random**, so the
+  same project exported twice is byte-identical and a diff shows what changed
+  in the edit.
+
+### Verified against melt, not just against the tests
+
+Both spikes under `$HOME` (the flatpak cannot see `/tmp`, and exits 0 having
+read nothing — CLAUDE.md). The second one went through the real `ops.export`
+on a real project with two VO segments, three cues, and a card:
+
+| | result |
+|---|---|
+| `melt -consumer xml` frame count | **150**, against 150 declared |
+| render | **1920x1080**, **150 frames**, h264 + aac |
+| picture at each cue | film / card / film — the card measured YAVG 62, UAVG 103, VAVG 238, i.e. the actual red card, so `qtblend` loaded and composited |
+| the second film shot | read from source frame 45, not 0 — the cursor advanced |
+| `check_frames` vs the project **and** vs the render | `delta: 0`, `agrees: true`, no tail-frame note |
+
+That last row is the one worth keeping: **auto-editor's `--export kdenlive`
+output reports one frame more than the timeline holds and renders a black
+frame for it (`picture.KNOWN_TAIL_FRAME`); lucid's own MLT does not.** The
+existing picture-side check validates the new writer with no special-casing.
+
+**A measured red herring, recorded so it is not re-investigated.** The first
+render came back 3 dB below its source and that looked exactly like a 50/50
+`mix` transition where an additive one was wanted. It is not: sweeping the
+transition through `sum=1`, `start/end=1`, `level=1` and no `sum` at all gave
+`-24.1 dB` every time, and re-measuring showed the *source* wav was mono while
+the render was stereo — ffmpeg's own mono→stereo conversion applies the same
+-3 dB. Rendering from a stereo source of the same tone: -24.1 dB in, -24.1 dB
+out. The mix is at unity and always was.
+
+### What this does not cover
+
+- **The render (step 5) and the picture lane in the web UI (step 6)** are
+  still ahead. The UI lane stays illegal until `export` can *render* what it
+  would draw, not merely describe it (CLAUDE.md).
+- **Kdenlive opening the file is unverified.** The document carries the bin,
+  the `kdenlive:id` linkage and the two-playlists-per-track shape Kdenlive
+  writes itself, but nothing here has opened it in the GUI. melt is the
+  consumer this step was built for.
+- **Seeding the real Scream cue table is still open** — same note as step 2:
+  the NAS project's manifest has been read, never written.

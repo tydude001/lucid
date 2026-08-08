@@ -17,7 +17,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from lucid import asr, autoeditor, captions, energy, media, picture
+from lucid import asr, autoeditor, captions, energy, media, mlt, picture
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -317,6 +317,11 @@ def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:
     already registered with `import_media`. Raises if the asset does not
     resolve to real media — the projection is meant to catch a missing card
     or a typo'd clip_id here, not hand it to the MLT writer to find out.
+
+    `asset_duration` rides along for the same reason: the MLT writer decides
+    where inside a clip each shot reads from (`mlt.plan_picture`), and it can
+    only tell a re-use from an overrun if it knows how long the clip is. A
+    card has no duration — a still is held, not played.
     """
     if asset.startswith("card:"):
         name = asset.removeprefix("card:")
@@ -324,6 +329,7 @@ def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:
             raise ProjectError(f"asset {asset!r} names no card")
         resolved = project.cards_dir / f"{name}.png"
         is_image = True
+        duration = None
     else:
         clip = media.get_clip(project, asset)
         if not clip.get("has_video"):
@@ -333,12 +339,13 @@ def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:
             )
         resolved = media.media_path(project, clip)
         is_image = False
+        duration = float(clip["duration"])
     if not resolved.is_file():
         raise ProjectError(f"asset {asset!r} resolves to {resolved}, which does not exist")
-    return {"asset_path": str(resolved), "is_image": is_image}
+    return {"asset_path": str(resolved), "is_image": is_image, "asset_duration": duration}
 
 
-def build_shots(path: Path | str) -> dict[str, Any]:
+def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 
     Step 2 of the layered timeline (PLAN.md § The layered timeline):
@@ -373,10 +380,17 @@ def build_shots(path: Path | str) -> dict[str, Any]:
     source in/out points. Those decide what the MLT writer (step 4) actually
     shows for the duration computed here, and belong with the XML that
     consumes them — this step only says when and for how long.
+
+    `fps` states which frame grid to answer on, and defaults to the project's
+    own timebase — which for an audio-only project is **milliseconds**, not
+    frames (`autoeditor.AUDIO_TIMEBASE`). An export quantises to a real frame
+    rate instead (`_export_fps`), so `export` passes its own rate through
+    rather than converting the answer afterwards: two roundings of the same
+    number are how a picture ends up a frame off the audio it was cut to.
     """
     project = Project.open(path)
     edit = _load_edit(project)
-    rate = _rate(project)
+    rate = float(fps) if fps else _rate(project)
     total_frames = autoeditor.frame_total(edit, rate)
 
     cues = project.read_manifest().get("cues", [])
@@ -1869,6 +1883,108 @@ def attenuate_noises(
 DEFAULT_EXPORT_FPS = 30.0
 
 
+#: What `export` will write itself, rather than asking auto-editor to. Both
+#: names produce the same document — `.kdenlive` *is* MLT, and the extension
+#: is the only thing Kdenlive cares about.
+MLT_EXPORT_FORMATS = {"kdenlive", "mlt"}
+
+
+def _is_layered(project: Project, edit: tl.Edit) -> bool:
+    """Does this timeline name more than one source file?
+
+    Two ways to get there and they hit the same wall: a cue table lays picture
+    over the edit, and an edit naming two clips already holds two `src` files.
+    auto-editor 31.x refuses to *export* either one (exit 2) and *renders*
+    them at 720x576 with exit 0 (CLAUDE.md), so either one routes through the
+    MLT writer.
+    """
+    if len({segment.clip_id for segment in edit.segments}) > 1:
+        return True
+    return bool(project.read_manifest().get("cues"))
+
+
+def _mlt_resolution(project: Project) -> tuple[int, int]:
+    """The canvas to declare in the MLT profile: the first real picture in the
+    project, else 1080p. Cards are not consulted — scaling a still to the
+    canvas is normal; sizing the canvas to a still is not.
+    """
+    for clip in project.read_manifest().get("clips", []):
+        if clip.get("has_video") and clip.get("width") and clip.get("height"):
+            return int(clip["width"]), int(clip["height"])
+    return mlt.DEFAULT_RESOLUTION
+
+
+def _export_mlt(
+    project: Project,
+    edit: tl.Edit,
+    output: Path | str,
+    *,
+    export_format: str | None,
+    fps: float | None,
+) -> dict[str, Any]:
+    """Write the multi-source timeline as MLT — step 4 of the layered timeline.
+
+    The frame grid is settled once, here, and everything downstream is handed
+    it: the edit's entries come from `autoeditor.frame_layout` and the picture
+    lane from `build_shots(fps=rate)`, so the two are quantised on the same
+    grid by construction rather than by agreeing afterwards. `mlt.document`
+    then refuses the pair if they still do not sum to the same total.
+    """
+    if export_format is None:
+        raise ProjectError(
+            "rendering a multi-source timeline is step 5 of the layered timeline "
+            "and is not built yet — and auto-editor must not be handed it as a "
+            "fallback, because it degrades a two-source render to 720x576 and "
+            "exits 0. Export the project (the default) and render that with melt."
+        )
+    if export_format not in MLT_EXPORT_FORMATS:
+        raise ProjectError(
+            f"this timeline has more than one source, so lucid writes it itself, "
+            f"and what it writes is MLT — {export_format!r} would have to go "
+            "through auto-editor, whose exporter refuses a second source (exit 2). "
+            f"Ask for one of {sorted(MLT_EXPORT_FORMATS)}."
+        )
+
+    rate = float(fps) if fps else _export_fps(_clips_by_id(project))
+    audio = []
+    for segment, (offset, frames) in zip(edit.segments, autoeditor.frame_layout(edit, rate)):
+        clip = media.get_clip(project, segment.clip_id)
+        audio.append(
+            mlt.Entry(
+                resource=str(media.media_path(project, clip)),
+                src_in=offset,
+                frames=frames,
+                has_video=bool(clip.get("has_video")),
+            )
+        )
+
+    shots: list[dict[str, Any]] = []
+    picture: list[mlt.Entry] = []
+    if project.read_manifest().get("cues"):
+        shots = build_shots(project.root, fps=rate)["shots"]
+        picture = mlt.plan_picture(shots, rate)
+
+    document = mlt.document(
+        audio=audio,
+        picture=picture,
+        rate=rate,
+        resolution=_mlt_resolution(project),
+        name=project.read_manifest().get("name") or project.root.name,
+    )
+    written = mlt.write(document, output)
+    return {
+        "output": str(written),
+        "format": export_format,
+        "writer": "mlt",
+        "timebase": rate,
+        "segments": len(edit.segments),
+        "shots": len(shots),
+        "sources": len({entry.resource for entry in [*audio, *picture]}),
+        "frames": sum(entry.frames for entry in audio),
+        "timeline_duration": edit.duration,
+    }
+
+
 def export(
     path: Path | str,
     output: Path | str,
@@ -1888,6 +2004,14 @@ def export(
     frame-based, quantising to frames on the way out is what PLAN.md already
     wanted, and cut points land in inter-word silence where a 33ms grid is
     irrelevant.
+
+    **A multi-source project takes a different road entirely** (step 4 of the
+    layered timeline): lucid generates the MLT itself, through `mlt`, because
+    auto-editor refuses to export more than one `src` (exit 2) and degrades
+    the render to 720x576 with exit 0. The choice is made from the project,
+    not from a flag — a cue table or a second clip on the timeline *is* a
+    multi-source timeline, and there is no combination of arguments that
+    should route one through the path that silently ruins it.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -1895,6 +2019,9 @@ def export(
         raise ProjectError("the timeline is empty — nothing to export")
 
     clips = _clips_by_id(project)
+    if _is_layered(project, edit):
+        return _export_mlt(project, edit, output, export_format=export_format, fps=fps)
+
     primary = clips[edit.segments[0].clip_id]
     header = autoeditor.template(media.media_path(project, primary))
 
@@ -1916,6 +2043,7 @@ def export(
     return {
         "output": str(written),
         "format": export_format or "media",
+        "writer": "auto-editor",
         "timebase": timebase,
         "segments": len(edit.segments),
         "timeline_duration": edit.duration,

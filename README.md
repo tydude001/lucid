@@ -53,8 +53,9 @@ and caption the rest" becomes a chat message instead of an afternoon.
    **The multi-track question "full editor" implies is answered too, decided
    2026-08-08: lucid edits your video.** Clips and cards lay over the VO from a
    cue table addressed by *word index*, so a recut recomputes shot positions
-   instead of invalidating them. The cue table and the shot projection are
-   built; the MLT render and the picture lane are not —
+   instead of invalidating them. The cue table, the shot projection and the
+   MLT writer are built — `export` writes a real two-lane project — and what
+   is left is rendering it and drawing it in the window.
    [PLAN.md](PLAN.md) § The layered timeline has the build order.
 
    **And "the same workflow" became "the same product", decided 2026-08-08:**
@@ -214,8 +215,25 @@ are:
 lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
 ```
 
-Multi-track editing is **decided and partway built** — the cue table and the
-shot projection ship; the MLT render and the picture lane don't yet —
+Clips and cards lay over the VO from the same word-indexed address space:
+
+```sh
+lucid -C myproject cue add vo 318 s1996-billy-stu   # from this word on, show this
+lucid -C myproject cue add vo 503 card:reveal-scream2
+lucid -C myproject shots --fps 30                   # what that projects to, in frames
+lucid -C myproject export assembly.kdenlive         # both lanes, written as MLT
+```
+
+A cue names a *word*, so a later recut recomputes every shot position rather
+than invalidating it — and a cue whose word the recut removed is refused
+rather than silently snapped forward. Once a project has a cue table (or a
+second clip on the timeline) `export` writes the MLT itself instead of going
+through auto-editor, which refuses a second source on export and quietly
+renders one at 720x576.
+
+Multi-track editing is **decided and partway built** — the cue table, the shot
+projection and the MLT writer ship; **rendering that project is still `melt`'s
+job to do by hand**, and the picture lane is not in the window yet —
 [PLAN.md](PLAN.md) § The layered timeline has the design and the six-step
 build order.
 

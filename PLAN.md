@@ -330,7 +330,9 @@ the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
 
 The gate is decided: **lucid edits your video.** Six shippable steps, with
 design, evidence, and what stays blocked, in § The layered timeline — the
-gate is decided, and `melt` renders it. Three constraints this ordering owns:
+gate is decided, and `melt` renders it. **Steps 1–4 shipped 2026-08-08**;
+next is step 5, rendering through `melt`, then step 6, the picture lane in
+the window. Three constraints this ordering owns:
 the cue table stays source-addressed (`(clip_id, word_index, asset)`, nothing
 in timeline coordinates); **refuse-to-build when a cue lands in a cut range**
 is built before the thing it guards; and the picture lane lands in the same
@@ -823,6 +825,9 @@ it; it is being written because nothing else will.
   written down in this file precisely so this day would not be a surprise, and
   the declared-length sweep gets an assertion rather than a comment.
 
+Built as `src/lucid/mlt.py` (step 4, below): the sweep is `declared_frames()`,
+read back off the finished document rather than tracked while building it.
+
 ### The design: Design B, unchanged
 
 HISTORY.md § The multi-track costing spike costed two designs, recommended B, and
@@ -874,10 +879,16 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
 4. **The MLT writer**, multi-source path only. Owns the `<blank>` and
    declared-length constraints named above. Every emitted length asserted
    against the `Edit`'s own frame total from `autoeditor.frame_layout` — never
-   from a duration (CLAUDE.md).
+   from a duration (CLAUDE.md). **Built 2026-08-08** — HISTORY.md § The MLT
+   writer, step 4 of the layered timeline. It also took the per-clip playback
+   cursor step 2 deferred to it, and `export` now refuses to *render* a
+   multi-source timeline rather than letting auto-editor degrade it — that
+   refusal is what step 5 replaces.
 5. **Render through `melt`**, HISTORY.md § 4's three traps handled, exit code
    trusted for nothing. Assert the output's **resolution and frame count**, not
-   its status.
+   its status. The measurements to beat are already on file: the step-4 spike
+   rendered its own document at 1920x1080 and exactly the declared frame
+   count, by hand.
 6. **The picture lane in the web UI.** This becomes legal for the first time
    here and not before: the timeline may not draw a lane `export` cannot
    produce, so V2 lands in the same change that makes `export` able to produce
@@ -890,8 +901,10 @@ checked against itself. **Done as a verification, not yet as a fixture:**
 step 2 was checked against a scratch copy of the real `Project/lucid-vo`
 project and the real 37 cues, but the NAS project's own manifest was not
 written to — the actual seeding (a persistent cue table on that project)
-is still open, and belongs with step 4 or whenever the real render is
-next rebuilt. HISTORY.md § The shot projection has the numbers.
+is still open. Step 4 shipped without it too, verified instead against
+synthetic media it could render end to end; it now belongs with **step 5**,
+where a real render is the point. HISTORY.md § The shot projection and
+§ The MLT writer have the numbers.
 
 ### What stays blocked, and it is not lucid
 

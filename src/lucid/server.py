@@ -135,7 +135,7 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
-def build_shots(path: str) -> dict[str, Any]:
+def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 
     Maps each cue's word through the edit's surviving ranges to a timeline
@@ -143,8 +143,12 @@ def build_shots(path: str) -> dict[str, Any]:
     `assets/cards/`, else a registered video clip_id), and runs each shot to
     the next cue — the last to the edit's own frame total. Refuses if a
     cue's word was cut from the edit; fix it with cue_rm/cue_add first.
+
+    `fps` picks the frame grid; it defaults to the project's timebase, which
+    for an audio-only project is milliseconds rather than frames. Pass the
+    rate `export` will use to see the frames the export actually cuts at.
     """
-    return ops.build_shots(path)
+    return ops.build_shots(path, fps=fps)
 
 
 @mcp.tool()
@@ -326,12 +330,18 @@ def undo(path: str) -> dict[str, Any]:
 def export(
     path: str, output: str, export_format: str | None = "kdenlive", fps: float | None = None
 ) -> dict[str, Any]:
-    """Export the timeline via auto-editor.
+    """Export the timeline, or render it.
 
     "kdenlive" writes an MLT project that Kdenlive opens and melt renders —
     the handoff that works on Linux. Pass export_format=null to render media
     instead. Other auto-editor targets (shotcut, premiere, resolve, final-cut-pro)
     pass straight through.
+
+    A **multi-source** timeline — one with a cue table, or with two clips on
+    it — is written by lucid itself as MLT ("kdenlive" or "mlt"), because
+    auto-editor refuses to export a second source and renders it at 720x576
+    while exiting 0. That path cannot render yet; export the project and hand
+    it to melt. The reply says which writer ran.
 
     `fps` sets the NLE timeline's frame rate; it defaults to the picture's rate,
     or 30 for an audio-only project. It is ignored when rendering media.

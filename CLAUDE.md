@@ -30,6 +30,13 @@ installed package or the upstream repo, not your memory.
     renders through `melt`**, which has no source-count gate. `melt`'s own
     three traps all produce output rather than an error: HISTORY.md § 4.
     PLAN.md § The layered timeline.
+  - The writer is `mlt.py`, and `export` picks it **from the project** — a cue
+    table or a second clip_id on the edit — never from an argument, because
+    the failure it routes around is silent. Positions in it are frame
+    integers, `out` is the last frame *index*, and every declared length is
+    read back off the finished document by `mlt.declared_frames` before it is
+    returned: melt renders to the longest one it finds. HISTORY.md § The MLT
+    writer.
 - **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever

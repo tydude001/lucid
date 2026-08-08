@@ -154,8 +154,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
     p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
 
-    sub.add_parser(
+    p_shots = sub.add_parser(
         "shots", help="project the cue table into contiguous shots over the current edit"
+    )
+    p_shots.add_argument(
+        "--fps",
+        type=float,
+        help="answer on this frame grid (default: the project timebase, "
+        "which for audio-only projects is milliseconds — pass the export's "
+        "rate to see the frames the export will actually cut at)",
     )
 
     p_seed = sub.add_parser("seed", help="lay a clip down as the timeline")
@@ -443,7 +450,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"energy.believable's median-multiple cap ({energy.CAP})",
     )
 
-    p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
+    p_export = sub.add_parser(
+        "export",
+        help="export or render the timeline (multi-source projects are written as MLT "
+        "by lucid; everything else goes through auto-editor)",
+    )
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
         "--format",
@@ -528,7 +539,7 @@ def _cmd_cue(args: argparse.Namespace) -> int:
 
 
 def _cmd_shots(args: argparse.Namespace) -> int:
-    return _emit(ops.build_shots(args.project))
+    return _emit(ops.build_shots(args.project, fps=args.fps))
 
 
 def _cmd_seed(args: argparse.Namespace) -> int:
