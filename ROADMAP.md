@@ -144,8 +144,21 @@ numbers. What it does not do is design or build the duck itself, and the
 DECISION stays open at mid-September regardless — the check answers "can this
 clip speak here", not "should lucid grow tracks to let it".
 
+**The cost is measured, and it moved the gate off lucid's data model.**
+Widening the model is cheap and the picture track turns out to be a *derived
+projection* rather than state, so `Edit` stays single-track. The expense is
+getting a multi-**source** timeline out at all: auto-editor 31.x gates that
+behind a paid key, and a duck needs the clip's audio *and* the VO — so
+**Billy/Stu is unexportable free whichever way the model question falls.** What
+is actually being decided in September is therefore one of four: pay for a key
+(collides with PLAN.md § Non-goals), build auto-editor from source (its licence
+permits it), write MLT directly (reverses the rule below), or keep exports
+single-source and hand Kdenlive a computed cue sheet. Evidence, tables and the
+two designs costed: PLAN.md § The multi-track costing spike.
+
 `assemble_scream.py` (534 lines, stdlib) is still the worked reference for the
-mechanism, and the decision is cheaper than it was because the model is
+mechanism — though auto-editor's own exporter now writes the MLT structure it
+hand-rolls — and the decision is cheaper than it was because the model is
 validated:
 
 - A cue table of `(source_word_index, asset)` — nothing positioned in
@@ -155,9 +168,13 @@ validated:
 - **Refuse to build** when a cue points into a cut range — this failed loudly
   and correctly twice on Scream, both times catching a stale cue after a
   recut. Whatever multi-track shape lucid adopts keeps this behaviour.
-- Rendering multi-track means `melt`, not auto-editor, and `melt` has three
-  silent traps (consumer profile → runaway memory; Qt needs a display;
-  flatpak `/tmp`). All documented in DOGFOOD.md § 4 — do not re-derive them.
+- Rendering multi-track does **not** in itself mean `melt` — measured
+  2026-08-08, auto-editor renders a two-track v3 at full resolution and exports
+  it to a four-tractor MLT project that `melt` reads. It is multi-*source*, not
+  multi-track, that auto-editor gates; the costing spike above has the table.
+  When rendering does fall to `melt`, it has three silent traps (consumer
+  profile → runaway memory; Qt needs a display; flatpak `/tmp`), all documented
+  in DOGFOOD.md § 4 — do not re-derive them.
 
 ## Parked — deliberately, with the reasoning
 

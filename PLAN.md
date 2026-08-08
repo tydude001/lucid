@@ -240,14 +240,16 @@ left. The conclusion survives because it was always the load-bearing one, but
   video-use independently ships decision-point composites (filmstrip +
   waveform), which validates the idea and removes its uniqueness. An MP4 for the human and a web preview
   (tier 2) are separate questions — don't conflate them.
-- **Does the OTIO→v3 mapping hold? Partly answered 2026-08-07.** Single-track
-  cut-and-concat maps, in both directions, on real material — that is
-  milestones 3–5. What the spike did *not* touch is still exactly what it was:
-  transitions, speed changes and multi-layer composites are unverified, and
-  they are the ones that could force an architecture change. The current model
-  cannot even express them (see `timeline.py`: one track, A/V linked, no gaps),
-  so the question is now "what does widening the model cost", not "does v3
-  work".
+- **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than lucid
+  uses.** Single-track cut-and-concat maps in both directions on real material
+  (milestones 3–5), and v3 turns out to express the three things this bullet
+  used to list as unverified: multi-layer composites (`v`/`a` are lists of
+  tracks), speed (`effects: ["speed:2.0"]`) and transitions (a top-level
+  `transitions` key). So none of them can force an architecture change at the
+  v3 boundary. `timeline.py` still cannot express them — one track, A/V linked,
+  no gaps — but that is now lucid's choice rather than the format's limit, and
+  the cost of changing it is measured in § The multi-track costing spike. What
+  v3 has no field for is per-entry gain.
 - **Laying clips and graphics over the VO is unmodelled, and that is the next
   real decision.** The Scream video needs five film clips and nine cards on top
   of the trimmed VO. Right now that is Kdenlive's job and lucid's output is an
@@ -261,12 +263,14 @@ left. The conclusion survives because it was always the load-bearing one, but
   the surviving ranges. It is a worked reference for what lucid would absorb,
   including the MLT details that cost the most time. [DOGFOOD.md](DOGFOOD.md) § 3.
 
-  **And it now has a concrete test case.** Beat 3's Billy/Stu line wants VO
-  ducked under a clip's own audio, which breaks the assumption underneath the
-  split above — that clips are silent and lucid owns the only audio track. Its
-  prerequisite is unbuilt whichever way the call goes: an overlap test between a
-  clip's speech and the VO's, both mapped through `Edit.timeline_span`.
-  Sequence and what gates it: [ROADMAP.md](ROADMAP.md) § Decision gate.
+  **And it has a concrete test case, whose prerequisite now exists.** Beat 3's
+  Billy/Stu line wants VO ducked under a clip's own audio, which breaks the
+  assumption underneath the split above — that clips are silent and lucid owns
+  the only audio track. `speech_overlap` is the overlap test that call needed
+  either way. What is left is not the model — § The multi-track costing spike
+  prices that, and it is cheap — but getting a multi-*source* timeline out of
+  auto-editor at all. Sequence and what gates it:
+  [ROADMAP.md](ROADMAP.md) § Decision gate.
 
 ## Non-goals (write them down so they stay dead)
 
@@ -1237,3 +1241,177 @@ than resolved. That needed `-C`'s default to move out of argparse (`default=
 "."` cannot be told from an explicit `-C .`) and into `main`, which sets
 `args.project_given` before defaulting; `init` is the only reader, because it
 is the only subcommand whose directory is an argument rather than a lookup.
+
+## The multi-track costing spike — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Decision gate asked what widening the model costs,
+so the mid-September call could be made against a number. Nothing was built
+here; everything below is measured, on this box, against auto-editor 31.4.2 and
+the real Scream VO.
+
+**The headline is that the question splits in two, and they were being priced
+as one.** Widening the *model* is cheap and the cheap design is already
+validated. Getting a multi-source timeline *out* is the expensive half, the
+cost is not code, and it lands the same way whichever way the model question is
+answered.
+
+### auto-editor's v3 is already multi-track — track count is free
+
+`to_v3` writes `payload["v"] = [list(entries)]`: `v` and `a` are lists **of
+tracks**, and lucid has only ever written one. auto-editor honours more. A
+hand-built two-video-plus-two-audio-track v3 renders and exports:
+
+| timeline | render | `--export kdenlive` |
+|---|---|---|
+| 1 track, 1 source (what lucid writes today) | full res | ok |
+| **2 tracks, 1 source** | **full 1920x800** | **ok — 4 tractors, `melt` reads it** |
+| 1 track, 2 sources | 720x300, warning, **exit 0** | refused, exit 2 |
+| 2 tracks, 2 sources | 720x300, warning, **exit 0** | refused, exit 2 |
+
+So multi-track per se costs nothing at the export boundary, and auto-editor's
+own exporter writes the whole MLT structure — producers, playlists, tractors,
+`mix` and `qtblend` transitions — that `assemble_scream.py` hand-rolls in 534
+lines. Verified end to end: `picture.project_frames()` on the two-track export
+returns 121 frames for a 120-frame timeline, which is the *known* trailing
+black frame (CLAUDE.md) and confirms it is not single-track-specific.
+
+### The wall is source count, and it is a paid key
+
+`src/license.nim` in auto-editor's own source:
+
+```nim
+FREE_RENDER_LONG_SIDE* = 3200'i32     # unlicensed single-source render cap
+FREE_RENDER_SHORT_SIDE* = 1800'i32
+FREE_MULTI_SOURCE_LONG_SIDE* = 720'i32   # unlicensed multi-source render cap
+FREE_MULTI_SOURCE_SHORT_SIDE* = 576'i32
+```
+
+Any timeline naming two distinct `src` files — **on one track or several** — is
+gated. The key is ed25519-signed, supplied by `-k/--license-key` or the
+`AE_PRIVATE_LK` env var, issued from `app.auto-editor.com`, and time-limited
+(`LICENSE_PERIOD_YEARS = 3`, `LICENSE_EXPIRY_YEARS = 4`, checked against the
+binary's *compile* date, so an old build keeps working). The 3200x1800
+single-source cap is well above anything this project renders and is not
+binding; the 720x576 multi-source cap is.
+
+Two things about how it fails are worth writing down:
+
+- **The render side degrades silently.** It prints a warning, writes a
+  720x300 file, and **exits 0** — the same shape of trap as `melt` printing
+  `Failed to load` and exiting 0 (CLAUDE.md). An exit code proves nothing here
+  either. The kdenlive export at least refuses loudly, exit 2.
+- **lucid cannot currently reach the wall, and every overlay design reaches it
+  immediately.** `seed_timeline` *replaces* the whole `Edit` and nothing
+  appends to it, so a timeline can only ever hold one `clip_id` —
+  `to_v3`'s per-segment `clips.get(seg.clip_id)` lookup has never had a second
+  answer to give. Note this is not a multi-track problem: a plain two-take
+  concat on one track hits the same wall.
+
+auto-editor's source is **the Unlicense** (public domain), master active as of
+2026-08-05, gate included in that source — so compiling it without the check is
+permitted by the stated licence rather than a circumvention of it. That is one
+option; it costs a Nim toolchain and a fork to keep current. Buying a key is
+the other, and it collides with § Non-goals' first line — "Cloud anything. No
+accounts, no metering" — because a key *is* an account. Neither is free, and
+the price of a key could not be established: `auto-editor.com/pricing` 404s and
+checkout is behind a login.
+
+### What v3 expresses, and the one thing it does not
+
+The syntax behind § Open questions' answer, measured on 31.4.2:
+
+- **Speed:** `{"src": …, "effects": ["speed:2.0"]}` on the entry.
+- **Transitions:** a top-level `"transitions"` key, `{v: [per-track], a: […]}`,
+  each `{kind, at, dur, alignment}`, `at` in timeline frames, alignment
+  `start`/`center`/`end`.
+- **Composites:** the track list above.
+
+No field carries **per-entry gain**, which is exactly the ducking case — but
+`attenuate_noises` already writes derived gain-reduced media into
+`cache/attenuated/` and `media.media_path()` resolves it, so "duck the VO across
+this span" extends a subsystem that exists rather than needing a new one. An
+unrelated trap from the same measurement: a two-audio-track render writes **two
+separate audio streams**, not a mixdown, and without `--mix-audio-streams` most
+players hear only the first.
+
+### The cheap design needs no new addressing code — measured
+
+`assemble_scream.py`'s real 37-cue table, run through lucid's existing
+`Edit.timeline_span` against the real Scream VO lucid project
+(`Project/lucid-vo/`, 67 segments, 310.875s) and compared to that script's own
+frame-inclusive MLT arithmetic:
+
+| | result |
+|---|---|
+| survival verdicts disagreeing | **0 of 37** |
+| position delta | **-0.013s to +0.027s** (sub-frame at 30fps) |
+| frame-inclusive accumulation, had it drifted | 2.233s |
+
+The delta is not the accumulation, so the two independently-derived answers
+agree. **The picture track is derivable from the API that already ships.**
+
+### The two designs, and what each costs
+
+**Design A — widen `Edit` to N positioned tracks.** All five addressing methods
+(`timeline_time`, `timeline_span`, `timeline_spans`, `source_at`,
+`source_spans`) are built on `offset += seg.duration`: that running sum *is* the
+single-track assumption, so a positioned model rewrites all five. `from_otio`
+loses its `break`, `to_otio` its single track, `frame_layout`/`to_v3` their
+single cursor. Worse, `remove`/`keep_only` ripple semantics break — rippling the
+VO invalidates every stored position on the picture track, which is
+ROADMAP.md § The property everything defends traded away for the thing it was
+defending against. This is timeline.py rewritten plus every `ops.py` caller
+audited.
+
+**Design B — `Edit` stays single-track; the overlay is a derived projection.**
+This is what the worked reference actually does: it stores
+`(source_word_index, asset)` and *recomputes* positions every run, so there is
+nothing positioned to go stale. Unchanged: all five addressing methods,
+`remove`, `keep_only`, `from_otio`, `to_otio`, captions, verify, cut, locate.
+New work, roughly:
+
+- a cue table in the manifest, `(clip_id, word_index, asset)` — source-addressed
+- a projection to contiguous shots, i.e. `build_shots` minus all the MLT XML
+  (~150–200 lines; the XML is what auto-editor now writes for us)
+- multi-track emit: `to_v3` gains a track list, `frame_layout` a positioned
+  variant (~40 lines)
+- **refuse to build when a cue points into a cut range** — this fired correctly
+  twice on Scream and must survive into whatever shape lucid adopts
+- MCP + CLI parity per new op, and tests
+
+A few hundred lines against a rewrite, and the property holds by construction.
+Design B is the recommendation for the model half.
+
+### What this does to the gate
+
+**The model question is answered and it is cheap. The gate now turns entirely
+on the export wall**, and the gate's own named test edit is what forces it: a
+duck needs the film clip's audio *and* the VO, which is two sources, so
+**Billy/Stu cannot be exported by an unlicensed auto-editor whichever way the
+model question is decided.** The choice is between four options, and the first
+three each collide with something already written down:
+
+1. **Pay for a key** — collides with § Non-goals, "no accounts, no metering".
+2. **Build auto-editor from source without the gate** — permitted by the
+   Unlicense; costs a Nim toolchain and a fork.
+3. **Write MLT directly** — reverses ROADMAP.md's "lucid never writes MLT
+   itself", and re-adopts the 534 lines auto-editor would otherwise write.
+4. **Keep exports single-source and formalise the handoff** — lucid *computes*
+   the overlay (design B's projection, refuse-to-build included) and hands
+   Kdenlive a cue sheet instead of a rendered multi-track timeline. This is
+   what happens today with a human in the loop, made machine-readable. It is
+   the only option that collides with nothing, and it delivers the cue-table
+   value — positions recomputed after a recut, stale cues refused — without
+   needing multi-source export at all. What it does *not* deliver is the duck.
+
+Option 4 is the honest default and option 2 is the cheapest way to get the
+duck. The DECISION stays open at mid-September as scheduled; what changed is
+that it is now a question about auto-editor's business model rather than about
+lucid's data model.
+
+Housekeeping, noticed in passing: the "68 cuts" figure repeated across these
+docs is approximate, and no VO timeline has exactly that count — measured,
+`Scream VO - final.kdenlive` is 67 entries, `… final v2` 69, `… final v2 +
+outro` 70. The comparison above pairs the 67-entry `final` with
+`Project/lucid-vo/`, which matches it; `assemble_scream.py`'s production run
+used a later one. Nothing above depends on the figure, but it is not a constant.

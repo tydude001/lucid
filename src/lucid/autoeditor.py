@@ -15,6 +15,12 @@ Verified 2026-08-07 on this box, including for audio-only sources. That second
 line is what gets a lucid edit into Kdenlive, which is the only NLE on this
 machine — so one mapping layer buys both exits.
 
+Both exits are free only while the timeline names **one** source file. 31.x
+gates multi-source timelines behind a paid key: the render silently drops to
+720x576 and still exits 0, and `--export kdenlive` refuses outright. Track
+count is not what is gated — `v`/`a` are lists of tracks and several are fine.
+See PLAN.md § The multi-track costing spike.
+
 Header fields (`layout`, `samplerate`, `langs`, …) are **templated from
 auto-editor itself** rather than reconstructed from ffprobe. `--edit none`
 emits a valid header and one full-length segment without analysing audio, so

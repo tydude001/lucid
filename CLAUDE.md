@@ -19,6 +19,10 @@ installed package or the upstream repo, not your memory.
 - **auto-editor is Nim, and PyPI is stale.** `pip install auto-editor` gets
   29.3.1; upstream ships 31.x. There is no Python API — shell out to the binary,
   like ffmpeg.
+  - **31.x gates multi-*source* timelines behind a paid key, and the render
+    path degrades to 720x576 with a warning and **exit 0** rather than
+    failing.** Track count is free; two distinct `src` files is the wall.
+    PLAN.md § The multi-track costing spike.
 - **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
