@@ -238,9 +238,11 @@ left. The conclusion survives because it was always the load-bearing one, but
   cannot watch an MP4. Leading option: a contact sheet of frames at ±0.5s around
   each cut boundary, which a vision model can actually check. Cheap to render;
   video-use independently ships decision-point composites (filmstrip +
-  waveform), which validates the idea and removes its uniqueness. An MP4 for the human and a web preview
-  (tier 2, now queued — [ROADMAP.md](ROADMAP.md) § Next) are separate
-  questions — don't conflate them.
+  waveform), which validates the idea and removes its uniqueness. An MP4 for
+  the human and a web preview (tier 2, built — § The preview/timeline web UI)
+  are separate questions — don't conflate them, and building the second did
+  not answer this one: the page is for a person, and an agent still cannot
+  watch it.
 - **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than lucid
   uses.** Single-track cut-and-concat maps in both directions on real material
   (milestones 3–5), and v3 turns out to express the three things this bullet
@@ -1428,3 +1430,104 @@ docs is approximate, and no VO timeline has exactly that count — measured,
 outro` 70. The comparison above pairs the 67-entry `final` with
 `Project/lucid-vo/`, which matches it; `assemble_scream.py`'s production run
 used a later one. Nothing above depends on the figure, but it is not a constant.
+
+## The preview/timeline web UI — 2026-08-08
+
+README's tier 2, built the day [ROADMAP.md](ROADMAP.md) queued it. `lucid web`
+serves a page on localhost that draws the current `Edit`, plays it, and cuts
+it. Every check that existed before answers a *machine's* question — `verify`
+diffs the render's words, `frames`/`black`/`spots` read counts and pixels —
+and none of them let a person see an edit before committing to a render.
+
+**The claim worth stating plainly: seeing an edit now costs no render.** The
+page plays the *source file* and jumps the seams, so the thing being previewed
+is the timeline rather than an export of it. Measured on the real Scream VO:
+seeded at 62 segments, playback at timeline 33.1s sat at source 36.234s, and
+1.8s later it was at source 39.284s — it had crossed the seam at source
+36.634→38.033 without playing the 1.399s the silence pass removed. The words
+either side of that seam are 98 `them,` and 99 `I`, which is the
+"I have never given" retake DOGFOOD.md § 2 describes.
+
+### It is a third client, not a third implementation
+
+The constraint it was queued under, and the one a window is most likely to
+break. Nothing in the page computes an edit. Selecting words and pressing Preview
+posts to `ops.cut_by_transcript(plan=True)`; pressing Cut posts the identical
+body with `plan` false; dragging the timeline strip posts to `ops.cut_by_time`;
+Undo posts to `ops.undo`. What the panel draws **is** the op's return value,
+which is what makes the preview trustworthy — it is the real call with the
+write skipped, not a second guess at the numbers.
+
+The one thing the browser necessarily computes for itself is timeline→source
+mapping, because that is what playing an edit without rendering it *is*. It
+draws and it plays; it never decides.
+
+`plan` is a field on the request rather than its own endpoint, for the same
+reason: two URLs would be two paths to drift apart, which is the thing
+`plan=True` exists to prevent.
+
+### `timeline_view`, the read model
+
+The page needed one payload for "the whole edit", and computing it in the
+server would have put the overlap test in a front end. So it is an op —
+`ops.timeline_view`, MCP tool `timeline_view`, CLI `lucid view` — and it is
+`locate` asked once for a clip instead of once per range:
+
+* **segments** carry both coordinate systems. `Edit.segments` holds source
+  time only; where a segment *plays* is the running sum of everything before
+  it, which is the arithmetic every cut invalidates.
+* **seams** are named by the surviving words either side. This is the part
+  that was wrong first: asking the transcript what sits at a seam's *source*
+  time answers with the word that was **removed**, because a cut begins
+  exactly where the outgoing segment ends. The lookup has to happen among the
+  survivors, in timeline coordinates. Caught by the test, not by reading.
+* **words** report `present`, `covered` and `partial`. Survival is an overlap
+  test, never containment (CLAUDE.md), so a word a cut split reports present
+  and says how much is left. On the real VO that is 24 of 929 words — routine,
+  not a defect, and the view marks them rather than rounding them to kept.
+  Suspect durations carry the flag `attach_transcript` already reported; 13 of
+  929 there.
+
+A clip with no transcript still returns segments and seams, with `words` null
+and `transcript_missing` set — `locate`'s policy, for the same reason.
+
+### Stack: `http.server`, and the one thing hand-rolled
+
+Standard library only, no build step, static assets shipped in the package
+(`src/lucid/web/`, confirmed present in the built wheel). starlette and uvicorn
+are already in the tree under `mcp`, and were still not used: two direct
+dependencies is the whole point of § Non-goals' "no second stack".
+
+HTTP Range is hand-rolled because a browser will not seek in a `<video>`
+without it, and `SimpleHTTPRequestHandler` does not speak it. Single-range
+only; `multipart/byteranges` is real work no media element needs. Verified
+byte-exact against the real 70 MB VO through its symlink, including a
+mid-file seek and the `bytes=-N` suffix form.
+
+Media resolves through `media.media_path`, so the preview is of the
+*attenuated* copy when one exists — the file every downstream op reads, which
+makes the preview the audio that will actually be exported.
+
+### Two guards, because localhost is not private
+
+This server mutates a project and reads media, and any page you happen to be
+browsing can issue requests to `localhost`.
+
+* The `Host` header must name loopback. A name an attacker controls that
+  resolves to 127.0.0.1 arrives looking local otherwise; the socket cannot
+  tell you apart from the rebinding, only the header can.
+* Every mutating request must be `application/json` — the one content type an
+  HTML form cannot produce. That turns a cross-origin attempt into a
+  preflight, and no CORS headers are ever served to satisfy one.
+
+Both are asserted in `tests/test_webui_http.py`, live over a socket, including
+that a refused POST leaves `undo_depth` at zero.
+
+### What it does not do
+
+Single-track, because `Edit` is (§ The multi-track costing spike). No
+waveform: the strips are drawn from segment durations, and an envelope would
+be a second read of the media for a picture `energy.py` already answers
+numerically. Seams click on playback — each one is a seek, and the page says
+so rather than implying a clean join. Nothing here renders, exports or
+finishes; that is still ROADMAP.md's tier-2/tier-3 line.

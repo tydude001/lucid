@@ -29,7 +29,10 @@ Two CLI gaps the same run surfaced also closed, neither ever a roadmap item:
 PLAN.md § `locate` and § `init` stops silently ignoring `-C`.
 
 **Next** refilled the same day with the tier-2 preview/timeline web UI, which
-this file had never named.
+this file had never named, and that shipped the same day too — `lucid web`.
+It bought more than the "see it before rendering" it was queued for: the page
+plays the source and jumps the seams, so **seeing an edit costs no render at
+all**. PLAN.md § The preview/timeline web UI.
 
 **Ordering answers to measured defects, not to competitors.** A prior-art pass
 the same day found Daydream to be a full desktop NLE rather than the chat front
@@ -60,50 +63,20 @@ containment; anything emitting times for playback maps through
 
 ---
 
-## Now — cleared
+## Now, and Next — both cleared
 
-Nothing is queued ahead of **Next**. What "verified" means for anything that
-lands here: run against the real Scream VO, where the defect actually
-occurred, not a synthetic fixture. It is on the NAS at `TheVaultData/content
-stuff/Good Sometimes/Videos/Every Scream Sequel Falls Apart At The
-REVEAL/VO/VO.json`, mounted at `~/TheVaultData`. Its word indices address
-**the v1 recording**; the pending re-record produces a different file with
-different indices and does not retire the recorded findings as evidence.
+Nothing is queued. What "verified" means for anything that lands here: run
+against the real Scream VO, where the defect actually occurred, not a
+synthetic fixture. It is on the NAS at `TheVaultData/content stuff/Good
+Sometimes/Videos/Every Scream Sequel Falls Apart At The REVEAL/VO/VO.json`,
+mounted at `~/TheVaultData`. Its word indices address **the v1 recording**;
+the pending re-record produces a different file with different indices and
+does not retire the recorded findings as evidence.
 
-## Next — the preview/timeline web UI
-
-README's tier 2, queued **2026-08-08** rather than left waiting on the gate
-below: see what the agent did before rendering.
-
-It ranks here because every check that exists answers a *machine's* question.
-`verify` diffs the render's words, `frames`/`black`/`spots` read counts and
-pixels, and the contact sheet in PLAN.md § Open questions is framed for a
-vision model to check — deliberately, since a tier-1 agent cannot watch a
-preview. None of them let a person see an edit before committing to a render,
-let alone change one from where they are looking at it.
-
-**It edits — and what that needs is already built.** Every mutating tool takes
-`plan=True`, which runs the identical code path and reports without writing;
-every real mutation snapshots first, `undo` rolls one back and `undo_depth`
-says how many remain (`ops.py`, `project.py`). A view is the best consumer
-that pair has had — select a range, the plan payload *is* what the panel
-draws, apply commits it, undo backs it out — and none of it is new work.
-
-Two constraints, and they are what keep it cheap:
-
-- **No privileged path.** Mutations go through the same `ops` functions the
-  CLI and MCP tools call. The UI is a third client, never a third
-  implementation of a cut — that is the parity convention in CLAUDE.md, which
-  a window is the most tempting thing to break it with.
-- **Local, in-package.** Served on localhost out of the same Python package —
-  no accounts, no upload, and no second stack to install
-  (PLAN.md § Non-goals, § Stack decision).
-
-**Done, minimally:** the current `Edit` drawn as a timeline with word-indexed
-cut boundaries, playable against the source, with cut, plan-preview and undo
-driven from the view. Single-track is the right target even with the gate
-open — the picture track is a derived projection, so a view built against
-today's `Edit` widens with the model rather than blocking on it.
+The Decision gate below is what remains, and the web UI shipping does not move
+it — for the reason it was queued ahead of it: the picture track is a derived
+projection, so a view built against today's `Edit` widens with the model
+rather than blocking on it.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -206,8 +179,8 @@ standing. It is now **revisitable — a question behind the web UI, not queued
 work.**
 
 **What separates tier 2 from tier 3 is finishing, not mutation.** The web UI
-writes (§ Next); what keeps it tier 2 is that the edit still leaves through
-OTIO/MLT instead of being finished in place. That is the failure the
+writes; what keeps it tier 2 is that the edit still leaves through OTIO/MLT
+instead of being finished in place. That is the failure the
 OpenChatCut trial actually measured — its export was flattened media,
 subtitles or FCPXML, none of which opens on this box, so the timeline was
 trapped in the app unless the video was finished there. So what reopens tier 3

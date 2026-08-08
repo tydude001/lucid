@@ -33,8 +33,9 @@ and caption the rest" becomes a chat message instead of an afternoon.
    anyone already living in an agent CLI. This is the MVP.
 2. **Preview/timeline web UI** — see what the agent did before rendering.
    Cut and undo from the view too, through the same tools the CLI calls — on
-   localhost, out of the same package. Queued next:
-   [ROADMAP.md](ROADMAP.md) § Next.
+   localhost, out of the same package. **Built** (`lucid web`); because it
+   plays the source through the edit rather than a render of it, seeing an
+   edit costs no render. [PLAN.md](PLAN.md) § The preview/timeline web UI.
 3. **Full desktop editor** — not a goal, because of where a video gets
    *finished*, not because tier 2 stops at looking: OTIO/MLT export hands
    finishing to Resolve/Premiere/Kdenlive, which is what keeps lucid headless,
@@ -59,6 +60,14 @@ uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
 uv run lucid -C myproject cut-at 40.4+4.4                # or cut by what an export played
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
 uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
+```
+
+Or watch it instead of reading it — the page plays the source through the
+edit, so there is nothing to render first:
+
+```sh
+uv run lucid -C myproject web --open      # localhost; select words, preview, cut, undo
+uv run lucid -C myproject view            # the same read model as JSON
 ```
 
 `--render` exports media instead of an NLE project, and `undo` rolls back the

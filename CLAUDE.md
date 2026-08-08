@@ -39,7 +39,16 @@ installed package or the upstream repo, not your memory.
   parity is a feature, not overhead.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
-  whether it is registered or reachable.
+  whether it is registered or reachable. Same discipline for the web UI:
+  `tests/test_webui_http.py` speaks HTTP to a real socket, because a handler
+  called directly proves nothing about routing, Range, or the guards.
+- **The web UI (`webui.py`, `web/`) is a third client, never a third
+  implementation.** It draws and it plays; it never decides — every mutation
+  posts to the same `ops` function the CLI and MCP call, and the panel renders
+  that function's own return value. It also binds loopback **and** checks the
+  `Host` header **and** requires `application/json` on mutations; loopback
+  alone does not guard a server that can rewrite your edit. PLAN.md § The
+  preview/timeline web UI.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a
