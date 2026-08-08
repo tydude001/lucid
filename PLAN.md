@@ -106,7 +106,7 @@ a real VO before assuming it needs lucid's architecture underneath.
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | word-timed, styled via a small preset set; sidecar `.ass` by default, burn-in opt-in. Built 2026-08-07 — § Captions came out of the timeline, not the transcript |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
-| `verify` | openai-whisper + difflib | not in the original surface. Transcribe the finished render and diff it against the words the timeline should play — the only check that catches a retake the transcript never contained. Added after the dogfood found two of them in a shipped render. Built 2026-08-07 — § `verify` checks the render, because the transcript cannot |
+| `verify` | openai-whisper + difflib + ffmpeg | not in the original surface. Transcribe the finished render and diff it against the words the timeline should play — the only check that catches a retake the transcript never contained. Added after the dogfood found two of them in a shipped render. Built 2026-08-07 — § `verify` checks the render, because the transcript cannot. `--windowed` (a second reading in short overlapping windows, `asr.py`) and `loud_gaps` (the energy envelope, `energy.py` — the only check that answers to no transcript) followed the same day — § `verify --windowed`, and what the Scream exports actually said |
 | `export_otio` | OTIO adapters | Lower urgency than it looks: auto-editor already exports six NLE formats via subprocess, and on Linux the ones that actually land are MLT (kdenlive/shotcut) — free Resolve decodes no H.264/AAC, so FCPXML only pays off for pre-transcoded footage. See PRIOR-ART.md |
 
 Deliberately absent from MVP: motion graphics (tier 1.5, Motion Canvas),
@@ -525,3 +525,94 @@ then blames missing word timestamps — advice to pass `--word_timestamps True`,
 which `asr.transcribe` always passes. `verify` checks for that case first and
 says what actually happened: the render has no dialogue on it, so check the
 export kept the audio track.
+
+## `verify --windowed`, and what the Scream exports actually said — 2026-08-07
+
+[ROADMAP.md](ROADMAP.md) § 1. Run against the real material this time: the v1
+timeline rebuilt in lucid from `VO.json` and the recorded cut list, which lands
+on 67 segments and 312.175 s against the 67 and 5:10.9 in goodsometimes, with
+the two padded cuts removing exactly the −3.06 s and −1.333 s recorded there.
+Then the shipping v1 and v3 exports verified against that one timeline, each
+both ways.
+
+| Run | Windows | Heard | Similarity | `repeated` | Suspect durations | `loud_gaps` | Wall |
+|---|---|---|---|---|---|---|---|
+| v1 single-pass | — | 876 | 0.969 | 2 | **46** | 0 | 19.9 s |
+| v1 windowed | 62 | 883 | 0.976 | 3 | **10** | 1 | 39.0 s |
+| v3 single-pass | — | 855 | 0.971 | 0 | **50** | 1 | 19.5 s |
+| v3 windowed | 60 | 859 | 0.973 | 0 | **10** | 2 | 33.1 s |
+
+**Windowing's benefit is not the one the item claimed, and it is measurable.**
+It did not find a retake a single pass had missed. What it did was cut words
+with implausible durations from 46 to 10 and 50 to 10 — the collapse mechanism
+itself, suppressed about five-fold, because a ten-second segment has nowhere to
+put a 3.96-second word. That is the same quantity ROADMAP § 2 wants flagged, so
+the two items turn out to be one observation seen from either end.
+
+**What actually surfaced the retakes was the diff, not the transcription.**
+Both passes already *contained* both catchable retakes; `repeated` reported one
+of them, because it required the extra run to appear in the expected sequence
+verbatim. Two takes of a line are never verbatim — that is how you tell them
+apart, and the notes call the wrong preposition the tell. Scoring the run
+against its best-aligned window instead took v1 from one detection to two on
+the *same* transcript. The threshold is 0.5 and that is not slack: the second
+take is transcribed worse than the first, and "Scream 4" came back as "screen
+4", which alone took the run to 0.556.
+
+**The third retake was never a `verify` miss.** `VO.json` records both takes of
+"I don't think that['s / it's] a coincidence" at words 621 and 627. The
+timeline expects both because nothing cut them, the render plays both, and
+`verify` is right to report no discrepancy — its question is whether the render
+says what you edited. Catching that one means comparing the source transcript
+against *itself* for adjacent near-duplicate phrases, at attach time. Different
+check, now ROADMAP § 3.
+
+### Three failure modes the real material found, none of them theoretical
+
+- **Overlap 3 s loses words in the middle of a file.** The ported method's
+  numbers were measured on the VO; a render is harder. At 10 s / 3 s the
+  windows only share 3 s in every 7, so 57% of a file sits inside exactly one
+  window and a word that window missed is gone — `_reconcile` has no second
+  reading to fall back on. On the scored v3 export that dropped 22 words
+  mid-sentence ("three different movies, 12 years apart…"); re-admitting
+  discarded copies recovered 14, and the remaining 8 were in single-covered
+  territory. **The default overlap is now half the window**, which makes
+  coverage uniformly two: 859 words against 847, similarity 0.973 against
+  0.963, and the hole closed. Pass `--overlap 3` for the original method.
+- **Short windows make whisper's repetition loop *more* likely.** One window of
+  v1 emitted sixteen words all stamped `229.98 → 229.98` — a verbatim copy of
+  an earlier phrase spliced mid-sentence — and `verify` dutifully reported a
+  retake that is not in the audio. Zero-length words are the entire signature
+  and cost nothing to lose, so a stack of three or more on one instant is
+  dropped and counted as `hallucinated_words`.
+- **The windowed pass is not reproducible.** Two runs over identical inputs
+  gave 883 and 898 heard words. Treat a windowed count as approximate; it is
+  the sequence that is being read, not the total.
+
+### The energy envelope is the only part that answers to no transcript
+
+`energy.py`, reported as `loud_gaps` by both passes. Mask the render's audio
+with the words that were heard and measure what is left in the holes; the
+threshold calibrates off the file, halfway in dB between its quiet tenth and
+the median level inside a word, because a VO stem and a scored render sit 20 dB
+apart.
+
+Two things make it work rather than merely run:
+
+- **Word durations are not believed when building the mask.** This is the
+  whole point and it is easy to get backwards. A collapsed retake does not
+  leave a gap in the transcript — it inflates the following word until that
+  word's claimed span *covers* the second take. Masking by the claimed span
+  therefore masks the evidence. Each span is trimmed to 3x the median word
+  duration first, the same multiple ROADMAP § 2 flags at.
+- **It caught the windowed pass's own failure.** The 22 missing words on v3
+  showed up as 58.98–63.0 s holding 2.64 s of sound at −10.2 dB peak — the same
+  shape as the 4.12 s hole holding 2.4 s of speech in the goodsometimes notes,
+  and invisible to any transcript-versus-transcript comparison, because both
+  sides agreed that stretch was silent.
+
+A music bed raises the quiet end rather than defeating the check, which is what
+the self-calibration is for — but the bed is not flat, and a swell in a long
+pause can still clear the midpoint. Both v3 runs report one or two gaps around
+0.5 s of sound at roughly −19 dB, which is where the seven attenuated noises
+live. An entry is somewhere to listen, never a verdict.

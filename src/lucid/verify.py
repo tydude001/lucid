@@ -28,6 +28,25 @@ from lucid.transcript import _normalise
 #: expected sequence is a phrase that played twice.
 MIN_RUN = 2
 
+#: How closely an extra run has to resemble something the timeline expects
+#: before it is called a repeat rather than left in the diff.
+#:
+#: It cannot be an exact match, and that is measured, not assumed. Two takes of
+#: a line differ — that is *how you tell them apart*. On the Scream v1 export
+#: the render says "falls apart a bit **at** the second half" and then "**in**
+#: the second half", and "I don't think **that it's** a coincidence" then "I
+#: don't think **that's** a coincidence"; the notes call the wrong preposition
+#: the tell. Requiring the run verbatim reported one of those three retakes and
+#: left the other two for whoever read all 900 lines of the diff.
+#:
+#: 0.5, because the second take is transcribed *worse* than the first — it is
+#: the one whisper was already inclined to swallow. On the Scream v1 export the
+#: repeat of "Scream 4 falls apart a bit" came back as "screen 4", and that one
+#: substitution took the run to 0.556; at 0.6 the retake went unreported. An
+#: unrelated insert does not come close, because it must also share a
+#: contiguous run of `MIN_RUN` before it is scored at all.
+SIMILAR = 0.5
+
 
 class VerifyError(Exception):
     """Raised when there is nothing to verify against."""
@@ -47,15 +66,28 @@ def tokens(texts: Iterable[str]) -> list[str]:
     return out
 
 
-def _index_of(haystack: list[str], needle: list[str]) -> int:
-    """First position of `needle` as a contiguous run in `haystack`, or -1."""
-    if not needle or len(needle) > len(haystack):
-        return -1
-    first = needle[0]
-    for i in range(len(haystack) - len(needle) + 1):
-        if haystack[i] == first and haystack[i : i + len(needle)] == needle:
-            return i
-    return -1
+def _closest_run(needle: list[str], haystack: list[str]) -> tuple[int, float]:
+    """Where `haystack` most resembles `needle`, and how much: (index, ratio).
+
+    Anchored on the longest shared run and then scored over a window of the
+    same length, so that a second take is recognised as the same line as the
+    first even though the two are not word-for-word — which they never are.
+
+    Returns (-1, 0.0) when nothing of `MIN_RUN` length is shared at all.
+    """
+    if len(needle) < MIN_RUN or len(haystack) < MIN_RUN:
+        return -1, 0.0
+
+    anchor = difflib.SequenceMatcher(a=needle, b=haystack, autojunk=False).find_longest_match(
+        0, len(needle), 0, len(haystack)
+    )
+    if anchor.size < MIN_RUN:
+        return -1, 0.0
+
+    # Line the window up so the shared run sits where it sits in `needle`.
+    start = max(0, min(len(haystack) - len(needle), anchor.b - anchor.a))
+    window = haystack[start : start + len(needle)]
+    return start, difflib.SequenceMatcher(a=needle, b=window, autojunk=False).ratio()
 
 
 def compare(expected: list[str], heard: list[str]) -> dict[str, Any]:
@@ -72,10 +104,22 @@ def compare(expected: list[str], heard: list[str]) -> dict[str, Any]:
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag in ("insert", "replace"):
             extra = heard[j1:j2]
-            # Extra words the timeline also expects *somewhere* are a phrase
-            # played twice: a retake the transcript never showed as a retake.
-            if len(extra) >= MIN_RUN and _index_of(expected, extra) >= 0:
-                repeated.append({"text": " ".join(extra), "at_heard_word": j1})
+            # Extra words that closely resemble a run the timeline expects
+            # *somewhere* are that line played twice: a retake the transcript
+            # never showed as a retake.
+            at, ratio = _closest_run(extra, expected)
+            if at >= 0 and ratio >= SIMILAR:
+                repeated.append(
+                    {
+                        "text": " ".join(extra),
+                        "at_heard_word": j1,
+                        # The take the timeline does account for, so a reader
+                        # can see both readings side by side and pick.
+                        "expects": " ".join(expected[at : at + len(extra)]),
+                        "at_expected_word": at,
+                        "similarity": round(ratio, 3),
+                    }
+                )
         if tag in ("delete", "replace"):
             missing = expected[i1:i2]
             # The opposite failure: a cut that reached past its word range.

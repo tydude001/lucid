@@ -149,9 +149,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="use this transcript of the render instead of running whisper",
     )
     p_verify.add_argument(
-        "--model", default=asr.DEFAULT_MODEL, help=f"whisper model ({asr.DEFAULT_MODEL})"
+        "--model",
+        help=f"whisper model (default: {asr.DEFAULT_MODEL}, or "
+        f"{asr.WINDOWED_MODEL} with --windowed)",
     )
     p_verify.add_argument("--language", help="force a language instead of detecting one")
+    p_verify.add_argument(
+        "--windowed",
+        action="store_true",
+        help="transcribe in short overlapping windows — catches a retake a single "
+        "pass collapses, at 2x the audio to transcribe",
+    )
+    p_verify.add_argument(
+        "--window", type=float, default=asr.WINDOW, help=f"window length ({asr.WINDOW}s)"
+    )
+    p_verify.add_argument(
+        "--overlap", type=float, default=asr.OVERLAP, help=f"window overlap ({asr.OVERLAP}s)"
+    )
 
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
@@ -274,6 +288,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             transcript_path=args.transcript_path,
             model=args.model,
             language=args.language,
+            windowed=args.windowed,
+            window=args.window,
+            overlap=args.overlap,
         )
     )
 

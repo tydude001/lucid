@@ -16,7 +16,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 
-from lucid import __version__, ops
+from lucid import __version__, asr, ops
 
 mcp: MCPServer = MCPServer(
     name="lucid",
@@ -209,8 +209,13 @@ def verify(
     render: str,
     clip_id: str | None = None,
     transcript_path: str | None = None,
-    model: str = "turbo",
+    model: str | None = None,
     language: str | None = None,
+    windowed: bool = False,
+    # Bound to the module constants rather than restated: a stale literal here
+    # is a tool whose schema advertises a default the CLI no longer uses.
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
 ) -> dict[str, Any]:
     """Transcribe a finished render and diff it against what the timeline says.
 
@@ -226,6 +231,19 @@ def verify(
     index to look at. `dropped` is the opposite: words the timeline expects that
     the render never says, usually a cut that reached too far.
 
+    **A clean single-pass result is not proof.** This check has a known blind
+    spot: the render's transcript is itself one whisper pass, which collapses a
+    repeat the same way the source transcript did — three retakes survived a
+    correct run of it on a real video. Set `windowed=True` to transcribe in
+    short overlapping windows instead, which is what found them. It costs one
+    whisper run over 2x the audio and uses a deliberately smaller model, so
+    run the default first and escalate to it before calling an edit finished.
+
+    `loud_gaps` comes back either way and trusts no transcript: it measures the
+    render's own energy and reports holes in the heard word map that hold sound
+    anyway. An entry is a place to *listen*, not a verdict — a music bed or an
+    attenuated noise can produce one. Read `speech_db`/`threshold_db` beside it.
+
     `similarity` around 0.97 is normal on a *clean* render — whisper spells its
     own output differently on a second pass ("whodunit" / "who done it", "4" /
     "four"). Treat it as triage; `diff` is the artifact. Transcription takes
@@ -240,6 +258,9 @@ def verify(
         transcript_path=transcript_path,
         model=model,
         language=language,
+        windowed=windowed,
+        window=window,
+        overlap=overlap,
     )
 
 

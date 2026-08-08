@@ -459,10 +459,83 @@ def test_verify_catches_a_phrase_the_render_plays_twice(
 
     out = anyio.run(_with_server, body)
 
-    assert out["repeated"] == [{"text": "w20 w21", "at_heard_word": 4}]
+    assert len(out["repeated"]) == 1
+    assert out["repeated"][0]["text"] == "w20 w21"
+    assert out["repeated"][0]["at_heard_word"] == 4
     assert out["dropped"] == []
     assert out["heard_words"] == 8 and out["expected_words"] == 6
     assert out["similarity"] < 1.0
+
+
+@needs_ffprobe
+def test_verify_reports_which_pass_produced_the_words_it_heard(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`windowed` is a request to transcribe, and a supplied transcript is not one.
+
+    Reporting mode "windowed" here because the flag was set would tell a reader
+    the render had been through the pass that catches a collapsed retake when it
+    had not — and a clean result is exactly what they would act on.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    heard = _heard(tmp_path / "render.json", ["w00", "w01", "w20", "w21", "w30", "w31"])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _cut_project(client, project, audio, transcript)
+        return await client.call(
+            "verify",
+            path=str(project),
+            render=str(audio),
+            transcript_path=str(heard),
+            windowed=True,
+        )
+
+    out = anyio.run(_with_server, body)
+
+    assert out["mode"] == "supplied"
+    assert "windows" not in out
+
+
+@needs_ffprobe
+def test_verify_reports_sound_in_a_hole_the_word_map_calls_empty(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The energy arbiter, end to end and over the wire.
+
+    The render's word map accounts for the first burst and the last. Two more
+    bursts play in between, and no transcript on either side of the diff has a
+    word for them — which is the exact shape of the 4.12 s "gap" holding 2.4 s
+    of speech on the Scream v1 export.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    render_words = [
+        {"word": "w00", "start": 0.0, "end": 0.9},
+        {"word": "w01", "start": 1.0, "end": 1.9},
+        {"word": "w30", "start": 9.0, "end": 9.9},
+        {"word": "w31", "start": 10.0, "end": 10.9},
+    ]
+    heard = tmp_path / "render.json"
+    heard.write_text(json.dumps({"language": "en", "words": render_words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _cut_project(client, project, audio, transcript)
+        return await client.call(
+            "verify", path=str(project), render=str(audio), transcript_path=str(heard)
+        )
+
+    out = anyio.run(_with_server, body)
+
+    gaps = out["loud_gaps"]["gaps"]
+    assert len(gaps) == 1
+    assert (gaps[0]["start"], gaps[0]["end"]) == (1.9, 9.0)
+    # The 3-5 and 6-8 bursts, and nothing else in there. A shade over 4.0s:
+    # the fixture is written at 22050 Hz and measured at 8000, and the
+    # resampler's ring smears each of the four burst edges into its 20ms frame.
+    assert gaps[0]["sound_seconds"] == pytest.approx(4.0, abs=0.3)
 
 
 needs_auto_editor = pytest.mark.skipif(

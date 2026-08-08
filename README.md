@@ -82,6 +82,7 @@ cuts you made are the cuts you meant.
 
 ```sh
 lucid verify final.mp4                       # transcribes with whisper
+lucid verify final.mp4 --windowed            # second opinion, in short windows
 lucid verify final.mp4 --transcript render.json   # or re-diff without re-running it
 ```
 
@@ -89,6 +90,21 @@ Similarity around 0.97 is normal on a clean render — whisper spells its own
 output differently on a second pass — so the diff is the artifact, and a
 `repeated` entry is the retake signal. Whisper is a subprocess, not a
 dependency: set `LUCID_WHISPER` if `whisper` is not on your `PATH`.
+
+A clean single-pass result is not proof, because that pass is itself one
+whisper transcription and collapses a repeat the same way the source did.
+`--windowed` transcribes in 10-second windows with 5 seconds of overlap and a
+deliberately *smaller* model — a segment that ends after ten seconds has
+nowhere to put an eleventh, and a bigger model tidies away the disfluency being
+looked for. It costs one whisper run over twice the audio, which is seconds on
+a five-minute render.
+
+Both passes also report `loud_gaps`, which answers to no transcript at all: the
+render's own energy envelope, masked by the words that were heard, with any
+hole that holds sound anyway reported as somewhere to listen. Word *durations*
+are not believed when building that mask — a word claiming several seconds is
+hiding a hole rather than filling one, which is exactly how a collapsed retake
+escapes a diff.
 
 Multi-track editing is not built yet — see the milestones in [PLAN.md](PLAN.md).
 

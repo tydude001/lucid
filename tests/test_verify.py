@@ -42,9 +42,47 @@ def test_a_phrase_played_twice_is_reported_as_repeated() -> None:
 
     result = verify.compare(expected, heard)
 
-    assert result["repeated"] == [{"text": "w20 w21", "at_heard_word": 4}]
+    assert result["repeated"] == [
+        {
+            "text": "w20 w21",
+            "at_heard_word": 4,
+            "expects": "w20 w21",
+            "at_expected_word": 2,
+            "similarity": 1.0,
+        }
+    ]
     assert result["dropped"] == []
     assert result["similarity"] < 1.0
+
+
+def test_a_retake_is_reported_even_though_the_two_takes_differ() -> None:
+    """Two takes are never word-for-word — the difference is how you tell them apart.
+
+    Both of these are real, from the Scream v1 export: the render says "at the
+    second half" and then "in the second half", and "that it's a coincidence"
+    then "that's a coincidence". Requiring the extra run verbatim left both in
+    the diff for a human to find among 900 lines.
+    """
+    expected = verify.tokens(["falls apart a bit in the second half the 2022 one"])
+    heard = verify.tokens(
+        ["falls apart a bit at the second falls apart a bit in the second half the 2022 one"]
+    )
+
+    repeated = verify.compare(expected, heard)["repeated"]
+
+    assert len(repeated) == 1
+    assert repeated[0]["similarity"] >= verify.SIMILAR
+    # And it reports the reading the timeline does account for, so both are
+    # readable side by side without going to the transcript.
+    assert "falls apart a bit" in repeated[0]["expects"]
+
+
+def test_a_near_match_still_has_to_be_a_near_match() -> None:
+    """Sharing a couple of common words is not saying the line twice."""
+    expected = verify.tokens(["the killer calls from inside the house"])
+    heard = verify.tokens(["the killer calls from inside the house and then the credits roll"])
+
+    assert verify.compare(expected, heard)["repeated"] == []
 
 
 def test_extra_words_the_timeline_never_expected_are_not_called_repeats() -> None:

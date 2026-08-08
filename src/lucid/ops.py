@@ -15,7 +15,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from lucid import asr, autoeditor, captions, media
+from lucid import asr, autoeditor, captions, energy, media
 from lucid import timeline as tl
 from lucid import transcript as tx
 
@@ -501,8 +501,11 @@ def verify(
     *,
     clip_id: str | None = None,
     transcript_path: Path | str | None = None,
-    model: str = asr.DEFAULT_MODEL,
+    model: str | None = None,
     language: str | None = None,
+    windowed: bool = False,
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
 ) -> dict[str, Any]:
     """Transcribe a finished render and diff it against what the timeline says.
 
@@ -517,6 +520,20 @@ def verify(
     the render with nothing in lucid's index pointing at it (DOGFOOD § 2). The
     render's own transcript has it twice; the timeline expects it once; the diff
     says so.
+
+    **`windowed=True` closes this check's own blind spot.** A single pass over
+    the render is still one whisper transcription, and it collapses a repeat in
+    the render for exactly the reason it collapsed one in the source: three
+    retakes survived a correctly run single-pass verify of the Scream v1 export.
+    Windowed mode transcribes in short overlapping windows instead, where a
+    segment ends before it can swallow a second take, and it defaults to a
+    *smaller* model on purpose — see `asr.transcribe_windowed`. It costs one
+    whisper run over ~1.4x the audio, so it is opt-in rather than the default.
+
+    `loud_gaps` is reported either way and answers to neither transcript: it is
+    the render's own energy envelope, masked by the words that were heard, and
+    a hole in the word map that holds sound anyway is a noise or a take nothing
+    wrote down.
 
     `transcript_path` skips ASR and uses an existing transcript of the render —
     the re-run, debugging and test path, and how a transcript produced on a
@@ -536,10 +553,46 @@ def verify(
 
     render_path = Path(render).expanduser()
     result: dict[str, Any] = {}
+    # Resolved here rather than in the signature because the right default
+    # differs by mode: a single pass wants the most accurate model available,
+    # a windowed pass wants the one least inclined to tidy a stutter away.
+    model = model or (asr.WINDOWED_MODEL if windowed else asr.DEFAULT_MODEL)
 
     if transcript_path is not None:
+        # Named for what produced the words, not for what was asked for: a
+        # supplied transcript is whatever pass made it, and reporting it as
+        # "windowed" because the flag was set would be a lie a reader acts on.
+        result["mode"] = "supplied"
         heard_transcript = tx.load(transcript_path, clip_id="render")
+    elif windowed:
+        result["mode"] = "windowed"
+        payload = asr.transcribe_windowed(
+            render_path,
+            window=window,
+            overlap=overlap,
+            model=model,
+            language=language or _shared_language(transcripts),
+        )
+        heard_transcript = tx.parse_whisper(
+            payload, clip_id="render", origin=f"whisper:{model} windowed"
+        )
+        result.update(
+            {
+                "windows": payload["windows"],
+                "silent_windows": payload["silent_windows"],
+                "hallucinated_words": payload["hallucinated_words"],
+                "window": window,
+                "overlap": overlap,
+            }
+        )
+        # A distinct name from the single-pass cache: the two are different
+        # readings of the same file and overwriting one with the other would
+        # make `--transcript` reuse silently ambiguous.
+        cached = project.verify_dir / f"{render_path.stem}.windowed.json"
+        tx.save(heard_transcript, cached)
+        result["heard_transcript"] = str(cached)
     else:
+        result["mode"] = "single-pass"
         payload = asr.transcribe(
             render_path, model=model, language=language or _shared_language(transcripts)
         )
@@ -583,5 +636,15 @@ def verify(
         result["render_duration"] = media.probe(render_path).duration
     except media.MediaError:
         pass
+
+    # Likewise never fatal. The envelope is a second opinion on a diff that
+    # already stands on its own, and a render lucid cannot decode should not
+    # cost the caller the transcription it just paid minutes for.
+    try:
+        result["loud_gaps"] = energy.unaccounted_sound(
+            render_path, [(w.start, w.end) for w in heard_transcript.words]
+        )
+    except energy.EnergyError as exc:
+        result["loud_gaps"] = {"error": str(exc)}
 
     return result

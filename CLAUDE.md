@@ -43,6 +43,10 @@ installed package or the upstream repo, not your memory.
   a whole retake inside the duration of the word after it. So "did this word
   survive?" is an *overlap* test against the kept ranges, never containment —
   partial survival is normal. DOGFOOD.md § 2.
+  - The trap when *masking audio* with a word map: an inflated duration covers
+    the retake it swallowed, so believing it hides exactly the hole you are
+    looking for. Trim spans through `energy.believable` first. PLAN.md
+    § `verify --windowed`.
 - Anything that emits times *for playback* maps through the edit
   (`Edit.timeline_span`), never straight off the transcript. The transcript
   indexes the source; the timeline is what plays. See PLAN.md § Captions came

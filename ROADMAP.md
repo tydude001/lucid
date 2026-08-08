@@ -6,10 +6,13 @@ This file exists so a session can start building without re-deriving the
 priority order — each item says why it ranks where it does and what "done"
 looks like.
 
-Last reshuffled **2026-08-07**, after the Scream v2/v3 recut. That pass
-produced findings that postdate DOGFOOD.md; they are ranked here and their
-evidence is in goodsometimes (`ideas/scream.md` § v2 and v3, `pipeline.md`
-§ One transcription of the whole file is not enough).
+Last reshuffled **2026-08-07**, after building `verify --windowed` and running
+it against the shipping Scream exports. Two things moved: a check `verify`
+structurally cannot perform is now item 1, and suspect-duration flagging got
+cheaper because the windowed pass measures the same quantity. Evidence in
+[PLAN.md](PLAN.md) § `verify --windowed`, and in goodsometimes
+(`ideas/scream.md` § v2 and v3, `pipeline.md` § One transcription of the whole
+file is not enough).
 
 ## The property everything below defends
 
@@ -28,25 +31,30 @@ containment; anything emitting times for playback maps through
 
 ## Now — small, each with a real failing case to test against
 
-These three are ordered by value, but all are days-not-weeks and all can be
-verified against the Scream VO, where the defect they target actually occurred.
+These are ordered by value, but all are days-not-weeks and all can be verified
+against the Scream VO, where the defect they target actually occurred.
 
-### 1. `verify --windowed` — close verify's known blind spot
+`verify --windowed` was item 1 and is built; what running it against the real
+exports established, including two ranking changes below, is in
+[PLAN.md](PLAN.md) § `verify --windowed`, and what the Scream exports actually
+said.
 
-`verify` as built has been beaten by real material. Three retakes survived a
-*correctly run* pass, because whisper's repeat-collapse has no size limit: the
-word "bit" was handed **3.96 s** with a complete second reading of its own
-sentence inside it, and the single-pass transcript read clean on both sides.
-What found them: transcribing in **10-second windows with 3 s overlap** and
-treating the **energy envelope as arbiter over any transcript** — a 4.12 s
-"gap" between words that holds 2.4 s of speech cannot hide. A bigger model
-does the opposite of helping (`medium` reported one take where the envelope
-plainly shows two).
+### 1. Flag adjacent near-duplicate phrases at `attach-transcript`
 
-Method to port: goodsometimes `pipeline.md` § One transcription of the whole
-file is not enough. **Done when** a windowed verify of the Scream v1-era
-export surfaces all three retakes the single-pass run missed, and a run on the
-shipping v3 export stays clean.
+**New, and it ranks first because the evidence for it is a defect that
+shipped.** Of the three retakes that survived v1, `verify` can only ever catch
+two. The third is recorded in `VO.json` *twice* — words 621 and 627, "I don't
+think that['s / it's] a coincidence" — so the timeline expects both takes, the
+render plays both, and `verify` is correct to report nothing. Its question is
+whether the render says what you edited, and it did.
+
+Catching that one means comparing the transcript against **itself**: adjacent
+runs of ≥4 words that are near-duplicates of each other are a restart the
+reader should look at. `verify._closest_run` already scores exactly this,
+against the expected sequence rather than the transcript, so the work is
+pointing it at a different pair of inputs. **Done when** an attach of the
+Scream VO reports 621/627 alongside the two deliberate repeats — and says which
+is which is the reader's job, not the tool's.
 
 ### 2. Flag suspect word durations at `attach-transcript`
 
@@ -55,6 +63,12 @@ usually a swallowed retake. Report the list at attach time; refuse to use a
 flagged word as a cut boundary without confirmation. DOGFOOD.md § 2,
 proposal 1. **Done when** the Scream VO attach flags words 446 (2.2 s),
 890 (2.0 s) and the 3.96 s "bit" — the three that each hid a restart.
+
+Cheaper than it was, and better evidenced. `energy.believable` already computes
+the 3× median cut-off for the mask, so the measurement exists and only wants a
+second caller. And the windowed pass put a number on how much this matters:
+suspect durations in a render's own transcript fall from 46–50 to 10 when the
+segments are short enough to stop the collapse happening at all.
 
 ### 3. Echo resolved words on every word-index argument
 
