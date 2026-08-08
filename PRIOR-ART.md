@@ -3,9 +3,11 @@
 Survey conducted **2026-08-06**, in two sweeps the same day: the first missed
 the conversational-editor field entirely (see "Corrections"), and a second
 sweep prompted by the stop-or-continue question found OpenChatCut, video-use,
-and open-edit. Star counts, versions, and wheel matrices are snapshots from
-that date and go stale; the *conclusions* they support live in
-[PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
+and open-edit. A third pass on **2026-08-07** covered Daydream, the closed-source
+product the README pitches lucid against, which neither sweep had checked
+because it has no GitHub repo. Star counts, versions, and wheel matrices are
+snapshots from those dates and go stale; the *conclusions* they support live
+in [PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
 evidence, not the decision.
 
 Re-run this survey before any major scope change.
@@ -116,6 +118,66 @@ answerable by installing the AppImage and running the addressable-edit test
 ("cut words 30–45; keep take 2, drop take 1", iteratively, via Claude Code
 over its MCP endpoint) on a real recording. That trial is the go/no-go gate in
 [PLAN.md](PLAN.md).
+
+## Daydream — the product lucid's README pitches against, and had never been checked
+
+[daydreamvideo.com](https://www.daydreamvideo.com) · closed-source, no public repo (confirmed —
+searched GitHub for the org; the only `daydream*` orgs that exist belong to unrelated products,
+including a same-named but unrelated real-time video-diffusion tool at daydream.live) · macOS
+desktop app, Apple Silicon (page title literally reads "Download Daydream — AI Video Editor for
+Mac"; no Windows or Linux build found on the download page, docs, or FAQ) · by Pushie, Inc.
+
+Neither sweep covered it, because neither searched outside GitHub — the README named Daydream as
+lucid's foil from the first commit without the claim ever being checked. Verified directly against
+daydreamvideo.com and docs.daydreamvideo.com, 2026-08-07.
+
+**It is a full desktop NLE, not a chat front end that hands off to finish elsewhere.** The editor
+shows a real multi-track timeline (V1/V2 video, A1/A2 audio, CC captions), an asset panel,
+properties/templates panels, frame-accurate scrubbing, and direct transcript-based trimming.
+Watermark-free MP4 rendering happens inside the app; NLE export is an *additional* option, not the
+only way to finish a project. This falsifies README.md's claim that lucid does not build a desktop
+editor "same as Daydream does" — Daydream finishes its own timelines.
+
+MCP: local HTTP server, `http://127.0.0.1:7433/mcp`, no auth documented.
+`claude mcp add daydream --transport http http://127.0.0.1:7433/mcp --scope user`. Docs describe
+capabilities in prose only — import/transcribe, transcript-based cutting, b-roll search and
+placement, captions, motion graphics, export — with no enumerated tool list. Unlike OpenChatCut's
+~24 named skills, Daydream's actual MCP schema is unverified: there's no source to grep, and no
+Linux build to install and connect to directly.
+
+Export: separate XML for Premiere, XML for Resolve, and FCPXML for Final Cut. References the
+original footage rather than bundling it — "you may need to relink the media in your editor," per
+docs. No documentation of what survives the export (transitions, effects, motion graphics, titles)
+versus what both OpenChatCut and auto-editor document losing on their own NLE exports. No OTIO.
+
+Pricing is the only hint at the processing architecture, and it cuts against the marketing copy:
+
+| Plan | Price | Processing (b-roll search) | Transcription | MCP calls/mo |
+|---|---|---|---|---|
+| Free | $0 | 1 hr/mo | 1 hr/mo | 100 |
+| Pro | $16/mo annual, $19/mo monthly | 20 hr/mo | 10 hr/mo | 1M |
+| Business | custom | extended | extended | extended |
+
+Hour-metered transcription and search sit awkwardly next to "your footage stays on your device and
+is never uploaded or stored in the cloud" (docs, verbatim). Either the AI work runs locally and the
+hour caps are a pure subscription gate, or "never uploaded" describes only the raw footage and not
+what's derived from it (transcripts, embeddings) sent out for inference. Docs don't say which, and
+closed source means it isn't independently checkable the way auto-editor's or OpenChatCut's claims
+were.
+
+**Against lucid's differentiators:** headless — no, it's a GUI app fronting a local MCP server,
+same shape as OpenChatCut, not lucid's CLI-first model. OTIO-native — no, undocumented per-target
+XML/FCPXML export only, no evidence of any timeline IR underneath. Thin dependency graph —
+unconfirmed but unlikely, given the product surface (motion graphics, b-roll search, multi-format
+export) matches OpenChatCut's Electron/Remotion scale more than auto-editor's. Addressable ranges
+and persistent project state — plausible from "edit the transcript to cut" but unverified, and
+unlike OpenChatCut there is no way to put it through the addressable-edit trial on this box: no
+Linux build exists.
+
+Not a substitute for the OpenChatCut go/no-go trial in [PLAN.md](PLAN.md) — it's the more prominent
+competitor by mindshare (it's who lucid's README quotes at readers) but the least inspectable one.
+Whatever confidence the OpenChatCut trial buys by actually running the software, Daydream can't
+offer, because it can't be run here at all.
 
 ## NLE handoff on Linux has a ceiling
 
@@ -339,6 +401,15 @@ OpenTimelineIO is the sole blocker on 3.14. Everything supports 3.13 — confirm
 by actually installing `opentimelineio` 0.18.1 and `faster-whisper` 1.2.1 (with
 ctranslate2, onnxruntime, av, tokenizers) on CPython 3.13.14 and importing them,
 rather than by reading PyPI metadata alone.
+
+### "Daydream hands off finishing work, same as lucid would" was never checked
+
+README.md pitched lucid against Daydream from the first commit, and both survey sweeps skipped it
+because neither searched outside GitHub — Daydream has no repo. Fetching daydreamvideo.com and its
+docs directly (2026-08-07) shows a full NLE-style timeline editor with in-app watermark-free
+rendering; NLE export to Premiere/Resolve/Final Cut is an optional extra, not the finishing path.
+The README's "same as Daydream does" clause is false and needs correcting — see the Daydream
+section above.
 
 ## Convergent signals worth noting
 

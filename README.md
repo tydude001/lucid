@@ -32,8 +32,10 @@ and caption the rest" becomes a chat message instead of an afternoon.
    remove silences, caption, render, export MP4/OTIO. ~70% of the value for
    anyone already living in an agent CLI. This is the MVP.
 2. **Preview/timeline web UI** — see what the agent did before rendering.
-3. **Full desktop editor** — explicitly *not* a goal. OTIO export hands
-   finishing work to Resolve/Premiere/Final Cut, same as Daydream does.
+3. **Full desktop editor** — explicitly *not* a goal, unlike Daydream, which
+   is one. OTIO export hands finishing work to Resolve/Premiere/Final Cut
+   instead — headless, CLI-first, and open where Daydream is a closed,
+   metered GUI app.
 
 ## Try it
 
