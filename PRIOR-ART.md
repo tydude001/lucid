@@ -179,6 +179,45 @@ competitor by mindshare (it's who lucid's README quotes at readers) but the leas
 Whatever confidence the OpenChatCut trial buys by actually running the software, Daydream can't
 offer, because it can't be run here at all.
 
+### The full-site pass — 2026-08-08
+
+Re-surveyed in full because the plan direction changed: lucid now copies Daydream's feature set
+and look deliberately (PLAN.md § The Daydream parity map — that section owns the feature-by-feature
+map and the design-system spec; this one records only what was observed and how). Method: no
+browser on this session, so the site was captured rather than browsed — homepage HTML plus every
+subpage (`/claude`, `/codex`, `/mcp`, `/download`, `/wall-of-love`), the three CSS bundles, all
+sixteen homepage videos downloaded and frame-sampled through ffmpeg, and the full docs site via its
+Mintlify markdown mirror (`docs.daydreamvideo.com/llms.txt`, per-page `.md`). The scroll
+choreography was reconstructed from DOM structure, `@keyframes`, and the videos, not watched live.
+
+New or firmed up since 2026-08-07:
+
+* **Repositioned around the agents:** the homepage title now reads "AI Video Editor for Claude
+  Code & Codex" — the "for Mac" phrasing survives only on `/download`. Still macOS-only, so the
+  Linux asymmetry stands.
+* **The in-app chat is Claude Code/Codex itself, hosted as a subprocess** riding the user's
+  existing Claude/ChatGPT sign-in — no API key, work/SSO accounts supported, manual CLI install as
+  the fallback on locked-down networks. The panel shows the model name ("Sonnet 4.6"), renders
+  tool-use as a green-check checklist, takes `@`-mentions of assets, and offers per-turn thumbs.
+  This is the mechanism lucid's agent panel chose independently a day earlier (PLAN.md § The agent
+  panel, in mechanism) — convergent validation from the market leader.
+* **The homepage hero is not a video.** It is a live HTML replica of the editor — word-level
+  transcript spans with inline pause markers (`[2.4s]`), a ticking agent checklist, a moving
+  playhead, `hero-anim-blink`/`hero-anim-spin` keyframes — choreographed on scroll. Three more
+  section-sized mocks repeat the trick (agent-wired terminal, Show-cuts shrinking 06:10→04:52,
+  a motion-graphics prompt becoming the finished graphic).
+* **Design system, from the shipped CSS:** shadcn/Tailwind tokens; a warm-paper landing palette
+  (`--landing-bg: 48 27% 98%`, text `48 14% 7%`, dark `48 6% 7%`); Geist Sans for UI, Source
+  Serif 4 italic for the single accented word per heading, JetBrains Mono/PT Mono for numerics and
+  the `01`–`07` / `Q.01` editorial numbering; radius 0.5rem. In-app: light chrome with hairline
+  dividers, pastel color-coded clips with filmstrip thumbnails, dark and light themes.
+* **Docs enumerate the workflow, still not the tools.** Import is by role (Voiceover/Talking-Head
+  vs Footage/Images/Music — the role decides transcribe-vs-index); b-roll is semantic search over
+  footage the app "watches", placed from a transcript selection or a right-click timeline range
+  drag; captions default to word-highlight and regenerate preserving custom styling; export
+  presets are YouTube / TikTok-Reels / Web / Custom. The MCP schema remains unpublished — prose
+  only, no tool list, unchanged from the entry above.
+
 ## NLE handoff on Linux has a ceiling
 
 "OTIO-native NLE handoff" is only worth something if a Linux NLE can receive it.

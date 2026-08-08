@@ -44,16 +44,29 @@ workspace.
 decided rather than pending.** **Next is the layered timeline**, a six-step
 build order in PLAN.md § The layered timeline. Nothing in it is written yet.
 
-**Ordering answers to measured defects, not to competitors**, and the
-workspace is not the exception it looks like. A prior-art pass on 2026-08-07
-found Daydream to be a full desktop NLE rather than the chat front end the
-README claimed — it corrected the pitch and moved nothing here, because it
-produced no failing case and has no Linux build to test against. That is still
-what happened: the thing that moved the roadmap a day later was **using
-`lucid web` on the real Scream VO**, which produced five specific failing
-cases inside the window. Daydream supplies the shape of the fix. It did not
-supply the reason. PLAN.md § What lucid is, stated narrowly holds the
-conclusion; [PRIOR-ART.md](PRIOR-ART.md) § Daydream the evidence.
+**And a direction was set the same day, wider than any refill: lucid copies
+Daydream — the full feature set and the look/feel.** Tyler's call, 2026-08-08,
+made after capturing the entire site (every page, all sixteen videos, the
+docs, the CSS tokens). The map of what that means, feature by feature, and the
+design-system spec are PLAN.md § The Daydream parity map; the observation
+record is PRIOR-ART.md § Daydream, the full-site pass. The order it implies is
+§ Then — the Daydream parity queue, below.
+
+**Ordering answers to measured defects, not to competitors** — that was the
+rule, and the workspace was not the exception it looked like: a prior-art pass
+on 2026-08-07 corrected the pitch and moved nothing here, because Daydream
+produced no failing case and has no Linux build to test against; what moved
+the roadmap a day later was **using `lucid web` on the real Scream VO**, which
+produced five specific failing cases inside the window. Daydream supplied the
+shape of the fix, not the reason. **Amended 2026-08-08: the parity decision
+above is the exception, and it is deliberate** — parity is now a goal by
+owner's decision rather than by measurement. What survives of the rule is the
+*order*: the parity queue below still ranks by what the layered timeline
+unblocks and what a real video demands first, and the constraints that kept
+the window honest (no lane the export cannot produce, cues stay
+source-addressed) bind every parity item. PLAN.md § What lucid is, stated
+narrowly holds the conclusion; [PRIOR-ART.md](PRIOR-ART.md) § Daydream the
+evidence.
 
 ## The property everything below defends
 
@@ -189,6 +202,43 @@ layered timeline ships without the duck.
 
 `assemble_scream.py` (534 lines, stdlib) remains the worked reference for the
 mechanism and the source of the 37 seed cues.
+
+## Then — the Daydream parity queue
+
+The full map — every Daydream feature against what lucid has, plus the design
+spec — is PLAN.md § The Daydream parity map; the map also records the four
+things parity deliberately does not import (metering/cloud, the desktop
+shell, Premiere/FCP XML, Codex). This section owns only the order, which is
+governed by two facts: **the layered timeline is the enabler for most of the
+map** (b-roll, graphics, and the V2 lane are all illegal to draw until
+`export` can produce them), and **the look/feel pass is the one big item
+gated on nothing**.
+
+1. **The look/feel pass** — retheme the workspace to the warm-paper system
+   (tokens, three type voices, pastel clip blocks, light+dark themes) and pick
+   up the small parity cosmetics that ride it: model label and thumbs in the
+   agent feed, inline pause markers in the transcript, export presets.
+   Independent of the model, so it can land while the layered timeline is
+   built — but it counts as UI work, and the verified bar (real Scream VO, real
+   browser) applies.
+2. **The layered timeline, steps 1–6** — already Next, above. Everything
+   below waits on its picture lane.
+3. **Caption styling** — position, font, colour, highlight as properties the
+   agent can set; burn-in at export. Extends the shipped captions path;
+   needs no picture lane, ranked here to land near the graphics work it
+   visually belongs to.
+4. **Motion graphics + templates** — agent-authored card/overlay assets placed
+   as cues, `melt`-rendered; the 13 Scream cards are the worked prior.
+   Design note before build.
+5. **B-roll by description** — the biggest new subsystem and the one that
+   must not be copied blind: Daydream's hour-metering implies cloud
+   inference, lucid is local-only. Costed local design (frame-sample →
+   describe/embed on this box) **before** any build. Also strictly after the
+   picture lane.
+6. **The long tail, cheap-to-late:** aspect swap (16:9 ↔ 9:16, touches both
+   render paths), import roles + assets pane (rides the b-roll design),
+   multi-project picker, HTTP MCP transport, properties pane (only once
+   graphics exist to inspect).
 
 ## Parked — deliberately, with the reasoning
 

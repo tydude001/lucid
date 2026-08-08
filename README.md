@@ -56,6 +56,12 @@ and caption the rest" becomes a chat message instead of an afternoon.
    instead of invalidating them. Not built yet — [PLAN.md](PLAN.md) § The
    layered timeline.
 
+   **And "the same workflow" became "the same product", decided 2026-08-08:**
+   lucid copies Daydream's full feature set and warm-paper look. The
+   feature-by-feature map and design spec are [PLAN.md](PLAN.md) § The
+   Daydream parity map; the order is [ROADMAP.md](ROADMAP.md) § Then — the
+   Daydream parity queue.
+
    Two things that decision did **not** change. It is a workspace, not a
    desktop app: everything that makes Daydream feel like Daydream is inside
    the window, and a native shell buys chrome at the price of a second stack
