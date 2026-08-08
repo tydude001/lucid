@@ -54,6 +54,19 @@ installed package or the upstream repo, not your memory.
     the retake it swallowed, so believing it hides exactly the hole you are
     looking for. Trim spans through `energy.believable` first. PLAN.md
     § `verify --windowed`.
+- **A frame count comes from `autoeditor.frame_layout`, never from the
+  duration.** Each segment edge quantises on its own, so `sum(dur)` and
+  `round(edit.duration * fps)` are different numbers and the first one is the
+  timeline that gets exported. Related, and measured rather than assumed:
+  auto-editor's `--export kdenlive` output is **one frame longer than your
+  edit, and the frame is black** — MLT's `out` is frame-inclusive and
+  auto-editor writes a frame count into it. `export --render` does not have it.
+  PLAN.md § `check_frames`.
+- **`melt` is inside the Kdenlive flatpak, and that flatpak cannot see
+  `/tmp`.** It has no host package here; resolve it through
+  `picture.melt_command()`. Pointed at a project under `/tmp` it prints
+  `Failed to load` and **exits 0**, so its exit code proves nothing — check its
+  output. Anything writing a project for melt to read puts it under `$HOME`.
 - Anything that emits times *for playback* maps through the edit
   (`Edit.timeline_span`), never straight off the transcript. The transcript
   indexes the source; the timeline is what plays. See PLAN.md § Captions came

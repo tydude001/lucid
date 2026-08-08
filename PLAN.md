@@ -741,3 +741,83 @@ only a range's first and last word. Planning `444:448` reports no suspect
 boundary even though interior word 446 is flagged, because 446 is not what the
 cut edge resolves to. Interior words are removed wholesale; only the edges
 carry the risk.
+
+## `check_frames`, the picture half of checking a render — 2026-08-07
+
+[ROADMAP.md](ROADMAP.md) § Picture-side render checks, of whose three parts
+this is the one it names load-bearing. `verify` covers the audio and says so;
+this counts frames. `blackdetect` and spot frames are still owed.
+
+`lucid frames [TARGET]` / `check_frames`. With no target it reports
+`expected_frames`, the total the timeline lays down. With one it compares:
+
+- an NLE project (`.kdenlive`/`.mlt`/`.xml`) goes to `melt -consumer xml`,
+  which resolves the document and prints what it *would* render without
+  encoding anything;
+- anything else is a render, counted with ffprobe.
+
+**The check runs before the render, and that is the whole point.** Exact
+agreement with `melt`'s count is what made 68 cut positions on the Scream essay
+trustworthy before pixels existed (DOGFOOD.md § 3), and reading a document
+costs seconds where rendering costs minutes.
+
+**`expected_frames` comes from the export's own arithmetic, not from the
+duration.** `autoeditor.frame_layout` was factored out of `to_v3` rather than
+restated beside it, so the number a check reports and the number an export
+writes cannot become two. It matters because each segment edge is quantised on
+its own: two 0.017s segments at 30fps are half a frame each, become one frame
+each, and make a 2-frame timeline that `round(0.034 * 30)` calls 1. The
+exported timeline is the honest answer and only the per-segment path has it.
+
+### auto-editor's kdenlive export is one frame long, and the frame is black
+
+Measured here, not reasoned about. auto-editor 31.x, MLT 7.40, Kdenlive
+26.04.3:
+
+| Timeline | lucid | `melt` `length` | rendered |
+|---|---|---|---|
+| 12.0s uncut, 30fps | 360 | **361** | **361** |
+| the same, cut to 9.2s | 276 | **277** | — |
+| 10.0s audio-only | 300 | **301** | — |
+| 12.0s via `export --render` | 360 | — | **360** |
+
+The extra frame is real: frame 360 of the melt render measured YAVG 16 against
+~123 for the three before it. The cause is the shape goodsometimes
+`pipeline.md` § Rendering documents from the other side — MLT's `out` is
+frame-*inclusive*, and auto-editor writes the tractors' `out` as the frame
+*count*. The clip entries are right (`out="00:00:11.967"` is frame 359,
+correct for 360 frames); the three tractors declaring `00:00:12.000` are not,
+and melt renders to the longest declared length.
+
+It is **reported, not corrected**. `agrees` stays False and nothing is
+subtracted, because the frame is genuinely in the render; a `notes` entry names
+the cause so it reads as upstream's defect rather than a wrong cut. The last
+row is why that is the right call: auto-editor's own renderer does not have it,
+so this is the NLE handoff specifically. `picture.KNOWN_TAIL_FRAME` holds the
+measurement.
+
+The stdio test pins the *reporting* rather than the +1 — a delta of 0 there
+would mean auto-editor had fixed it, and what must stay true either way is that
+the note travels with the delta it explains.
+
+### Two things the real run found that a fixture would not have
+
+**`melt` is not a host package and its flatpak cannot see `/tmp`.** It lives
+inside `org.kde.kdenlive`, so `picture.melt_command()` resolves `LUCID_MELT` →
+PATH → flatpak, the same ladder `asr.py` and `autoeditor.py` use. Then, pointed
+at a project under `/tmp`, it printed `Failed to load` and **exited 0** — the
+third of DOGFOOD.md § 4's traps, met from a new direction. The empty-output
+guard caught it, and the error now names the trap when the path is under `/tmp`
+and melt is the flatpak. The melt test needs its own fixture under `$HOME` for
+the same reason: on `tmp_path` it would have quietly stopped testing melt and
+started testing the guard.
+
+**An audio-only render has no frames, and that is not a failed check.** It is
+the ordinary case for a VO project. `agrees` comes back null rather than false —
+nothing disagreed, there was simply nothing with frames in it — with a note
+pointing at the NLE project as the thing to count instead.
+
+`media.count_frames` counts packets (`-count_packets`) rather than trusting the
+container's `nb_frames`, which is a header a muxer can write wrong, and returns
+both so a disagreement between two ffprobe readings of one file is reported
+rather than resolved silently.

@@ -15,8 +15,9 @@ is stable, and it is where the evidence is.
 Last reshuffled **2026-08-07**, which cleared the **Now** list: `verify
 --windowed`, adjacent-near-duplicate and suspect-duration flagging, and the
 word-index echo with `cut --plan` under it were all built and run against the
-real Scream VO that day. Each has its own named section in PLAN.md carrying
-the numbers; this file does not restate them.
+real Scream VO that day. The frame-count half of picture-side checks followed,
+and found a real defect on its first run. Each has its own named section in
+PLAN.md carrying the numbers; this file does not restate them.
 
 **Ordering answers to measured defects, not to competitors.** A prior-art pass
 the same day found Daydream to be a full desktop NLE rather than the chat front
@@ -59,13 +60,18 @@ different indices and does not retire the recorded findings as evidence.
 
 ## Next — feature-sized, shape known from the Scream one-offs
 
-### 1. Picture-side render checks
+### 1. Picture-side render checks — the rest of them
 
-`verify` deliberately covers only audio. The picture half — frame count equals
-the timeline's computed total, `blackdetect`, spot frames — was done by hand
-for Scream and belongs with rendering/export, not with `verify`. The frame
-count check is the load-bearing one: exact agreement with `melt`'s count is
-what made 68 cut positions trustworthy before anything rendered.
+The frame count is **built**: `lucid frames` / `check_frames`, run against
+`melt -consumer xml` before a render or against the render after. PLAN.md
+§ `check_frames` carries the numbers, including what it found on its first real
+run — auto-editor's kdenlive export is one frame long and the frame is black.
+
+What is left of this item is `blackdetect` and spot frames. Both were done by
+hand for Scream, both belong with rendering/export rather than with `verify`,
+and neither is load-bearing the way the count was: the count is what made 68 cut
+positions trustworthy *before* anything rendered, where these two read a render
+that already exists.
 
 ### 2. Attenuate noises; don't cut them
 

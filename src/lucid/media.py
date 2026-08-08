@@ -68,30 +68,25 @@ def _fraction(value: str | None) -> float | None:
     return n / d if d else None
 
 
-def probe(path: Path | str) -> MediaInfo:
-    """Run ffprobe against `path` and summarise its first video/audio stream."""
-    media = Path(path).expanduser()
-    if not media.exists():
-        raise MediaError(f"no such media file: {media}")
-
-    cmd = [
-        FFPROBE,
-        "-v",
-        "error",
-        "-print_format",
-        "json",
-        "-show_format",
-        "-show_streams",
-        str(media),
-    ]
+def _ffprobe(media: Path, *args: str) -> dict[str, Any]:
+    """One ffprobe invocation, with the two ways it can fail spelled out."""
+    cmd = [FFPROBE, "-v", "error", "-print_format", "json", *args, str(media)]
     try:
         completed = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except FileNotFoundError as exc:
         raise MediaError(f"{FFPROBE} not found on PATH") from exc
     except subprocess.CalledProcessError as exc:
         raise MediaError(f"ffprobe failed on {media}: {exc.stderr.strip()}") from exc
+    return json.loads(completed.stdout)
 
-    payload = json.loads(completed.stdout)
+
+def probe(path: Path | str) -> MediaInfo:
+    """Run ffprobe against `path` and summarise its first video/audio stream."""
+    media = Path(path).expanduser()
+    if not media.exists():
+        raise MediaError(f"no such media file: {media}")
+
+    payload = _ffprobe(media, "-show_format", "-show_streams")
     streams = payload.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
@@ -122,6 +117,56 @@ def probe(path: Path | str) -> MediaInfo:
         # A 1% tolerance: 30000/1001 vs 29.97 is rounding, not variability.
         vfr=bool(fps and avg and abs(fps - avg) / fps > 0.01),
     )
+
+
+def count_frames(path: Path | str) -> dict[str, Any]:
+    """Count a render's video frames, exactly enough to compare one against.
+
+    `probe`'s `nb_frames` is read out of the container header, and a muxer is
+    free to write it wrong or leave it out — which is no basis for a check
+    whose entire value is that the number is exact. `-count_packets` walks the
+    stream instead. For one-frame-per-packet video that is exact, and unlike
+    `-count_frames` it never decodes a pixel.
+
+    Both numbers come back, and a disagreement between them is reported rather
+    than resolved here: two ffprobe readings of the same file differing is
+    itself a finding, and picking the nicer one would bury it.
+
+    `frames` is None when there is no video stream at all. An audio-only render
+    is the ordinary case for a VO project, not an error — see `ops.check_frames`.
+    """
+    media = Path(path).expanduser()
+    if not media.exists():
+        raise MediaError(f"no such media file: {media}")
+
+    payload = _ffprobe(
+        media,
+        "-select_streams",
+        "v:0",
+        "-count_packets",
+        "-show_entries",
+        "stream=nb_read_packets,nb_frames:format=duration",
+        "-show_format",
+    )
+    streams = payload.get("streams", [])
+    duration = payload.get("format", {}).get("duration")
+
+    def _count(value: Any) -> int | None:
+        return int(value) if value is not None and str(value).isdigit() else None
+
+    if not streams:
+        return {
+            "frames": None,
+            "container_frames": None,
+            "duration": float(duration) if duration is not None else None,
+            "has_video": False,
+        }
+    return {
+        "frames": _count(streams[0].get("nb_read_packets")),
+        "container_frames": _count(streams[0].get("nb_frames")),
+        "duration": float(duration) if duration is not None else None,
+        "has_video": True,
+    }
 
 
 def slugify(name: str) -> str:

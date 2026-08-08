@@ -15,6 +15,7 @@ from lucid import __version__, asr, captions, ops
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.media import MediaError
+from lucid.picture import PictureError
 from lucid.project import ProjectError
 from lucid.timeline import TimelineError
 from lucid.transcript import TranscriptError
@@ -178,6 +179,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--overlap", type=float, default=asr.OVERLAP, help=f"window overlap ({asr.OVERLAP}s)"
     )
 
+    p_frames = sub.add_parser(
+        "frames", help="count the timeline's frames, and check an export against it"
+    )
+    p_frames.add_argument(
+        "target",
+        nargs="?",
+        help="an NLE project to ask melt about, or a render to count with ffprobe "
+        "(default: just report the timeline's own total)",
+    )
+    p_frames.add_argument(
+        "--fps",
+        type=float,
+        help="the rate the export used (default: the picture's, else 30)",
+    )
+
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -308,6 +324,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_frames(args: argparse.Namespace) -> int:
+    return _emit(ops.check_frames(args.project, args.target, fps=args.fps))
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -339,6 +359,7 @@ _COMMANDS = {
     "undo": _cmd_undo,
     "captions": _cmd_captions,
     "verify": _cmd_verify,
+    "frames": _cmd_frames,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,
@@ -355,6 +376,7 @@ _EXPECTED = (
     captions.CaptionError,
     ASRError,
     VerifyError,
+    PictureError,
 )
 
 

@@ -152,6 +152,32 @@ def from_v3(payload: dict[str, Any], clip_id: str) -> Edit:
     return Edit(segments=segments)
 
 
+def frame_layout(edit: Edit, rate: float) -> list[tuple[int, int]]:
+    """Each segment as `(offset, dur)` in frames at `rate` — the export's own grid.
+
+    Factored out of `to_v3` rather than restated beside it, so that the frame
+    total a check reports and the frame total an export writes cannot become
+    two different numbers.
+
+    Each edge is quantised on its own, which is not the same as quantising the
+    total: `sum(dur)` can differ by a frame or two from
+    `round(edit.duration * rate)` once several segments round the same way.
+    That difference is the real length of the exported timeline, not an
+    artifact to average away — which is the whole reason a caller wanting a
+    frame count has to come through here.
+    """
+    layout: list[tuple[int, int]] = []
+    for seg in edit.segments:
+        offset = round(seg.start * rate)
+        layout.append((offset, max(1, round(seg.end * rate) - offset)))
+    return layout
+
+
+def frame_total(edit: Edit, rate: float) -> int:
+    """How many frames the exported timeline runs to at `rate`."""
+    return sum(dur for _, dur in frame_layout(edit, rate))
+
+
 def to_v3(
     edit: Edit,
     clips: dict[str, dict[str, Any]],
@@ -170,12 +196,10 @@ def to_v3(
 
     entries: list[dict[str, Any]] = []
     cursor = 0
-    for seg in edit.segments:
+    for seg, (offset, dur) in zip(edit.segments, frame_layout(edit, rate)):
         record = clips.get(seg.clip_id)
         if record is None:
             raise AutoEditorError(f"segment references unregistered clip {seg.clip_id!r}")
-        offset = round(seg.start * rate)
-        dur = max(1, round(seg.end * rate) - offset)
         entries.append(
             {
                 "src": record["source"],

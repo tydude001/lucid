@@ -15,7 +15,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from lucid import asr, autoeditor, captions, energy, media
+from lucid import asr, autoeditor, captions, energy, media, picture
 from lucid import timeline as tl
 from lucid import transcript as tx
 
@@ -614,6 +614,103 @@ def _export_fps(clips: dict[str, dict[str, Any]]) -> float:
         if clip.get("has_video") and clip.get("fps"):
             return float(clip["fps"])
     return DEFAULT_EXPORT_FPS
+
+
+def check_frames(
+    path: Path | str, target: Path | str | None = None, *, fps: float | None = None
+) -> dict[str, Any]:
+    """Count the frames the timeline should run to, and check a target against it.
+
+    The picture-side counterpart to `verify`, which deliberately covers only
+    audio. `expected_frames` is what `export` lays down — the same
+    `autoeditor.frame_layout` the export itself uses, so the two cannot drift —
+    and every segment edge is quantised on its own, which is why this is not
+    `round(duration * fps)`.
+
+    With no `target` it reports that number and stops, which is the cheap thing
+    to do before an export. With one:
+
+    * an NLE project (`.kdenlive`, `.mlt`, `.xml`) is put to `melt -consumer
+      xml`, which resolves the document and says what it *would* render without
+      encoding anything. This is the load-bearing check, and it is load-bearing
+      because it runs **before** the render: exact agreement here is what made
+      68 cut positions on the Scream essay trustworthy (DOGFOOD.md § 3).
+    * anything else is treated as a render and counted with ffprobe.
+
+    `fps` must be the rate the export used, or the two sides are counting
+    against different grids; it defaults to the same rate `export` would pick.
+
+    An audio-only render has no frames, and that is the ordinary case for a VO
+    project rather than a failure: `agrees` comes back null with a note, and the
+    NLE project is the thing to point this at instead.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError("the timeline is empty — there are no frames to count")
+
+    rate = float(fps) if fps else _export_fps(_clips_by_id(project))
+    expected = autoeditor.frame_total(edit, rate)
+    result: dict[str, Any] = {
+        "fps": rate,
+        "segments": len(edit.segments),
+        "timeline_duration": edit.duration,
+        "expected_frames": expected,
+        "expected_duration": expected / rate,
+    }
+    if target is None:
+        return result
+
+    target_path = Path(target).expanduser()
+    if not target_path.exists():
+        raise picture.PictureError(f"no such file to check: {target_path}")
+    result["target"] = str(target_path)
+    notes: list[str] = []
+
+    if target_path.suffix.lower() in picture.NLE_SUFFIXES:
+        result["target_kind"] = "nle-project"
+        counted: int | None = picture.project_frames(target_path)
+        result["target_duration"] = counted / rate if counted is not None else None
+    else:
+        result["target_kind"] = "render"
+        counts = media.count_frames(target_path)
+        counted = counts["frames"]
+        result["target_duration"] = counts["duration"]
+        if not counts["has_video"]:
+            result.update({"target_frames": None, "delta": None, "agrees": None})
+            result["notes"] = [
+                (
+                    "this render has no video stream, so there are no frames to "
+                    "count and the picture-side check does not apply to it. Compare "
+                    "`target_duration` against `expected_duration`, and point this "
+                    "at the NLE project if you want a frame count for a VO."
+                )
+            ]
+            return result
+        # Two ffprobe readings of one file disagreeing is itself the finding.
+        container = counts["container_frames"]
+        result["container_frames"] = container
+        if container is not None and counted is not None and container != counted:
+            notes.append(
+                f"ffprobe's two counts disagree: {counted} packets against a "
+                f"container header claiming {container}. The packet count is "
+                "the one compared here; the header is metadata a muxer can get "
+                "wrong. Worth knowing before trusting either."
+            )
+
+    if counted is None:
+        raise picture.PictureError(
+            f"could not get a frame count out of {target_path} — it has a video "
+            "stream but ffprobe counted no packets in it."
+        )
+
+    delta = counted - expected
+    result.update({"target_frames": counted, "delta": delta, "agrees": delta == 0})
+    if delta == picture.KNOWN_TAIL_FRAME and result["target_kind"] == "nle-project":
+        notes.append(picture.TAIL_FRAME_NOTE)
+    if notes:
+        result["notes"] = notes
+    return result
 
 
 # -- checking the render -------------------------------------------------

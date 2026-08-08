@@ -109,6 +109,23 @@ are not believed when building that mask — a word claiming several seconds is
 hiding a hole rather than filling one, which is exactly how a collapsed retake
 escapes a diff.
 
+`verify` covers the audio. `frames` covers the picture, and it is worth running
+*before* you render — `melt` will tell you how long the exported project is for
+the price of reading it:
+
+```sh
+lucid frames                                 # what the timeline will be
+lucid frames cut.kdenlive                    # what melt says it would render
+lucid frames final.mp4                       # what actually came out
+```
+
+`agrees` is the answer and `delta` is how far off. Two things this finds that
+nothing else was looking at: a render that is no longer of this timeline, and —
+on its first real run — that **auto-editor's kdenlive export is one frame
+longer than your edit, and the frame is black**. That one is upstream's, it is
+reported rather than corrected, and `export --render` does not have it. PLAN.md
+§ `check_frames` has the measurements.
+
 Multi-track editing is not built yet — see the milestones in [PLAN.md](PLAN.md).
 
 ## Development

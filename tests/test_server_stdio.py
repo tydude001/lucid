@@ -12,14 +12,19 @@ import json
 import math
 import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import wave
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
+
+from lucid import picture
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
 
@@ -39,12 +44,14 @@ EXPECTED_TOOLS = {
     "undo",
     "add_captions",
     "verify",
+    "check_frames",
     "export",
 }
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
 )
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 
 
 class Client:
@@ -85,10 +92,9 @@ def _make_wav(path: Path, *, tones: list[tuple[float, float]], duration: float =
         out.writeframes(bytes(frames))
 
 
-@pytest.fixture
-def sources(tmp_path: Path) -> tuple[Path, Path]:
+def _make_sources(root: Path) -> tuple[Path, Path]:
     """A four-burst recording and a transcript with two words per burst."""
-    audio = tmp_path / "vo.wav"
+    audio = root / "vo.wav"
     _make_wav(audio, tones=[(0.0, 2.0), (3.0, 5.0), (6.0, 8.0), (9.0, 11.0)])
 
     words = []
@@ -97,9 +103,14 @@ def sources(tmp_path: Path) -> tuple[Path, Path]:
             at = start + n
             words.append({"word": f"w{burst}{n}", "start": at, "end": at + 0.9})
 
-    transcript = tmp_path / "vo.json"
+    transcript = root / "vo.json"
     transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
     return audio, transcript
+
+
+@pytest.fixture
+def sources(tmp_path: Path) -> tuple[Path, Path]:
+    return _make_sources(tmp_path)
 
 
 def test_server_serves_ping_over_stdio() -> None:
@@ -135,6 +146,7 @@ TOOL_TO_COMMAND = {
     "undo": "undo",
     "add_captions": "captions",
     "verify": "verify",
+    "check_frames": "frames",
     "export": "export",
 }
 
@@ -857,3 +869,235 @@ def test_rendering_keeps_the_millisecond_timebase(
         )
 
     assert anyio.run(_with_server, body)["timebase"] == 1000.0
+
+
+# -- the picture half: frame counts --------------------------------------
+
+def _melt_available() -> bool:
+    """Ask lucid's own resolver, so the guard skips exactly when the check would."""
+    try:
+        picture.melt_command()
+    except picture.PictureError:
+        return False
+    return True
+
+
+needs_melt = pytest.mark.skipif(
+    not _melt_available(),
+    reason="melt is installed neither on PATH nor in the Kdenlive flatpak",
+)
+
+
+def _make_video(path: Path, *, duration: float = 12.0, fps: int = 30) -> None:
+    """A real encoded video, because the check counts packets in a real one."""
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={duration}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
+async def _seeded(client: Client, project: Path, source: Path, transcript: Path | None) -> str:
+    """init -> import -> (transcript) -> seed, the preamble every case below wants."""
+    await client.call("init", path=str(project))
+    clip = await client.call("import_media", path=str(project), source=str(source))
+    if transcript is not None:
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+    await client.call(
+        "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+    )
+    return str(clip["clip_id"])
+
+
+@needs_ffprobe
+def test_check_frames_reports_the_export_grid_with_no_target(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The cheap call: what the timeline will be, before anything is exported."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(Client(session), project, audio, transcript)
+        return await client.call("check_frames", path=str(project))
+
+    result = anyio.run(_with_server, body)
+
+    # An audio-only project has no picture to take a rate from, so the export
+    # default applies — the same 30 the NLE export would write.
+    assert result["fps"] == 30.0
+    assert result["expected_frames"] == 360
+    assert result["expected_duration"] == pytest.approx(12.0, abs=0.001)
+    # Nothing was compared, so there is no verdict to read.
+    assert "agrees" not in result
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_a_render_of_the_current_timeline_agrees_frame_for_frame(tmp_path: Path) -> None:
+    """The check passing means exactly this, and it is checked against a real render."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        # Cut, so the count is of an edit rather than of an untouched source.
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        await client.call(
+            "export", path=str(project), output=str(render), export_format=None
+        )
+        return await client.call("check_frames", path=str(project), target=str(render))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["target_kind"] == "render"
+    assert result["expected_frames"] == 276
+    assert result["target_frames"] == 276
+    assert result["delta"] == 0
+    assert result["agrees"] is True
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_a_stale_render_is_caught_by_its_frame_count(tmp_path: Path) -> None:
+    """The defect the check is for: a render that is no longer of this timeline.
+
+    Rendering and then cutting again is the easy way to ship the previous
+    edit — the file on disk still opens, still plays, and is simply the wrong
+    one. Its length is the tell, and nothing else in lucid was looking at it.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "stale.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "export", path=str(project), output=str(render), export_format=None
+        )
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        return await client.call("check_frames", path=str(project), target=str(render))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["agrees"] is False
+    # 360 frames of the uncut source against a 276-frame timeline.
+    assert result["target_frames"] == 360
+    assert result["expected_frames"] == 276
+    assert result["delta"] == 84
+
+
+@needs_ffprobe
+@needs_auto_editor
+def test_an_audio_only_render_has_no_frames_and_says_so(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A VO project is the ordinary case, and it is not a failed check.
+
+    `agrees` is null rather than false: nothing disagreed, there was simply
+    nothing with frames in it to compare.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    render = tmp_path / "out.wav"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        await client.call(
+            "export", path=str(project), output=str(render), export_format=None
+        )
+        return await client.call("check_frames", path=str(project), target=str(render))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["agrees"] is None
+    assert result["target_frames"] is None
+    assert result["expected_frames"] == 360
+    assert "no video stream" in result["notes"][0]
+    # The duration is still there to compare by hand, which is the advice given.
+    assert result["target_duration"] == pytest.approx(result["expected_duration"], abs=0.05)
+
+
+@pytest.fixture
+def visible_tmp() -> Iterator[Path]:
+    """A working directory melt can actually read.
+
+    pytest's `tmp_path` is under /tmp, and **the Kdenlive flatpak's /tmp is not
+    the host's** — `filesystems=host` does not cover it (DOGFOOD.md § 4). melt
+    pointed at one prints "Failed to load" and **exits 0**, so a melt test using
+    `tmp_path` would silently stop testing melt and start testing the
+    empty-output guard instead.
+    """
+    root = Path(tempfile.mkdtemp(prefix="lucid-melt-", dir=Path.home()))
+    try:
+        yield root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@needs_ffprobe
+@needs_auto_editor
+@needs_melt
+def test_melt_is_asked_what_it_would_render_before_anything_is_rendered(
+    visible_tmp: Path,
+) -> None:
+    """The load-bearing case: the NLE project checked without paying for a render.
+
+    On this box the answer is the timeline's count plus one — auto-editor's
+    kdenlive export declares the tractors' frame-inclusive `out` as a frame
+    count, so melt renders a trailing black frame (picture.KNOWN_TAIL_FRAME).
+    That is upstream's bug, not lucid's, so this pins the *reporting* rather
+    than the +1: a delta of 0 here would mean auto-editor had fixed it, and the
+    thing that must stay true either way is that the note travels with the
+    delta it explains.
+    """
+    audio, transcript = _make_sources(visible_tmp)
+    project = visible_tmp / "proj"
+    exported = visible_tmp / "out.kdenlive"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        written = await client.call("export", path=str(project), output=str(exported))
+        return await client.call("check_frames", path=str(project), target=written["output"])
+
+    result = anyio.run(_with_server, body)
+
+    assert result["target_kind"] == "nle-project"
+    assert result["expected_frames"] == 360
+    assert result["delta"] in (0, picture.KNOWN_TAIL_FRAME)
+    assert result["agrees"] is (result["delta"] == 0)
+    if result["delta"] == picture.KNOWN_TAIL_FRAME:
+        assert any("trailing black frame" in note for note in result["notes"])

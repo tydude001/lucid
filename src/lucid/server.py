@@ -298,6 +298,31 @@ def verify(
     )
 
 
+@mcp.tool()
+def check_frames(path: str, target: str | None = None, fps: float | None = None) -> dict[str, Any]:
+    """Check an export's frame count against what the timeline says it should be.
+
+    The picture-side counterpart to `verify`, which covers only the audio. Run
+    this on the exported NLE project **before** rendering — that is where it is
+    worth the most, because the count settles whether the cut positions are
+    right for the price of reading a document rather than encoding one.
+
+    `target` is an NLE project (.kdenlive/.mlt/.xml, put to `melt -consumer
+    xml`) or a finished render (counted with ffprobe). Omit it to just report
+    `expected_frames`, the total the timeline lays down.
+
+    Read `agrees` first, then `delta` — how many frames the target has that the
+    timeline does not. A non-zero delta on an NLE project means the render will
+    not be the length the edit is, and `notes` says so when the cause is one
+    lucid already knows about. `agrees` is null, not false, for an audio-only
+    render: it has no frames, so nothing was checked.
+
+    `fps` must match the rate the export ran at or the two sides are counting on
+    different grids; it defaults to the rate `export` would have picked.
+    """
+    return ops.check_frames(path, target, fps=fps)
+
+
 def serve() -> None:
     """Run the server on stdio. Blocks until the client disconnects."""
     mcp.run(transport="stdio")
