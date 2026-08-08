@@ -71,6 +71,17 @@ def import_media(
     return media.import_media(project, source, clip_id=clip_id, copy=copy)
 
 
+def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
+    """Flag adjacent near-duplicate phrases in a just-attached transcript.
+
+    Called from both attach paths — ROADMAP.md item 1: the retake `verify`
+    structurally cannot catch is one the timeline keeps both takes of, so
+    there is nothing to diff against. Catching it means looking at attach
+    time, before an edit exists.
+    """
+    return vfy.find_adjacent_repeats(vfy.tokens(w.text for w in parsed.words))
+
+
 def attach_transcript(
     path: Path | str, clip_id: str, transcript_path: Path | str
 ) -> dict[str, Any]:
@@ -90,6 +101,7 @@ def attach_transcript(
         "language": parsed.language,
         "cached": str(project.transcript_path(clip_id)),
         "duration": parsed.words[-1].end,
+        "near_duplicates": _near_duplicates(parsed),
     }
 
 
@@ -127,6 +139,7 @@ def transcribe(
         "language": parsed.language,
         "cached": str(project.transcript_path(clip_id)),
         "duration": parsed.words[-1].end,
+        "near_duplicates": _near_duplicates(parsed),
     }
 
 

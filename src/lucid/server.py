@@ -61,7 +61,14 @@ def import_media(
 
 @mcp.tool()
 def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str, Any]:
-    """Ingest an existing word-timed whisper JSON as this clip's transcript."""
+    """Ingest an existing word-timed whisper JSON as this clip's transcript.
+
+    Checks the transcript against itself for `near_duplicates` — adjacent
+    runs of words that sound like the same line said twice. That is a
+    retake `verify` can never catch once both takes are cut into the edit,
+    since nothing then disagrees with the timeline. A hit is not a verdict:
+    a deliberate callback line looks the same as a swallowed retake here.
+    """
     return ops.attach_transcript(path, clip_id, transcript_path)
 
 
@@ -73,7 +80,8 @@ def transcribe(
 
     attach_transcript's ASR-driven sibling: use that when the recording
     already has a transcript, this when it needs one made. Takes minutes on a
-    long recording — there is no timeout, so let it run.
+    long recording — there is no timeout, so let it run. Reports
+    `near_duplicates` the same way attach_transcript does.
     """
     return ops.transcribe(path, clip_id, model=model, language=language)
 

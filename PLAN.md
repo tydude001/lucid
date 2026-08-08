@@ -623,3 +623,32 @@ the self-calibration is for — but the bed is not flat, and a swell in a long
 pause can still clear the midpoint. Both v3 runs report one or two gaps around
 0.5 s of sound at roughly −19 dB, which is where the seven attenuated noises
 live. An entry is somewhere to listen, never a verdict.
+
+## Adjacent near-duplicate phrases at `attach-transcript` — 2026-08-07
+
+ROADMAP item 1, built and run against the real `VO/VO.json` (929 words), not
+just synthesised fixtures. `verify.find_adjacent_repeats` scores every 4-word
+window against the next 40 words with `_closest_run`, then keeps only the
+highest-scoring, non-overlapping candidates — needed because a real repeat
+scores well from several neighbouring offsets at once, and without that step
+one restart became six near-identical rows.
+
+**929 words in, 30 candidates out, and the target is among them.** Words
+621/627 — "I don't think that['s / it's] a coincidence," the retake `verify`
+structurally cannot catch — is reported (`614→621`, similarity 0.75). So is
+every other self-comparison-shaped retake `ideas/scream.md`'s own trim table
+already names by hand: "any one of them" (91), "here's the thing I" (111),
+"entire film"/"entire movie" (284–307, the longest, five overlapping windows),
+"You can't lift it out." (335–345), "unmask anybody/somebody" (390), "generally
+great" → "genuinely great" (545–557), "Fine, let's test it." / "Fine, test it."
+(662–668), and the deliberately-kept stray "it" at 725. Roughly a third of the
+30 (ratio-0.5 pairs sharing only connector words) are noise, in line with the
+item's own "reader's job, not the tool's" design.
+
+**What it correctly does not catch: words 442–445 and 887–889.** Both retakes
+survived v1 by a different mechanism — whisper swallowed the second take's
+words into the *following* word's duration rather than transcribing them, so
+there is no second run of tokens for a token-sequence comparison to find.
+That is ROADMAP item 2's defect, not this one's; `ideas/scream.md`'s own notes
+on those two say so directly ("the whisper diff could not have found the
+missing two").

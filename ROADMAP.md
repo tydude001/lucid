@@ -20,6 +20,12 @@ gate has a named edit to answer instead of a hypothetical, item 6 gained a
 mirror, and the property below gained a second proof. Evidence in goodsometimes
 `ideas/scream.md` § v4/v5.
 
+Revised again after building and shipping item 1. Run against the real
+`VO/VO.json` rather than a synthetic fixture, it reported 621/627 and every
+other self-comparison-shaped retake `ideas/scream.md`'s own trim table already
+names by hand — full numbers in [PLAN.md](PLAN.md) § Adjacent near-duplicate
+phrases at `attach-transcript`. Suspect-duration flagging moves up to item 1.
+
 ## The property everything below defends
 
 **Word indices address the source and never renumber.** When two late retakes
@@ -48,31 +54,16 @@ These are ordered by value, but all are days-not-weeks and all can be verified
 against the Scream VO, where the defect they target actually occurred. Every
 word index named below addresses **the v1 recording**, `VO.json` as it stands
 today — the pending re-record produces a different file with different indices,
-and does not retire these as fixtures.
+and does not retire these as fixtures. The real file (not a fixture) is on the
+NAS: `TheVaultData/content stuff/Good Sometimes/Videos/Every Scream Sequel
+Falls Apart At The REVEAL/VO/VO.json`, mounted at `~/TheVaultData`.
 
-`verify --windowed` was item 1 and is built; what running it against the real
-exports established, including two ranking changes below, is in
-[PLAN.md](PLAN.md) § `verify --windowed`, and what the Scream exports actually
-said.
+`verify --windowed` and adjacent-near-duplicate flagging at `attach-transcript`
+are both built. What running each against the real exports established is in
+[PLAN.md](PLAN.md) § `verify --windowed` and § Adjacent near-duplicate phrases
+at `attach-transcript`.
 
-### 1. Flag adjacent near-duplicate phrases at `attach-transcript`
-
-**New, and it ranks first because the evidence for it is a defect that
-shipped.** Of the three retakes that survived v1, `verify` can only ever catch
-two. The third is recorded in `VO.json` *twice* — words 621 and 627, "I don't
-think that['s / it's] a coincidence" — so the timeline expects both takes, the
-render plays both, and `verify` is correct to report nothing. Its question is
-whether the render says what you edited, and it did.
-
-Catching that one means comparing the transcript against **itself**: adjacent
-runs of ≥4 words that are near-duplicates of each other are a restart the
-reader should look at. `verify._closest_run` already scores exactly this,
-against the expected sequence rather than the transcript, so the work is
-pointing it at a different pair of inputs. **Done when** an attach of the
-Scream VO reports 621/627 alongside the two deliberate repeats — and says which
-is which is the reader's job, not the tool's.
-
-### 2. Flag suspect word durations at `attach-transcript`
+### 1. Flag suspect word durations at `attach-transcript`
 
 Any word running past ~3× the median duration is a lie about something —
 usually a swallowed retake. Report the list at attach time; refuse to use a
@@ -86,7 +77,7 @@ second caller. And the windowed pass put a number on how much this matters:
 suspect durations in a render's own transcript fall from 46–50 to 10 when the
 segments are short enough to stop the collapse happening at all.
 
-### 3. Echo resolved words on every word-index argument
+### 2. Echo resolved words on every word-index argument
 
 Six cues in the Scream shot plan pointed one word past the intended phrase —
 invisible in the index, obvious the moment `--plan` printed the words each
@@ -96,7 +87,7 @@ last paragraph. Cheapest item on this list, and it pays on every future video.
 
 ## Next — feature-sized, shape known from the Scream one-offs
 
-### 4. Picture-side render checks
+### 3. Picture-side render checks
 
 `verify` deliberately covers only audio. The picture half — frame count equals
 the timeline's computed total, `blackdetect`, spot frames — was done by hand
@@ -104,7 +95,7 @@ for Scream and belongs with rendering/export, not with `verify`. The frame
 count check is the load-bearing one: exact agreement with `melt`'s count is
 what made 68 cut positions trustworthy before anything rendered.
 
-### 5. Attenuate noises; don't cut them
+### 4. Attenuate noises; don't cut them
 
 Short, loud, non-speech events between words get pulled down (Scream used
 −12 dB), not removed — a hole where a breath was reads as an edit; a quiet
@@ -115,7 +106,7 @@ a 4-second hole. Only events that are short *and* sit in a gap narrow enough
 to prove the map is dense around them qualify. Evidence: goodsometimes
 `ideas/scream.md` § Seven noises.
 
-### 6. Accept cuts in render time — and its mirror, added time
+### 5. Accept cuts in render time — and its mirror, added time
 
 A human watching an export reports flubs as render timestamps. goodsometimes
 `scripts/vo_trim.py` takes cuts that way and converts to source itself — the
@@ -191,7 +182,8 @@ and the decision is cheaper than it was because the model is validated:
 - **Energy-snapping cut edges.** Measured non-urgent on Scream-like material:
   every known retake boundary had 0.34–2.48 s of silence and a flat 0.1 s pad
   never clipped. The failures that *looked* like drift were transcript
-  infidelity, which items 1–2 address instead. DOGFOOD.md § 2's revision of
+  infidelity, which the near-duplicate check (built) and item 1
+  (suspect durations) address instead. DOGFOOD.md § 2's revision of
   PLAN.md § Word-timestamp accuracy. Revisit if a video demands mid-sentence
   cuts.
 - **Everything one video couldn't establish.** One speaker, audio-only VO, no

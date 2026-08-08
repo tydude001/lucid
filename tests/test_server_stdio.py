@@ -221,6 +221,40 @@ def test_cut_by_transcript_end_to_end(tmp_path: Path, sources: tuple[Path, Path]
 
 
 @needs_ffprobe
+def test_attach_transcript_flags_adjacent_near_duplicate_phrases(tmp_path: Path) -> None:
+    """ROADMAP item 1, over the wire: attach reports a retake `verify` can
+    never catch, before any edit exists to diff it against (test_verify.py
+    exercises the detector itself; this checks it is actually wired in).
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 8.0)])
+
+    texts = ["so", "much", "going", "on", "here", "it's", "more", "of", "a", "meta", "commentary", "I", "don't", "think", "that", "it's", "a", "coincidence", "I", "don't", "think", "that's", "a", "coincidence", "that", "ghostface"]
+    words = [{"word": w, "start": n * 0.3, "end": n * 0.3 + 0.25} for n, w in enumerate(texts)]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        return await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+
+    attached = anyio.run(_with_server, body)
+
+    assert len(attached["near_duplicates"]) == 1
+    hit = attached["near_duplicates"][0]
+    assert hit["similarity"] >= 0.5
+    assert hit["first_word"] < hit["second_word"]
+
+
+@needs_ffprobe
 def test_cut_and_keep_are_mutually_exclusive(tmp_path: Path, sources: tuple[Path, Path]) -> None:
     """Reading a 'keep' as a 'cut' would produce the exact inverse edit."""
     audio, transcript = sources

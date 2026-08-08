@@ -90,6 +90,88 @@ def _closest_run(needle: list[str], haystack: list[str]) -> tuple[int, float]:
     return start, difflib.SequenceMatcher(a=needle, b=window, autojunk=False).ratio()
 
 
+#: Shorter than this and ordinary English repeats it constantly ("the the",
+#: two "and"s either side of a pause). `compare`'s MIN_RUN=2 is tuned for
+#: retakes that show up as a diff against a *different* sequence; this one
+#: hunts a transcript for lines it says twice, so it wants more evidence
+#: before calling something a restart.
+ADJACENT_MIN_RUN = 4
+
+#: A retake follows within a breath, not a scene later. Capping how far ahead
+#: a match may be found is what keeps this a check for adjacent repeats
+#: rather than a second `find` across the whole transcript.
+ADJACENT_LOOKAHEAD = 40
+
+
+def _ranges_overlap(a: tuple[int, int], b: tuple[int, int]) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
+
+
+def find_adjacent_repeats(words: list[str]) -> list[dict[str, Any]]:
+    """Find phrases the transcript says twice, back to back.
+
+    `compare` catches a retake by diffing the transcript against the
+    timeline's *expected* sequence — but a retake the timeline keeps (both
+    takes survive into the edit, as on the Scream v1 export) never disagrees
+    with anything, so compare() is correct to report nothing. This is the
+    other half: the transcript checked against **itself**, at attach time,
+    before any edit exists to compare it to. PLAN.md § the third retake was
+    never a `verify` miss.
+
+    Reuses `_closest_run`'s near-duplicate scoring — same anchor-and-score
+    approach that lets `compare` recognise a second take despite whisper
+    transcribing it differently from the first — pointed at a window just
+    ahead of each candidate run instead of at `compare`'s `expected`.
+
+    Every position is a candidate window, so unlike `compare` (which only
+    scores runs the diff already flagged as anomalous) this can raise more
+    than one overlapping candidate around the same real repeat — "commentary
+    i don't think" and "i don't think that" both score against the same
+    restart. Keeping the highest-scoring, non-overlapping candidates is what
+    turns that into one report instead of several for the same event.
+
+    Not a verdict: a deliberate callback line reads the same as a swallowed
+    retake to this test. Which is which is for whoever reads the result to
+    decide, not this function.
+    """
+    n = len(words)
+    candidates: list[tuple[float, int, int, int, int]] = []
+    for i in range(n - ADJACENT_MIN_RUN + 1):
+        run = words[i : i + ADJACENT_MIN_RUN]
+        lookahead_start = i + ADJACENT_MIN_RUN
+        lookahead_end = min(n, lookahead_start + ADJACENT_LOOKAHEAD)
+        haystack = words[lookahead_start:lookahead_end]
+
+        at, ratio = _closest_run(run, haystack)
+        if at >= 0 and ratio >= SIMILAR:
+            second_at = lookahead_start + at
+            candidates.append((ratio, i, i + ADJACENT_MIN_RUN, second_at, second_at + ADJACENT_MIN_RUN))
+
+    # Strongest match first; a candidate that overlaps one already kept is the
+    # same restart seen from a neighbouring offset, not a second event.
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+    kept: list[tuple[float, int, int, int, int]] = []
+    covered: list[tuple[int, int]] = []
+    for candidate in candidates:
+        _, f0, f1, s0, s1 = candidate
+        if any(_ranges_overlap((f0, f1), c) or _ranges_overlap((s0, s1), c) for c in covered):
+            continue
+        kept.append(candidate)
+        covered.append((f0, f1))
+        covered.append((s0, s1))
+
+    return [
+        {
+            "first_word": f0,
+            "first_text": " ".join(words[f0:f1]),
+            "second_word": s0,
+            "second_text": " ".join(words[s0:s1]),
+            "similarity": round(ratio, 3),
+        }
+        for ratio, f0, f1, s0, s1 in sorted(kept, key=lambda c: c[1])
+    ]
+
+
 def compare(expected: list[str], heard: list[str]) -> dict[str, Any]:
     """Diff the timeline's expected words against the render's heard words.
 

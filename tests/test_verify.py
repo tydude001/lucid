@@ -122,3 +122,80 @@ def test_the_diff_is_word_per_line() -> None:
 
     assert diff[0].startswith("--- timeline") and diff[1].startswith("+++ render")
     assert "-beta" in diff and "+gamma" in diff
+
+
+# -- find_adjacent_repeats: a transcript checked against itself, at attach
+# -- time, before there is an edit for `compare` to diff against -----------
+
+
+def test_a_retake_both_takes_survive_into_the_edit_is_still_flagged() -> None:
+    """ROADMAP item 1: the one retake `verify` can never catch.
+
+    From the Scream v1 export, words 621/627: "I don't think that it's a
+    coincidence" then "I don't think that's a coincidence". The timeline
+    expects both — nothing cut either — so `compare` has nothing to diff
+    against. This is the other half: the source transcript compared with
+    itself.
+    """
+    sentence = (
+        "so much going on here it's more of a meta commentary "
+        "I don't think that it's a coincidence "
+        "I don't think that's a coincidence that ghostface"
+    )
+    words = verify.tokens([sentence])
+
+    hits = verify.find_adjacent_repeats(words)
+
+    # One report for the one restart, not one per overlapping candidate
+    # window around it.
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit["similarity"] >= verify.SIMILAR
+    assert hit["first_word"] < hit["second_word"]
+    # Both windows sit inside the "...I don't think that[...] a coincidence
+    # I don't think that's a coincidence..." run — not off somewhere else in
+    # the sentence.
+    assert 9 <= hit["first_word"] <= 12
+    assert 16 <= hit["second_word"] <= 19
+
+
+def test_an_exact_deliberate_repeat_is_also_flagged() -> None:
+    """The tool doesn't distinguish a callback from a swallowed retake — a
+    reader does. Roadmap: 'says which is which is the reader's job.'"""
+    words = verify.tokens(
+        ["movies don't create psychos movies make psychos more creative and that line lands"]
+    )
+    words = words[:5] + words[:5] + words[5:]
+
+    hits = verify.find_adjacent_repeats(words)
+
+    assert len(hits) == 1
+    assert hits[0]["similarity"] == 1.0
+
+
+def test_ordinary_dialogue_is_not_flagged() -> None:
+    """No adjacent line says itself twice — nothing to report."""
+    words = verify.tokens(
+        ["the killer calls from inside the house and nobody believes her at first"]
+    )
+
+    assert verify.find_adjacent_repeats(words) == []
+
+
+def test_a_single_shared_word_is_not_a_restart() -> None:
+    """One word in common is not saying the line twice."""
+    words = ["and", "then", "she", "screamed", "louder", "than", "he", "expected"]
+
+    assert verify.find_adjacent_repeats(words) == []
+
+
+def test_repeats_far_apart_are_not_adjacent() -> None:
+    """A callback near the end of a long recording is not a retake — a retake
+    follows within a breath, not a scene later."""
+    words = (
+        ["I", "don't", "think", "that's", "a", "coincidence"]
+        + [f"filler{i}" for i in range(verify.ADJACENT_LOOKAHEAD + 10)]
+        + ["I", "don't", "think", "that's", "a", "coincidence"]
+    )
+
+    assert verify.find_adjacent_repeats(words) == []
