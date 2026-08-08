@@ -61,10 +61,12 @@ class Client:
 
 
 async def _with_server(body: Any, server: StdioServerParameters = SERVER) -> Any:
-    async with stdio_client(server) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            return await body(session)
+    async with (
+        stdio_client(server) as (read, write),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        return await body(session)
 
 
 def _make_wav(path: Path, *, tones: list[tuple[float, float]], duration: float = 12.0) -> None:
