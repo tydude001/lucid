@@ -24,7 +24,8 @@ import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-from lucid import picture
+from lucid import energy, media, picture
+from lucid.project import Project
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
 
@@ -48,6 +49,7 @@ EXPECTED_TOOLS = {
     "check_frames",
     "check_black",
     "spot_frames",
+    "attenuate_noises",
     "export",
 }
 
@@ -153,6 +155,7 @@ TOOL_TO_COMMAND = {
     "check_frames": "frames",
     "check_black": "black",
     "spot_frames": "spots",
+    "attenuate_noises": "attenuate",
     "export": "export",
 }
 
@@ -1794,3 +1797,323 @@ def test_spot_frames_refuses_zero_samples_with_no_explicit_times(tmp_path: Path)
 
     assert result.is_error
     assert "nothing to sample" in result.content[0].text
+
+
+# -- attenuate_noises -------------------------------------------------------
+
+
+def _db_at(env: list[float], t: float) -> float:
+    return energy._db(env[int(t / energy.FRAME)])
+
+
+def _write_wav_at_rate(
+    path: Path, *, tones: list[tuple[float, float]], duration: float, rate: int
+) -> None:
+    """Like `_make_wav`, but at an explicit sample rate.
+
+    Written directly at `energy.RATE` for these fixtures so `energy.decode`'s
+    resample to that same rate is a no-op — `_make_wav`'s 22050 Hz is fine
+    when bursts sit a full second from a word edge, but these fixtures place
+    a burst right up against one, and the resampler's ring (documented at
+    `test_verify_reports_sound_in_a_hole_the_word_map_calls_empty`) would
+    smear a spurious ~20ms run onto the wrong side of the boundary.
+    """
+    with wave.open(str(path), "w") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(rate * duration)):
+            t = i / rate
+            loud = any(a <= t < b for a, b in tones)
+            value = int(12000 * math.sin(2 * math.pi * 220 * t)) if loud else 0
+            frames += struct.pack("<h", value)
+        out.writeframes(bytes(frames))
+
+
+def _attenuate_sources(root: Path) -> tuple[Path, Path]:
+    """A short loud burst in a 1.3s gap (qualifies) and a longer one in a
+    4.7s gap (too wide to prove the map is dense there — disqualified).
+    """
+    audio = root / "vo.wav"
+    _write_wav_at_rate(
+        audio,
+        tones=[(0.0, 1.0), (1.5, 2.0), (2.3, 3.3), (5.0, 5.7), (8.0, 9.0)],
+        duration=10.0,
+        rate=energy.RATE,
+    )
+    words = [
+        {"word": "well", "start": 0.0, "end": 1.0},
+        {"word": "so", "start": 2.3, "end": 3.3},
+        {"word": "quiet", "start": 8.0, "end": 9.0},
+    ]
+    transcript = root / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+def _scream_hole_sources(root: Path) -> tuple[Path, Path]:
+    """Scream v1's own false-positive shape: a 0.6s burst in a 4.12s hole in
+    the word map (`ideas/scream.md`) — must stay disqualified on gap width
+    alone, never on the event's own (short) duration.
+    """
+    audio = root / "vo.wav"
+    _write_wav_at_rate(
+        audio, tones=[(0.0, 1.0), (3.0, 3.6), (5.12, 6.12)], duration=8.0, rate=energy.RATE
+    )
+    words = [
+        {"word": "well", "start": 0.0, "end": 1.0},
+        {"word": "so", "start": 5.12, "end": 6.12},
+    ]
+    transcript = root / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+def _suspect_neighbour_sources(root: Path) -> tuple[Path, Path]:
+    """A qualifying event whose *before* neighbour ("loud") claims a
+    duration far past 3x the median — suspect by `energy.CAP` — so the
+    "gap is narrow" evidence next to it is itself unproven.
+    """
+    audio = root / "vo.wav"
+    _write_wav_at_rate(
+        audio,
+        tones=[(0.0, 0.3), (0.5, 0.8), (1.0, 1.9), (2.2, 2.7), (3.0, 3.3)],
+        duration=6.0,
+        rate=energy.RATE,
+    )
+    words = [
+        {"word": "well", "start": 0.0, "end": 0.3},
+        {"word": "so", "start": 0.5, "end": 0.8},
+        {"word": "loud", "start": 1.0, "end": 4.0},
+        {"word": "quiet", "start": 3.0, "end": 3.3},
+    ]
+    transcript = root / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+def _make_video_with_audio(path: Path, audio: Path, *, duration: float, fps: int = 30) -> None:
+    """`_make_video`'s picture, muxed with a real gap-and-burst audio track
+    instead of a flat sine tone, so `-c:v copy` has real picture to preserve.
+    """
+    video_only = path.with_suffix(".video-only.mp4")
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={duration}",
+            "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(video_only),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", str(video_only), "-i", str(audio),
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "copy", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
+async def _attached(client: Client, project: Path, source: Path, transcript: Path) -> str:
+    """init -> import -> attach, the preamble `attenuate_noises` wants — it
+    needs no timeline, so there is no `seed_timeline` step here.
+    """
+    await client.call("init", path=str(project))
+    clip = await client.call("import_media", path=str(project), source=str(source))
+    await client.call(
+        "attach_transcript",
+        path=str(project),
+        clip_id=clip["clip_id"],
+        transcript_path=str(transcript),
+    )
+    return str(clip["clip_id"])
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_pulls_down_a_qualifying_event_and_leaves_the_rest(tmp_path: Path) -> None:
+    """The load-bearing shape in one project: a short event in a narrow gap
+    is pulled down and written, and a short event in a much wider gap
+    (disqualified) is reported but never touched.
+    """
+    audio, transcript = _attenuate_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        return await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["written"] is True
+    assert len(result["attenuated"]) == 1
+    assert len(result["disqualified"]) == 1
+    assert result["suspect_neighbours"] == []
+    assert any("max_gap_seconds" in reason for reason in result["disqualified"][0]["reasons"])
+
+    output = Path(result["output_media"])
+    assert output.exists()
+
+    manifest = Project.open(project).read_manifest()
+    clip = next(c for c in manifest["clips"] if c.get("attenuated"))
+    assert Path(clip["attenuated"]).name == output.name
+
+    before = energy.envelope(energy.decode(audio))
+    after = energy.envelope(energy.decode(output))
+    assert _db_at(after, 1.75) == pytest.approx(_db_at(before, 1.75) - 12.0, abs=2.0)
+    # The disqualified burst, elsewhere in the same file, is left alone.
+    assert _db_at(after, 5.35) == pytest.approx(_db_at(before, 5.35), abs=1.0)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_refuses_to_touch_a_wide_map_hole_even_though_it_is_loud(
+    tmp_path: Path,
+) -> None:
+    """Scream v1's exact false positive: 0.6s of sound in a 4.12s hole in the
+    word map read as noise on a first pass. It is not — the hole is too wide
+    to prove the map is dense there, so it must be reported, never written.
+    """
+    audio, transcript = _scream_hole_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        return await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["attenuated"] == []
+    assert result["written"] is False
+    assert result["output_media"] is None
+    assert len(result["disqualified"]) == 1
+    disqualified = result["disqualified"][0]
+    assert disqualified["gap"]["duration"] == pytest.approx(4.12, abs=0.01)
+    assert disqualified["duration"] == pytest.approx(0.6, abs=0.05)
+    assert any("max_gap_seconds" in reason for reason in disqualified["reasons"])
+    assert not any("max_event_seconds" in reason for reason in disqualified["reasons"])
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_plan_reports_without_writing(tmp_path: Path) -> None:
+    """Mirrors `cut --plan`'s "same numbers" contract: a plan and a real run
+    against the same project must agree on everything except `written`.
+    """
+    audio, transcript = _attenuate_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        planned = await client.call(
+            "attenuate_noises", path=str(project), clip_id=clip_id, plan=True
+        )
+        exists_under_plan = Path(planned["output_media"]).exists()
+        real = await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+        return planned, exists_under_plan, real
+
+    planned, exists_under_plan, real = anyio.run(_with_server, body)
+
+    assert planned["plan"] is True
+    assert planned["written"] is False
+    assert exists_under_plan is False
+
+    assert real["written"] is True
+    assert Path(real["output_media"]).exists()
+
+    assert planned["output_media"] == real["output_media"]
+    assert planned["attenuated"] == real["attenuated"]
+    assert planned["disqualified"] == real["disqualified"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_withholds_a_suspect_neighbour_without_confirm_then_writes_it_with_confirm_true(
+    tmp_path: Path,
+) -> None:
+    audio, transcript = _suspect_neighbour_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        withheld = await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+        confirmed = await client.call(
+            "attenuate_noises", path=str(project), clip_id=clip_id, confirm_suspect=True
+        )
+        return withheld, confirmed
+
+    withheld, confirmed = anyio.run(_with_server, body)
+
+    assert withheld["attenuated"] == []
+    assert withheld["written"] is False
+    assert len(withheld["suspect_neighbours"]) == 1
+    assert withheld["suspect_neighbours"][0]["neighbour_before"]["text"] == "loud"
+
+    assert len(confirmed["attenuated"]) == 1
+    assert confirmed["written"] is True
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_re_run_does_not_compound_gain(tmp_path: Path) -> None:
+    """A second call must read the *original* media, not the first call's
+    output — otherwise the same span would be attenuated twice.
+    """
+    audio, transcript = _attenuate_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, audio, transcript)
+        first = await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+        second = await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+        return first, second
+
+    first, second = anyio.run(_with_server, body)
+
+    assert second["source_media"] == first["source_media"]
+
+    after_first = energy.envelope(energy.decode(Path(first["output_media"])))
+    after_second = energy.envelope(energy.decode(Path(second["output_media"])))
+    assert _db_at(after_second, 1.75) == pytest.approx(_db_at(after_first, 1.75), abs=1.0)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attenuate_noises_video_clip_copies_picture_and_only_touches_audio(tmp_path: Path) -> None:
+    """`-c:v copy`, proven by frame count parity rather than trusted by name."""
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 1.0), (1.5, 2.0), (2.3, 3.3)], duration=8.0)
+    source = tmp_path / "pic.mp4"
+    _make_video_with_audio(source, audio, duration=8.0)
+    project = tmp_path / "proj"
+    words = [
+        {"word": "well", "start": 0.0, "end": 1.0},
+        {"word": "so", "start": 2.3, "end": 3.3},
+    ]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _attached(client, project, source, transcript)
+        return await client.call("attenuate_noises", path=str(project), clip_id=clip_id)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["written"] is True
+    before = media.count_frames(source)
+    after = media.count_frames(result["output_media"])
+    assert after["frames"] == before["frames"]
+    assert after["frames"] is not None

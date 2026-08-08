@@ -166,6 +166,32 @@ def test_the_head_and_tail_of_a_render_are_not_gaps() -> None:
     assert energy.loud_gaps([(5.0, 6.0)], env)["gaps"] == []
 
 
+def test_loud_gaps_reports_every_run_in_a_gap_not_just_the_loudest() -> None:
+    """Two unrelated bursts in one gap must both survive as separate events.
+
+    `attenuate_noises` (ops.py) attenuates each noise event on its own — if
+    `loud_gaps` collapsed a gap down to its `loudest_run`, a second, quieter
+    burst in the same gap would be invisible to it.
+    """
+    env = energy.envelope(_tone(12.0, [(0.0, 2.0), (4.0, 4.5), (6.0, 6.6), (9.0, 11.0)]))
+    words = [(0.0, 2.0), (9.0, 11.0)]
+
+    result = energy.loud_gaps(words, env)
+
+    assert len(result["gaps"]) == 1
+    gap = result["gaps"][0]
+    runs = gap["runs"]
+    assert len(runs) == 2
+    assert (runs[0]["start"], runs[0]["end"]) == pytest.approx((4.0, 4.5), abs=0.05)
+    assert (runs[1]["start"], runs[1]["end"]) == pytest.approx((6.0, 6.6), abs=0.05)
+    for run in runs:
+        assert run["peak_db"] < 0.0
+    # `loudest_run` is unchanged in shape — a regression guard on the additive field.
+    assert set(gap["loudest_run"]) == {"start", "end", "duration"}
+    longest = max(runs, key=lambda r: r["duration"])
+    assert gap["loudest_run"] == {k: longest[k] for k in ("start", "end", "duration")}
+
+
 # -- suspect durations -----------------------------------------------------
 
 
@@ -248,3 +274,61 @@ def test_decoding_real_audio_lands_on_the_same_clock_as_the_word_map(
 def test_a_file_that_is_not_there_says_so(tmp_path: Path) -> None:
     with pytest.raises(energy.EnergyError, match="no media to measure"):
         energy.decode(tmp_path / "absent.wav")
+
+
+# -- attenuate ---------------------------------------------------------------
+
+
+def _write_wav(
+    path: Path, *, tones: list[tuple[float, float]], duration: float, rate: int = 22050
+) -> None:
+    with wave.open(str(path), "w") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(rate * duration)):
+            t = i / rate
+            loud = any(a <= t < b for a, b in tones)
+            value = int(9000 * math.sin(2 * math.pi * 220 * t)) if loud else 0
+            frames += struct.pack("<h", value)
+        out.writeframes(bytes(frames))
+
+
+def _db_at(env: list[float], t: float) -> float:
+    return energy._db(env[int(t / energy.FRAME)])
+
+
+@needs_ffmpeg
+def test_attenuate_writes_a_quieter_copy_and_leaves_speech_alone(tmp_path: Path) -> None:
+    """goodsometimes' own `--tame` verification method: the targeted span drops
+    ~`db`, and speech either side is unchanged (`ideas/scream.md`).
+    """
+    source = tmp_path / "vo.wav"
+    _write_wav(source, tones=[(0.0, 2.0), (3.0, 3.5), (5.0, 6.0)], duration=6.0)
+    output = tmp_path / "vo-tame.wav"
+
+    energy.attenuate(source, [(3.0, 3.5)], db=-12.0, has_video=False, output=output)
+
+    assert output.exists()
+    before = energy.envelope(energy.decode(source))
+    after = energy.envelope(energy.decode(output))
+
+    assert _db_at(after, 3.25) == pytest.approx(_db_at(before, 3.25) - 12.0, abs=1.0)
+    for t in (1.0, 5.5):
+        assert _db_at(after, t) == pytest.approx(_db_at(before, t), abs=0.5)
+
+
+def test_attenuate_refuses_a_file_that_is_not_there(tmp_path: Path) -> None:
+    with pytest.raises(energy.EnergyError, match="no media to attenuate"):
+        energy.attenuate(
+            tmp_path / "absent.wav", [(0.0, 1.0)], db=-12.0, has_video=False, output=tmp_path / "o.wav"
+        )
+
+
+def test_attenuate_refuses_no_spans(tmp_path: Path) -> None:
+    source = tmp_path / "vo.wav"
+    _write_wav(source, tones=[(0.0, 1.0)], duration=1.0)
+
+    with pytest.raises(energy.EnergyError, match="at least one span"):
+        energy.attenuate(source, [], db=-12.0, has_video=False, output=tmp_path / "o.wav")

@@ -691,6 +691,248 @@ def undo(path: Path | str) -> dict[str, Any]:
     }
 
 
+# -- attenuating noise, rather than cutting it ----------------------------
+
+
+def _neighbours(
+    parsed: tx.Transcript, trimmed_ends: Sequence[float], gap: dict[str, Any]
+) -> tuple[int, int] | None:
+    """The two consecutive word indices a `loud_gaps` gap sits between.
+
+    `energy.believable` only ever trims a span's *end*, so a gap's `start` is
+    a trimmed end and its `end` is an untrimmed next-word start. Both sides
+    already went through the same `round(x, 3)` lucid applies everywhere, so
+    this is an exact match, not a fuzzy one.
+    """
+    for i in range(len(parsed) - 1):
+        if (
+            round(trimmed_ends[i], 3) == gap["start"]
+            and round(parsed.words[i + 1].start, 3) == gap["end"]
+        ):
+            return i, i + 1
+    return None
+
+
+def _classify_noise_events(
+    parsed: tx.Transcript,
+    trimmed_ends: Sequence[float],
+    gaps: Sequence[dict[str, Any]],
+    *,
+    max_event_seconds: float,
+    max_gap_seconds: float,
+    pad: float,
+    suspect: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """The safety filter, isolated from I/O so it can be tested without ffmpeg.
+
+    Every loud run in every gap becomes one event, tagged `"attenuated"`,
+    `"suspect_neighbour"`, or `"disqualified"` — never both length and
+    width reasons collapsed into one, so a caller can tell which side of the
+    filter actually caught a given event.
+    """
+    events: list[dict[str, Any]] = []
+    for gap in gaps:
+        neighbours = _neighbours(parsed, trimmed_ends, gap)
+        before_idx, after_idx = neighbours if neighbours else (None, None)
+        neighbour_before = (
+            {"index": before_idx, "text": parsed.words[before_idx].text}
+            if before_idx is not None
+            else None
+        )
+        neighbour_after = (
+            {"index": after_idx, "text": parsed.words[after_idx].text}
+            if after_idx is not None
+            else None
+        )
+
+        for run in gap["runs"]:
+            reasons: list[str] = []
+            if run["duration"] > max_event_seconds:
+                reasons.append(
+                    f"event is {run['duration']}s, longer than "
+                    f"max_event_seconds={max_event_seconds}"
+                )
+            if gap["duration"] > max_gap_seconds:
+                reasons.append(
+                    f"gap is {gap['duration']}s, wider than max_gap_seconds="
+                    f"{max_gap_seconds} — too wide to prove the word map is "
+                    "dense around this event"
+                )
+            if neighbours is None:
+                reasons.append("could not resolve the words bounding this gap")
+
+            if reasons:
+                status = "disqualified"
+            elif (before_idx is not None and before_idx in suspect) or (
+                after_idx is not None and after_idx in suspect
+            ):
+                status = "suspect_neighbour"
+                reasons = [
+                    (
+                        "a word bounding this gap claims a suspect duration, so "
+                        "the narrow gap that qualified this event might itself be "
+                        "hiding a swallowed retake"
+                    )
+                ]
+            else:
+                status = "attenuated"
+
+            events.append(
+                {
+                    "start": run["start"],
+                    "end": run["end"],
+                    "duration": run["duration"],
+                    "padded_start": max(gap["start"], round(run["start"] - pad, 3)),
+                    "padded_end": min(gap["end"], round(run["end"] + pad, 3)),
+                    "peak_db": run["peak_db"],
+                    "gap": {
+                        "start": gap["start"],
+                        "end": gap["end"],
+                        "duration": gap["duration"],
+                    },
+                    "neighbour_before": neighbour_before,
+                    "neighbour_after": neighbour_after,
+                    "status": status,
+                    "reasons": reasons,
+                }
+            )
+    return events
+
+
+def attenuate_noises(
+    path: Path | str,
+    clip_id: str,
+    *,
+    db: float = -12.0,
+    max_event_seconds: float = 1.5,
+    max_gap_seconds: float = 2.0,
+    pad: float = 0.05,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Pull down short loud non-speech events sitting in narrow word-map gaps.
+
+    A word map has holes, and not everything loud in one is noise — the
+    Scream v1 false positive was 0.4-0.9s events that turned out to be speech
+    sitting in a 4.12s hole the transcript never wrote down (DOGFOOD.md § 2,
+    `ideas/scream.md`). So an event only qualifies automatically when it is
+    both short (`max_event_seconds`) *and* sitting in a gap narrow enough to
+    prove the map is dense around it (`max_gap_seconds`) — a wide gap
+    disqualifies even a very short, very loud event, because a narrow event
+    duration is not evidence the *map* is trustworthy there. Qualifying
+    events are pulled down `db` (not cut) via `energy.attenuate`'s
+    `volume=...:enable='between(t,a,b)'` pass, padded `pad` seconds so the
+    gain step lands in near-silence rather than clicking on the noise's edge.
+
+    Unlike `cut_by_transcript`/`cut_by_time`, nothing here ever raises on
+    what the scan finds. Those ops act on a handful of explicit,
+    deliberately-chosen ranges, so refusing the call to force a look is
+    right. This is an automatic scan that can turn up many independent
+    candidates across a long clip; refusing the whole pass over one distant
+    ambiguous candidate would defeat the point. So `suspect_neighbours` and
+    `disqualified` are withheld *per event* and always reported in full —
+    not gated behind `plan` the way `cut_by_transcript`'s
+    `suspect_boundaries` is — which is a deliberate divergence from that
+    convention, not an oversight of it.
+
+    Three tiers: an event that qualifies on duration+gap-width *and* whose
+    bounding words carry no suspect duration is attenuated automatically. An
+    event whose bounding word does carry one (`suspect_neighbour`) is
+    withheld unless `confirm_suspect=True` or `plan=True` — the neighbour
+    might itself be hiding a swallowed retake, which would make the "gap is
+    narrow" evidence unsound. An event too long, or in too wide a gap
+    (`disqualified`), is never written — no confirmation overrides it.
+
+    Always reads the clip's *original* media (`media.original_media_path`),
+    never a previous `"attenuated"` copy, so re-running with different
+    parameters fully overwrites the derived file rather than compounding
+    gain. `media_path()` picks the attenuated copy up automatically
+    everywhere downstream once this has run.
+
+    `plan=True` runs the identical classification and reports the same
+    payload — including `output_media`, the path a real run would write to —
+    without calling ffmpeg or touching the manifest.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    if not clip.get("has_audio"):
+        raise media.MediaError(f"clip {clip_id!r} has no audio track to attenuate")
+    parsed = _transcript(project, clip_id)
+    source = media.original_media_path(project, clip)
+
+    env = energy.envelope(energy.decode(source))
+    claimed = [(w.start, w.end) for w in parsed.words]
+    trimmed_ends = [end for _, end in energy.believable(claimed)]
+    scan = energy.loud_gaps(claimed, env)
+
+    suspect = {item["index"]: item for item in _suspect_durations(parsed)}
+    events = _classify_noise_events(
+        parsed,
+        trimmed_ends,
+        scan["gaps"],
+        max_event_seconds=max_event_seconds,
+        max_gap_seconds=max_gap_seconds,
+        pad=pad,
+        suspect=suspect,
+    )
+
+    include_suspect = confirm_suspect or plan
+    to_write = [
+        event
+        for event in events
+        if event["status"] == "attenuated"
+        or (event["status"] == "suspect_neighbour" and include_suspect)
+    ]
+
+    output_media: Path | None = None
+    written = False
+    if to_write:
+        output_media = project.attenuated_dir / f"{clip_id}{source.suffix}"
+        if not plan:
+            project.attenuated_dir.mkdir(parents=True, exist_ok=True)
+            spans = [(event["padded_start"], event["padded_end"]) for event in to_write]
+            energy.attenuate(
+                source, spans, db=db, has_video=bool(clip.get("has_video")), output=output_media
+            )
+            manifest = project.read_manifest()
+            for record in manifest.get("clips", []):
+                if record["clip_id"] == clip_id:
+                    record["attenuated"] = str(output_media.relative_to(project.root))
+                    record["attenuation"] = {
+                        "db": db,
+                        "max_event_seconds": max_event_seconds,
+                        "max_gap_seconds": max_gap_seconds,
+                        "pad": pad,
+                        "events": len(to_write),
+                    }
+                    break
+            project.write_manifest(manifest)
+            written = True
+
+    result: dict[str, Any] = {
+        "clip_id": clip_id,
+        "db": db,
+        "gain": round(10 ** (db / 20), 4),
+        "max_event_seconds": max_event_seconds,
+        "max_gap_seconds": max_gap_seconds,
+        "pad": pad,
+        "threshold_db": scan["threshold_db"],
+        "quiet_db": scan["quiet_db"],
+        "speech_db": scan["speech_db"],
+        "doubted_durations": scan["doubted_durations"],
+        "events": events,
+        "attenuated": to_write,
+        "suspect_neighbours": [e for e in events if e["status"] == "suspect_neighbour"],
+        "disqualified": [e for e in events if e["status"] == "disqualified"],
+        "source_media": str(source),
+        "output_media": str(output_media) if output_media else None,
+        "written": written,
+    }
+    if plan:
+        result["plan"] = True
+    return result
+
+
 # -- getting the edit out ------------------------------------------------
 
 

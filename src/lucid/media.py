@@ -262,8 +262,22 @@ def get_clip(project: Project, clip_id: str) -> dict[str, Any]:
 def media_path(project: Project, clip: dict[str, Any]) -> Path:
     """The path tools should hand to ffmpeg/auto-editor for this clip.
 
-    The `media/` entry when there is one, and the original source when the
-    filesystem would not take a symlink.
+    The `attenuated` entry when `attenuate_noises` has produced one, else the
+    `media/` entry, else the original source when the filesystem would not
+    take a symlink. Preferring `attenuated` here — rather than threading a
+    "use the calm copy" flag through every caller — is what makes attenuation
+    transparent to every downstream op (seed/cut/export/verify) for free.
+    """
+    local = clip.get("attenuated") or clip.get("media")
+    return (project.root / local) if local else Path(clip["source"])
+
+
+def original_media_path(project: Project, clip: dict[str, Any]) -> Path:
+    """What `media_path()` resolved to before `attenuate_noises` ever ran.
+
+    `attenuate_noises` always reads from here, never from `media_path()`, so a
+    second call cannot attenuate an already-attenuated file — every run is a
+    clean rebuild from the untouched original, not a compounding one.
     """
     local = clip.get("media")
     return (project.root / local) if local else Path(clip["source"])

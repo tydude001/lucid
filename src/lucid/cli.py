@@ -14,6 +14,7 @@ import sys
 from lucid import __version__, asr, captions, ops
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
+from lucid.energy import EnergyError
 from lucid.media import MediaError
 from lucid.picture import PictureError
 from lucid.project import ProjectError
@@ -297,6 +298,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "--fps", type=float, help="the rate the export used (default: the picture's, else 30)"
     )
 
+    p_atten = sub.add_parser(
+        "attenuate", help="pull down short loud non-speech events in narrow word-map gaps"
+    )
+    p_atten.add_argument("clip_id")
+    p_atten.add_argument("--db", type=float, default=-12.0, help="gain reduction in dB (-12.0)")
+    p_atten.add_argument(
+        "--max-event-seconds",
+        type=float,
+        default=1.5,
+        help="longest event duration that still qualifies (1.5s)",
+    )
+    p_atten.add_argument(
+        "--max-gap-seconds",
+        type=float,
+        default=2.0,
+        help="widest gap that still proves the word map is dense (2.0s)",
+    )
+    p_atten.add_argument(
+        "--pad", type=float, default=0.05, help="widen each attenuated span by N seconds (0.05)"
+    )
+    p_atten.add_argument(
+        "--confirm-suspect",
+        action="store_true",
+        help="also attenuate events whose bounding word has a suspect duration",
+    )
+    p_atten.add_argument(
+        "--plan",
+        action="store_true",
+        help="show what would be attenuated without writing anything",
+    )
+
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -461,6 +493,21 @@ def _cmd_spots(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_attenuate(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.attenuate_noises(
+            args.project,
+            args.clip_id,
+            db=args.db,
+            max_event_seconds=args.max_event_seconds,
+            max_gap_seconds=args.max_gap_seconds,
+            pad=args.pad,
+            confirm_suspect=args.confirm_suspect,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -496,6 +543,7 @@ _COMMANDS = {
     "frames": _cmd_frames,
     "black": _cmd_black,
     "spots": _cmd_spots,
+    "attenuate": _cmd_attenuate,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,
@@ -513,6 +561,7 @@ _EXPECTED = (
     ASRError,
     VerifyError,
     PictureError,
+    EnergyError,
 )
 
 

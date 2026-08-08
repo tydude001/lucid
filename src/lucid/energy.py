@@ -295,6 +295,18 @@ def loud_gaps(
                 "end": round(gap_end, 3),
                 "duration": round(gap_end - gap_start, 3),
                 "sound_seconds": round(sound, 3),
+                # Every contiguous loud run in the gap, not just the longest —
+                # a gap can hold more than one noise event, and `attenuate_noises`
+                # (ops.py) needs each one addressed on its own.
+                "runs": [
+                    {
+                        "start": round(a * frame, 3),
+                        "end": round(b * frame, 3),
+                        "duration": round((b - a) * frame, 3),
+                        "peak_db": round(max(_db(env[i]) for i in range(a, b)), 1),
+                    }
+                    for a, b in runs
+                ],
                 "loudest_run": {
                     "start": round(longest[0] * frame, 3),
                     "end": round(longest[1] * frame, 3),
@@ -321,3 +333,54 @@ def loud_gaps(
 def unaccounted_sound(media: Path | str, spans: Sequence[tuple[float, float]]) -> dict[str, Any]:
     """Decode `media` and report the gaps in `spans` that hold sound anyway."""
     return loud_gaps(spans, envelope(decode(media)))
+
+
+def attenuate(
+    media: Path | str,
+    spans: Sequence[tuple[float, float]],
+    *,
+    db: float,
+    has_video: bool,
+    output: Path | str,
+) -> Path:
+    """Pull `spans` (in seconds, source clock) down `db` and write `output`.
+
+    One ffmpeg pass, one `volume=<gain>:enable='between(t,a,b)'` filter per
+    span, comma-chained (goodsometimes `music_bed.py --tame`'s mechanism,
+    verbatim: same filter shape, same `10**(db/20)` linear gain). A gain step
+    cannot be written into a compressed stream without decoding it, so audio is
+    always re-encoded — `aac -b:a 320k` when there is a picture to keep the
+    container's video codec compatible with, `pcm_s16le` when the source is
+    audio-only. Picture, when there is one, is never touched: `-c:v copy`.
+
+    This only ever *applies* spans it is given — deciding which events in a
+    clip qualify as noise lives in `ops._classify_noise_events`, not here.
+    """
+    source = Path(media).expanduser()
+    if not source.exists():
+        raise EnergyError(f"no media to attenuate: {source}")
+    if not spans:
+        raise EnergyError("attenuate needs at least one span")
+
+    destination = Path(output).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    gain = 10 ** (db / 20)
+    filt = ",".join(
+        f"volume={gain:.4f}:enable='between(t,{start:.3f},{end:.3f})'" for start, end in spans
+    )
+    cmd = [FFMPEG, "-v", "error", "-nostdin", "-y", "-i", str(source), "-af", filt]
+    if has_video:
+        cmd += ["-c:v", "copy", "-c:a", "aac", "-b:a", "320k"]
+    else:
+        cmd += ["-c:a", "pcm_s16le"]
+    cmd.append(str(destination))
+
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except FileNotFoundError as exc:
+        raise EnergyError(f"{FFMPEG} not found on PATH") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
+        raise EnergyError(f"ffmpeg could not attenuate {source.name}: {detail}") from exc
+    return destination

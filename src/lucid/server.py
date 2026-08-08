@@ -398,6 +398,50 @@ def spot_frames(
     return ops.spot_frames(path, target, count=count, times=times, fps=fps)
 
 
+@mcp.tool()
+def attenuate_noises(
+    path: str,
+    clip_id: str,
+    db: float = -12.0,
+    max_event_seconds: float = 1.5,
+    max_gap_seconds: float = 2.0,
+    pad: float = 0.05,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Pull down short loud non-speech events instead of cutting them out.
+
+    An event only qualifies automatically when it is both short
+    (max_event_seconds) and sitting in a word-map gap narrow enough to prove
+    the map is dense around it (max_gap_seconds) — a wide gap disqualifies
+    even a very short event, which is the false-positive class this exists
+    to prevent (speech sitting in a hole the transcript never wrote down).
+    Qualifying events are pulled down `db` via one ffmpeg pass, never cut,
+    and written as a new derived copy that `media_path()` picks up
+    automatically everywhere downstream; the original is always what a
+    re-run reads from, so repeated calls never compound gain.
+
+    Unlike cut_by_transcript/cut_by_time, nothing here ever raises on what
+    the scan finds — this is an automatic multi-candidate scan, not a
+    handful of explicit ranges, so withholding is done per event rather than
+    refusing the whole call. `suspect_neighbours` (a bounding word itself
+    has a suspect duration — withheld unless confirm_suspect=True or
+    plan=True) and `disqualified` (too long, or too wide a gap — never
+    written, no override) are always reported in full, not only under
+    plan=True.
+    """
+    return ops.attenuate_noises(
+        path,
+        clip_id,
+        db=db,
+        max_event_seconds=max_event_seconds,
+        max_gap_seconds=max_gap_seconds,
+        pad=pad,
+        confirm_suspect=confirm_suspect,
+        plan=plan,
+    )
+
+
 def serve() -> None:
     """Run the server on stdio. Blocks until the client disconnects."""
     mcp.run(transport="stdio")
