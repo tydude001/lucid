@@ -134,14 +134,23 @@ def cut_by_transcript(
     cut: Sequence[Sequence[int]] | None = None,
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
+    confirm_suspect: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep inclusive word ranges, e.g. cut=[[30, 45], [120, 131]].
 
     Pass exactly one of `cut` or `keep`. `pad` widens each range on both sides
     in seconds, to land the cut in the silence between words. The timeline is
     snapshotted first, so this is undoable.
+
+    Refused if a range's first or last word claims a suspect duration (see
+    `attach_transcript`/`transcribe`'s `suspect_durations`) — that word's
+    `end`/`start` is what the cut boundary resolves to, and it is usually
+    hiding a retake rather than ending where it claims. Check the word, then
+    retry with `confirm_suspect=True` if the boundary is actually fine.
     """
-    return ops.cut_by_transcript(path, clip_id, cut=cut, keep=keep, pad=pad)
+    return ops.cut_by_transcript(
+        path, clip_id, cut=cut, keep=keep, pad=pad, confirm_suspect=confirm_suspect
+    )
 
 
 @mcp.tool()

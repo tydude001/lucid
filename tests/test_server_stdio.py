@@ -254,6 +254,92 @@ def test_attach_transcript_flags_adjacent_near_duplicate_phrases(tmp_path: Path)
     assert hit["first_word"] < hit["second_word"]
 
 
+def _suspect_duration_sources(tmp_path: Path) -> tuple[Path, Path]:
+    """A recording where one word's claimed span hides a swallowed retake."""
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 8.0)])
+
+    words = [
+        {"word": "so", "start": 0.0, "end": 0.3},
+        {"word": "much", "start": 0.3, "end": 0.6},
+        {"word": "going", "start": 0.6, "end": 0.9},
+        # claims 3.96s against a 0.3s median — the Scream VO's "bit", in miniature.
+        {"word": "bit", "start": 0.9, "end": 4.86},
+        {"word": "on", "start": 4.86, "end": 5.16},
+    ]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+@needs_ffprobe
+def test_attach_transcript_flags_suspect_word_durations(tmp_path: Path) -> None:
+    """ROADMAP item 1, over the wire: a word running past 3x the median is a
+    lie about something, usually a swallowed retake (DOGFOOD.md § 2).
+    """
+    audio, transcript = _suspect_duration_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        return await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+
+    attached = anyio.run(_with_server, body)
+
+    assert len(attached["suspect_durations"]) == 1
+    hit = attached["suspect_durations"][0]
+    assert hit["index"] == 3
+    assert hit["text"] == "bit"
+
+
+@needs_ffprobe
+def test_cut_refuses_a_suspect_boundary_word_without_confirmation(tmp_path: Path) -> None:
+    """A flagged word's end is what the cut boundary resolves to, so using one
+    unconfirmed would silently cut wherever the hidden retake actually ends.
+    """
+    audio, transcript = _suspect_duration_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        blocked = await session.call_tool(
+            "cut_by_transcript",
+            {"path": str(project), "clip_id": clip["clip_id"], "cut": [[3, 4]]},
+        )
+        confirmed = await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            cut=[[3, 4]],
+            confirm_suspect=True,
+        )
+        return {"blocked": blocked, "confirmed": confirmed}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["blocked"].is_error
+    assert "hides a retake" in out["blocked"].content[0].text
+    assert out["confirmed"]["removed"] > 0
+
+
 @needs_ffprobe
 def test_cut_and_keep_are_mutually_exclusive(tmp_path: Path, sources: tuple[Path, Path]) -> None:
     """Reading a 'keep' as a 'cut' would produce the exact inverse edit."""

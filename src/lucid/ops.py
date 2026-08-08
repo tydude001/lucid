@@ -82,6 +82,21 @@ def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
     return vfy.find_adjacent_repeats(vfy.tokens(w.text for w in parsed.words))
 
 
+def _suspect_durations(parsed: tx.Transcript) -> list[dict[str, Any]]:
+    """Flag words whose claimed duration is a lie about something.
+
+    ROADMAP.md item 1: `energy.believable` already computes this same 3x-median
+    cutoff to mask audio for `verify --windowed`'s envelope pass — this just
+    surfaces it as a finding at attach time, before it is ever used as a cut
+    boundary (`cut_by_transcript` refuses those without confirmation).
+    """
+    spans = [(w.start, w.end) for w in parsed.words]
+    flagged = energy.suspect_durations(spans)
+    for item in flagged:
+        item["text"] = parsed.words[item["index"]].text
+    return flagged
+
+
 def attach_transcript(
     path: Path | str, clip_id: str, transcript_path: Path | str
 ) -> dict[str, Any]:
@@ -102,6 +117,7 @@ def attach_transcript(
         "cached": str(project.transcript_path(clip_id)),
         "duration": parsed.words[-1].end,
         "near_duplicates": _near_duplicates(parsed),
+        "suspect_durations": _suspect_durations(parsed),
     }
 
 
@@ -140,6 +156,7 @@ def transcribe(
         "cached": str(project.transcript_path(clip_id)),
         "duration": parsed.words[-1].end,
         "near_duplicates": _near_duplicates(parsed),
+        "suspect_durations": _suspect_durations(parsed),
     }
 
 
@@ -254,6 +271,7 @@ def cut_by_transcript(
     cut: Sequence[Sequence[int]] | None = None,
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
+    confirm_suspect: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep word ranges — the operation lucid exists for.
 
@@ -265,6 +283,11 @@ def cut_by_transcript(
     Exactly one of `cut` or `keep` is accepted: a call that meant "keep" but
     was read as "cut" would produce the precise inverse of the intended edit,
     so there is no default.
+
+    A range whose first or last word claims a suspect duration (ROADMAP.md
+    item 1) is refused unless `confirm_suspect=True`: that word's `start`/`end`
+    is what the cut boundary resolves to, and a boundary that long is usually
+    hiding a retake rather than ending where it claims.
     """
     if bool(cut) == bool(keep):
         raise tx.TranscriptError("pass exactly one of cut= or keep=")
@@ -274,6 +297,21 @@ def cut_by_transcript(
     parsed = _transcript(project, clip_id)
     edit = _load_edit(project)
     before = edit.duration
+
+    if not confirm_suspect:
+        suspect = {item["index"]: item for item in _suspect_durations(parsed)}
+        for first, last in cut or keep or []:
+            hit = suspect.get(int(first)) or suspect.get(int(last))
+            if hit:
+                raise tx.TranscriptError(
+                    f"word {hit['index']} ({hit['text']!r}) claims {hit['duration']}s, "
+                    f"more than {hit['limit']}s (the transcript's median x "
+                    f"energy.CAP) — it likely hides a retake rather than ending "
+                    "where it claims, so it is refused as a cut boundary "
+                    "(ROADMAP.md item 1). Check it, then retry with "
+                    "confirm_suspect=True (CLI: --confirm-suspect) if the "
+                    "boundary is actually fine, or pick a different word."
+                )
 
     applied: list[dict[str, Any]] = []
     if cut:

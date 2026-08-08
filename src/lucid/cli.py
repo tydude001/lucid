@@ -103,6 +103,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cut.add_argument(
         "--pad", type=float, default=0.0, help="widen each range by N seconds on both sides"
     )
+    p_cut.add_argument(
+        "--confirm-suspect",
+        action="store_true",
+        help="allow a boundary word flagged with a suspect duration (see `transcript`)",
+    )
 
     sub.add_parser("status", help="show the current timeline")
 
@@ -250,6 +255,7 @@ def _cmd_cut(args: argparse.Namespace) -> int:
             cut=None if args.keep else ranges,
             keep=ranges if args.keep else None,
             pad=args.pad,
+            confirm_suspect=args.confirm_suspect,
         )
     )
 

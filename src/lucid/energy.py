@@ -182,6 +182,11 @@ def _runs(loud: Sequence[bool], lo: int, hi: int) -> list[tuple[int, int]]:
     return out
 
 
+def _median_limit(spans: Sequence[tuple[float, float]], cap: float) -> float:
+    durations = sorted(end - start for start, end in spans)
+    return cap * durations[len(durations) // 2]
+
+
 def believable(spans: Sequence[tuple[float, float]], *, cap: float = CAP) -> list[tuple[float, float]]:
     """Trim each span to a duration a single word could plausibly have.
 
@@ -191,9 +196,35 @@ def believable(spans: Sequence[tuple[float, float]], *, cap: float = CAP) -> lis
     """
     if not spans:
         return []
-    durations = sorted(end - start for start, end in spans)
-    limit = cap * durations[len(durations) // 2]
+    limit = _median_limit(spans, cap)
     return [(start, min(end, start + limit)) for start, end in spans]
+
+
+def suspect_durations(
+    spans: Sequence[tuple[float, float]], *, cap: float = CAP
+) -> list[dict[str, Any]]:
+    """Which spans, by index, claim more than `cap` times the median duration.
+
+    The same rule `believable` masks by (see `CAP`), surfaced as a finding
+    instead of only ever being consumed silently downstream: ROADMAP.md item 1.
+    No word is legitimately three times the median word long, so whatever a
+    span this long covers is not just the word — usually a swallowed retake
+    (DOGFOOD.md § 2).
+    """
+    if not spans:
+        return []
+    limit = _median_limit(spans, cap)
+    return [
+        {
+            "index": i,
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "duration": round(end - start, 3),
+            "limit": round(limit, 3),
+        }
+        for i, (start, end) in enumerate(spans)
+        if end - start > limit
+    ]
 
 
 def loud_gaps(

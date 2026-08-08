@@ -166,6 +166,29 @@ def test_the_head_and_tail_of_a_render_are_not_gaps() -> None:
     assert energy.loud_gaps([(5.0, 6.0)], env)["gaps"] == []
 
 
+# -- suspect durations -----------------------------------------------------
+
+
+def test_a_word_past_the_cap_is_flagged() -> None:
+    """The Scream VO shape in miniature: one word far longer than the rest."""
+    spans = [(0.0, 0.3), (0.3, 0.6), (0.6, 0.9), (0.9, 4.86), (4.86, 5.16)]
+
+    flagged = energy.suspect_durations(spans)
+
+    assert [f["index"] for f in flagged] == [3]
+    assert flagged[0]["duration"] == pytest.approx(3.96, abs=0.01)
+
+
+def test_ordinary_word_durations_are_not_flagged() -> None:
+    spans = [(0.0, 0.3), (0.3, 0.6), (0.6, 0.9), (0.9, 1.2)]
+
+    assert energy.suspect_durations(spans) == []
+
+
+def test_no_spans_flags_nothing() -> None:
+    assert energy.suspect_durations([]) == []
+
+
 # -- refusals -------------------------------------------------------------
 
 

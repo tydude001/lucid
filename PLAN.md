@@ -649,6 +649,28 @@ item's own "reader's job, not the tool's" design.
 survived v1 by a different mechanism — whisper swallowed the second take's
 words into the *following* word's duration rather than transcribing them, so
 there is no second run of tokens for a token-sequence comparison to find.
-That is ROADMAP item 2's defect, not this one's; `ideas/scream.md`'s own notes
-on those two say so directly ("the whisper diff could not have found the
-missing two").
+That is suspect-duration flagging's defect, not this one's (§ below);
+`ideas/scream.md`'s own notes on those two say so directly ("the whisper diff
+could not have found the missing two").
+
+## Suspect word durations at `attach-transcript` — 2026-08-07
+
+ROADMAP item 1, built and run against the real `VO/VO.json` (929 words).
+`energy.suspect_durations` is `believable`'s existing 3x-median cutoff, given a
+second caller — no new measurement, just a name for one that already existed.
+
+**13 of 929 words flagged, and both retakes the near-duplicate check above
+cannot catch are among them.** Words 442–445 and 887–889 survived v1 because
+whisper swallowed each retake into the *following* word's duration instead of
+transcribing it. That following word is exactly what gets flagged: index 446
+("wants", 2.22 s) and index 890 ("not", 2.02 s), both against a 0.78 s limit
+(3x this transcript's 0.26 s median). `cut_by_transcript` now refuses either as
+a cut boundary without `confirm_suspect=True`.
+
+**Corrects an example carried since the `verify --windowed` table above: the
+3.96 s "bit" is not a `VO.json` word.** It comes from re-transcribing the
+*rendered* v1 export — a different pass over different audio — where it was
+one of the single-pass run's 46 suspect durations. In `VO.json` itself "bit" is
+an ordinary 0.16 s word; the span actually hiding the "falls apart a bit in the
+second half" hole DOGFOOD documents is index 137, "in", at 4.26 s. 446 and 890
+are the words this item's own done-when criterion can be checked against.

@@ -26,6 +26,16 @@ other self-comparison-shaped retake `ideas/scream.md`'s own trim table already
 names by hand — full numbers in [PLAN.md](PLAN.md) § Adjacent near-duplicate
 phrases at `attach-transcript`. Suspect-duration flagging moves up to item 1.
 
+Revised again after building and shipping suspect-duration flagging, item 1
+after the reshuffle above. Run against the real `VO/VO.json`, it flagged 13 of
+929 words, including both words the near-duplicate check structurally cannot
+catch (446 "wants", 890 "not") —
+full numbers in [PLAN.md](PLAN.md) § Suspect word durations at
+`attach-transcript`. That section also corrects an example this file carried
+since the `verify --windowed` pass: the 3.96 s "bit" traces to a render's own
+transcript, not to `VO.json`. Echo resolved words on every word-index argument
+moves up to item 1.
+
 ## The property everything below defends
 
 **Word indices address the source and never renumber.** When two late retakes
@@ -58,26 +68,13 @@ and does not retire these as fixtures. The real file (not a fixture) is on the
 NAS: `TheVaultData/content stuff/Good Sometimes/Videos/Every Scream Sequel
 Falls Apart At The REVEAL/VO/VO.json`, mounted at `~/TheVaultData`.
 
-`verify --windowed` and adjacent-near-duplicate flagging at `attach-transcript`
-are both built. What running each against the real exports established is in
-[PLAN.md](PLAN.md) § `verify --windowed` and § Adjacent near-duplicate phrases
-at `attach-transcript`.
+`verify --windowed`, adjacent-near-duplicate flagging, and suspect-duration
+flagging — all at `attach-transcript` — are built. What running each against
+the real exports established is in [PLAN.md](PLAN.md) § `verify --windowed`,
+§ Adjacent near-duplicate phrases at `attach-transcript`, and § Suspect word
+durations at `attach-transcript`.
 
-### 1. Flag suspect word durations at `attach-transcript`
-
-Any word running past ~3× the median duration is a lie about something —
-usually a swallowed retake. Report the list at attach time; refuse to use a
-flagged word as a cut boundary without confirmation. DOGFOOD.md § 2,
-proposal 1. **Done when** the Scream VO attach flags words 446 (2.2 s),
-890 (2.0 s) and the 3.96 s "bit" — the three that each hid a restart.
-
-Cheaper than it was, and better evidenced. `energy.believable` already computes
-the 3× median cut-off for the mask, so the measurement exists and only wants a
-second caller. And the windowed pass put a number on how much this matters:
-suspect durations in a render's own transcript fall from 46–50 to 10 when the
-segments are short enough to stop the collapse happening at all.
-
-### 2. Echo resolved words on every word-index argument
+### 1. Echo resolved words on every word-index argument
 
 Six cues in the Scream shot plan pointed one word past the intended phrase —
 invisible in the index, obvious the moment `--plan` printed the words each
@@ -87,7 +84,7 @@ last paragraph. Cheapest item on this list, and it pays on every future video.
 
 ## Next — feature-sized, shape known from the Scream one-offs
 
-### 3. Picture-side render checks
+### 2. Picture-side render checks
 
 `verify` deliberately covers only audio. The picture half — frame count equals
 the timeline's computed total, `blackdetect`, spot frames — was done by hand
@@ -95,7 +92,7 @@ for Scream and belongs with rendering/export, not with `verify`. The frame
 count check is the load-bearing one: exact agreement with `melt`'s count is
 what made 68 cut positions trustworthy before anything rendered.
 
-### 4. Attenuate noises; don't cut them
+### 3. Attenuate noises; don't cut them
 
 Short, loud, non-speech events between words get pulled down (Scream used
 −12 dB), not removed — a hole where a breath was reads as an edit; a quiet
@@ -106,7 +103,7 @@ a 4-second hole. Only events that are short *and* sit in a gap narrow enough
 to prove the map is dense around them qualify. Evidence: goodsometimes
 `ideas/scream.md` § Seven noises.
 
-### 5. Accept cuts in render time — and its mirror, added time
+### 4. Accept cuts in render time — and its mirror, added time
 
 A human watching an export reports flubs as render timestamps. goodsometimes
 `scripts/vo_trim.py` takes cuts that way and converts to source itself — the
@@ -182,8 +179,8 @@ and the decision is cheaper than it was because the model is validated:
 - **Energy-snapping cut edges.** Measured non-urgent on Scream-like material:
   every known retake boundary had 0.34–2.48 s of silence and a flat 0.1 s pad
   never clipped. The failures that *looked* like drift were transcript
-  infidelity, which the near-duplicate check (built) and item 1
-  (suspect durations) address instead. DOGFOOD.md § 2's revision of
+  infidelity, which the near-duplicate check and suspect-duration flagging
+  (both built) address instead. DOGFOOD.md § 2's revision of
   PLAN.md § Word-timestamp accuracy. Revisit if a video demands mid-sentence
   cuts.
 - **Everything one video couldn't establish.** One speaker, audio-only VO, no
