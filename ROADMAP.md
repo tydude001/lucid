@@ -25,11 +25,8 @@ rest of the picture-side checks; § `attenuate_noises`, pulling noise down
 instead of cutting it; and § `speech_overlap`, the ducking prerequisite
 Billy/Stu never had, carry the numbers; this file does not restate them.
 
-Two CLI gaps the same dogfood run surfaced closed afterwards, neither of them
-ever a roadmap item: `locate` gives source→timeline the direction `cut-at`
-does not go, and `init` stopped silently ignoring `-C`. PLAN.md § `locate`,
-the source→timeline direction `cut-at` does not go, and § `init` stops
-silently ignoring `-C`.
+Two CLI gaps the same run surfaced also closed, neither ever a roadmap item:
+PLAN.md § `locate` and § `init` stops silently ignoring `-C`.
 
 **Ordering answers to measured defects, not to competitors.** A prior-art pass
 the same day found Daydream to be a full desktop NLE rather than the chat front

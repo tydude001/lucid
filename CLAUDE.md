@@ -43,6 +43,10 @@ installed package or the upstream repo, not your memory.
 - **Cite roadmap items by name, never by number** — the numbers renumber on
   every ship, and four things once cited "item 1" meaning four different
   items. Point at the named PLAN.md `##` section instead. ROADMAP.md header.
+- `ruff check` is the lint gate. **Never run `ruff format`** — there is no
+  ruff config, so it applies its own 88-column default against this repo's
+  wider lines and rewrites 26 of 30 files, burying whatever you actually
+  changed.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).
@@ -70,8 +74,7 @@ installed package or the upstream repo, not your memory.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See PLAN.md § Captions came out of the timeline.
-  - Which mapping depends on whether one answer is enough.
-    `Edit.timeline_span` stops at the first survivor — right for captions, one
-    span per word — while `Edit.timeline_spans` returns a `Placement` per
-    surviving piece. A range a cut split has more than one answer, and the
-    singular form reports one of them without saying so. PLAN.md § `locate`.
+  - Singular vs plural: `Edit.timeline_span` stops at the first survivor
+    (right for captions — one span per word); `Edit.timeline_spans` returns
+    every surviving piece. A range a cut split has more than one answer, and
+    the singular reports one without saying so. PLAN.md § `locate`.
