@@ -1,13 +1,13 @@
 # lucid
 
 Architecture, stack decisions, and open questions live in [PLAN.md](PLAN.md).
-The competitor/dependency survey behind those decisions is in
-[PRIOR-ART.md](PRIOR-ART.md). What the first real video exposed, and the four
-things it said to build next, is in [DOGFOOD.md](DOGFOOD.md). The build order
-and the rationale behind it is [ROADMAP.md](ROADMAP.md). The Daydream parity
-plan — the product observed, its design system, the feature map and its build
-order — is [DAYDREAM.md](DAYDREAM.md). Open-item status lives in the wiki,
-not here.
+The build order and the rationale behind it is PLAN.md § Direction and
+order. The competitor/dependency survey behind those decisions is in
+[PRIOR-ART.md](PRIOR-ART.md). The dated record of what shipped and what the
+evidence said — including the first real video's findings — is
+[HISTORY.md](HISTORY.md). The Daydream parity plan — the product observed,
+its design system, the feature map and its build order — is
+[DAYDREAM.md](DAYDREAM.md). Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
@@ -24,11 +24,11 @@ installed package or the upstream repo, not your memory.
   - **31.x gates multi-*source* timelines behind a paid key, and the render
     path degrades to 720x576 with a warning and **exit 0** rather than
     failing.** Track count is free; two distinct `src` files is the wall.
-    PLAN.md § The multi-track costing spike.
+    HISTORY.md § The multi-track costing spike.
   - **That gate is auto-editor's, not this box's — don't design around it.**
     **Single-source goes through auto-editor; multi-source generates MLT and
     renders through `melt`**, which has no source-count gate. `melt`'s own
-    three traps all produce output rather than an error: DOGFOOD.md § 4.
+    three traps all produce output rather than an error: HISTORY.md § 4.
     PLAN.md § The layered timeline.
 - **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
@@ -60,7 +60,7 @@ installed package or the upstream repo, not your memory.
   posts to the same `ops` function the CLI and MCP call, and the panel renders
   that function's own return value. It also binds loopback **and** checks the
   `Host` header **and** requires `application/json` on mutations; loopback
-  alone does not guard a server that can rewrite your edit. PLAN.md § The
+  alone does not guard a server that can rewrite your edit. HISTORY.md § The
   preview/timeline web UI.
   - **Timeline lanes are projections of one `Edit`, not tracks. Never draw a
     lane `export` cannot produce** — the multi-source render degrades silently
@@ -71,10 +71,10 @@ installed package or the upstream repo, not your memory.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a
-  `plan` that resolves without writing. PLAN.md § `cut --plan`.
+  `plan` that resolves without writing. HISTORY.md § `cut --plan`.
 - **Cite roadmap items by name, never by number** — the numbers renumber on
   every ship, and four things once cited "item 1" meaning four different
-  items. Point at the named PLAN.md `##` section instead. ROADMAP.md header.
+  items. Point at the named PLAN.md or HISTORY.md `##` section instead. PLAN.md § Direction and order.
 - `ruff check` is the lint gate. **Never run `ruff format`** — there is no
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
@@ -85,11 +85,10 @@ installed package or the upstream repo, not your memory.
 - **Trust a transcript's word order, never its word durations.** Whisper hides
   a whole retake inside the duration of the word after it. So "did this word
   survive?" is an *overlap* test against the kept ranges, never containment —
-  partial survival is normal. DOGFOOD.md § 2.
+  partial survival is normal. HISTORY.md § 2.
   - The trap when *masking audio* with a word map: an inflated duration covers
     the retake it swallowed, so believing it hides exactly the hole you are
-    looking for. Trim spans through `energy.believable` first. PLAN.md
-    § `verify --windowed`.
+    looking for. Trim spans through `energy.believable` first. HISTORY.md § `verify --windowed`.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the
@@ -97,7 +96,7 @@ installed package or the upstream repo, not your memory.
   auto-editor's `--export kdenlive` output is **one frame longer than your
   edit, and the frame is black** — MLT's `out` is frame-inclusive and
   auto-editor writes a frame count into it. `export --render` does not have it.
-  PLAN.md § `check_frames`.
+  HISTORY.md § `check_frames`.
 - **`melt` is inside the Kdenlive flatpak, and that flatpak cannot see
   `/tmp`.** It has no host package here; resolve it through
   `picture.melt_command()`. Pointed at a project under `/tmp` it prints
@@ -105,8 +104,8 @@ installed package or the upstream repo, not your memory.
   output. Anything writing a project for melt to read puts it under `$HOME`.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
-  is what plays. See PLAN.md § Captions came out of the timeline.
+  is what plays. See HISTORY.md § Captions came out of the timeline.
   - Singular vs plural: `Edit.timeline_span` stops at the first survivor
     (right for captions — one span per word); `Edit.timeline_spans` returns
     every surviving piece. A range a cut split has more than one answer, and
-    the singular reports one without saying so. PLAN.md § `locate`.
+    the singular reports one without saying so. HISTORY.md § `locate`.

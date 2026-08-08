@@ -4,7 +4,7 @@
 feature set and the look/feel.** This is the one document for that work: what
 Daydream actually is (observed, not recalled), the design system to copy, the
 feature-by-feature map against lucid's shipped code, the detailed design notes
-per feature, and the build order. PLAN.md, ROADMAP.md and PRIOR-ART.md point
+per feature, and the build order. PLAN.md and PRIOR-ART.md point
 here rather than restating any of it.
 
 Three lucid constraints do not move, and where a Daydream behaviour conflicts,
@@ -15,7 +15,7 @@ import:
 2. **The web UI draws and plays; it never decides** — every mutation goes
    through the same `ops` functions the CLI and MCP call, and **no lane is
    drawn that `export` cannot produce** (CLAUDE.md § Conventions).
-3. **Cues address the source by word index, never the timeline** (ROADMAP.md
+3. **Cues address the source by word index, never the timeline** (PLAN.md
    § The property everything below defends).
 
 ## How this was captured, and the one limit
@@ -364,7 +364,7 @@ kdenlivetitle or ffmpeg-rendered clips).
 
 ### Captions — generation built; styling is the gap
 
-lucid generates timeline-mapped captions (PLAN.md § Captions came out of the
+lucid generates timeline-mapped captions (HISTORY.md § Captions came out of the
 timeline). Daydream adds: word-highlight as the default style, agent-driven
 restyling (font, colour, position, per-word animation), regenerate that
 **preserves styling** across transcript edits. Design: a caption-style object
@@ -433,7 +433,7 @@ and the README's pitch depends on it staying asterisk-free.
 * **The desktop shell.** PLAN.md § Not a desktop app — unchanged; wrap the
   finished page in `--app`/Tauri later if chrome is ever wanted.
 * **Premiere / Resolve / FCP XML exports.** No such apps exist on a Linux
-  box; the OpenChatCut trial measured the handoff ceiling (PLAN.md § First
+  box; the OpenChatCut trial measured the handoff ceiling (HISTORY.md § First
   milestones). Kdenlive MLT stays the handoff.
 * **Codex as a second agent.** The panel speaks the installed `claude`; a
   second CLI is a config problem for the day someone has one.
@@ -445,7 +445,7 @@ and the README's pitch depends on it staying asterisk-free.
 
 Governed by two facts: **the layered timeline is the enabler for most of the
 map** (b-roll, graphics, V2 — all illegal to draw before its picture lane),
-and **the look pass is the one big item gated on nothing**. ROADMAP.md owns
+and **the look pass is the one big item gated on nothing**. PLAN.md § Direction and order owns
 where this queue sits against non-parity work; the verified bar for every UI
 item is unchanged — real Scream VO, real browser (wiki `tooling.md`
 § Headless browser).

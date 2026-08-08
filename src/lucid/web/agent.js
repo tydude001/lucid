@@ -1,6 +1,6 @@
 /**
- * agent.js — the agent panel (ROADMAP "Now — the workspace" item 4) plus the
- * in-window render UI (item 5's page half): PLAN.md § "The agent panel, in
+ * agent.js — the agent panel plus the in-window render UI:
+ * PLAN.md § "The agent panel, in
  * mechanism" and § "Finishing — the render happens in the window".
  *
  * See transcript.js's header comment for the full pane-module interface —

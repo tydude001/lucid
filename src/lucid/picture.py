@@ -1,11 +1,10 @@
 """The picture half of checking a render, starting with the frame count.
 
 `verify` re-transcribes a render and diffs word order; it covers the audio and
-says so. This covers the picture, and ROADMAP.md § Picture-side render checks
-ranks the frame count first of its three: exact agreement between lucid's
+says so. This covers the picture, and the frame count ranks first of its three checks: exact agreement between lucid's
 computed total and what `melt` says it will render is what made 68 cut
 positions on the Scream essay trustworthy **before** anything was rendered
-(DOGFOOD.md § 3). `blackdetect` (a black-run scan) and spot frames (sampled
+(HISTORY.md § 3). `blackdetect` (a black-run scan) and spot frames (sampled
 PNGs with luma stats) are its siblings, reading a finished render directly
 rather than a document melt would produce.
 
@@ -122,7 +121,7 @@ def display_env() -> dict[str, str]:
 
     Without `WAYLAND_DISPLAY` or `DISPLAY`, every `qimage` producer and the
     `qtblend` transition refuse to load and the render still exits 0 — a card
-    track just vanishes (DOGFOOD.md § 4). Reading a document is less exposed
+    track just vanishes (HISTORY.md § 4). Reading a document is less exposed
     than rendering one, but a project melt could not fully load is a project
     whose reported length is not the length it would render, so the display
     goes in either way.
@@ -218,7 +217,7 @@ def project_frames(project: Path | str) -> int:
 _TMP_HINT = (
     "\n\nThis project is under /tmp and melt is running from the flatpak, "
     "which cannot see the host's /tmp — `filesystems=host` does not cover it "
-    "(DOGFOOD.md § 4). Note melt exits 0 while failing to load, so the only "
+    "(HISTORY.md § 4). Note melt exits 0 while failing to load, so the only "
     "evidence is the empty output above. Export somewhere under $HOME instead."
 )
 

@@ -257,7 +257,7 @@ def test_cut_plan_resolves_without_touching_the_timeline(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
     """Look before you cut, and see the words either side.
-    PLAN.md § `cut --plan`, and echoing what a word index resolved to.
+    HISTORY.md § `cut --plan`, and echoing what a word index resolved to.
 
     The numbers a plan reports are the real ones — it runs the same code path
     and skips the write — so the assertion that matters is that the plan and
@@ -341,7 +341,7 @@ def test_attach_transcript_flags_adjacent_near_duplicate_phrases(tmp_path: Path)
     """Over the wire: attach reports a retake `verify` can never catch,
     before any edit exists to diff it against (test_verify.py exercises the
     detector itself; this checks it is actually wired in).
-    PLAN.md § Adjacent near-duplicate phrases at `attach-transcript`.
+    HISTORY.md § Adjacent near-duplicate phrases at `attach-transcript`.
     """
     audio = tmp_path / "vo.wav"
     _make_wav(audio, tones=[(0.0, 8.0)])
@@ -392,8 +392,8 @@ def _suspect_duration_sources(tmp_path: Path) -> tuple[Path, Path]:
 @needs_ffprobe
 def test_attach_transcript_flags_suspect_word_durations(tmp_path: Path) -> None:
     """Over the wire: a word running past 3x the median is a lie about
-    something, usually a swallowed retake (DOGFOOD.md § 2).
-    PLAN.md § Suspect word durations at `attach-transcript`.
+    something, usually a swallowed retake (HISTORY.md § 2).
+    HISTORY.md § Suspect word durations at `attach-transcript`.
     """
     audio, transcript = _suspect_duration_sources(tmp_path)
     project = tmp_path / "proj"
@@ -688,7 +688,7 @@ def test_cut_by_time_pad_widens_only_the_outer_edges(
 def test_cut_by_time_plan_matches_the_real_cut(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
-    """PLAN.md § `cut --plan`: a plan runs the identical code path and simply
+    """HISTORY.md § `cut --plan`: a plan runs the identical code path and simply
     skips the write, so a plan and the real cut that follows must agree exactly.
     """
     audio, transcript = sources
@@ -1122,7 +1122,7 @@ def test_verify_matches_a_render_that_says_what_the_timeline_expects(
 def test_verify_catches_a_phrase_the_render_plays_twice(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
-    """The retake case, which is why verify exists at all (DOGFOOD § 1)."""
+    """The retake case, which is why verify exists at all (HISTORY.md § 1)."""
     audio, transcript = sources
     project = tmp_path / "proj"
     heard = _heard(
@@ -1523,7 +1523,7 @@ def visible_tmp() -> Iterator[Path]:
     """A working directory melt can actually read.
 
     pytest's `tmp_path` is under /tmp, and **the Kdenlive flatpak's /tmp is not
-    the host's** — `filesystems=host` does not cover it (DOGFOOD.md § 4). melt
+    the host's** — `filesystems=host` does not cover it (HISTORY.md § 4). melt
     pointed at one prints "Failed to load" and **exits 0**, so a melt test using
     `tmp_path` would silently stop testing melt and start testing the
     empty-output guard instead.
@@ -2451,7 +2451,7 @@ def test_speech_overlap_merges_a_narrow_gap_into_one_run(
 def test_speech_overlap_trims_a_suspect_vo_word_before_testing_overlap(
     tmp_path: Path,
 ) -> None:
-    """Mirrors DOGFOOD § 2's swallowed-retake trap: a VO word claiming 6.0s
+    """Mirrors HISTORY.md § 2's swallowed-retake trap: a VO word claiming 6.0s
     (15x the 0.4s median of its neighbours) is capped by `energy.believable`
     before mapping, so a clip placed just past the claimed-but-unbelieved
     tail is correctly read as a clean seam, not an overlap.
@@ -2987,7 +2987,7 @@ def test_timeline_view_marks_a_word_a_cut_only_half_removed(
     """Partial survival is normal on whisper timings, so it is reported.
 
     w10 runs 3.0-3.9; cutting render time 3.5-4.5 takes half of it. A
-    containment test would call the word gone (DOGFOOD.md § 2).
+    containment test would call the word gone (HISTORY.md § 2).
     """
     audio, transcript = sources
     project = tmp_path / "proj"

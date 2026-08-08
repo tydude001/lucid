@@ -6,7 +6,7 @@ person see an edit before committing to a render. This does — and because it
 plays the *source* through the edit rather than a render of it, seeing an edit
 costs no render at all.
 
-Two constraints hold it in place, both from ROADMAP.md § Next:
+Two constraints hold it in place, both from HISTORY.md § The preview/timeline web UI:
 
 * **No privileged path.** Every mutation here goes through the same `ops`
   functions the CLI and the MCP server call. A window is the most tempting

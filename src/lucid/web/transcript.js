@@ -1,6 +1,6 @@
 /**
- * transcript.js — the transcript as a document (ROADMAP.md "Now — the
- * workspace" item 2) plus the floating cut-controls toolbar (PLAN.md §
+ * transcript.js — the transcript as a document, plus the floating
+ * cut-controls toolbar (PLAN.md §
  * Where the cut controls go).
  *
  * What this file draws:

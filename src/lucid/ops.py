@@ -80,7 +80,7 @@ def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
     Called from both attach paths. The retake `verify` structurally cannot
     catch is one the timeline keeps both takes of, so there is nothing to diff
     against. Catching it means looking at attach time, before an edit exists.
-    PLAN.md § Adjacent near-duplicate phrases at `attach-transcript`.
+    HISTORY.md § Adjacent near-duplicate phrases at `attach-transcript`.
     """
     return vfy.find_adjacent_repeats(vfy.tokens(w.text for w in parsed.words))
 
@@ -92,7 +92,7 @@ def _suspect_durations(parsed: tx.Transcript) -> list[dict[str, Any]]:
     audio for `verify --windowed`'s envelope pass — this just surfaces it as a
     finding at attach time, before it is ever used as a cut boundary
     (`cut_by_transcript` refuses those without confirmation).
-    PLAN.md § Suspect word durations at `attach-transcript`.
+    HISTORY.md § Suspect word durations at `attach-transcript`.
     """
     spans = [(w.start, w.end) for w in parsed.words]
     flagged = energy.suspect_durations(spans)
@@ -411,7 +411,7 @@ def _seams(edit: tl.Edit, clip_id: str, placements: list[dict[str, Any]]) -> lis
 def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
     """The whole edit in one payload: segments, seams, and every word's fate.
 
-    The read model behind `lucid web` (ROADMAP.md § Next). It exists as an op
+    The read model behind `lucid web` (HISTORY.md § The preview/timeline web UI). It exists as an op
     rather than inside the server because a view that computed word survival
     itself would be a second implementation of the overlap test, and the front
     ends are meant to hold no logic of their own — the same rule that keeps
@@ -579,7 +579,7 @@ def _resolve(parsed: tx.Transcript, ranges: Iterable[Sequence[int]]) -> list[tup
 
 
 #: Words shown either side of a resolved range. The defect this echo exists to
-#: catch is an index one word past the intended phrase (DOGFOOD.md § 3), and
+#: catch is an index one word past the intended phrase (HISTORY.md § 3), and
 #: resolved text alone cannot show that — "the words I meant, plus one" reads
 #: perfectly well on its own. It only looks wrong next to where the phrase
 #: should have ended, so the neighbours travel with every echo.
@@ -668,7 +668,7 @@ def cut_by_transcript(
     so there is no default.
 
     A range whose first or last word claims a suspect duration
-    (PLAN.md § Suspect word durations) is refused unless `confirm_suspect=True`: that word's `start`/`end`
+    (HISTORY.md § Suspect word durations) is refused unless `confirm_suspect=True`: that word's `start`/`end`
     is what the cut boundary resolves to, and a boundary that long is usually
     hiding a retake rather than ending where it claims.
 
@@ -677,7 +677,7 @@ def cut_by_transcript(
     — the edit is mutated in memory and simply never saved — so the numbers it
     reports are the real ones, not a second implementation's guess at them.
     Six cues in the Scream shot plan pointed one word past the intended phrase
-    and were caught exactly this way (DOGFOOD.md § 3). Planning also *reports*
+    and were caught exactly this way (HISTORY.md § 3). Planning also *reports*
     suspect boundaries rather than refusing them: looking is the thing you do
     before deciding, so refusing to look would be backwards.
     """
@@ -704,7 +704,7 @@ def cut_by_transcript(
             f"more than {hit['limit']}s (the transcript's median x "
             f"energy.CAP) — it likely hides a retake rather than ending "
             "where it claims, so it is refused as a cut boundary "
-            "(PLAN.md § Suspect word durations). Check it, then retry "
+            "(HISTORY.md § Suspect word durations). Check it, then retry "
             "with confirm_suspect=True (CLI: --confirm-suspect) if the "
             "boundary is actually fine, or pick a different word."
         )
@@ -849,12 +849,12 @@ def cut_by_time(
     material the caller never named.
 
     Refused the same way `cut_by_transcript` is if a span overlaps a word with
-    a suspect duration (PLAN.md § Suspect word durations), unless
+    a suspect duration (HISTORY.md § Suspect word durations), unless
     `confirm_suspect=True` or `plan=True` — under `plan` they are reported as
     `suspect_boundaries` instead.
 
     `plan=True` runs the identical code path and simply skips the write, same
-    as `cut_by_transcript` (PLAN.md § `cut --plan`).
+    as `cut_by_transcript` (HISTORY.md § `cut --plan`).
     """
     if not spans:
         raise tl.TimelineError("cut_by_time needs at least one span")
@@ -1184,7 +1184,7 @@ def speech_overlap(
     alongside `attach_transcript`/`transcribe` and `cut_by_transcript`.
 
     Both sides are trimmed with `energy.believable` first — an inflated word
-    duration hides a real seam behind it (CLAUDE.md; DOGFOOD.md § 2) — then
+    duration hides a real seam behind it (CLAUDE.md; HISTORY.md § 2) — then
     merged into speech *runs* with `max_gap` tolerance, since a 0.05s gap
     between two words is not a usable seam to duck into.
 
@@ -1496,7 +1496,7 @@ def attenuate_noises(
 
     A word map has holes, and not everything loud in one is noise — the
     Scream v1 false positive was 0.4-0.9s events that turned out to be speech
-    sitting in a 4.12s hole the transcript never wrote down (DOGFOOD.md § 2,
+    sitting in a 4.12s hole the transcript never wrote down (HISTORY.md § 2,
     `ideas/scream.md`). So an event only qualifies automatically when it is
     both short (`max_event_seconds`) *and* sitting in a gap narrow enough to
     prove the map is dense around it (`max_gap_seconds`) — a wide gap
@@ -1813,7 +1813,7 @@ def check_frames(
       xml`, which resolves the document and says what it *would* render without
       encoding anything. This is the load-bearing check, and it is load-bearing
       because it runs **before** the render: exact agreement here is what made
-      68 cut positions on the Scream essay trustworthy (DOGFOOD.md § 3).
+      68 cut positions on the Scream essay trustworthy (HISTORY.md § 3).
     * anything else is treated as a render and counted with ffprobe.
 
     `fps` must be the rate the export used, or the two sides are counting
@@ -2204,7 +2204,7 @@ def verify(
     It is the only check that catches a retake the transcript never contained:
     whisper collapses an immediate repeat, so a phrase said twice can appear
     once in the source transcript and be cut once, leaving the second take in
-    the render with nothing in lucid's index pointing at it (DOGFOOD § 2). The
+    the render with nothing in lucid's index pointing at it (HISTORY.md § 2). The
     render's own transcript has it twice; the timeline expects it once; the diff
     says so.
 

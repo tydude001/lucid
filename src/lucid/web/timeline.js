@@ -1,6 +1,6 @@
 /**
- * timeline.js — PLAN.md's real timeline (ROADMAP.md § Now — the workspace,
- * item 3): a ruler with time labels, pixels-per-second zoom (fit-to-window
+ * timeline.js — the real timeline of PLAN.md § Tier 3 is the goal:
+ * a ruler with time labels, pixels-per-second zoom (fit-to-window
  * by default), sticky track headers, named clip blocks, an A1 waveform
  * canvas from `/api/waveform/<clip_id>`, click-to-seek, and a
  * playhead driven by player.js (PLAN.md § The timeline).

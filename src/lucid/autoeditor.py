@@ -19,7 +19,7 @@ Both exits are free only while the timeline names **one** source file. 31.x
 gates multi-source timelines behind a paid key: the render silently drops to
 720x576 and still exits 0, and `--export kdenlive` refuses outright. Track
 count is not what is gated — `v`/`a` are lists of tracks and several are fine.
-See PLAN.md § The multi-track costing spike.
+See HISTORY.md § The multi-track costing spike.
 
 Header fields (`layout`, `samplerate`, `langs`, …) are **templated from
 auto-editor itself** rather than reconstructed from ffprobe. `--edit none`

@@ -35,7 +35,7 @@ and caption the rest" becomes a chat message instead of an afternoon.
    Cut and undo from the view too, through the same tools the CLI calls — on
    localhost, out of the same package. **Built** (`lucid web`); because it
    plays the source through the edit rather than a render of it, seeing an
-   edit costs no render. [PLAN.md](PLAN.md) § The preview/timeline web UI.
+   edit costs no render. [HISTORY.md](HISTORY.md) § The preview/timeline web UI.
 3. **Full editor workspace** — **now the goal, decided 2026-08-08.** Tier 2
    shipped, got used, and came back a correct *instrument* and a poor
    *editor*: the picture is not the centre of the window, the transcript is
@@ -180,8 +180,7 @@ lucid frames final.mp4                       # what actually came out
 nothing else was looking at: a render that is no longer of this timeline, and —
 on its first real run — that **auto-editor's kdenlive export is one frame
 longer than your edit, and the frame is black**. That one is upstream's, it is
-reported rather than corrected, and `export --render` does not have it. PLAN.md
-§ `check_frames` has the measurements.
+reported rather than corrected, and `export --render` does not have it. HISTORY.md § `check_frames` has the measurements.
 
 `black` and `spots` read a render that already exists. `black` runs ffmpeg's
 blackdetect and only ever explains away a run as that known kdenlive tail
@@ -231,7 +230,8 @@ so expect it to be a little slower than a pure unit suite.
 
 See [PLAN.md](PLAN.md) for architecture, stack decisions, and open questions,
 and [PRIOR-ART.md](PRIOR-ART.md) for the survey of what else exists in this
-space and what lucid does that they don't. [DOGFOOD.md](DOGFOOD.md) is what
-came back from the first real video, and [ROADMAP.md](ROADMAP.md) is the build
-order that fell out of it. Project status is tracked in the wiki's Open items
+space and what lucid does that they don't. [HISTORY.md](HISTORY.md) is the dated
+record of what shipped and what the evidence said, first real video included;
+the build order that fell out of it is [PLAN.md](PLAN.md) § Direction and
+order, and the Daydream parity plan is [DAYDREAM.md](DAYDREAM.md). Project status is tracked in the wiki's Open items
 table, not here.

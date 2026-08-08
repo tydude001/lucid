@@ -5,7 +5,7 @@ Pure sequence work: two lists of word tokens in, a diff out. No I/O, no ASR —
 
 The comparison is over *word order*, not timings. That is the point. Whisper
 collapses an immediate retake into one utterance and hides the second take
-inside the duration of the following word (DOGFOOD § 2), so timings cannot
+inside the duration of the following word (HISTORY.md § 2), so timings cannot
 prove the retake was removed — but the render's own transcript will contain the
 phrase twice, and the timeline's expected sequence contains it once. Order is
 the signal that survives.

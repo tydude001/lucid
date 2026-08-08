@@ -284,7 +284,7 @@ def test_the_windowed_pass_reads_for_a_smaller_model_than_a_single_pass() -> Non
 
 
 def test_the_window_is_short_enough_that_a_retake_cannot_hide_in_one() -> None:
-    """3.96 s is the longest single-word collapse measured (DOGFOOD § 2).
+    """3.96 s is the longest single-word collapse measured (HISTORY.md § 2).
 
     The window has to be comfortably longer than that — otherwise the second
     take is not merely collapsed, it is cut off — and comfortably shorter than

@@ -4,7 +4,7 @@ Every other check lucid runs believes a transcript about where the words are.
 That belief has a documented ceiling: whisper collapses an immediate retake and
 hands the *following* word a duration long enough to swallow it, so a whole
 second reading of a sentence can sit inside what the transcript calls one word
-(DOGFOOD § 2). On the Scream VO the worst case was a 4.12 s stretch between two
+(HISTORY.md § 2). On the Scream VO the worst case was a 4.12 s stretch between two
 words holding 2.4 s of speech, and every transcript of that file — single pass,
 windowed, `small`, `medium` — either merged it or wrote it down as silence.
 
@@ -77,7 +77,7 @@ THRESHOLD = 0.5
 #: complete second reading of its sentence inside, and believing it hides
 #: exactly the 4.12 s hole that the method says cannot hide.
 #:
-#: 3x is the same multiple ROADMAP § 2 flags suspect durations at, and the two
+#: 3x is the same multiple HISTORY § 2 flags suspect durations at, and the two
 #: are the same observation: no word is three times the median long, so whatever
 #: is in there is not the word.
 CAP = 3.0
@@ -209,7 +209,7 @@ def suspect_durations(
     instead of only ever being consumed silently downstream. No word is
     legitimately three times the median word long, so whatever a span this
     long covers is not just the word — usually a swallowed retake
-    (DOGFOOD.md § 2). PLAN.md § Suspect word durations at `attach-transcript`.
+    (HISTORY.md § 2). HISTORY.md § Suspect word durations at `attach-transcript`.
     """
     if not spans:
         return []

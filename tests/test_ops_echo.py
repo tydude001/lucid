@@ -2,7 +2,7 @@
 
 The defect these guard against is an index one word past the intended phrase:
 six cues in the Scream shot plan had it, and every one read perfectly well as
-text (DOGFOOD.md § 3). So the assertions here are mostly about the *neighbours*
+text (HISTORY.md § 3). So the assertions here are mostly about the *neighbours*
 of a range, which is the only place that error is visible.
 
 `test_server_stdio.py` checks the same echo is actually wired into the tool;
