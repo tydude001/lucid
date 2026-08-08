@@ -1309,8 +1309,12 @@ Two things about how it fails are worth writing down:
 
 auto-editor's source is **the Unlicense** (public domain), master active as of
 2026-08-05, gate included in that source — so compiling it without the check is
-permitted by the stated licence rather than a circumvention of it. That is one
-option; it costs a Nim toolchain and a fork to keep current. Buying a key is
+permitted by the stated licence rather than a circumvention of it. Re-read that
+licence at the commit actually forked rather than trusting this line: a project
+that has just added a paid tier is the kind that relicenses, and only the
+binary is on this box (`~/.local/bin/auto-editor`, 31.4.2) — the source is not
+checked out here, so nothing local re-verifies it. That is one option; it costs
+a Nim toolchain and a fork to keep current. Buying a key is
 the other, and it collides with § Non-goals' first line — "Cloud anything. No
 accounts, no metering" — because a key *is* an account. Neither is free, and
 the price of a key could not be established: `auto-editor.com/pricing` 404s and
@@ -1393,7 +1397,15 @@ three each collide with something already written down:
 
 1. **Pay for a key** — collides with § Non-goals, "no accounts, no metering".
 2. **Build auto-editor from source without the gate** — permitted by the
-   Unlicense; costs a Nim toolchain and a fork.
+   Unlicense; costs a Nim toolchain and a fork. Note it is a fork, not a build:
+   the gate is *in* the source, so compiling unmodified reproduces it, and the
+   recurring cost is re-applying the patch per upstream release. Its trap is
+   that a fresh install, a second machine or a `pip install` shadowing the fork
+   silently restores the gate — and the restored failure is a warning, a
+   720x576 file and **exit 0**, so the render is the only thing that reports
+   it. Resolve the binary the way `asr.py` resolves whisper (env → PATH →
+   sibling venv) and assert un-gatedness by rendering a throwaway two-source
+   frame and checking its *resolution*, never its exit code.
 3. **Write MLT directly** — reverses ROADMAP.md's "lucid never writes MLT
    itself", and re-adopts the 534 lines auto-editor would otherwise write.
 4. **Keep exports single-source and formalise the handoff** — lucid *computes*
