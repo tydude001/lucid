@@ -950,6 +950,282 @@ def check_frames(
     return result
 
 
+def check_black(
+    path: Path | str,
+    target: Path | str,
+    *,
+    fps: float | None = None,
+    pix_th: float = 0.10,
+    min_duration: float | None = None,
+) -> dict[str, Any]:
+    """Scan a render for black stretches, and say whether each is explained.
+
+    ffmpeg's `blackdetect` finds every black run in `target`. Each is checked
+    against the timeline's own `expected_frames`/`expected_duration`
+    (`autoeditor.frame_total`, the same arithmetic `check_frames` already
+    trusts) using `media.count_frames`'s packet count rather than a fresh
+    probe, so the two checks' delta math cannot drift apart.
+
+    A run is `explained` only when it sits at the tail of the render *and*
+    the frame delta between `target` and the timeline is exactly
+    `picture.KNOWN_TAIL_FRAME` (picture.py) — the documented auto-editor
+    kdenlive-export defect. `check_frames` only ever compares that constant
+    against an NLE-project target, because a `-consumer xml` read is the only
+    place the tail frame shows up before anything is rendered. **This
+    deliberately broadens the same reasoning to a bare render** — the
+    trailing frame that defect produces is really encoded, not just
+    declared, so it can equally turn up in a finished file, and the point of
+    naming the defect is to keep it from being mistaken for a genuine one
+    wherever it shows up, not only in the one place it was first caught. A
+    run inside the declared picture is never explained regardless of delta —
+    position has to match the known defect, not just the count.
+
+    `min_duration` defaults to 0, not the export's half-a-frame grid the rest
+    of this module measures against — verified against the installed ffmpeg
+    (8.1.2), not assumed: `blackdetect` derives a run's reported duration
+    from the *next* frame's timestamp, so every run it ever reports is
+    already quantised to whole frames except one specific case — a black run
+    that reaches end of stream with no following frame reports
+    `black_duration:0` regardless of how many black frames it actually
+    contains. That exact case is precisely the trailing kdenlive-export
+    frame this function exists to explain, so a positive threshold (which
+    would read as "half a frame of slack") would silently make `blackdetect`
+    itself drop the one event this check is for. Nothing spurious gets in at
+    0 that wouldn't already pass at half a frame: every other run's duration
+    is a real multiple of the frame interval, never a fraction of one.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError("the timeline is empty — there is no picture to check")
+
+    rate = float(fps) if fps else _export_fps(_clips_by_id(project))
+    expected_frames = autoeditor.frame_total(edit, rate)
+    expected_duration = expected_frames / rate
+    threshold = min_duration if min_duration is not None else 0.0
+
+    target_path = Path(target).expanduser()
+    if not target_path.exists():
+        raise picture.PictureError(f"no such file to check: {target_path}")
+
+    result: dict[str, Any] = {
+        "target": str(target_path),
+        "fps": rate,
+        "pix_th": pix_th,
+        "min_duration": threshold,
+        "expected_duration": expected_duration,
+        "expected_frames": expected_frames,
+    }
+
+    counts = media.count_frames(target_path)
+    result["target_duration"] = counts["duration"]
+    if not counts["has_video"]:
+        result.update({"clean": None, "runs": [], "target_frames": None})
+        result["notes"] = [
+            (
+                "this render has no video stream, so there is no picture to scan "
+                "for black. Point this at a real render instead."
+            )
+        ]
+        return result
+
+    if counts["frames"] is None:
+        raise picture.PictureError(
+            f"could not get a frame count out of {target_path} — it has a video "
+            "stream but ffprobe counted no packets in it."
+        )
+
+    delta = counts["frames"] - expected_frames
+    result["target_frames"] = counts["frames"]
+    tail_boundary = expected_duration - 0.5 / rate
+
+    runs = picture.blackdetect(target_path, pix_th=pix_th, min_duration=threshold)
+    reported: list[dict[str, Any]] = []
+    for run in runs:
+        inside = run["start"] < tail_boundary
+        explained = not inside and delta == picture.KNOWN_TAIL_FRAME
+        entry = {
+            "start": run["start"],
+            "end": run["end"],
+            "duration": run["duration"],
+            "inside_expected_picture": inside,
+            "explained": explained,
+        }
+        if explained:
+            entry["note"] = picture.TAIL_FRAME_NOTE
+        reported.append(entry)
+
+    result["runs"] = reported
+    result["clean"] = all(r["explained"] for r in reported)
+
+    notes: list[str] = []
+    container = counts["container_frames"]
+    if container is not None and container != counts["frames"]:
+        notes.append(
+            f"ffprobe's two counts disagree: {counts['frames']} packets against "
+            f"a container header claiming {container}. The packet count is the "
+            "one compared here."
+        )
+    if notes:
+        result["notes"] = notes
+    return result
+
+
+def _nearest_word(parsed: tx.Transcript, t: float) -> dict[str, Any]:
+    """The word playing at source time `t`, or the nearest one across a gap.
+
+    Overlap test first (`word.start <= t < word.end`); a sample that lands in
+    silence between words falls back to the nearest by edge distance rather
+    than reporting nothing. Reuses `_context` either way — this is the
+    CLAUDE.md echo convention run in reverse, time-to-word instead of
+    word-to-time.
+    """
+    words = parsed.words
+    for w in words:
+        if w.start <= t < w.end:
+            idx = w.index
+            break
+    else:
+        idx = min(range(len(words)), key=lambda i: min(abs(words[i].start - t), abs(words[i].end - t)))
+    return {"word": {"index": words[idx].index, "text": words[idx].text}, **_context(parsed, idx, idx)}
+
+
+def spot_frames(
+    path: Path | str,
+    target: Path | str,
+    *,
+    count: int = 6,
+    times: Sequence[float] | None = None,
+    fps: float | None = None,
+) -> dict[str, Any]:
+    """Pull sample frames from a render as PNGs, with luma stats attached.
+
+    `count` evenly-spaced frames (midpoint-sampled, so a sample never lands
+    exactly on frame 0 or the last frame) plus any explicit `times`, each
+    extracted with `picture.extract_frame` into
+    `cache/frames/<render-stem>/` and ranked darkest-first by `YAVG`.
+
+    Word/clip mapping via `Edit.source_at` is attempted only when `target`'s
+    own probed duration agrees with the *current* timeline within a frame
+    (`mapping_trusted`) — a stale render silently mapping to the wrong words
+    would be worse than no mapping at all. When it is not trusted, every
+    frame still gets its PNG and stats; only the clip_id/source_time/word
+    fields are withheld, and a top-level note points at `check_frames` for
+    the stronger check.
+
+    A single bad extraction (a `PictureError` from a seek near a boundary) is
+    caught and reported per-frame rather than aborting the whole batch — this
+    is an exploratory tool over potentially many samples, and one bad seek
+    should not cost the other N-1.
+    """
+    if count <= 0 and not times:
+        raise picture.PictureError(
+            "spot_frames needs count > 0 or explicit times — nothing to sample"
+        )
+
+    project = Project.open(path)
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError("the timeline is empty — there is nothing to sample")
+
+    target_path = Path(target).expanduser()
+    if not target_path.exists():
+        raise picture.PictureError(f"no such file to sample: {target_path}")
+
+    counts = media.count_frames(target_path)
+    target_duration = counts["duration"]
+    result: dict[str, Any] = {
+        "target": str(target_path),
+        "target_duration": target_duration,
+        "has_video": counts["has_video"],
+    }
+    if not counts["has_video"]:
+        result.update({"frames": [], "darkest_first": []})
+        result["notes"] = ["this render has no video stream, so there are no frames to sample."]
+        return result
+
+    if target_duration is None or target_duration <= 0:
+        raise picture.PictureError(f"could not read a duration for {target_path}")
+
+    rate = float(fps) if fps else _export_fps(_clips_by_id(project))
+    expected_frames = autoeditor.frame_total(edit, rate)
+    expected_duration = expected_frames / rate
+    half_frame = 0.5 / rate
+    mapping_trusted = abs(target_duration - edit.duration) <= half_frame
+
+    notes: list[str] = []
+    if not mapping_trusted:
+        notes.append(
+            f"target_duration ({target_duration:.3f}s) disagrees with the current "
+            f"timeline ({edit.duration:.3f}s) by more than a frame at {rate}fps — "
+            "this render may be stale, so clip/word mapping is refused. Run "
+            "check_frames against it for the stronger check."
+        )
+
+    sampled: list[tuple[float, str]] = []
+    if count > 0:
+        step = target_duration / count
+        sampled.extend((step * (i + 0.5), "sampled") for i in range(count))
+    for t in times or []:
+        sampled.append((float(t), "explicit"))
+    sampled.sort(key=lambda item: item[0])
+
+    max_time = max(0.0, target_duration - half_frame)
+    transcripts: dict[str, tx.Transcript | None] = {}
+    frames_out: list[dict[str, Any]] = []
+
+    for index, (requested, origin) in enumerate(sampled):
+        clamped = min(max(requested, 0.0), max_time)
+        entry: dict[str, Any] = {"index": index, "time": clamped, "origin": origin}
+        if clamped != requested:
+            entry["clamped_from"] = requested
+
+        dest = project.frames_dir / target_path.stem / f"{index:02d}_{clamped:.3f}s.png"
+        try:
+            stats = picture.extract_frame(target_path, clamped, dest)
+        except picture.PictureError as exc:
+            entry["error"] = str(exc)
+            frames_out.append(entry)
+            continue
+
+        entry["png"] = str(dest)
+        entry.update(stats)
+
+        if mapping_trusted:
+            located = edit.source_at(clamped)
+            if located is not None:
+                clip_id, source_time = located
+                entry["clip_id"] = clip_id
+                entry["source_time"] = source_time
+                if clip_id not in transcripts:
+                    try:
+                        transcripts[clip_id] = _transcript(project, clip_id)
+                    except tx.TranscriptError:
+                        transcripts[clip_id] = None
+                parsed = transcripts[clip_id]
+                if parsed is not None and parsed.words:
+                    entry.update(_nearest_word(parsed, source_time))
+
+        frames_out.append(entry)
+
+    darkest_first = sorted(
+        (f["index"] for f in frames_out if "YAVG" in f), key=lambda i: frames_out[i]["YAVG"]
+    )
+
+    result.update(
+        {
+            "fps": rate,
+            "expected_duration": expected_duration,
+            "mapping_trusted": mapping_trusted,
+            "frames": frames_out,
+            "darkest_first": darkest_first,
+        }
+    )
+    if notes:
+        result["notes"] = notes
+    return result
+
+
 # -- checking the render -------------------------------------------------
 
 

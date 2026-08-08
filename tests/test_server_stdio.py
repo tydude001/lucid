@@ -46,6 +46,8 @@ EXPECTED_TOOLS = {
     "add_captions",
     "verify",
     "check_frames",
+    "check_black",
+    "spot_frames",
     "export",
 }
 
@@ -149,6 +151,8 @@ TOOL_TO_COMMAND = {
     "add_captions": "captions",
     "verify": "verify",
     "check_frames": "frames",
+    "check_black": "black",
+    "spot_frames": "spots",
     "export": "export",
 }
 
@@ -1301,6 +1305,54 @@ def _make_video(path: Path, *, duration: float = 12.0, fps: int = 30) -> None:
     )  # fmt: skip
 
 
+def _make_video_with_mid_black(
+    path: Path, *, before: float = 4.0, black: float = 2.0, after: float = 6.0, fps: int = 30
+) -> None:
+    """testsrc/black/testsrc concatenated: a real black region well before the tail."""
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={before}",
+            "-f", "lavfi", "-i", f"color=black:size=160x120:rate={fps}:duration={black}",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={after}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={before + black + after}",
+            "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+            "-map", "[v]", "-map", "3:a",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
+def _make_video_with_tail_black_frame(path: Path, *, duration: float = 12.0, fps: int = 30) -> None:
+    """`duration` of testsrc plus exactly one appended black frame.
+
+    Constructs `delta == picture.KNOWN_TAIL_FRAME` directly against a plain
+    render, without going anywhere near melt or auto-editor's kdenlive
+    export — the defect those produce is that a render ends up exactly this
+    shape, so building the shape by hand pins the *reporting* the same way
+    `test_melt_is_asked_what_it_would_render_before_anything_is_rendered`
+    pins melt's, without needing melt installed to run it.
+    """
+    frame = 1.0 / fps
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={duration}",
+            "-f", "lavfi", "-t", f"{frame:.6f}", "-i", f"color=black:size=160x120:rate={fps}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration + frame}",
+            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+            "-map", "[v]", "-map", "2:a",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
 async def _seeded(client: Client, project: Path, source: Path, transcript: Path | None) -> str:
     """init -> import -> (transcript) -> seed, the preamble every case below wants."""
     await client.call("init", path=str(project))
@@ -1499,3 +1551,246 @@ def test_melt_is_asked_what_it_would_render_before_anything_is_rendered(
     assert result["agrees"] is (result["delta"] == 0)
     if result["delta"] == picture.KNOWN_TAIL_FRAME:
         assert any("trailing black frame" in note for note in result["notes"])
+
+
+# -- the picture half: black runs and spot-checked frames -----------------
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_check_black_reports_clean_when_nothing_is_black(tmp_path: Path) -> None:
+    """A plain render, matching the timeline frame for frame: nothing to explain."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        return await client.call("check_black", path=str(project), target=str(source))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["clean"] is True
+    assert result["runs"] == []
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_check_black_catches_a_black_stretch_inside_the_picture(tmp_path: Path) -> None:
+    """The actual defect this op exists for, well before the tail."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    target = tmp_path / "mid-black.mp4"
+    _make_video_with_mid_black(target)  # 4s testsrc + 2s black + 6s testsrc = 12s
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        return await client.call("check_black", path=str(project), target=str(target))
+
+    result = anyio.run(_with_server, body)
+
+    assert len(result["runs"]) == 1
+    run = result["runs"][0]
+    assert run["inside_expected_picture"] is True
+    assert run["explained"] is False
+    assert result["clean"] is False
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_check_black_explains_the_known_tail_frame(tmp_path: Path) -> None:
+    """Pins the reporting, per the same philosophy as the melt tail-frame test:
+    a clean result here would mean the render no longer carries the defect.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    target = tmp_path / "tail-black.mp4"
+    _make_video_with_tail_black_frame(target, duration=12.0)  # 360 + 1 black frame
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        return await client.call("check_black", path=str(project), target=str(target))
+
+    result = anyio.run(_with_server, body)
+
+    assert len(result["runs"]) == 1
+    run = result["runs"][0]
+    assert run["explained"] is True
+    assert picture.TAIL_FRAME_NOTE in run["note"]
+    assert result["clean"] is True
+
+
+@needs_ffprobe
+def test_check_black_on_audio_only_target_says_so(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """A VO project is the ordinary case, not a failure: nothing to scan for black."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await client.call("check_black", path=str(project), target=str(audio))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["clean"] is None
+    assert result["runs"] == []
+    assert "no video stream" in result["notes"][0]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_spot_frames_samples_evenly_and_writes_pngs(tmp_path: Path) -> None:
+    """The cheap happy path: evenly-spaced samples, each pulled to a real PNG."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        return await client.call(
+            "spot_frames", path=str(project), target=str(source), count=3
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert len(result["frames"]) == 3
+    for i, frame in enumerate(result["frames"]):
+        assert Path(frame["png"]).exists()
+        assert isinstance(frame["YAVG"], float)
+        assert frame["origin"] == "sampled"
+        # duration 12.0 / 3 samples: midpoints at 2, 6, 10.
+        assert frame["time"] == pytest.approx(4.0 * (i + 0.5), abs=0.05)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_spot_frames_merges_explicit_times_with_sampled_ones(tmp_path: Path) -> None:
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        return await client.call(
+            "spot_frames", path=str(project), target=str(source), count=2, times=[1.0]
+        )
+
+    result = anyio.run(_with_server, body)
+
+    origins = [f["origin"] for f in result["frames"]]
+    times = [f["time"] for f in result["frames"]]
+    assert sorted(origins) == ["explicit", "sampled", "sampled"]
+    assert times == sorted(times)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_spot_frames_echoes_the_word_at_a_sample(tmp_path: Path) -> None:
+    """A sample landing inside a known word's span reports that word, in context."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        return await client.call(
+            "spot_frames", path=str(project), target=str(render), count=0, times=[0.1]
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["mapping_trusted"] is True
+    frame = result["frames"][0]
+    assert frame["clip_id"] is not None
+    assert frame["word"]["text"] == "w00"
+    assert frame["context_after"][0]["text"] == "w01"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_spot_frames_refuses_word_mapping_on_a_stale_render(tmp_path: Path) -> None:
+    """A render taken before a second cut must not silently map to the wrong words."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "stale.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        return await client.call(
+            "spot_frames", path=str(project), target=str(render), count=2
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["mapping_trusted"] is False
+    assert result["notes"]
+    for frame in result["frames"]:
+        assert "clip_id" not in frame
+        assert "word" not in frame
+        assert Path(frame["png"]).exists()
+        assert isinstance(frame["YAVG"], float)
+
+
+@needs_ffprobe
+def test_spot_frames_on_audio_only_target_says_so(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await client.call("spot_frames", path=str(project), target=str(audio))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["has_video"] is False
+    assert result["frames"] == []
+
+
+def test_spot_frames_refuses_zero_samples_with_no_explicit_times(tmp_path: Path) -> None:
+    """count=0 with no explicit times names nothing to sample — refused up front,
+    before any project or media is even touched.
+    """
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        return await session.call_tool(
+            "spot_frames", {"path": str(project), "target": str(tmp_path / "nope.mp4"), "count": 0}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "nothing to sample" in result.content[0].text

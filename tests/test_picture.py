@@ -127,3 +127,52 @@ def test_a_segment_shorter_than_a_frame_still_gets_one() -> None:
     edit = Edit([Segment("vo", 0.0, 0.001)])
 
     assert autoeditor.frame_total(edit, 30.0) == 1
+
+
+# -- reading a render directly --------------------------------------------
+
+BLACKDETECT_STDERR = """\
+frame=  360 fps=0.0 q=-0.0 Lsize=N/A time=00:00:12.00 bitrate=N/A speed=45.2x
+[Parsed_blackdetect_0 @ 0x55d1234] black_start:0 black_end:0.5 black_duration:0.5
+some other banter ffmpeg prints in between
+[Parsed_blackdetect_0 @ 0x55d1234] black_start:11.967 black_end:12 black_duration:0.033
+"""
+
+
+def test_parse_blackdetect_reads_every_run() -> None:
+    assert picture.parse_blackdetect(BLACKDETECT_STDERR) == [
+        {"start": 0.0, "end": 0.5, "duration": 0.5},
+        {"start": 11.967, "end": 12.0, "duration": 0.033},
+    ]
+
+
+def test_parse_blackdetect_empty_stderr_returns_no_runs() -> None:
+    assert picture.parse_blackdetect("frame=1 fps=0.0 q=-0.0 Lsize=N/A\n") == []
+
+
+SIGNALSTATS_STDOUT = """\
+[Parsed_metadata_1 @ 0x55d1234] frame:0    pts:0       pts_time:0
+[Parsed_metadata_1 @ 0x55d1234] lavfi.signalstats.YMIN=9
+[Parsed_metadata_1 @ 0x55d1234] lavfi.signalstats.YAVG=123.532
+[Parsed_metadata_1 @ 0x55d1234] lavfi.signalstats.YMAX=240
+[Parsed_metadata_1 @ 0x55d1234] lavfi.signalstats.YDIF=0.983398
+"""
+
+
+def test_parse_signalstats_reads_every_lavfi_key() -> None:
+    stats = picture.parse_signalstats(SIGNALSTATS_STDOUT)
+    assert stats["YMIN"] == 9.0
+    assert stats["YAVG"] == pytest.approx(123.532)
+    assert stats["YMAX"] == 240.0
+    assert stats["YDIF"] == pytest.approx(0.983398)
+    assert isinstance(stats["YMIN"], float)
+
+
+def test_blackdetect_missing_target_raises() -> None:
+    with pytest.raises(picture.PictureError, match="no such file"):
+        picture.blackdetect("/no/such/render.mp4")
+
+
+def test_extract_frame_missing_target_raises() -> None:
+    with pytest.raises(picture.PictureError, match="no such file"):
+        picture.extract_frame("/no/such/render.mp4", 1.0, "/tmp/whatever.png")

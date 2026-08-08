@@ -109,6 +109,30 @@ class Edit:
             offset += seg.duration
         return None
 
+    def source_at(self, time: float) -> tuple[str, float] | None:
+        """The (clip_id, source_time) playing at timeline instant `time`.
+
+        The single-instant counterpart to `source_spans`: same timeline-time
+        walk, but for one point rather than a range. The two disagree on
+        purpose about what happens past the end — `source_spans` raises,
+        because a *requested range* naming material that is not on the
+        timeline at all is almost certainly a mistake worth stopping on. This
+        instead returns None, matching `timeline_time`'s own policy for a cut
+        source instant: a single sampled point (as `spot_frames` produces one
+        per frame, from evenly-spaced arithmetic that can round to the exact
+        duration) is routine, not a caller error, so the honest answer is
+        reported rather than raised.
+        """
+        offset = 0.0
+        for seg in self.segments:
+            if offset <= time < offset + seg.duration:
+                return seg.clip_id, seg.start + (time - offset)
+            offset += seg.duration
+        if self.segments and time == offset:
+            last = self.segments[-1]
+            return last.clip_id, last.end
+        return None
+
     def covers(self, clip_id: str, start: float, end: float) -> float:
         """How much of a source interval is still present, in seconds."""
         total = 0.0

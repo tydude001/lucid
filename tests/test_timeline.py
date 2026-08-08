@@ -131,6 +131,33 @@ def test_timeline_time_is_none_for_cut_material() -> None:
     assert _edit((0.0, 4.0), (6.0, 10.0)).timeline_time("vo", 5.0) is None
 
 
+def test_source_at_returns_the_playing_clip_and_source_time() -> None:
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    assert edit.source_at(1.0) == ("vo", 1.0)
+    # Timeline 5.0 sits 1s into the second segment, which starts at source 6.0.
+    assert edit.source_at(5.0) == ("vo", 7.0)
+    # The very last instant on the timeline still resolves, at the last
+    # segment's own end.
+    assert edit.source_at(8.0) == ("vo", 10.0)
+
+
+def test_source_at_returns_none_past_the_end() -> None:
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    assert edit.source_at(8.001) is None
+    assert edit.source_at(-1.0) is None
+
+
+def test_source_at_is_the_inverse_of_timeline_time() -> None:
+    """Documents the pairing explicitly rather than leaving it implicit."""
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    for source_time in (0.5, 3.9, 6.0, 9.999):
+        timeline_time = edit.timeline_time("vo", source_time)
+        assert timeline_time is not None
+        clip_id, back = edit.source_at(timeline_time)
+        assert clip_id == "vo"
+        assert back == pytest.approx(source_time)
+
+
 def test_covers_measures_surviving_overlap() -> None:
     edit = _edit((0.0, 4.0), (6.0, 10.0))
     assert edit.covers("vo", 3.0, 7.0) == pytest.approx(2.0)

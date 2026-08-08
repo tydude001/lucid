@@ -359,6 +359,45 @@ def check_frames(path: str, target: str | None = None, fps: float | None = None)
     return ops.check_frames(path, target, fps=fps)
 
 
+@mcp.tool()
+def check_black(
+    path: str,
+    target: str,
+    fps: float | None = None,
+    pix_th: float = 0.10,
+    min_duration: float | None = None,
+) -> dict[str, Any]:
+    """Scan a render for black stretches, and say whether each is the known
+    kdenlive-export tail frame (picture.KNOWN_TAIL_FRAME) or a genuine defect.
+
+    `target` is required — unlike check_frames, there is no cheap no-target
+    mode; there is nothing to detect black in without a render. A run is
+    only ever explained when it sits at the tail *and* the frame delta
+    against the timeline matches the known defect exactly; a black run
+    inside the declared picture is always reported as a real defect.
+    """
+    return ops.check_black(path, target, fps=fps, pix_th=pix_th, min_duration=min_duration)
+
+
+@mcp.tool()
+def spot_frames(
+    path: str,
+    target: str,
+    count: int = 6,
+    times: Sequence[float] | None = None,
+    fps: float | None = None,
+) -> dict[str, Any]:
+    """Pull `count` evenly-spaced frames (plus any explicit `times`) from a
+    render as PNGs with signalstats luma, ranked darkest-first.
+
+    When `target`'s own probed duration still matches the current timeline
+    within a frame (`mapping_trusted`), each frame also reports which
+    clip/word it lands near via `Edit.source_at` — refused, not guessed,
+    when the render looks stale.
+    """
+    return ops.spot_frames(path, target, count=count, times=times, fps=fps)
+
+
 def serve() -> None:
     """Run the server on stdio. Blocks until the client disconnects."""
     mcp.run(transport="stdio")

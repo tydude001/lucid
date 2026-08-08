@@ -10,6 +10,7 @@ inspectable with ordinary tools::
       cache/
         transcripts/        <clip_id>.json — word-level timings, per clip
         verify/             <render>.json — what a finished render was heard to say
+        frames/             <render-stem>/*.png — spot-check frames pulled from a render
       renders/              preview.mp4, final.mp4, …
 
 The OTIO file is authoritative for the edit; renders are derived from it and
@@ -36,9 +37,10 @@ CACHE_DIR = "cache"
 TRANSCRIPT_DIR = "cache/transcripts"
 HISTORY_DIR = "cache/history"
 VERIFY_DIR = "cache/verify"
+FRAMES_DIR = "cache/frames"
 RENDER_DIR = "renders"
 
-_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, HISTORY_DIR, VERIFY_DIR, RENDER_DIR)
+_SUBDIRS = (MEDIA_DIR, CACHE_DIR, TRANSCRIPT_DIR, HISTORY_DIR, VERIFY_DIR, FRAMES_DIR, RENDER_DIR)
 
 
 class ProjectError(Exception):
@@ -80,6 +82,10 @@ class Project:
     @property
     def verify_dir(self) -> Path:
         return self.root / VERIFY_DIR
+
+    @property
+    def frames_dir(self) -> Path:
+        return self.root / FRAMES_DIR
 
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"

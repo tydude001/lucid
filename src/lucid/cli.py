@@ -263,6 +263,40 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the rate the export used (default: the picture's, else 30)",
     )
 
+    p_black = sub.add_parser(
+        "black", help="scan a render for black stretches and explain the known ones"
+    )
+    p_black.add_argument("target", help="the render to scan")
+    p_black.add_argument(
+        "--fps", type=float, help="the rate the export used (default: the picture's, else 30)"
+    )
+    p_black.add_argument(
+        "--pix-th", type=float, default=0.10, help="ffmpeg blackdetect pix_th (0.10)"
+    )
+    p_black.add_argument(
+        "--min-duration",
+        type=float,
+        help="shortest run to count, in seconds (default: 0 — see check_black's docstring "
+        "for why a positive default would hide the known tail-frame case)",
+    )
+
+    p_spots = sub.add_parser(
+        "spots", help="pull sample frames from a render, with darkest-first luma stats"
+    )
+    p_spots.add_argument("target", help="the render to sample")
+    p_spots.add_argument("--count", type=int, default=6, help="evenly-spaced samples (6)")
+    p_spots.add_argument(
+        "--at",
+        dest="times",
+        type=float,
+        action="append",
+        metavar="SECONDS",
+        help="an explicit sample time; repeatable",
+    )
+    p_spots.add_argument(
+        "--fps", type=float, help="the rate the export used (default: the picture's, else 30)"
+    )
+
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -409,6 +443,24 @@ def _cmd_frames(args: argparse.Namespace) -> int:
     return _emit(ops.check_frames(args.project, args.target, fps=args.fps))
 
 
+def _cmd_black(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.check_black(
+            args.project,
+            args.target,
+            fps=args.fps,
+            pix_th=args.pix_th,
+            min_duration=args.min_duration,
+        )
+    )
+
+
+def _cmd_spots(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.spot_frames(args.project, args.target, count=args.count, times=args.times, fps=args.fps)
+    )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -442,6 +494,8 @@ _COMMANDS = {
     "captions": _cmd_captions,
     "verify": _cmd_verify,
     "frames": _cmd_frames,
+    "black": _cmd_black,
+    "spots": _cmd_spots,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,

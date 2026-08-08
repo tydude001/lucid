@@ -5,7 +5,9 @@ says so. This covers the picture, and ROADMAP.md § Picture-side render checks
 ranks the frame count first of its three: exact agreement between lucid's
 computed total and what `melt` says it will render is what made 68 cut
 positions on the Scream essay trustworthy **before** anything was rendered
-(DOGFOOD.md § 3). `blackdetect` and spot frames are the siblings still owed.
+(DOGFOOD.md § 3). `blackdetect` (a black-run scan) and spot frames (sampled
+PNGs with luma stats) are its siblings, reading a finished render directly
+rather than a document melt would produce.
 
 The check earns its place because the two numbers are arrived at differently.
 lucid's total comes from quantising every segment edge onto the export's frame
@@ -25,6 +27,7 @@ rather than rediscovered.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -36,6 +39,17 @@ from pathlib import Path
 NLE_SUFFIXES = {".kdenlive", ".mlt", ".xml"}
 
 KDENLIVE_FLATPAK = "org.kde.kdenlive"
+
+#: How long to wait on a blackdetect pass — it decodes the whole render.
+BLACKDETECT_TIMEOUT = 300
+
+#: How long to wait on pulling one frame. Generous because a seek near the
+#: start of a long file still has to demux up to it.
+FRAME_EXTRACT_TIMEOUT = 60
+
+_BLACK_RE = re.compile(
+    r"black_start:(?P<start>[0-9.]+)\s+black_end:(?P<end>[0-9.]+)\s+black_duration:(?P<duration>[0-9.]+)"
+)
 
 #: How long to wait on melt. It is reading a document, not rendering one, so
 #: this is generous — it exists because a cold flatpak start is slow and a
@@ -212,3 +226,122 @@ _TMP_HINT = (
 def _invisible_to_flatpak(path: Path, command: list[str]) -> bool:
     """Is this the flatpak reading a path its sandbox does not have?"""
     return command[:1] == ["flatpak"] and path.resolve().is_relative_to(Path("/tmp"))
+
+
+# -- reading a render directly: black runs and spot-checked frames -------
+
+
+def parse_blackdetect(stderr: str) -> list[dict[str, float]]:
+    """Every black_start/black_end/black_duration triple ffmpeg wrote to stderr.
+
+    Split from `blackdetect()` for the same reason `parse_melt_xml` is split
+    from `project_frames`: a parser is testable on a captured string, without
+    a subprocess.
+    """
+    return [
+        {"start": float(m["start"]), "end": float(m["end"]), "duration": float(m["duration"])}
+        for m in _BLACK_RE.finditer(stderr)
+    ]
+
+
+def blackdetect(
+    target: Path | str, *, pix_th: float = 0.10, min_duration: float = 0.1
+) -> list[dict[str, float]]:
+    """Scan a render for black stretches with ffmpeg's `blackdetect` filter.
+
+    Decodes the whole file — there is no cheap document-only path here the
+    way `project_frames` has with melt, because a black run is a property of
+    the pixels, not of a declared length. `min_duration` is the caller's
+    responsibility to set relative to the export's frame rate; this function
+    keeps a generic standalone default since it does not know that rate.
+    """
+    path = Path(target).expanduser()
+    if not path.exists():
+        raise PictureError(f"no such file to scan for black: {path}")
+
+    command = [
+        "ffmpeg",
+        "-i", str(path),
+        "-vf", f"blackdetect=d={min_duration}:pix_th={pix_th}",
+        "-an",
+        "-f", "null",
+        "-",
+    ]  # fmt: skip
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=BLACKDETECT_TIMEOUT, check=False
+        )
+    except FileNotFoundError as exc:
+        raise PictureError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PictureError(
+            f"ffmpeg did not finish scanning {path} for black within "
+            f"{BLACKDETECT_TIMEOUT}s"
+        ) from exc
+
+    if completed.returncode != 0:
+        raise PictureError(
+            f"ffmpeg exited {completed.returncode} scanning {path} for black:\n"
+            f"{completed.stderr[-2000:]}"
+        )
+    return parse_blackdetect(completed.stderr)
+
+
+_STAT_RE = re.compile(r"lavfi\.signalstats\.(?P<key>\w+)=(?P<value>-?[0-9.]+)")
+
+
+def parse_signalstats(output: str) -> dict[str, float]:
+    """Every lavfi.signalstats.KEY=value line from a metadata=print dump.
+
+    Keyed generically (YAVG, YMIN, YMAX, YDIF, ...) rather than hardcoding the
+    handful one investigation needed — this is the same filter that measured
+    `KNOWN_TAIL_FRAME` (YAVG 16 vs ~123). Named `output`, not `stdout`: verified
+    against the installed ffmpeg (8.1.2) that `metadata=print` with no `file=`
+    writes through the ordinary log, i.e. to **stderr**, not stdout — a
+    training-prior trap of exactly the kind CLAUDE.md warns about.
+    """
+    return {m["key"]: float(m["value"]) for m in _STAT_RE.finditer(output)}
+
+
+def extract_frame(target: Path | str, at: float, output: Path | str) -> dict[str, float]:
+    """Pull one frame from `target` at `at` seconds, and report its luma stats.
+
+    One ffmpeg call writes the PNG and prints its own signalstats — the filter
+    doesn't touch pixels, so the frame it reports on is exactly the frame
+    written, with no second pass to fall out of sync with the first.
+    """
+    path = Path(target).expanduser()
+    if not path.exists():
+        raise PictureError(f"no such file to pull a frame from: {path}")
+
+    dest = Path(output).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        "ffmpeg", "-y",
+        "-ss", f"{at:.6f}",
+        "-i", str(path),
+        "-frames:v", "1",
+        "-an",
+        "-vf", "signalstats,metadata=print",
+        "-f", "image2",
+        str(dest),
+    ]  # fmt: skip
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=FRAME_EXTRACT_TIMEOUT, check=False
+        )
+    except FileNotFoundError as exc:
+        raise PictureError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PictureError(
+            f"ffmpeg did not answer within {FRAME_EXTRACT_TIMEOUT}s pulling a "
+            f"frame from {path} at {at:.3f}s"
+        ) from exc
+
+    if completed.returncode != 0 or not dest.exists():
+        raise PictureError(
+            f"ffmpeg could not pull a frame from {path} at {at:.3f}s "
+            f"(exit {completed.returncode}):\n{completed.stderr[-2000:]}"
+        )
+    return parse_signalstats(completed.stderr)
