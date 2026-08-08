@@ -50,6 +50,7 @@ EXPECTED_TOOLS = {
     "check_black",
     "spot_frames",
     "attenuate_noises",
+    "speech_overlap",
     "export",
 }
 
@@ -156,6 +157,7 @@ TOOL_TO_COMMAND = {
     "check_black": "black",
     "spot_frames": "spots",
     "attenuate_noises": "attenuate",
+    "speech_overlap": "speech-overlap",
     "export": "export",
 }
 
@@ -2117,3 +2119,268 @@ def test_attenuate_noises_video_clip_copies_picture_and_only_touches_audio(tmp_p
     after = media.count_frames(result["output_media"])
     assert after["frames"] == before["frames"]
     assert after["frames"] is not None
+
+
+async def _clip_b(client: Client, project: Path, source: Path, transcript: Path) -> str:
+    """import -> attach for a clip that is never placed on the timeline —
+    `speech_overlap` tests a *proposed* placement of it against the VO's
+    already-seeded one, so unlike `_seeded` there is no `seed_timeline` step.
+    """
+    clip = await client.call("import_media", path=str(project), source=str(source))
+    await client.call(
+        "attach_transcript",
+        path=str(project),
+        clip_id=clip["clip_id"],
+        transcript_path=str(transcript),
+    )
+    return str(clip["clip_id"])
+
+
+def _write_words(path: Path, words: list[dict[str, Any]]) -> None:
+    path.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+
+@needs_ffprobe
+def test_speech_overlap_reports_a_clean_seam_when_clip_speech_sits_in_a_vo_gap(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The cheapest case: a proposed clip placement lands in a VO silence
+    gap (between the w01 and w10 bursts of the `sources` fixture), so there
+    is nothing to duck around.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(2.2, 2.8)], duration=4.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(b_transcript, [{"word": "bspeak", "start": 2.2, "end": 2.8}])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        return await client.call("speech_overlap", path=str(project), clip_id=clip_b)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["overlaps"] == []
+    assert result["summary"]["overlap_count"] == 0
+    assert len(result["clean_seams"]) == 1
+    seam = result["clean_seams"][0]
+    assert seam["timeline_start"] == pytest.approx(2.2)
+    assert seam["timeline_end"] == pytest.approx(2.8)
+
+
+@needs_ffprobe
+def test_speech_overlap_catches_the_billy_stu_case(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Named for the incident it exists to catch: a word-level pass on a
+    real clip found its speech (105.35-109.15s) landing almost entirely on
+    top of a VO thesis line (105.97-109.85s) — near-total overlap, no seam
+    to duck into. Here the proposed clip placement lands squarely inside a
+    VO run (the merged w00/w01 burst of the `sources` fixture).
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(1.0, 1.5)], duration=3.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(b_transcript, [{"word": "over", "start": 1.0, "end": 1.5}])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        return await client.call("speech_overlap", path=str(project), clip_id=clip_b)
+
+    result = anyio.run(_with_server, body)
+
+    assert len(result["overlaps"]) == 1
+    overlap = result["overlaps"][0]
+    assert [w["text"] for w in overlap["clip_words"]] == ["over"]
+    assert [w["text"] for w in overlap["vo_words"]] == ["w01"]
+    assert result["clean_seams"] == []
+
+
+@needs_ffprobe
+def test_speech_overlap_merges_a_narrow_gap_into_one_run(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Pins `max_gap` end-to-end, not just at the `speech.merge_runs` unit
+    level: two clip words 0.05s apart read as one run at the default
+    tolerance and two runs at `max_gap=0.0`.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(0.5, 1.4)], duration=3.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(
+        b_transcript,
+        [
+            {"word": "p1", "start": 0.5, "end": 0.9},
+            {"word": "p2", "start": 0.95, "end": 1.4},
+        ],
+    )
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        default = await client.call("speech_overlap", path=str(project), clip_id=clip_b)
+        strict = await client.call(
+            "speech_overlap", path=str(project), clip_id=clip_b, max_gap=0.0
+        )
+        return {"default": default, "strict": strict}
+
+    out = anyio.run(_with_server, body)
+
+    assert len(out["default"]["clip_runs"]) == 1
+    assert len(out["strict"]["clip_runs"]) == 2
+
+
+@needs_ffprobe
+def test_speech_overlap_trims_a_suspect_vo_word_before_testing_overlap(
+    tmp_path: Path,
+) -> None:
+    """Mirrors DOGFOOD § 2's swallowed-retake trap: a VO word claiming 6.0s
+    (15x the 0.4s median of its neighbours) is capped by `energy.believable`
+    before mapping, so a clip placed just past the claimed-but-unbelieved
+    tail is correctly read as a clean seam, not an overlap.
+    """
+    project = tmp_path / "proj"
+    vo_audio = tmp_path / "vo.wav"
+    _make_wav(vo_audio, tones=[(0.0, 8.1)], duration=9.0)
+    vo_transcript = tmp_path / "vo.json"
+    _write_words(
+        vo_transcript,
+        [
+            {"word": "so", "start": 0.0, "end": 0.5},
+            {"word": "we", "start": 0.6, "end": 1.0},
+            {"word": "bit", "start": 1.1, "end": 1.5},
+            {"word": "on", "start": 1.6, "end": 7.6},
+            {"word": "it", "start": 7.7, "end": 8.1},
+        ],
+    )
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(3.0, 3.5)], duration=4.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(b_transcript, [{"word": "later", "start": 3.0, "end": 3.5}])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, vo_audio, vo_transcript)
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        return await client.call("speech_overlap", path=str(project), clip_id=clip_b)
+
+    result = anyio.run(_with_server, body)
+
+    trimmed = next(w for w in result["vo_words"] if w["text"] == "on")
+    assert trimmed["source_end"] == pytest.approx(7.6)
+    assert trimmed["believable_end"] == pytest.approx(2.8)
+    assert trimmed["believable_end"] != trimmed["source_end"]
+
+    assert result["overlaps"] == []
+    assert len(result["clean_seams"]) == 1
+    seam = result["clean_seams"][0]
+    assert seam["timeline_start"] == pytest.approx(3.0)
+    assert seam["timeline_end"] == pytest.approx(3.5)
+
+
+@needs_ffprobe
+def test_speech_overlap_refuses_when_clip_has_no_transcript(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(tmp_path)
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(0.5, 1.0)], duration=2.0)
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        clip_b = await client.call("import_media", path=str(project), source=str(b_audio))
+        return await session.call_tool(
+            "speech_overlap", {"path": str(project), "clip_id": clip_b["clip_id"]}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "attach" in result.content[0].text
+
+
+@needs_ffprobe
+def test_speech_overlap_refuses_when_vo_timeline_is_empty(tmp_path: Path) -> None:
+    """No `seed_timeline` call at all — a project with clips but no timeline
+    is the same refusal `_load_edit` gives every other timeline-reading op.
+    """
+    project = tmp_path / "proj"
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(0.5, 1.0)], duration=2.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(b_transcript, [{"word": "hi", "start": 0.5, "end": 1.0}])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip_b = await _clip_b(client, project, b_audio, b_transcript)
+        return await session.call_tool(
+            "speech_overlap", {"path": str(project), "clip_id": clip_b}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "timeline" in result.content[0].text
+
+
+@needs_ffprobe
+def test_speech_overlap_refuses_for_an_unregistered_clip(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        await Client(session).call("init", path=str(project))
+        return await session.call_tool(
+            "speech_overlap", {"path": str(project), "clip_id": "nope"}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "nope" in result.content[0].text
+
+
+@needs_ffprobe
+def test_speech_overlap_default_placement_covers_the_clips_whole_duration(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`at`/`clip_in`/`clip_out` are silent defaults otherwise — pin them
+    explicitly rather than trust the docstring.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    b_audio = tmp_path / "clipb.wav"
+    _make_wav(b_audio, tones=[(0.5, 1.0)], duration=2.0)
+    b_transcript = tmp_path / "clipb.json"
+    _write_words(b_transcript, [{"word": "hi", "start": 0.5, "end": 1.0}])
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        b_clip = await client.call("import_media", path=str(project), source=str(b_audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=b_clip["clip_id"],
+            transcript_path=str(b_transcript),
+        )
+        result = await client.call(
+            "speech_overlap", path=str(project), clip_id=b_clip["clip_id"]
+        )
+        return {"clip": b_clip, "result": result}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["result"]["at"] == pytest.approx(0.0)
+    assert out["result"]["clip_in"] == pytest.approx(0.0)
+    assert out["result"]["clip_out"] == pytest.approx(out["clip"]["duration"])

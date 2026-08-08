@@ -11,7 +11,7 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, asr, captions, ops
+from lucid import __version__, asr, captions, energy, ops
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
@@ -329,6 +329,50 @@ def _build_parser() -> argparse.ArgumentParser:
         help="show what would be attenuated without writing anything",
     )
 
+    p_speech = sub.add_parser(
+        "speech-overlap",
+        help="does a proposed clip placement overlap the VO's speech, once both are mapped through the edit?",
+    )
+    p_speech.add_argument("clip_id")
+    p_speech.add_argument(
+        "--at", type=_parse_timecode, default=0.0, help="proposed placement start on the timeline (0.0)"
+    )
+    p_speech.add_argument(
+        "--in",
+        dest="clip_in",
+        type=_parse_timecode,
+        help="clip start, source time (default: 0.0)",
+    )
+    p_speech.add_argument(
+        "--out",
+        dest="clip_out",
+        type=_parse_timecode,
+        help="clip end, source time (default: the clip's own duration)",
+    )
+    p_speech.add_argument(
+        "--vo-clip",
+        dest="vo_clip_id",
+        help="the VO clip_id on the timeline (default: the sole clip on it)",
+    )
+    p_speech.add_argument(
+        "--max-gap",
+        type=float,
+        default=0.3,
+        help="gap tolerance for merging speech into runs (0.3s)",
+    )
+    p_speech.add_argument(
+        "--min-seam",
+        type=float,
+        default=0.5,
+        help="narrowest clean seam worth reporting (0.5s)",
+    )
+    p_speech.add_argument(
+        "--cap",
+        type=float,
+        default=energy.CAP,
+        help=f"energy.believable's median-multiple cap ({energy.CAP})",
+    )
+
     p_export = sub.add_parser("export", help="export or render the timeline via auto-editor")
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -508,6 +552,22 @@ def _cmd_attenuate(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_speech_overlap(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.speech_overlap(
+            args.project,
+            args.clip_id,
+            at=args.at,
+            clip_in=args.clip_in,
+            clip_out=args.clip_out,
+            vo_clip_id=args.vo_clip_id,
+            max_gap=args.max_gap,
+            min_seam=args.min_seam,
+            cap=args.cap,
+        )
+    )
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
     return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
@@ -544,6 +604,7 @@ _COMMANDS = {
     "black": _cmd_black,
     "spots": _cmd_spots,
     "attenuate": _cmd_attenuate,
+    "speech-overlap": _cmd_speech_overlap,
     "export": _cmd_export,
     "ping": _cmd_ping,
     "mcp": _cmd_mcp,

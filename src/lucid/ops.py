@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from lucid import asr, autoeditor, captions, energy, media, picture
+from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
 
@@ -392,7 +393,7 @@ def cut_by_transcript(
             f"more than {hit['limit']}s (the transcript's median x "
             f"energy.CAP) — it likely hides a retake rather than ending "
             "where it claims, so it is refused as a cut boundary "
-            "(PLAN.md \u00a7 Suspect word durations). Check it, then retry "
+            "(PLAN.md § Suspect word durations). Check it, then retry "
             "with confirm_suspect=True (CLI: --confirm-suspect) if the "
             "boundary is actually fine, or pick a different word."
         )
@@ -677,6 +678,218 @@ def cut_by_time(
         result["plan"] = True
         result["suspect_boundaries"] = flagged
     return result
+
+
+def _run_words(words: Sequence[dict[str, Any]], run: tuple[float, float]) -> list[dict[str, Any]]:
+    """Which (already timeline-mapped) words overlap a speech `run`.
+
+    Overlap, never containment (CLAUDE.md): a word only partly inside the run
+    still names it — the same test `_pad_reach`/`_overlap_words` use.
+    """
+    lo, hi = run
+    return [
+        {"index": w["index"], "text": w["text"]}
+        for w in words
+        if w["timeline_start"] < hi and w["timeline_end"] > lo
+    ]
+
+
+def speech_overlap(
+    path: Path | str,
+    clip_id: str,
+    *,
+    at: float = 0.0,
+    clip_in: float | None = None,
+    clip_out: float | None = None,
+    vo_clip_id: str | None = None,
+    max_gap: float = 0.3,
+    min_seam: float = 0.5,
+    cap: float = energy.CAP,
+) -> dict[str, Any]:
+    """Does a *proposed* placement of `clip_id` overlap the VO's speech?
+
+    The prerequisite check behind "can this clip speak here?" — answer it
+    before designing any ducking. `at`/`clip_in`/`clip_out` describe where
+    `clip_id` *would* sit on the timeline (defaults: unplaced at 0, its whole
+    duration) — the clip need not be on the timeline yet, and usually isn't,
+    since the current model is single-track (`timeline.py`'s module
+    docstring). The VO side maps through the existing edit
+    (`Edit.timeline_span`, exactly as captions map words); `clip_id`'s own
+    words are not in the edit, so they map by direct offset against the
+    proposed window instead — a third use of one clip's own transcript,
+    alongside `attach_transcript`/`transcribe` and `cut_by_transcript`.
+
+    Both sides are trimmed with `energy.believable` first — an inflated word
+    duration hides a real seam behind it (CLAUDE.md; DOGFOOD.md § 2) — then
+    merged into speech *runs* with `max_gap` tolerance, since a 0.05s gap
+    between two words is not a usable seam to duck into.
+
+    Read `overlaps` first: any entry means this placement would step on VO
+    speech, not empty air — this is exactly the shape a word-level pass
+    caught on Billy/Stu, where the clip's speech nearly fully covered a VO
+    thesis line with no clean seam to duck into. `clean_seams` (>= `min_seam`
+    wide) are the windows where `clip_id` could speak without touching the
+    VO. Read-only: nothing is written, and there is no `plan=`.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    clip_parsed = _transcript(project, clip_id)
+
+    clip_in = 0.0 if clip_in is None else float(clip_in)
+    if clip_out is None:
+        duration = clip.get("duration")
+        if duration is None:
+            raise media.MediaError(
+                f"{clip_id!r} has no known duration — probe failed; pass clip_out explicitly"
+            )
+        clip_out = float(duration)
+    else:
+        clip_out = float(clip_out)
+    if clip_out <= clip_in:
+        raise tl.TimelineError(f"interval {clip_in:.3f}-{clip_out:.3f} is empty or backwards")
+    if at < 0:
+        raise tl.TimelineError(f"at={at:.3f} is negative — a placement cannot start before 0")
+
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError("the VO timeline has no segments to overlap against")
+
+    present = {seg.clip_id for seg in edit.segments}
+    if vo_clip_id is None:
+        if len(present) > 1:
+            raise ProjectError(
+                "the timeline has more than one clip "
+                f"({', '.join(sorted(present))}) — pass vo_clip_id to say which one is the VO"
+            )
+        vo_clip_id = next(iter(present))
+    elif vo_clip_id not in present:
+        raise ProjectError(
+            f"{vo_clip_id!r} is not on the timeline (present: {', '.join(sorted(present))})"
+        )
+    vo_parsed = _transcript(project, vo_clip_id)
+
+    # Clip B side: not in the edit, so words map by direct offset against the
+    # proposed [clip_in, clip_out) -> [at, at + (clip_out - clip_in)) window.
+    clip_hits = [w for w in clip_parsed.words if w.start < clip_out and w.end > clip_in]
+    clip_trimmed = energy.believable([(w.start, w.end) for w in clip_hits], cap=cap)
+    clip_words: list[dict[str, Any]] = []
+    clip_spans: list[tuple[float, float]] = []
+    for word, (bs, be) in zip(clip_hits, clip_trimmed):
+        a, b = max(clip_in, bs), min(clip_out, be)
+        if b <= a:
+            continue
+        t0, t1 = at + (a - clip_in), at + (b - clip_in)
+        clip_words.append(
+            {
+                "index": word.index,
+                "text": word.text,
+                "source_start": word.start,
+                "source_end": word.end,
+                "believable_start": bs,
+                "believable_end": be,
+                "timeline_start": t0,
+                "timeline_end": t1,
+            }
+        )
+        clip_spans.append((t0, t1))
+
+    # VO side: already in the edit, so words map through the same
+    # Edit.timeline_span captions use. A fully-cut word is never heard.
+    vo_trimmed = energy.believable([(w.start, w.end) for w in vo_parsed.words], cap=cap)
+    vo_words: list[dict[str, Any]] = []
+    vo_spans: list[tuple[float, float]] = []
+    for word, (bs, be) in zip(vo_parsed.words, vo_trimmed):
+        mapped = edit.timeline_span(vo_clip_id, bs, be)
+        if mapped is None:
+            continue
+        t0, t1 = mapped
+        vo_words.append(
+            {
+                "index": word.index,
+                "text": word.text,
+                "source_start": word.start,
+                "source_end": word.end,
+                "believable_start": bs,
+                "believable_end": be,
+                "timeline_start": t0,
+                "timeline_end": t1,
+            }
+        )
+        vo_spans.append((t0, t1))
+
+    clip_run_spans = sp.merge_runs(clip_spans, max_gap=max_gap)
+    vo_run_spans = sp.merge_runs(vo_spans, max_gap=max_gap)
+    clip_runs = [
+        {
+            "timeline_start": lo,
+            "timeline_end": hi,
+            "duration": hi - lo,
+            "words": _run_words(clip_words, (lo, hi)),
+        }
+        for lo, hi in clip_run_spans
+    ]
+    vo_runs = [
+        {
+            "timeline_start": lo,
+            "timeline_end": hi,
+            "duration": hi - lo,
+            "words": _run_words(vo_words, (lo, hi)),
+        }
+        for lo, hi in vo_run_spans
+    ]
+
+    overlaps = [
+        {
+            "timeline_start": lo,
+            "timeline_end": hi,
+            "duration": hi - lo,
+            "clip_words": _run_words(clip_words, (lo, hi)),
+            "vo_words": _run_words(vo_words, (lo, hi)),
+        }
+        for lo, hi in sp.intersect_runs(clip_run_spans, vo_run_spans)
+    ]
+
+    clean_seams: list[dict[str, Any]] = []
+    for run in clip_run_spans:
+        for lo, hi in sp.subtract_runs(run, vo_run_spans):
+            if hi - lo >= min_seam:
+                clean_seams.append(
+                    {
+                        "timeline_start": lo,
+                        "timeline_end": hi,
+                        "duration": hi - lo,
+                        "clip_words": _run_words(clip_words, (lo, hi)),
+                    }
+                )
+
+    return {
+        "clip_id": clip_id,
+        "vo_clip_id": vo_clip_id,
+        "at": at,
+        "clip_in": clip_in,
+        "clip_out": clip_out,
+        "max_gap": max_gap,
+        "min_seam": min_seam,
+        "cap": cap,
+        "clip_words": clip_words,
+        "vo_words": vo_words,
+        "clip_runs": clip_runs,
+        "vo_runs": vo_runs,
+        "overlaps": overlaps,
+        "clean_seams": clean_seams,
+        "summary": {
+            "clip_words": len(clip_words),
+            "vo_words": len(vo_words),
+            "clip_runs": len(clip_runs),
+            "vo_runs": len(vo_runs),
+            "overlap_count": len(overlaps),
+            "overlap_seconds": round(sum(o["duration"] for o in overlaps), 3),
+            "clean_seam_count": len(clean_seams),
+            "clean_seam_seconds": round(sum(c["duration"] for c in clean_seams), 3),
+            "clip_speech_seconds": round(sum(r["duration"] for r in clip_runs), 3),
+            "vo_speech_seconds": round(sum(r["duration"] for r in vo_runs), 3),
+        },
+    }
 
 
 def undo(path: Path | str) -> dict[str, Any]:

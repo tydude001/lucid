@@ -16,7 +16,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 
-from lucid import __version__, asr, ops
+from lucid import __version__, asr, energy, ops
 
 mcp: MCPServer = MCPServer(
     name="lucid",
@@ -396,6 +396,51 @@ def spot_frames(
     when the render looks stale.
     """
     return ops.spot_frames(path, target, count=count, times=times, fps=fps)
+
+
+@mcp.tool()
+def speech_overlap(
+    path: str,
+    clip_id: str,
+    at: float = 0.0,
+    clip_in: float | None = None,
+    clip_out: float | None = None,
+    vo_clip_id: str | None = None,
+    max_gap: float = 0.3,
+    min_seam: float = 0.5,
+    cap: float = energy.CAP,
+) -> dict[str, Any]:
+    """Does a proposed placement of `clip_id` overlap the VO's speech?
+
+    The prerequisite check behind "can this clip speak here?" — answer it
+    before designing any ducking. `at`/`clip_in`/`clip_out` describe where
+    `clip_id` would sit on the timeline (defaults: unplaced at 0, its whole
+    duration) — the clip need not be on the timeline yet, and usually isn't,
+    since the current model is single-track. VO's own words map through the
+    existing edit (`Edit.timeline_span`); `clip_id`'s map by offsetting into
+    the proposed window instead. Both sides are trimmed with
+    `energy.believable` first — an inflated word duration can hide a real
+    seam — then merged into speech runs with `max_gap` tolerance, since a
+    0.05s gap is not a usable seam.
+
+    Read `overlaps` first: any entry means placing `clip_id` there would step
+    on VO speech, not empty air — this caught exactly that on Billy/Stu,
+    where the clip's speech nearly fully covered a VO thesis line with no
+    clean seam to duck into. `clean_seams` (>= `min_seam` wide) are the
+    windows where `clip_id` could speak without touching the VO. Read-only —
+    nothing is written, and there is no `plan=`.
+    """
+    return ops.speech_overlap(
+        path,
+        clip_id,
+        at=at,
+        clip_in=clip_in,
+        clip_out=clip_out,
+        vo_clip_id=vo_clip_id,
+        max_gap=max_gap,
+        min_seam=min_seam,
+        cap=cap,
+    )
 
 
 @mcp.tool()
