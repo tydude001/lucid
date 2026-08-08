@@ -250,3 +250,51 @@ def test_from_otio_rejects_a_foreign_timeline() -> None:
     del timeline.tracks[0][0].metadata["lucid"]
     with pytest.raises(TimelineError, match="not written by lucid"):
         from_otio(timeline)
+
+
+# -- timeline_spans: the aggregate source -> timeline inverse --------------
+
+
+def test_timeline_spans_reports_every_surviving_piece() -> None:
+    """`timeline_span` stops at the first survivor because captions want one
+    span per word. This one does not, so a range a cut split comes back whole
+    in pieces rather than silently truncated.
+    """
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    pieces = edit.timeline_spans("vo", 2.0, 8.0)
+
+    assert [(p.source_start, p.source_end) for p in pieces] == [(2.0, 4.0), (6.0, 8.0)]
+    # The hole closed, so the survivors are back-to-back on the timeline.
+    assert [(p.timeline_start, p.timeline_end) for p in pieces] == [(2.0, 4.0), (4.0, 6.0)]
+
+    single = edit.timeline_span("vo", 2.0, 8.0)
+    assert single == (2.0, 4.0), "the captions-shaped call still stops at one"
+
+
+def test_timeline_spans_of_a_fully_cut_range_is_empty() -> None:
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    assert edit.timeline_spans("vo", 4.5, 5.5) == []
+
+
+def test_pieces_split_by_another_clip_are_not_contiguous() -> None:
+    """The case the single-clip timeline cannot produce: two pieces of one
+    clip with someone else's material playing between them. They are still
+    both `vo`, so a merge on adjacency would join them across material that is
+    not theirs.
+    """
+    edit = Edit(
+        [Segment("vo", 0.0, 4.0), Segment("cam", 0.0, 3.0), Segment("vo", 8.0, 12.0)]
+    )
+    pieces = edit.timeline_spans("vo", 2.0, 10.0)
+
+    assert len(pieces) == 2
+    assert (pieces[0].timeline_start, pieces[0].timeline_end) == (2.0, 4.0)
+    # cam occupies 4.0-7.0, so vo resumes at 7.0.
+    assert (pieces[1].timeline_start, pieces[1].timeline_end) == (7.0, 9.0)
+    assert not pieces[0].contiguous_with(pieces[1])
+
+
+def test_a_cut_seam_still_counts_as_contiguous() -> None:
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    first, second = edit.timeline_spans("vo", 2.0, 8.0)
+    assert first.contiguous_with(second)

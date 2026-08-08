@@ -680,6 +680,159 @@ def cut_by_time(
     return result
 
 
+def locate(
+    path: Path | str,
+    clip_id: str,
+    *,
+    first: int | None = None,
+    last: int | None = None,
+    source_start: float | None = None,
+    source_end: float | None = None,
+) -> dict[str, Any]:
+    """Where does this source word or source time play in the current render?
+
+    `cut_by_time`'s read-only mirror: that takes render time and resolves it
+    back to source, this takes source and resolves it forward to render time.
+    Answering it by hand meant reading `project.otio` and adding up segment
+    durations, which is exactly the arithmetic every cut invalidates.
+
+    Address it either way, but only one way per call: `first`/`last` are
+    inclusive word indices into the clip's transcript (`last` defaults to
+    `first`, so one index locates one word), and `source_start`/`source_end`
+    are seconds in the original recording (`source_end` omitted locates an
+    instant rather than an interval).
+
+    The distinction the payload exists to keep straight is **cut** versus
+    **never there**. An interval that has been edited out returns
+    `present: false` with no placements; one that runs past the end of the
+    recording returns `beyond_source` as well, because "you cut it" and "it
+    was never recorded" are different problems and the empty list looks the
+    same in both. A partially-cut interval is the normal case, not an error —
+    `placements` reports each surviving piece with the source coordinates that
+    say which part of the phrase it is, `covered` how much of it is left, and
+    `contiguous` whether the survivors still play back-to-back.
+
+    Word mode echoes the words it resolved to plus the three either side, the
+    same convention `cut --plan` uses (CLAUDE.md); time mode echoes the words
+    the interval overlaps — an overlap test, never containment — or its
+    nearest flanking words when it landed in silence. A clip with no
+    transcript still locates by time; `words` is null and `transcript_missing`
+    is set, rather than refusing a valid question about a picture-only clip.
+    Read-only: nothing is written, and there is no `plan=`.
+    """
+    by_words = first is not None or last is not None
+    by_time = source_start is not None or source_end is not None
+    if by_words and by_time:
+        raise tl.TimelineError(
+            "pass either first/last or source_start/source_end, not both — "
+            "they are two ways of naming the same thing, and a call giving "
+            "both cannot say which one it meant"
+        )
+    if not by_words and not by_time:
+        raise tl.TimelineError(
+            "locate needs something to locate: first= (a word index) or "
+            "source_start= (seconds into the recording)"
+        )
+    if by_words and first is None:
+        raise tl.TimelineError("last= needs first= — a range has to start somewhere")
+    if by_time and source_start is None:
+        raise tl.TimelineError("source_end= needs source_start=")
+
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    edit = _load_edit(project)
+
+    parsed: tx.Transcript | None
+    if by_words:
+        parsed = _transcript(project, clip_id)
+    else:
+        try:
+            parsed = _transcript(project, clip_id)
+        except tx.TranscriptError:
+            parsed = None
+
+    # An instant is a zero-width interval everywhere below; only the reported
+    # mode and the echo differ, so resolve both shapes to one pair here.
+    instant = False
+    if by_words:
+        assert first is not None
+        last = first if last is None else last
+        lo, hi = parsed.span(first, last)  # type: ignore[union-attr]
+    else:
+        assert source_start is not None
+        lo = float(source_start)
+        if source_end is None:
+            hi = lo
+            instant = True
+        else:
+            hi = float(source_end)
+        if hi < lo:
+            raise tl.TimelineError(f"interval {lo:.3f}-{hi:.3f} runs backwards")
+        if lo < 0:
+            raise tl.TimelineError(f"source time {lo:.3f} is negative")
+
+    if instant:
+        at = edit.timeline_time(clip_id, lo)
+        placements = (
+            [tl.Placement(timeline_start=at, timeline_end=at, source_start=lo, source_end=lo)]
+            if at is not None
+            else []
+        )
+    else:
+        placements = edit.timeline_spans(clip_id, lo, hi)
+
+    covered = sum(p.duration for p in placements)
+    requested = hi - lo
+    contiguous = all(a.contiguous_with(b) for a, b in pairwise(placements))
+
+    result: dict[str, Any] = {
+        "clip_id": clip_id,
+        "mode": "words" if by_words else ("instant" if instant else "time"),
+        "source_start": lo,
+        "source_end": hi,
+        "present": bool(placements),
+        "placements": [p.as_dict() for p in placements],
+        "timeline_start": placements[0].timeline_start if placements else None,
+        "timeline_end": placements[-1].timeline_end if placements else None,
+        "requested": requested,
+        "covered": covered,
+        "fully_present": bool(placements) and (requested - covered) <= tl.MIN_SEGMENT,
+        "contiguous": contiguous,
+        "timeline_duration": edit.duration,
+    }
+
+    # "Cut" and "never recorded" look identical from the placements alone —
+    # missing either way — and only the clip's own duration tells them apart.
+    # Say so, rather than let a short `covered` be read as an edit decision.
+    duration = clip.get("duration")
+    if duration is not None and hi > float(duration):
+        end = float(duration)
+        result["beyond_source"] = True
+        result["source_duration"] = end
+        # Zero for an instant past the end — hence the bool above rather than
+        # letting a caller test this number's truthiness.
+        result["beyond_source_seconds"] = hi - max(lo, end)
+
+    if parsed is None:
+        result["words"] = None
+        result["transcript_missing"] = True
+        return result
+
+    if by_words:
+        assert first is not None and last is not None
+        result["words"] = [w.as_dict() for w in parsed.window(first, last)]
+        result.update(_echo(parsed, first, last, lo, hi))
+    else:
+        words = _overlap_words(parsed, lo, hi)
+        result["words"] = words
+        result.update(
+            _context(parsed, words[0]["index"], words[-1]["index"])
+            if words
+            else _nearest_context(parsed, lo, hi)
+        )
+    return result
+
+
 def _run_words(words: Sequence[dict[str, Any]], run: tuple[float, float]) -> list[dict[str, Any]]:
     """Which (already timeline-mapped) words overlap a speech `run`.
 

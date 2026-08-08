@@ -66,7 +66,22 @@ claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
 ```
 
 Word indices address the *original* recording and never renumber, so a range
-stays valid however many cuts have accumulated on top of it.
+stays valid however many cuts have accumulated on top of it. The flip side is
+that a word index is *not* a render timestamp, and every cut moves the two
+further apart — `locate` is the conversion, in the direction `cut-at` does not
+go:
+
+```sh
+lucid locate vo --words 874:875              # where does that phrase play now?
+lucid locate vo --at 360.1                   # or a source instant
+lucid locate vo --span 127.0-130.5           # or a source interval
+```
+
+It answers in the render's own seconds, reports `present: false` for material
+a cut removed rather than sliding the answer onto the neighbouring words, and
+distinguishes that from a time the recording never reached. A range a cut
+split comes back as one piece per survivor, so "half of it is still in there"
+is a readable answer rather than a short one.
 
 Captions are generated from the *timeline*, not the transcript, so they stay
 correct after cuts:

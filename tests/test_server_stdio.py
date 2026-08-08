@@ -42,6 +42,7 @@ EXPECTED_TOOLS = {
     "seed_timeline",
     "cut_by_transcript",
     "cut_by_time",
+    "locate",
     "timeline_status",
     "undo",
     "add_captions",
@@ -149,6 +150,7 @@ TOOL_TO_COMMAND = {
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
     "cut_by_time": "cut-at",
+    "locate": "locate",
     "timeline_status": "status",
     "undo": "undo",
     "add_captions": "captions",
@@ -2645,3 +2647,271 @@ def test_speech_overlap_default_placement_covers_the_clips_whole_duration(
     assert out["result"]["at"] == pytest.approx(0.0)
     assert out["result"]["clip_in"] == pytest.approx(0.0)
     assert out["result"]["clip_out"] == pytest.approx(out["clip"]["duration"])
+
+
+# -- locate: source -> timeline ------------------------------------------
+#
+# The `sources` fixture seeded with `remove_silences=False` is one 0-12s
+# segment, and its words are w00 0.0-0.9, w01 1.0-1.9, w10 3.0-3.9,
+# w11 4.0-4.9, w20 6.0-6.9, w21 7.0-7.9, w30 9.0-9.9, w31 10.0-10.9. Every
+# case below cuts something and then asks where a word *downstream of the cut*
+# now plays, because an uncut timeline makes source and timeline coordinates
+# identical and would pass no matter what the mapping did.
+
+
+@needs_ffprobe
+def test_locate_maps_a_word_forward_through_an_earlier_cut(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The whole point of the tool: the index does not move, the answer does.
+
+    w30 is asked for twice with the same index, either side of a 2s cut that
+    happens entirely before it.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        before = await client.call("locate", path=str(project), clip_id=clip_id, first=6)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]]
+        )
+        after = await client.call("locate", path=str(project), clip_id=clip_id, first=6)
+        return {"before": before, "after": after}
+
+    out = anyio.run(_with_server, body)
+
+    # Uncut, source and timeline agree; that is the control, not the result.
+    assert out["before"]["timeline_start"] == pytest.approx(9.0)
+    assert out["before"]["source_start"] == pytest.approx(9.0)
+
+    # The cut removed words 2..3, i.e. source 3.0-4.9 = 1.9s of material.
+    assert out["after"]["source_start"] == pytest.approx(9.0), "the index must not renumber"
+    assert out["after"]["timeline_start"] == pytest.approx(9.0 - 1.9)
+    assert out["after"]["timeline_end"] == pytest.approx(9.9 - 1.9)
+    assert out["after"]["present"] is True
+    assert out["after"]["fully_present"] is True
+    assert out["after"]["timeline_duration"] == pytest.approx(12.0 - 1.9)
+
+
+@needs_ffprobe
+def test_locate_echoes_the_words_and_their_neighbours(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The project-wide echo convention (CLAUDE.md) applies to a read too —
+    an index one past the intended phrase reads fine on its own.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "locate", path=str(project), clip_id=clip_id, first=3, last=4
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["text"] == "w11 w20"
+    assert [w["text"] for w in result["words"]] == ["w11", "w20"]
+    assert [w["text"] for w in result["context_before"]] == ["w00", "w01", "w10"]
+    assert [w["text"] for w in result["context_after"]] == ["w21", "w30", "w31"]
+
+
+@needs_ffprobe
+def test_locate_reports_a_cut_word_as_absent_rather_than_moving_it(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`present: false` is the honest answer, and the reason word indices can
+    stay stable across cuts at all — nothing silently slides onto neighbouring
+    material.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]]
+        )
+        return await client.call("locate", path=str(project), clip_id=clip_id, first=2)
+
+    result = anyio.run(_with_server, body)
+
+    assert result["present"] is False
+    assert result["placements"] == []
+    assert result["timeline_start"] is None
+    assert result["covered"] == pytest.approx(0.0)
+    assert "beyond_source" not in result, "it was recorded, it was cut — different things"
+    assert result["text"] == "w10"
+
+
+@needs_ffprobe
+def test_locate_reports_each_surviving_piece_of_a_half_cut_range(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A range a cut split is the normal case, not an error. `timeline_span`
+    would report only the first survivor (it is shaped for captions); the
+    aggregate `timeline_spans` behind `locate` reports both, and the pieces
+    still play back-to-back because a cut closes its hole.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        # Cut 5.0-6.0, a silence gap sitting inside the 4.0-7.0 range below.
+        await client.call("cut_by_time", path=str(project), spans=[[5.0, 6.0]])
+        return await client.call(
+            "locate",
+            path=str(project),
+            clip_id=clip_id,
+            source_start=4.0,
+            source_end=7.0,
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["present"] is True
+    assert result["fully_present"] is False
+    assert result["requested"] == pytest.approx(3.0)
+    assert result["covered"] == pytest.approx(2.0)
+    assert len(result["placements"]) == 2
+
+    first, second = result["placements"]
+    assert (first["source_start"], first["source_end"]) == pytest.approx((4.0, 5.0))
+    assert (second["source_start"], second["source_end"]) == pytest.approx((6.0, 7.0))
+    # The hole closed, so the two survivors are adjacent in timeline time even
+    # though they are a second apart in source time.
+    assert first["timeline_end"] == pytest.approx(second["timeline_start"])
+    assert result["contiguous"] is True
+
+    # Time mode echoes by overlap, never containment: w11 (4.0-4.9) and
+    # w20 (6.0-6.9) both fall inside, and the request's own edges touch neither
+    # neighbour.
+    assert [w["text"] for w in result["words"]] == ["w11", "w20"]
+
+
+@needs_ffprobe
+def test_locate_finds_the_word_playing_at_a_source_instant(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_time", path=str(project), spans=[[0.0, 1.0]])
+        return await client.call(
+            "locate", path=str(project), clip_id=clip_id, source_start=7.5
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["mode"] == "instant"
+    assert result["timeline_start"] == pytest.approx(6.5)
+    assert result["timeline_end"] == pytest.approx(6.5)
+    assert [w["text"] for w in result["words"]] == ["w21"]
+
+
+@needs_ffprobe
+def test_locate_names_the_nearest_words_for_an_instant_in_silence(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """5.5s is in the gap between w11 (ends 4.9) and w20 (starts 6.0). An empty
+    word list with no neighbours would leave nothing to check the timestamp
+    against.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "locate", path=str(project), clip_id=clip_id, source_start=5.5
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["words"] == []
+    assert [w["text"] for w in result["context_before"]] == ["w01", "w10", "w11"]
+    assert [w["text"] for w in result["context_after"]] == ["w20", "w21", "w30"]
+
+
+@needs_ffprobe
+def test_locate_distinguishes_never_recorded_from_cut(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Both come back with no placements, and only the clip's own duration
+    tells them apart — so `locate` says which it is rather than letting the
+    empty list read as an edit decision.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "locate", path=str(project), clip_id=clip_id, source_start=20.0
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["present"] is False
+    assert result["beyond_source"] is True
+    assert result["source_duration"] == pytest.approx(12.0, abs=0.05)
+
+
+@needs_ffprobe
+def test_locate_refuses_both_addressing_modes_at_once(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Word indices and source seconds name the same thing two ways; a call
+    giving both cannot say which it meant, and picking one would be a guess.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        return await session.call_tool(
+            "locate", {"path": str(project), "clip_id": clip_id, "first": 3, "source_start": 4.0}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "not both" in result.content[0].text
+
+
+@needs_ffprobe
+def test_locate_works_on_a_clip_with_no_transcript(tmp_path: Path) -> None:
+    """A picture-only clip is a valid thing to ask about by time, so the
+    missing transcript is reported rather than made a refusal — the same
+    choice `cut_by_time` makes.
+    """
+    project = tmp_path / "proj"
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 2.0)], duration=4.0)
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, None)
+        return await client.call(
+            "locate", path=str(project), clip_id=clip_id, source_start=1.0, source_end=2.0
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["present"] is True
+    assert result["words"] is None
+    assert result["transcript_missing"] is True

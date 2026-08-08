@@ -207,6 +207,46 @@ def cut_by_time(
 
 
 @mcp.tool()
+def locate(
+    path: str,
+    clip_id: str,
+    first: int | None = None,
+    last: int | None = None,
+    source_start: float | None = None,
+    source_end: float | None = None,
+) -> dict[str, Any]:
+    """Where does a SOURCE word or SOURCE time play in the current render?
+
+    cut_by_time's read-only mirror, and the tool to reach for before quoting
+    any timestamp to a human: word indices and transcript times address the
+    original recording, so they are NOT render times and every accumulated cut
+    moves them further apart.
+
+    Address it one way per call — `first`/`last` are inclusive word indices
+    (`last` defaults to `first`), `source_start`/`source_end` are seconds into
+    the recording (omit `source_end` to locate an instant).
+
+    Read `present` first. False means the material is not in the render, and
+    `beyond_source` distinguishes "you cut it" from "the recording never went
+    that far". A partially-cut range is normal: `placements` lists each
+    surviving piece in playback order with the source coordinates saying which
+    part of the phrase it is, `covered` how much survives, and `contiguous`
+    whether the survivors still play back-to-back. Word mode echoes the
+    resolved words plus three either side; time mode echoes the words the
+    interval overlaps, or its nearest neighbours if it landed in silence.
+    Read-only: nothing is written.
+    """
+    return ops.locate(
+        path,
+        clip_id,
+        first=first,
+        last=last,
+        source_start=source_start,
+        source_end=source_end,
+    )
+
+
+@mcp.tool()
 def timeline_status(path: str) -> dict[str, Any]:
     """Report the current timeline: duration, segment count, undo depth."""
     return ops.status(path)

@@ -59,6 +59,43 @@ class Segment:
         }
 
 
+@dataclass(frozen=True)
+class Placement:
+    """Where one piece of a source interval currently plays on the timeline.
+
+    Carries both coordinate systems because the answer to "where does this
+    play" is only checkable against the question: `source_start`/`source_end`
+    say which part of the interval this piece is, which is what makes a
+    partially-cut range readable rather than just short.
+    """
+
+    timeline_start: float
+    timeline_end: float
+    source_start: float
+    source_end: float
+
+    @property
+    def duration(self) -> float:
+        return self.timeline_end - self.timeline_start
+
+    def contiguous_with(self, other: Placement) -> bool:
+        """Does `other` start exactly where this piece ends, on the timeline?
+
+        True across a cut seam — the hole closed, so the two play back-to-back
+        — and false across an intervening segment of other material.
+        """
+        return abs(other.timeline_start - self.timeline_end) <= MIN_SEGMENT
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "timeline_start": self.timeline_start,
+            "timeline_end": self.timeline_end,
+            "source_start": self.source_start,
+            "source_end": self.source_end,
+            "duration": self.duration,
+        }
+
+
 @dataclass
 class Edit:
     """An ordered list of source segments — the whole timeline state."""
@@ -108,6 +145,38 @@ class Edit:
                     return offset + (a - seg.start), offset + (b - seg.start)
             offset += seg.duration
         return None
+
+    def timeline_spans(self, clip_id: str, start: float, end: float) -> list[Placement]:
+        """Every timeline interval a source interval now plays at, in order.
+
+        The aggregate inverse of `source_spans`, and the aggregate form of
+        `timeline_span` — which deliberately stops at the first survivor
+        because captions want one span per word, not a list. This one walks
+        every segment, so a range a prior cut split comes back as >=2 pieces
+        and a range fully cut comes back empty.
+
+        The pieces are *not* merged even when their timeline coordinates touch.
+        Two adjacent pieces mean the material is continuous to a listener but
+        has a cut seam inside it, and those are different facts: merging would
+        report the seam as absent. `Placement.contiguous_with` is how a caller
+        that only cares about playback re-joins them.
+        """
+        placements: list[Placement] = []
+        offset = 0.0
+        for seg in self.segments:
+            if seg.clip_id == clip_id:
+                a, b = max(seg.start, start), min(seg.end, end)
+                if b > a:
+                    placements.append(
+                        Placement(
+                            timeline_start=offset + (a - seg.start),
+                            timeline_end=offset + (b - seg.start),
+                            source_start=a,
+                            source_end=b,
+                        )
+                    )
+            offset += seg.duration
+        return placements
 
     def source_at(self, time: float) -> tuple[str, float] | None:
         """The (clip_id, source_time) playing at timeline instant `time`.

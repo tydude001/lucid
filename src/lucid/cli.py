@@ -93,16 +93,22 @@ def _build_parser() -> argparse.ArgumentParser:
     # Global and git-style, before the subcommand: `lucid -C myproject cut ...`.
     # Defining it per-subparser instead would make the two positions clobber
     # each other on the shared dest.
-    parser.add_argument(
-        "-C", "--project", default=".", help="project directory (default: .)"
-    )
+    # `default=None`, resolved to "." in `main`, so `init` can tell an
+    # explicit `-C .` from no `-C` at all.
+    parser.add_argument("-C", "--project", help="project directory (default: .)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("mcp", help="run the MCP server on stdio")
     sub.add_parser("ping", help="print the same payload the MCP ping tool returns")
 
     p_init = sub.add_parser("init", help="create a project directory")
-    p_init.add_argument("path", nargs="?", default=".", help="where to create it (default: .)")
+    # `default=None`, not `"."`, so the handler can tell "not given" from
+    # "given as `.`" and refuse the ambiguous both-were-given call.
+    p_init.add_argument(
+        "path",
+        nargs="?",
+        help="where to create it (default: the -C directory, or .)",
+    )
     p_init.add_argument("--name", help="project name (default: the directory name)")
 
     sub.add_parser("info", help="show a project's manifest")
@@ -184,6 +190,27 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show what these spans resolve to and what the edit would become, "
         "without touching the timeline",
+    )
+
+    p_locate = sub.add_parser(
+        "locate", help="where a source word or source time plays in the current render"
+    )
+    p_locate.add_argument("clip_id")
+    # Mutually exclusive because they are two ways of naming one thing, and a
+    # call giving both cannot say which it meant — `ops.locate` refuses the
+    # same combination, this just refuses it earlier and with usage text.
+    p_where = p_locate.add_mutually_exclusive_group(required=True)
+    p_where.add_argument(
+        "--words", type=_word_range, metavar="FIRST[:LAST]", help="inclusive word indices"
+    )
+    p_where.add_argument(
+        "--at", type=_parse_timecode, metavar="TIMECODE", help="a source instant, [[H:]M:]S"
+    )
+    p_where.add_argument(
+        "--span",
+        type=_time_span,
+        metavar="START-END|START+DURATION",
+        help="a source interval, in the seconds of the original recording",
     )
 
     sub.add_parser("status", help="show the current timeline")
@@ -401,7 +428,22 @@ def _emit(payload: object) -> int:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
-    return _emit(ops.init(args.path, name=args.name))
+    """Create a project, from `-C` or the positional path — never both.
+
+    Every other subcommand *finds* a project through `-C`, so `-C` reading as
+    "the project directory" is the habit the CLI teaches. `init` used to
+    ignore it entirely and read only its positional, which meant
+    `lucid -C myproj init` created a project in the current directory and
+    reported success — the wrong directory, silently. Both spellings now work
+    and giving two different answers is an error rather than a coin flip.
+    """
+    if args.project_given and args.path is not None:
+        raise ProjectError(
+            f"init was given two directories: -C {args.project!r} and {args.path!r}. "
+            "Pass one — they name where the project goes, and there is no "
+            "sensible way to pick between them."
+        )
+    return _emit(ops.init(args.path if args.path is not None else args.project, name=args.name))
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
@@ -470,6 +512,27 @@ def _cmd_cut_at(args: argparse.Namespace) -> int:
             pad=args.pad,
             confirm_suspect=args.confirm_suspect,
             plan=args.plan,
+        )
+    )
+
+
+def _cmd_locate(args: argparse.Namespace) -> int:
+    first = last = None
+    source_start = source_end = None
+    if args.words is not None:
+        first, last = args.words
+    elif args.span is not None:
+        source_start, source_end = args.span
+    else:
+        source_start = args.at
+    return _emit(
+        ops.locate(
+            args.project,
+            args.clip_id,
+            first=first,
+            last=last,
+            source_start=source_start,
+            source_end=source_end,
         )
     )
 
@@ -596,6 +659,7 @@ _COMMANDS = {
     "seed": _cmd_seed,
     "cut": _cmd_cut,
     "cut-at": _cmd_cut_at,
+    "locate": _cmd_locate,
     "status": _cmd_status,
     "undo": _cmd_undo,
     "captions": _cmd_captions,
@@ -628,6 +692,12 @@ _EXPECTED = (
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    # `-C` defaults here rather than in argparse because `init` is the one
+    # subcommand whose directory is an *argument* rather than a lookup, so it
+    # alone needs to know whether `-C` was actually typed.
+    args.project_given = args.project is not None
+    if args.project is None:
+        args.project = "."
     try:
         return _COMMANDS[args.command](args)
     except _EXPECTED as exc:

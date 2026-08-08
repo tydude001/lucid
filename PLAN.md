@@ -1155,3 +1155,85 @@ transition — is unbuilt; this answers "can it speak here", not "how to duck
 it". `vo_clip_id` assumes one VO clip on the timeline unless named explicitly,
 and `clip_id`'s placement is hypothetical throughout — nothing here puts the
 clip on a timeline that cannot yet hold it.
+
+## `locate`, the source→timeline direction `cut-at` does not go — 2026-08-08
+
+Wiki Open items, "two CLI gaps surfaced by the 2026-08-08 dogfood run" (b).
+`cut_by_time` resolves a render timestamp back to source; nothing resolved
+source forward to render. Both coordinate systems are load-bearing — the whole
+project rests on word indices addressing the source and never renumbering —
+and the arithmetic between them (walk the segments, accumulate durations) was
+being done by hand against `project.otio`. It is exactly the arithmetic every
+cut invalidates.
+
+- **`Edit.timeline_spans` is a new primitive, not a rename of
+  `timeline_span`.** The singular one stops at the first segment overlapping
+  the interval, because captions want one span per word and a half-cut word
+  should show for the half still audible. That is the wrong shape for "where
+  does this play": a range a cut split has *two* answers and the singular form
+  silently reports one. The plural walks every segment and returns a
+  `Placement` per survivor, carrying both coordinate systems — the source
+  coordinates are what make a partial answer readable rather than merely
+  short. `source_spans` remains the timeline→source aggregate; the four
+  mappings now pair up.
+- **Pieces are not merged even when their timeline coordinates touch.** Across
+  a cut seam they do touch — the hole closed — but "continuous to a listener"
+  and "no cut inside it" are different facts, and merging would report the
+  second one falsely. `Placement.contiguous_with` re-joins them for a caller
+  that only cares about playback, and `contiguous` in the payload says whether
+  anything else got between them (which single-track cannot produce, so
+  `test_pieces_split_by_another_clip_are_not_contiguous` builds it directly).
+- **Cut and never-recorded are told apart.** Both produce zero placements, and
+  the empty list alone reads as an edit decision. `beyond_source` plus
+  `source_duration` name the other case. It is a bool with the seconds beside
+  it in `beyond_source_seconds`, because an instant past the end overruns by
+  exactly 0.0 and a caller testing that number's truthiness would miss it.
+- **One addressing mode per call, enforced twice.** Word indices and source
+  seconds name the same thing two ways, so a call giving both cannot say which
+  it meant. `ops.locate` refuses it; the CLI refuses it earlier through a
+  mutually exclusive group, which is the same answer with usage text.
+- **Echoes follow the existing conventions.** Word mode echoes the resolved
+  words plus three either side (CLAUDE.md); time mode echoes the words the
+  interval overlaps — overlap, never containment — and falls back to
+  `_nearest_context` when the interval landed in silence, reusing
+  `cut_by_time`'s own helpers rather than a parallel set. A clip with no
+  transcript still locates by time, with `transcript_missing`, matching
+  `cut_by_time`'s choice not to refuse a valid question about picture.
+- **Read-only.** No snapshot, no `plan=`, same as `speech_overlap`.
+
+### Measured on the Scream VO
+
+67 segments, timeline 312.175s against a 385.792s recording.
+
+| asked | source | timeline | note |
+|---|---|---|---|
+| `--words 874:875` ("the reveal") | 360.100–360.580 | 293.542–294.022 | 66.558s of cuts sit in front of it |
+| `--words 298:302` ("to you. And then the") | 127.040–128.920 | — | `present: false`, `covered: 0` |
+| `--span 127.0-130.5` | 127.000–130.500 | 103.466–103.746 | 0.280s of 3.500s survives, one piece |
+| `--at 9999` | — | — | `beyond_source`, `source_duration: 385.792` |
+
+The round trip is the check that matters: `cut-at --plan 293.542-294.022`
+resolves back to source 360.100–360.580 and echoes words 874/875, against 67
+real segments rather than a fixture. Word 873 ("making", 359.78–360.10) also
+appears in that echo — its end sits exactly on the boundary, and the overlap
+test is doing what it is supposed to at a float edge.
+
+The middle row is the one worth keeping. A 5-word phrase reported wholly
+absent looked like a bug until the segments were read directly: nothing
+between 124s and 130.22s survives at all, so `present: false` is the correct
+answer and the tool is refusing to slide the phrase onto the material that
+replaced it.
+
+## `init` stops silently ignoring `-C` — 2026-08-08
+
+Wiki Open items, same row, (a). Every other subcommand *finds* a project
+through the global `-C`, which is the habit the CLI teaches; `init` alone read
+only its positional. So `lucid -C myproj init` created a project in the
+current directory and printed a success payload naming it — the wrong
+directory, with no error.
+
+Both spellings now work, and giving two different answers is refused rather
+than resolved. That needed `-C`'s default to move out of argparse (`default=
+"."` cannot be told from an explicit `-C .`) and into `main`, which sets
+`args.project_given` before defaulting; `init` is the only reader, because it
+is the only subcommand whose directory is an argument rather than a lookup.

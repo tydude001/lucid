@@ -67,7 +67,11 @@ installed package or the upstream repo, not your memory.
   `picture.melt_command()`. Pointed at a project under `/tmp` it prints
   `Failed to load` and **exits 0**, so its exit code proves nothing — check its
   output. Anything writing a project for melt to read puts it under `$HOME`.
-- Anything that emits times *for playback* maps through the edit
-  (`Edit.timeline_span`), never straight off the transcript. The transcript
-  indexes the source; the timeline is what plays. See PLAN.md § Captions came
-  out of the timeline.
+- Anything that emits times *for playback* maps through the edit, never
+  straight off the transcript. The transcript indexes the source; the timeline
+  is what plays. See PLAN.md § Captions came out of the timeline.
+  - Which mapping depends on whether one answer is enough.
+    `Edit.timeline_span` stops at the first survivor — right for captions, one
+    span per word — while `Edit.timeline_spans` returns a `Placement` per
+    surviving piece. A range a cut split has more than one answer, and the
+    singular form reports one of them without saying so. PLAN.md § `locate`.
