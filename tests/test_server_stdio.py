@@ -171,6 +171,8 @@ CLI_ONLY = {
     "ping",  # a tool, but takes no project and needs no mapping
     "info",  # prints the raw manifest, which MCP clients get from other tools
     "web",  # serves the UI until Ctrl-C; an agent cannot watch a page
+    "waveform",  # 19,000 floats is a picture, not something an agent reasons
+    # over — PLAN.md § Read-model additions
 }
 
 
@@ -3026,3 +3028,30 @@ def test_timeline_view_carries_both_coordinate_systems_per_segment(
     assert second["start"] == pytest.approx(4.9)
     assert second["timeline_start"] == pytest.approx(3.0)
     assert view["undo_depth"] == 1
+
+
+@needs_ffprobe
+def test_timeline_view_words_carry_a_paragraph_field(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The read model over the wire: every word — cut or not — is placed in a
+    paragraph. test_ops_paragraphs.py covers the break rule itself in
+    isolation; this only checks the field rides through the real call, since
+    `sources`' 8 plain words never earn a break.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]])
+        return await client.call("timeline_view", path=str(project))
+
+    words = {w["index"]: w for w in anyio.run(_with_server, body)["words"]}
+
+    assert all(w["paragraph"] == 0 for w in words.values())
+    # A cut word still gets a paragraph — it is a document property, not an
+    # edit one.
+    assert words[2]["present"] is False
+    assert words[2]["paragraph"] == 0

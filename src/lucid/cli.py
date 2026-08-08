@@ -222,6 +222,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--clip-id", help="which clip's words to report (default: the one the timeline opens with)"
     )
 
+    p_waveform = sub.add_parser(
+        "waveform", help="RMS envelope for the timeline's waveform lane (cached)"
+    )
+    p_waveform.add_argument(
+        "--clip-id", help="which clip's media to measure (default: the one the timeline opens with)"
+    )
+
     p_web = sub.add_parser("web", help="serve the preview/timeline UI on localhost")
     p_web.add_argument("--host", default=webui.DEFAULT_HOST, help=f"bind address ({webui.DEFAULT_HOST})")
     p_web.add_argument(
@@ -560,6 +567,10 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return _emit(ops.timeline_view(args.project, clip_id=args.clip_id))
 
 
+def _cmd_waveform(args: argparse.Namespace) -> int:
+    return _emit(ops.waveform(args.project, clip_id=args.clip_id))
+
+
 def _cmd_web(args: argparse.Namespace) -> int:
     # Blocks until Ctrl-C. Unlike every other subcommand this one prints no
     # JSON — its output is the page.
@@ -694,6 +705,7 @@ _COMMANDS = {
     "locate": _cmd_locate,
     "status": _cmd_status,
     "view": _cmd_view,
+    "waveform": _cmd_waveform,
     "web": _cmd_web,
     "undo": _cmd_undo,
     "captions": _cmd_captions,

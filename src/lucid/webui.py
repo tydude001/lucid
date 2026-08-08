@@ -12,7 +12,9 @@ Two constraints hold it in place, both from ROADMAP.md § Next:
   functions the CLI and the MCP server call. A window is the most tempting
   thing to break the parity convention with, so nothing below computes an
   edit — it posts to `ops.cut_by_transcript` / `ops.cut_by_time` / `ops.undo`
-  and draws whatever comes back.
+  and draws whatever comes back. The agent panel does not change this: it is
+  a *client* of the same MCP tools, reaching the timeline through no path the
+  page's own buttons don't already use.
 * **Local, in-package.** `http.server` from the standard library, static
   assets shipped beside this file, no build step and no second stack. The one
   thing hand-rolled rather than inherited is HTTP Range, because a browser
@@ -33,7 +35,12 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import queue
+import subprocess
+import tempfile
 import threading
+import uuid
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -91,9 +98,46 @@ _STATIC_TYPES = {
 #: million syscalls, small enough that an aborted seek stops promptly.
 _CHUNK = 256 * 1024
 
+#: How often the SSE handler checks whether the revision moved (PLAN.md §
+#: Tier 3 is the goal, lines 1794-1798). Simple beats exact: this one poll
+#: loop is what lets an agent edit, the page's own edit, and a `lucid cut` in
+#: a terminal all raise the same event instead of three code paths.
+_REVISION_POLL_SECONDS = 0.5
+
+#: `claude` by default; overridable so tests never spawn the real thing.
+AGENT_BIN_ENV = "LUCID_AGENT_BIN"
+
+#: The agent's tool allowlist — the security boundary, not a convenience
+#: default (PLAN.md § The agent panel, in mechanism). `--permission-mode
+#: manual` is the belt to this allowlist's braces: there is no TTY on a
+#: subprocess, so anything falling outside the allowlist fails closed rather
+#: than prompting. Do not widen this without writing the decision down there.
+#:
+#: `--allowedTools`/`--disallowedTools`/`--permission-mode manual` alone do
+#: **not** bound the built-in tool set — verified against the installed
+#: claude 2.1.226: a built-in tool named in neither list (`Glob`, in the
+#: reproduction) runs with no permission gate at all, because those flags
+#: govern *permission prompts*, and a tool outside the allowlist without a
+#: matching disallow entry is simply never asked about. `--tools ""` is the
+#: actual boundary for the built-in set — it disables all of it, leaving only
+#: the MCP tools `--strict-mcp-config` exposes, which is what makes "the
+#: agent gets lucid's MCP tools and nothing else" true. `_AGENT_DISALLOWED_TOOLS`
+#: stays as defense in depth, not because it does the job on its own.
+_AGENT_ALLOWED_TOOLS = "mcp__lucid__*"
+_AGENT_DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "WebFetch", "WebSearch")
+
 
 class WebUIError(Exception):
     """Raised when a request cannot be served for a reason worth reporting."""
+
+
+class RenderBusyError(WebUIError):
+    """A second render was requested while one was already running.
+
+    Its own type rather than a plain `WebUIError` so the handler can answer
+    409 (a real conflict with server state) instead of 400 (a bad request) —
+    the identical request would succeed once the first job finishes.
+    """
 
 
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
@@ -150,6 +194,465 @@ def _ranges(spec: str, size: int) -> tuple[int, int] | None:
     if start < 0 or start >= size or end < start:
         raise WebUIError(f"range {spec!r} does not fit a {size}-byte file")
     return start, min(end, size - 1)
+
+
+def _revision(project_root: Path) -> list[float | int]:
+    """`project.otio` mtime plus undo depth (PLAN.md § View invalidation).
+
+    Not a single counter: a mutation changes the mtime, an undo changes the
+    depth without necessarily changing the mtime to something new-looking (a
+    restore overwrites the file, but a second undo back to a state that was
+    never re-saved can otherwise look unchanged). Comparing the pair catches
+    both.
+    """
+    project = Project.open(project_root)
+    timeline = project.timeline_path
+    mtime = timeline.stat().st_mtime if timeline.exists() else 0.0
+    return [mtime, len(project.snapshots())]
+
+
+class EventBus:
+    """A lock and a set of per-subscriber queues — nothing cleverer than that.
+
+    `project-changed` is polled straight off `_revision` inside the SSE
+    handler; `agent` and `render` events are *pushed* here by other server
+    code (the agent subprocess reader and the render job, respectively) and
+    fan out to every open `/api/events` connection. One bus per server,
+    because one server serves one project.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subscribers: set[queue.Queue[tuple[str, dict[str, Any]]]] = set()
+
+    def subscribe(self) -> queue.Queue[tuple[str, dict[str, Any]]]:
+        q: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue()
+        with self._lock:
+            self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue[tuple[str, dict[str, Any]]]) -> None:
+        with self._lock:
+            self._subscribers.discard(q)
+
+    def publish(self, event: str, data: dict[str, Any]) -> None:
+        with self._lock:
+            subscribers = list(self._subscribers)
+        for q in subscribers:
+            q.put((event, data))
+
+
+def _agent_bin() -> str:
+    return os.environ.get(AGENT_BIN_ENV, "claude")
+
+
+class AgentSession:
+    """One `claude -p` subprocess per server, spawned lazily on first prompt.
+
+    PLAN.md § The agent panel, in mechanism: `--strict-mcp-config` confines it
+    to a generated config holding *only* lucid's MCP server (never the user's
+    own Gmail/Drive/Calendar servers), the allowlist above is the sole path it
+    has into the project, and `--permission-mode manual` fails anything
+    outside that allowlist closed rather than prompting a TTY that isn't
+    there. There is no `--cwd` flag — the working directory is set on the
+    Popen instead.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen[str] | None = None
+        self._mcp_config_path: Path | None = None
+
+    def _mcp_config(self) -> Path:
+        """Write the generated one-server MCP config lazily, once.
+
+        `lucid -C <project> mcp` is the invocation that actually binds the
+        server to this project — `-C` is a global flag that argparse only
+        accepts *before* the subcommand (`lucid mcp -C <project>` does not
+        parse), so it is spelled out here as `command`/`args` rather than as
+        a single shell string.
+        """
+        if self._mcp_config_path is None:
+            config = {
+                "mcpServers": {
+                    "lucid": {
+                        "command": "lucid",
+                        "args": ["-C", str(self.project_root), "mcp"],
+                    }
+                }
+            }
+            fd, name = tempfile.mkstemp(prefix="lucid-mcp-", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(config, fh)
+            self._mcp_config_path = Path(name)
+        return self._mcp_config_path
+
+    def _spawn(self) -> subprocess.Popen[str]:
+        argv = [
+            _agent_bin(),
+            "-p",
+            "--verbose",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--mcp-config",
+            str(self._mcp_config()),
+            "--strict-mcp-config",
+            "--tools",
+            "",
+            "--allowedTools",
+            _AGENT_ALLOWED_TOOLS,
+            "--disallowedTools",
+            *_AGENT_DISALLOWED_TOOLS,
+            "--permission-mode",
+            "manual",
+        ]
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(self.project_root),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        stderr_tail: list[str] = []
+        stderr_thread = threading.Thread(
+            target=self._pump_stderr, args=(proc, stderr_tail), daemon=True
+        )
+        stderr_thread.start()
+        threading.Thread(
+            target=self._pump_stdout,
+            args=(proc, stderr_tail, stderr_thread),
+            daemon=True,
+        ).start()
+        return proc
+
+    @staticmethod
+    def _pump_stderr(proc: subprocess.Popen[str], tail: list[str]) -> None:
+        """Keep the last ~200 lines of stderr, for `_pump_stdout`'s silent-exit report.
+
+        Read continuously rather than at the end: `claude` writing enough to
+        fill the pipe buffer while nobody drains it would otherwise deadlock
+        the subprocess against its own stderr.
+        """
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            tail.append(line)
+            del tail[:-200]
+
+    def _pump_stdout(
+        self,
+        proc: subprocess.Popen[str],
+        stderr_tail: list[str],
+        stderr_thread: threading.Thread,
+    ) -> None:
+        """Parse one `stream-json` line at a time and publish it as-is.
+
+        The page styles the event; this only has to pass the parsed JSON
+        through, unchanged, the same way `ops.timeline_view` hands the page
+        numbers rather than a rendering of them.
+
+        If the process exits without ever emitting a `result` event — a CLI
+        flag mismatch that errors and exits 0 before printing anything is the
+        reproduction that found this — the page's composer has nothing to
+        clear `busy` on and hangs forever with no visible failure. A
+        synthetic `result` event with a non-"success" subtype covers that:
+        `agent.js`'s `handleResult` already renders any such subtype and
+        clears `busy` regardless of what it says.
+        """
+        assert proc.stdout is not None
+        saw_result = False
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "result":
+                saw_result = True
+            self.bus.publish("agent", payload)
+        if saw_result:
+            return
+        proc.wait()
+        # stderr is drained by its own thread; without this join a fast exit
+        # can report a truncated tail while that thread is still mid-read.
+        stderr_thread.join(timeout=2)
+        detail = "".join(stderr_tail).strip()[-2000:] or (
+            f"the agent process exited (code {proc.returncode}) without producing a response"
+        )
+        self.bus.publish(
+            "agent",
+            {"type": "result", "subtype": "error_no_output", "result": detail},
+        )
+
+    def send(self, prompt: str) -> None:
+        with self._lock:
+            if self._proc is None or self._proc.poll() is not None:
+                self._proc = self._spawn()
+            proc = self._proc
+        message = {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": prompt}]},
+        }
+        assert proc.stdin is not None
+        proc.stdin.write(json.dumps(message) + "\n")
+        proc.stdin.flush()
+
+    def stop(self) -> None:
+        """Interrupt the running turn.
+
+        `claude`'s `stream-json` input protocol takes a `control_request` of
+        subtype `interrupt` on stdin (verified against the installed 2.1.226
+        binary's own control-plane strings, not recalled). That is tried
+        first; if the pipe is already gone the process is killed instead and
+        the next prompt lazily respawns it — the documented fallback this
+        stage was asked to fall back to.
+        """
+        with self._lock:
+            proc = self._proc
+        if proc is None or proc.poll() is not None:
+            return
+        control = {
+            "type": "control_request",
+            "request_id": str(uuid.uuid4()),
+            "request": {"subtype": "interrupt"},
+        }
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(json.dumps(control) + "\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            proc.kill()
+            with self._lock:
+                if self._proc is proc:
+                    self._proc = None
+
+    def close(self) -> None:
+        """Server shutdown: kill the subprocess and remove the generated config.
+
+        Nothing else reaps either one — the subprocess otherwise outlives the
+        server it belonged to, and every session that prompted the agent
+        would leave one `lucid-mcp-*.json` behind in `$TMPDIR`.
+        """
+        with self._lock:
+            proc, self._proc = self._proc, None
+            config, self._mcp_config_path = self._mcp_config_path, None
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+        if config is not None:
+            try:
+                config.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _run_checks(project_root: Path, output: Path, has_video: bool) -> dict[str, Any]:
+    """What the checks that already exist say about this render.
+
+    PLAN.md § Finishing — the render happens in the window: `verify`,
+    `check_frames`, `check_black` and `spot_frames` already answer whether a
+    render says what the timeline says, and the completion card is where they
+    belong rather than a separate command a person has to remember to run.
+
+    `verify` is the audio-side check (its own docstring: "deliberately covers
+    only audio") and always applies. The picture-side three are *skipped*
+    outright for an audio-only render, not called to report null fields —
+    cheaper than a wasted ffprobe/ffmpeg pass, and the payload says why rather
+    than silently omitting them.
+
+    Any one check failing to run (no whisper on `PATH`, no video stream to
+    probe, a render too odd to scan) is caught and reported `skipped` next to
+    its reason, so one check's absence never costs the render its completion
+    event or the checks that did run.
+    """
+    checks: dict[str, Any] = {}
+    try:
+        checks["verify"] = ops.verify(str(project_root), str(output))
+    except EXPECTED as exc:
+        checks["verify"] = {"skipped": True, "reason": str(exc)}
+
+    picture_checks: tuple[tuple[str, Callable[[], dict[str, Any]]], ...] = (
+        ("check_frames", lambda: ops.check_frames(str(project_root), str(output))),
+        ("check_black", lambda: ops.check_black(str(project_root), str(output))),
+        ("spot_frames", lambda: ops.spot_frames(str(project_root), str(output))),
+    )
+    for name, call in picture_checks:
+        if not has_video:
+            checks[name] = {
+                "skipped": True,
+                "reason": "this render has no video stream — the picture-side checks do not apply",
+            }
+            continue
+        try:
+            checks[name] = call()
+        except EXPECTED as exc:
+            checks[name] = {"skipped": True, "reason": str(exc)}
+    return checks
+
+
+class RenderJob:
+    """One render at a time per server (PLAN.md § Finishing).
+
+    Runs `ops.export` — unchanged, no new render path — in a worker thread and
+    publishes progress and completion as `render` events on the bus the SSE
+    handler already serves.
+
+    `stop()` deletes whatever the partial output currently is rather than
+    leaving it, per PLAN.md's explicit "not left" — but honestly: `ops.export`
+    is one blocking call into auto-editor's own subprocess, and nothing here
+    holds a handle to kill that subprocess mid-encode. So cancellation deletes
+    the *result* on both ends — immediately, on the thread that called
+    `stop()`, and again when the background export call eventually returns —
+    rather than pretending to halt an encode it cannot reach.
+
+    `_running` is a plain flag guarded by the lock, not `Thread.is_alive()`:
+    a `Thread` object is not alive until `.start()` actually runs, so gating
+    "busy" on liveness would let a second `/api/render` slip through in the
+    window between constructing the thread and starting it.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+        self._cancel: threading.Event | None = None
+        self._output: Path | None = None
+
+    def _output_path(self, job_id: str) -> Path:
+        """`renders/web-<job_id><suffix>`.
+
+        The suffix follows the primary clip's own media — the same clip
+        `ops.export` treats as primary (`edit.segments[0]`) — so the
+        container this picks matches the one auto-editor is about to write.
+        Everything here can raise before any job state is touched, which is
+        what makes an empty timeline a 400 rather than a job that starts only
+        to immediately error.
+        """
+        project = Project.open(self.project_root)
+        view = ops.timeline_view(str(self.project_root))
+        segments = view.get("segments") or []
+        if not segments:
+            raise WebUIError("the timeline is empty — nothing to render")
+        clip = media.get_clip(project, segments[0]["clip_id"])
+        suffix = media.media_path(project, clip).suffix or ".mp4"
+        return project.render_dir / f"web-{job_id}{suffix}"
+
+    def start(self, preset: str | None) -> str:
+        job_id = uuid.uuid4().hex
+        output = self._output_path(job_id)
+        cancel = threading.Event()
+        with self._lock:
+            if self._running:
+                raise RenderBusyError("a render is already running")
+            self._running = True
+            self._cancel = cancel
+            self._output = output
+        threading.Thread(
+            target=self._run, args=(job_id, output, cancel, preset), daemon=True
+        ).start()
+        return job_id
+
+    def stop(self) -> None:
+        with self._lock:
+            if not self._running:
+                return
+            cancel = self._cancel
+            output = self._output
+        assert cancel is not None
+        cancel.set()
+        self._delete(output)
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    @staticmethod
+    def _delete(output: Path | None) -> None:
+        if output is None:
+            return
+        try:
+            if output.exists():
+                output.unlink()
+        except OSError:
+            pass
+
+    def _report_error(self, exc: Exception, job_id: str) -> None:
+        # Reached only for EXPECTED exceptions (CLAUDE.md's family) — anything
+        # outside it is a bug and is left to propagate and keep its traceback
+        # (the same rule the HTTP handlers follow), rather than being caught
+        # here and flattened into a fake completion event.
+        self.bus.publish("render", {"job_id": job_id, "status": "error", "error": str(exc)})
+
+    def _run(
+        self, job_id: str, output: Path, cancel: threading.Event, preset: str | None
+    ) -> None:
+        self.bus.publish("render", {"job_id": job_id, "status": "running", "preset": preset})
+        # The finally is a backstop for non-EXPECTED exceptions only: a bug
+        # still propagates with its traceback (the HTTP handlers' rule), but
+        # it must not leave `_running` latched — that would turn one bug into
+        # a permanent 409 for every render until the server restarts.
+        try:
+            self._run_inner(job_id, output, cancel, preset)
+        finally:
+            self._finish()
+
+    def _run_inner(
+        self, job_id: str, output: Path, cancel: threading.Event, preset: str | None
+    ) -> None:
+        try:
+            ops.export(str(self.project_root), str(output), export_format=None)
+        except EXPECTED as exc:
+            self._finish()
+            if cancel.is_set():
+                self._delete(output)
+                self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
+            else:
+                self._report_error(exc, job_id)
+            return
+
+        if cancel.is_set():
+            self._finish()
+            self._delete(output)
+            self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
+            return
+
+        try:
+            # (a) auto-editor's exit code does not mean success — this probes
+            # the actual file that landed on disk, the same way every other
+            # check here reads a render rather than trusting a subprocess's
+            # own report of itself.
+            info = media.probe(output)
+        except EXPECTED as exc:
+            self._finish()
+            self._report_error(exc, job_id)
+            return
+
+        # (b) the existing checks, run here rather than left for a person to
+        # remember — see `_run_checks`.
+        checks = _run_checks(self.project_root, output, info.has_video)
+        self._finish()
+        self.bus.publish(
+            "render",
+            {
+                "job_id": job_id,
+                "status": "done",
+                "output": str(output),
+                "width": info.width,
+                "height": info.height,
+                "duration": info.duration,
+                "has_video": info.has_video,
+                "has_audio": info.has_audio,
+                "checks": checks,
+            },
+        )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -220,6 +723,18 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(HTTPStatus.FORBIDDEN, "this server answers loopback requests only")
             return
         url = urlparse(self.path)
+        if url.path == "/api/agent":
+            self._handle_agent_prompt()
+            return
+        if url.path == "/api/agent/stop":
+            self._handle_agent_stop()
+            return
+        if url.path == "/api/render":
+            self._handle_render_start()
+            return
+        if url.path == "/api/render/stop":
+            self._handle_render_stop()
+            return
         route = _POST_ROUTES.get(url.path)
         if route is None:
             self._fail(HTTPStatus.NOT_FOUND, f"no such endpoint: {url.path}")
@@ -250,6 +765,13 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
                 self._send_json(ops.timeline_view(str(self.project_root), clip_id=clip_id))
+            elif path == "/api/events":
+                self._send_events()
+            elif path.startswith("/api/waveform/"):
+                clip_id = unquote(path[len("/api/waveform/") :])
+                if not clip_id:
+                    raise WebUIError("clip id is required")
+                self._send_json(ops.waveform(str(self.project_root), clip_id))
             elif path.startswith("/api/media/"):
                 self._send_media(unquote(path[len("/api/media/") :]), head_only=head_only)
             else:
@@ -323,6 +845,137 @@ class Handler(BaseHTTPRequestHandler):
                     # A seek aborts the in-flight range. Routine, not an error.
                     return
                 remaining -= len(chunk)
+
+    def _send_events(self) -> None:
+        """`GET /api/events` — a long-lived `text/event-stream`.
+
+        One event type is polled (`project-changed`, off `_revision`); two
+        are pushed (`agent`, `render`) through `self.server.bus`, which other
+        server code publishes onto — the agent's stdout reader and the render
+        job. No `Content-Length`: the response ends only when the client
+        disconnects, which is also the only way this method returns.
+        """
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        bus: EventBus = self.server.bus  # type: ignore[attr-defined]
+        subscription = bus.subscribe()
+        try:
+            last = _revision(self.project_root)
+            self._write_sse("project-changed", {"revision": last})
+            while True:
+                try:
+                    event, data = subscription.get(timeout=_REVISION_POLL_SECONDS)
+                    self._write_sse(event, data)
+                except queue.Empty:
+                    pass
+                current = _revision(self.project_root)
+                if current != last:
+                    last = current
+                    self._write_sse("project-changed", {"revision": last})
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # The browser navigated away or closed the tab. Routine, not an
+            # error — the same treatment `_send_media` gives an aborted seek.
+            return
+        finally:
+            bus.unsubscribe(subscription)
+
+    def _write_sse(self, event: str, data: dict[str, Any]) -> None:
+        chunk = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+        self.wfile.write(chunk.encode("utf-8"))
+        self.wfile.flush()
+
+    def _handle_agent_prompt(self) -> None:
+        """`POST /api/agent {"prompt": ...}` — 202, the work happens on the stream.
+
+        The reply is an acknowledgement, not a result: what the agent does
+        arrives as `agent` events on `/api/events`, the same feed a person's
+        own cut lands in (PLAN.md § Where the cut controls go).
+        """
+        try:
+            payload = _json_body(self)
+            prompt = payload.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise WebUIError("'prompt' is required")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        agent: AgentSession = self.server.agent  # type: ignore[attr-defined]
+        try:
+            agent.send(prompt)
+        except OSError as exc:
+            # A spawn that never happened (`claude` not on PATH, a dead
+            # LUCID_AGENT_BIN) puts nothing on `/api/events` to clear the
+            # composer — so the failure has to come back on this request,
+            # as JSON, not as a connection reset with a server-side traceback.
+            self._fail(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                f"could not start the agent process: {exc}",
+            )
+            return
+        self._send_json({"accepted": True}, HTTPStatus.ACCEPTED)
+
+    def _handle_agent_stop(self) -> None:
+        try:
+            _json_body(self)
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        agent: AgentSession = self.server.agent  # type: ignore[attr-defined]
+        agent.stop()
+        self._send_json({"stopped": True})
+
+    def _handle_render_start(self) -> None:
+        """`POST /api/render {"preset": optional}` — 202, work happens on the stream.
+
+        Like `/api/agent`, the reply only acknowledges; progress and
+        completion arrive as `render` events on `/api/events`. `preset` is
+        accepted and echoed on the `running` event, but not yet wired to
+        `ops.export` — which takes no preset today — because a knob to grow
+        into is not the same thing as a parameter to silently swallow.
+        """
+        try:
+            payload = _json_body(self)
+            preset = payload.get("preset")
+            if preset is not None and not isinstance(preset, str):
+                raise WebUIError("'preset' must be a string")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: RenderJob = self.server.render_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(preset)
+        except RenderBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
+    def _handle_render_stop(self) -> None:
+        """`POST /api/render/stop {}` — cancel; the partial output is deleted.
+
+        A no-op 200 when nothing is running, the same shape `/api/agent/stop`
+        already answers with — the client does not have to know whether a
+        render was in flight to ask it to stop.
+        """
+        try:
+            _json_body(self)
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: RenderJob = self.server.render_job  # type: ignore[attr-defined]
+        job.stop()
+        self._send_json({"stopped": True})
 
 
 # -- the mutating endpoints ----------------------------------------------
@@ -410,6 +1063,10 @@ def _undo(root: str, _payload: dict[str, Any]) -> dict[str, Any]:
 #: `plan` is a field on the request rather than a separate endpoint, because
 #: it is one flag on one op — giving preview its own URL would invite the two
 #: paths to drift, which is the whole thing `plan=True` exists to prevent.
+#: `/api/agent`, `/api/agent/stop`, `/api/render` and `/api/render/stop` are
+#: handled directly in `do_POST` instead of living here, because they need
+#: `self.server` (the bus, the agent session, the render job) rather than
+#: just the project root a plain `ops` call takes.
 _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/cut": _cut_words,
     "/api/cut-at": _cut_at,
@@ -429,9 +1086,10 @@ def make_server(
 ) -> ThreadingHTTPServer:
     """Build a server for one project. Opens it first, so a bad path fails now.
 
-    Threading matters here for one specific reason: media streams for as long
-    as playback lasts, and a single-threaded server would leave every API call
-    queued behind it.
+    Threading matters for two reasons now, not one: media streams for as long
+    as playback lasts, and `/api/events` holds a connection open for as long
+    as the tab is — either one would leave every other request queued behind
+    it on a single-threaded server.
     """
     project = Project.open(path)
 
@@ -442,6 +1100,13 @@ def make_server(
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
+    #: One bus, one agent session, and one render job per server, because one
+    #: server serves one project (§ Multi-project in PLAN.md's open
+    #: questions — unanswered, and this is why: a second project would need a
+    #: second everything here).
+    server.bus = EventBus()  # type: ignore[attr-defined]
+    server.agent = AgentSession(project.root, server.bus)  # type: ignore[attr-defined]
+    server.render_job = RenderJob(project.root, server.bus)  # type: ignore[attr-defined]
     return server
 
 
@@ -474,3 +1139,4 @@ def serve(
     finally:
         server.shutdown()
         server.server_close()
+        server.agent.close()  # type: ignore[attr-defined]

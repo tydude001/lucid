@@ -1,0 +1,527 @@
+/**
+ * transcript.js — the transcript as a document (ROADMAP.md "Now — the
+ * workspace" item 2) plus the floating cut-controls toolbar (PLAN.md §
+ * Where the cut controls go).
+ *
+ * What this file draws:
+ *   - words grouped into `.para` blocks off each word's `paragraph` field
+ *     (PLAN.md § Read-model additions — word-order-driven, not
+ *     duration-driven), with an inline timestamp at each paragraph's head;
+ *   - a show-cuts toggle: cut words struck through in place when on,
+ *     omitted from the document entirely when off;
+ *   - scroll-to-the-playing-word, driven by player.js's own 'playing-word'
+ *     event rather than a timer of this pane's own (ported logic, not
+ *     ported code, from tier 2's app.js — see its `paintPlayingWord`,
+ *     `git show <tier-2 commit>:src/lucid/web/app.js`);
+ *   - a selection: click a word, shift-click or drag to extend. Selecting
+ *     raises a floating `.selection-toolbar` anchored under the selection —
+ *     Preview / Cut / Keep only, plus a small `.toolbar-popover` for pad
+ *     and the suspect-boundary confirmation. Preview is `plan: true` on the
+ *     same `/api/cut` call Cut uses, not a separate endpoint.
+ *
+ * What this file does NOT do: render an op's result. `runOp` below emits
+ * 'op-result' on the shared bus and stops — agent.js renders it into the
+ * feed as a system entry, because the feed is "one feed for everything
+ * that happened to the edit" (PLAN.md § Where the cut controls go), and a
+ * second result panel here would just be tier 2's emptiest region rebuilt.
+ *
+ * Word-range echoes always show the three words either side of the range
+ * (CLAUDE.md), never just the range itself — an index one past the
+ * intended phrase has to read correctly on its own.
+ *
+ * Clicking a word seeks the player through the *edit*: `ctx.player.seekWord`
+ * takes the word's own `timeline_start`/`timeline_end`, never its source
+ * `start`/`end` — the transcript indexes the source, the timeline is what
+ * plays (CLAUDE.md).
+ *
+ * ---------------------------------------------------------------------
+ * THE PANE-MODULE INTERFACE — this is the one copy of this contract.
+ * timeline.js and agent.js point back here rather than repeating it.
+ * ---------------------------------------------------------------------
+ *
+ * Every pane module — this one, timeline.js, agent.js — exports exactly two
+ * functions and talks to the rest of the page only through `ctx`. Pane
+ * modules never import each other (PLAN.md § Files, and why they split);
+ * app.js wires all three, and is generic enough that a pane can be rebuilt
+ * without app.js changing.
+ *
+ *   init(ctx)      called once at startup, after all three panes exist and
+ *                  before the first view has loaded. Wire DOM listeners and
+ *                  `ctx.on(...)` subscriptions here.
+ *   update(state)  called with the current `/api/view` payload every time it
+ *                  changes: the initial load, a reload after
+ *                  'project-changed', and after this pane's own mutating op.
+ *                  `state` is `null` only if a load ever fails outright —
+ *                  guard for it.
+ *
+ * ctx = {
+ *   api(path, body?)     api.js's fetch wrapper. GET with no body, POST JSON
+ *                        with one (`{}` for an endpoint that ignores its
+ *                        body). Throws `Error(message)` on a non-2xx reply —
+ *                        the message is the server's own `{"error": …}`.
+ *   player               player.js's transport, already wired to the shared
+ *                        view:
+ *                          seek(t)      seek the timeline to `t` seconds
+ *                          now()        the current timeline second
+ *                          toggle()     play/pause
+ *                          playing()    bool
+ *                          seekWord(w)  seek to a word's timeline_start
+ *                                       (a `state.words[i]` entry), a no-op
+ *                                       if the word is cut
+ *   getView()            the current view payload — same shape as `update`'s
+ *                        `state` — for a handler that fires outside `update`
+ *                        (e.g. a click callback closed over nothing else).
+ *   on(event, cb)        subscribe to the shared event bus. `cb(payload)`.
+ *   emit(event, payload)  publish on the shared event bus.
+ * }
+ *
+ * Bus events (app.js re-publishes every SSE record under its own event
+ * name, so a later stage can listen for one without app.js ever needing to
+ * change for it):
+ *   'project-changed'   {revision: [mtime, undo_depth]} — app.js already
+ *                       reloads the view and calls every pane's `update` on
+ *                       this; only subscribe yourself for some *other*
+ *                       reaction (e.g. a toast).
+ *   'agent'              the parsed stream-json object from the agent
+ *                        subprocess's own stdout, passed through unchanged —
+ *                        agent.js's event to build the progress list from.
+ *   'render'              render-job progress/completion, shaped per
+ *                        webui.py's `RenderJob` — agent.js's event to build
+ *                        the completion card from.
+ *   'playhead'             {now, total} — emitted every animation frame by
+ *                        player.js. Use this to scroll to the playing word;
+ *                        do not poll `player.now()` in a timer of your own.
+ *   'playing-word'         {index} — emitted by player.js only when the
+ *                        playing word changes (`state.words[i].index`, i.e.
+ *                        the transcript's own word index, not `i`).
+ *   'op-result'            {payload, error} — emit this after a mutating op
+ *                        (cut / keep / undo) so agent.js can render it into
+ *                        the feed as a system entry (PLAN.md § Where the
+ *                        cut controls go: "one feed for everything that
+ *                        happened to the edit, whether a person or the
+ *                        agent caused it, in order"). `payload` is the op's
+ *                        own JSON reply, `null` on error; `error` is the
+ *                        message string, `null` on success.
+ *   'toast'                a message string for the bottom-right toast —
+ *                        the shell owns #toast, so emit rather than reach
+ *                        for the element directly.
+ *
+ * `state` is `ops.timeline_view`'s payload verbatim: {project, name,
+ * clip_id, clips, source_duration, timeline_duration, timebase, undo_depth,
+ * segments, seams, words}. `words` is `null` when the clip has no
+ * transcript (`transcript_missing: true` alongside it); each present word
+ * carries `index`, `text`, `start`/`end` (source seconds), `present`,
+ * `covered`, `partial`, `timeline_start`/`timeline_end` (`null` if cut),
+ * `paragraph` (0-based, word-order-driven — PLAN.md § Read-model
+ * additions), and `suspect` when its duration looks inflated.
+ */
+
+import { $, el, fmt, secs } from "./dom.js";
+
+let ctx = null;
+
+/* -- state private to this pane -------------------------------------------
+ * None of this is the read model — it is what the read model looks like
+ * through a selection and a display toggle, both purely local until an op
+ * actually runs.
+ */
+let sel = null; // {first, last} inclusive word indices, or null
+let showCuts = true; // struck through in place (true) or omitted (false)
+let playingIndex = null; // state.words[i].index currently under the playhead
+let wordIndexMap = new Map(); // word.index -> word, refreshed on every update()
+let dragging = null; // {anchor, moved} while a selection drag is live
+
+/* -- persistent DOM built once in init(), re-appended on every render, per
+ * tier 2's playheadEl() trick: clearing the pane detaches these nodes, but
+ * detaching does not destroy them or their listeners, so re-appending the
+ * same instances is enough. ------------------------------------------- */
+let toggleRow = null;
+let toolbarEl = null;
+let popoverEl = null;
+let infoEl = null;
+let padInput = null;
+let confirmInput = null;
+let optsBtn = null;
+
+function wordLabel(word) {
+  const where = word.present ? `plays at ${fmt(word.timeline_start)}` : "cut — it is not in the timeline";
+  const parts = [`#${word.index}  source ${secs(word.start)}–${secs(word.end)}`, where];
+  if (word.partial) parts.push(`survives in part: ${secs(word.covered)} of ${secs(word.end - word.start)}`);
+  if (word.suspect) {
+    const dur = word.suspect.duration !== undefined ? secs(word.suspect.duration) : "?";
+    const limit = word.suspect.limit !== undefined ? secs(word.suspect.limit) : "?";
+    parts.push(`suspect duration — claims ${dur}, over the ${limit} limit; it may be hiding a retake`);
+  }
+  return parts.join("\n");
+}
+
+function rows(pairs) {
+  const table = el("table", "rows");
+  for (const [key, value] of pairs) {
+    const tr = el("tr");
+    tr.append(el("td", null, key), el("td", null, value));
+    table.append(tr);
+  }
+  return table;
+}
+
+/* -- building the toolbars once ------------------------------------------ */
+
+function buildToggleRow() {
+  const row = el("div", "transcript-toolbar");
+  const btn = el("button", "toggle on", "cuts shown");
+  btn.title = "show cut words struck through, or hide them from the document entirely";
+  btn.addEventListener("click", () => {
+    showCuts = !showCuts;
+    btn.classList.toggle("on", showCuts);
+    btn.textContent = showCuts ? "cuts shown" : "cuts hidden";
+    const view = ctx.getView();
+    if (view && view.words) {
+      renderWords(view);
+      paintSelection();
+      reapplyPlaying();
+      refreshToolbar();
+    }
+  });
+  toggleRow = row;
+  row.append(btn);
+}
+
+function buildSelectionToolbar() {
+  const bar = el("div", "selection-toolbar");
+  bar.hidden = true;
+
+  const previewBtn = el("button", null, "Preview");
+  const cutBtn = el("button", null, "Cut");
+  const keepBtn = el("button", null, "Keep only");
+  const opts = el("button", "toggle", "pad");
+
+  const popover = el("div", "toolbar-popover");
+  popover.hidden = true;
+  const info = el("div");
+
+  const padLabel = el("label", null, "pad ");
+  const pad = document.createElement("input");
+  pad.type = "number";
+  pad.step = "0.05";
+  pad.min = "0";
+  pad.value = "0";
+  pad.style.width = "5em";
+  padLabel.append(pad);
+
+  const confirmLabel = el("label", null, "");
+  const confirm = document.createElement("input");
+  confirm.type = "checkbox";
+  confirmLabel.append(confirm, document.createTextNode(" allow a suspect boundary"));
+
+  popover.append(info, padLabel, confirmLabel);
+
+  opts.addEventListener("click", () => {
+    popover.hidden = !popover.hidden;
+    opts.classList.toggle("on", !popover.hidden);
+  });
+
+  previewBtn.addEventListener("click", () => runOp(true, "cut"));
+  cutBtn.addEventListener("click", () => runOp(false, "cut"));
+  keepBtn.addEventListener("click", () => runOp(false, "keep"));
+
+  bar.append(previewBtn, cutBtn, keepBtn, opts, popover);
+
+  toolbarEl = bar;
+  popoverEl = popover;
+  infoEl = info;
+  padInput = pad;
+  confirmInput = confirm;
+  optsBtn = opts;
+}
+
+/* -- rendering the document ----------------------------------------------- */
+
+function buildParagraphs(words) {
+  const paras = [];
+  let current = null;
+  for (const w of words) {
+    if (!current || current.paragraph !== w.paragraph) {
+      current = { paragraph: w.paragraph, words: [] };
+      paras.push(current);
+    }
+    current.words.push(w);
+  }
+  return paras;
+}
+
+function paragraphAnchorTime(paraWords) {
+  const present = paraWords.find((w) => w.present);
+  return present ? present.timeline_start : null;
+}
+
+function renderWords(state) {
+  const pane = $("transcript");
+  pane.textContent = "";
+  pane.append(toggleRow);
+
+  wordIndexMap = new Map();
+
+  const frag = document.createDocumentFragment();
+  for (const para of buildParagraphs(state.words)) {
+    const p = el("p", "para");
+    const anchor = paragraphAnchorTime(para.words);
+    const ts = el("span", "para-ts", anchor === null ? "—" : fmt(anchor));
+    if (anchor !== null) {
+      ts.style.cursor = "pointer";
+      ts.title = "seek here";
+      ts.addEventListener("click", () => ctx.player.seek(anchor));
+    }
+    p.append(ts);
+    for (const word of para.words) {
+      wordIndexMap.set(word.index, word);
+      if (!word.present && !showCuts) continue; // hidden entirely, not just dimmed
+      const node = el("span", "w", word.text);
+      if (!word.present) node.classList.add("gone");
+      if (word.partial) node.classList.add("partial");
+      if (word.suspect) node.classList.add("suspect");
+      node.dataset.i = String(word.index);
+      node.title = wordLabel(word);
+      p.append(node, document.createTextNode(" "));
+    }
+    frag.append(p);
+  }
+  pane.append(frag);
+  pane.append(toolbarEl);
+}
+
+function paintSelection() {
+  for (const node of $("transcript").querySelectorAll(".w")) {
+    const i = Number(node.dataset.i);
+    node.classList.toggle("sel", sel !== null && i >= sel.first && i <= sel.last);
+  }
+}
+
+function reapplyPlaying() {
+  // Restores the highlight after a re-render without scrolling — a re-render
+  // triggered by an edit (or the show-cuts toggle) should not yank the
+  // reading position, only the live 'playing-word' event should.
+  if (playingIndex === null) return;
+  const node = $("transcript").querySelector(`.w[data-i="${playingIndex}"]`);
+  if (node) node.classList.add("playing");
+}
+
+function paintPlayingWord(index) {
+  if (playingIndex !== null && playingIndex !== index) {
+    const old = $("transcript").querySelector(`.w[data-i="${playingIndex}"]`);
+    if (old) old.classList.remove("playing");
+  }
+  playingIndex = index;
+  const node = $("transcript").querySelector(`.w[data-i="${index}"]`);
+  if (node) {
+    node.classList.add("playing");
+    node.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+/* -- the floating selection toolbar --------------------------------------- */
+
+function findAnchorNode() {
+  if (!sel) return null;
+  for (let i = sel.last; i >= sel.first; i--) {
+    const node = $("transcript").querySelector(`.w[data-i="${i}"]`);
+    if (node) return node;
+  }
+  return null;
+}
+
+function renderPopoverInfo() {
+  infoEl.textContent = "";
+  if (!sel) return;
+  const first = wordIndexMap.get(sel.first);
+  const last = wordIndexMap.get(sel.last);
+  if (!first || !last) return;
+
+  // The neighbours either side are the point of the echo (CLAUDE.md): a
+  // range one word past the intended phrase has to read correctly alone.
+  const quote = el("div", "quote");
+  const context = 3;
+  for (let i = Math.max(0, sel.first - context); i <= sel.last + context; i++) {
+    const w = wordIndexMap.get(i);
+    if (!w) continue;
+    const inside = i >= sel.first && i <= sel.last;
+    quote.append(el("span", inside ? "hit" : "ctx", w.text + " "));
+  }
+  infoEl.append(quote);
+
+  const count = sel.last - sel.first + 1;
+  infoEl.append(
+    rows([
+      ["words", `${count} (#${sel.first}–#${sel.last})`],
+      ["source", `${secs(first.start)} – ${secs(last.end)}`],
+    ]),
+  );
+
+  if (first.suspect || last.suspect) {
+    infoEl.append(
+      el(
+        "div",
+        "warn",
+        "A boundary word here claims a suspect duration — it may be hiding a " +
+          "retake rather than ending where it says. Cutting through it needs " +
+          '"allow a suspect boundary" below.',
+      ),
+    );
+  }
+}
+
+function refreshToolbar() {
+  if (!sel) {
+    toolbarEl.hidden = true;
+    popoverEl.hidden = true;
+    optsBtn.classList.remove("on");
+    return;
+  }
+  const anchor = findAnchorNode();
+  toolbarEl.style.left = anchor ? `${anchor.offsetLeft}px` : "0px";
+  toolbarEl.style.top = anchor ? `${anchor.offsetTop + anchor.offsetHeight + 4}px` : "0px";
+  toolbarEl.hidden = false;
+  renderPopoverInfo();
+}
+
+/* -- running an op ---------------------------------------------------------
+ * Preview is `plan: true` on the same `/api/cut` call Cut makes — PLAN.md §
+ * Where the cut controls go says this explicitly: not its own endpoint, so
+ * the two paths cannot drift apart. The result never renders here; it is
+ * handed to the bus and agent.js draws it into the feed.
+ */
+async function runOp(planned, mode) {
+  if (!sel || !ctx) return;
+  const view = ctx.getView();
+  if (!view) return;
+  const body = {
+    clip_id: view.clip_id,
+    ranges: [[sel.first, sel.last]],
+    mode,
+    pad: Number(padInput.value) || 0,
+    confirm_suspect: Boolean(confirmInput.checked),
+    plan: planned,
+  };
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/cut", body);
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error && !planned) {
+    // The write landed — 'project-changed' will bring a fresh view through
+    // the normal update() path; clear the selection now rather than wait,
+    // so the toolbar does not linger over words that just moved.
+    sel = null;
+    paintSelection();
+    refreshToolbar();
+  }
+}
+
+/* -- selection: click, shift-click, drag ---------------------------------- */
+
+function clearSelection() {
+  if (!sel) return;
+  sel = null;
+  paintSelection();
+  refreshToolbar();
+}
+
+function handleMouseDown(event) {
+  if (toolbarEl.contains(event.target) || toggleRow.contains(event.target)) return;
+  const node = event.target.closest(".w");
+  if (!node) {
+    clearSelection();
+    return;
+  }
+  event.preventDefault();
+  const i = Number(node.dataset.i);
+  if (event.shiftKey && sel) {
+    sel = { first: Math.min(sel.first, i), last: Math.max(sel.last, i) };
+  } else {
+    dragging = { anchor: i, moved: false };
+    sel = { first: i, last: i };
+  }
+  paintSelection();
+  refreshToolbar();
+}
+
+function handleMouseOver(event) {
+  if (!dragging) return;
+  const node = event.target.closest(".w");
+  if (!node) return;
+  const i = Number(node.dataset.i);
+  if (i !== dragging.anchor) dragging.moved = true;
+  sel = { first: Math.min(dragging.anchor, i), last: Math.max(dragging.anchor, i) };
+  paintSelection();
+  refreshToolbar();
+}
+
+function handleMouseUp() {
+  if (dragging && !dragging.moved) {
+    // A plain click on one word is also "play from here" — the fastest way
+    // to check whether a cut landed where it reads like it did.
+    const word = wordIndexMap.get(dragging.anchor);
+    if (word) ctx.player.seekWord(word);
+  }
+  dragging = null;
+}
+
+/* -- the two exported entry points ----------------------------------------- */
+
+export function init(passedCtx) {
+  ctx = passedCtx;
+  buildToggleRow();
+  buildSelectionToolbar();
+
+  $("transcript").append(el("p", "pane-placeholder", "Loading…"));
+
+  const pane = $("transcript");
+  pane.addEventListener("mousedown", handleMouseDown);
+  pane.addEventListener("mouseover", handleMouseOver);
+  window.addEventListener("mouseup", handleMouseUp);
+
+  ctx.on("playing-word", ({ index }) => paintPlayingWord(index));
+}
+
+export function update(state) {
+  const pane = $("transcript");
+
+  if (!state) {
+    pane.textContent = "";
+    pane.append(el("p", "pane-placeholder", "Nothing loaded."));
+    sel = null;
+    wordIndexMap = new Map();
+    return;
+  }
+
+  if (!state.words) {
+    pane.textContent = "";
+    pane.append(
+      el(
+        "p",
+        "pane-placeholder",
+        `${state.clip_id} has no transcript, so there are no words to address. ` +
+          `Run \`lucid transcribe ${state.clip_id}\` or attach a whisper JSON.`,
+      ),
+    );
+    sel = null;
+    wordIndexMap = new Map();
+    return;
+  }
+
+  // A selection may reference indices from a clip this update just replaced
+  // (e.g. the clip picker changed) — drop it rather than show a stale range
+  // against new words.
+  if (sel && (sel.last >= state.words.length || !state.words.some((w) => w.index === sel.first))) {
+    sel = null;
+  }
+
+  renderWords(state);
+  paintSelection();
+  reapplyPlaying();
+  refreshToolbar();
+}

@@ -8,17 +8,21 @@ So these start the real `ThreadingHTTPServer` and speak HTTP to it.
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
+import shlex
 import shutil
 import struct
 import threading
+import time
 import urllib.error
 import urllib.request
 import wave
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -78,6 +82,7 @@ def server(project: Path) -> Iterator[str]:
     finally:
         httpd.shutdown()
         httpd.server_close()
+        httpd.agent.close()
         thread.join(timeout=5)
 
 
@@ -102,6 +107,52 @@ def _post(url: str, payload: dict[str, Any], *, content_type: str = "application
         headers={"Content-Type": content_type},
         method="POST",
     )
+
+
+def _host_and_port(server: str) -> tuple[str, int]:
+    parts = urlsplit(server)
+    assert parts.hostname is not None
+    assert parts.port is not None
+    return parts.hostname, parts.port
+
+
+def _sse_events(resp: http.client.HTTPResponse) -> Iterator[tuple[str, Any]]:
+    """Yield `(event, data)` pairs off an open `/api/events` connection.
+
+    Reads raw lines off the still-open socket rather than `resp.read()`,
+    which would block until the connection closes — exactly what an SSE
+    stream never does on its own.
+    """
+    event = "message"
+    while True:
+        raw = resp.readline()
+        if not raw:
+            return
+        line = raw.decode("utf-8").rstrip("\n")
+        if line == "":
+            continue
+        if line.startswith("event:"):
+            event = line[len("event:") :].strip()
+        elif line.startswith("data:"):
+            data = json.loads(line[len("data:") :].strip())
+            yield event, data
+            event = "message"
+
+
+def _write_agent_stub(path: Path, argv_file: Path, canned: dict[str, Any]) -> None:
+    """A fake `claude` binary: records its own argv, echoes one stream-json line.
+
+    Blocks reading stdin afterwards so the process stays alive the way the
+    real subprocess would, rather than exiting and racing the reader thread.
+    """
+    script = (
+        "#!/usr/bin/env bash\n"
+        f"printf '%s\\n' \"$@\" > {shlex.quote(str(argv_file))}\n"
+        f"echo {shlex.quote(json.dumps(canned))}\n"
+        "cat > /dev/null\n"
+    )
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
 
 
 # -- the read model -------------------------------------------------------
@@ -302,6 +353,26 @@ def test_an_unknown_clip_is_a_message_not_a_crash(server: str) -> None:
     assert "nope" in payload["error"]
 
 
+# -- waveform ---------------------------------------------------------------
+
+
+def test_waveform_matches_the_ops_contract(project: Path, server: str) -> None:
+    status, payload = _json(f"{server}/api/waveform/vo")
+    assert status == 200
+    assert payload["clip_id"] == "vo"
+    assert payload["frame_ms"] == 20
+    assert isinstance(payload["rms"], list)
+    assert payload["rms"]
+    assert all(isinstance(v, int) and 0 <= v <= 255 for v in payload["rms"])
+    assert payload["duration_s"] == pytest.approx(12.0, abs=0.1)
+
+
+def test_waveform_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> None:
+    status, payload = _json(f"{server}/api/waveform/nope")
+    assert status == 400
+    assert "nope" in payload["error"]
+
+
 # -- the guards -----------------------------------------------------------
 
 
@@ -373,3 +444,423 @@ def test_an_unknown_endpoint_is_a_404_with_a_message(server: str) -> None:
     status, payload = _json(f"{server}/api/nothing")
     assert status == 404
     assert "error" in payload
+
+
+# -- /api/events, the SSE stream -------------------------------------------
+
+
+def test_events_stream_is_text_event_stream_and_starts_with_the_revision(server: str) -> None:
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert (resp.getheader("Content-Type") or "").startswith("text/event-stream")
+
+        event, data = next(_sse_events(resp))
+        assert event == "project-changed"
+        assert "revision" in data
+    finally:
+        conn.close()
+
+
+def test_events_stream_reports_project_changed_after_a_mutation(server: str) -> None:
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        _, first = next(events)
+        first_revision = first["revision"]
+
+        status, _ = _post(
+            f"{server}/api/cut", {"clip_id": "vo", "ranges": [[3, 4]], "mode": "cut"}
+        )
+        assert status == 200
+
+        for event, data in events:
+            if event == "project-changed" and data["revision"] != first_revision:
+                break
+        else:
+            pytest.fail("no project-changed event followed the mutation")
+    finally:
+        conn.close()
+
+
+def test_events_endpoint_rejects_a_bad_host(server: str) -> None:
+    status, payload = _json(f"{server}/api/events", headers={"Host": "evil.example.com"})
+    assert status == 403
+    assert "loopback" in payload["error"]
+
+
+# -- the agent subprocess ---------------------------------------------------
+
+
+def test_agent_endpoints_reject_a_bad_host(server: str) -> None:
+    for path in ("/api/agent", "/api/agent/stop"):
+        request = urllib.request.Request(
+            f"{server}{path}",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request) as response:
+                code = response.status
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+        assert code == 403, path
+
+
+def test_agent_endpoints_require_json_content_type(server: str) -> None:
+    for path in ("/api/agent", "/api/agent/stop"):
+        status, payload = _post(f"{server}{path}", {"prompt": "hi"}, content_type="text/plain")
+        assert status == 400, path
+        assert "application/json" in payload["error"]
+
+    # Missing entirely, not just wrong, is refused the same way.
+    request = urllib.request.Request(
+        f"{server}/api/agent", data=b"{}", method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 400
+
+
+def test_agent_prompt_requires_a_prompt(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent", {})
+    assert status == 400
+    assert "prompt" in payload["error"]
+
+
+def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one end-to-end check: a stubbed `claude` records its own argv and
+    echoes a canned `stream-json` line, which must come back out as an
+    `agent` event on `/api/events` — proving the spawn, the allowlist, and
+    the bus all actually connect rather than merely existing side by side.
+    """
+    argv_file = tmp_path / "argv.txt"
+    canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+    stub = tmp_path / "agent-stub.sh"
+    _write_agent_stub(stub, argv_file, canned)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/agent", {"prompt": "cut the retake"})
+        assert status == 202
+        assert payload["accepted"] is True
+
+        found = None
+        for event, data in events:
+            if event == "agent":
+                found = data
+                break
+        assert found == canned
+    finally:
+        conn.close()
+
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+    assert "--strict-mcp-config" in argv
+    assert "mcp__lucid__*" in argv
+    assert "--permission-mode" in argv
+    assert argv[argv.index("--permission-mode") + 1] == "manual"
+    for tool in ("Bash", "Write", "Edit", "WebFetch", "WebSearch"):
+        assert tool in argv
+    # --verbose: claude 2.1.226 refuses --print --output-format=stream-json
+    # without it (errors and exits 0 with nothing on stdout) — see
+    # PLAN.md § The agent panel, in mechanism.
+    assert "--verbose" in argv
+    # --tools '': the allow/disallow lists alone do not gate built-in tools
+    # absent from both — this is what actually confines the agent to lucid's
+    # MCP tools and nothing else. Same PLAN.md section.
+    assert "--tools" in argv
+    assert argv[argv.index("--tools") + 1] == ""
+
+
+def _write_silent_agent_stub(path: Path) -> None:
+    """A fake `claude` that reproduces the real bug this test guards against:
+    it errors to stderr and exits 0 without ever writing a `stream-json` line
+    to stdout — exactly what claude 2.1.226 does when `--verbose` is missing
+    from a `--print --output-format=stream-json` invocation.
+    """
+    script = "#!/usr/bin/env bash\necho 'Error: boom, no --verbose' >&2\nexit 0\n"
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_a_silent_agent_exit_still_surfaces_as_a_result_event(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A subprocess that exits without ever printing a `stream-json` line
+    must not leave the page's composer hung on `busy` forever with nothing on
+    `/api/events` to clear it — the failure mode a real `claude` upgrade
+    silently produced. A synthetic `result` event with a non-"success"
+    subtype is what `agent.js`'s `handleResult` needs to show an error and
+    clear `busy`.
+    """
+    stub = tmp_path / "silent-agent-stub.sh"
+    _write_silent_agent_stub(stub)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/agent", {"prompt": "cut the retake"})
+        assert status == 202
+        assert payload["accepted"] is True
+
+        found = None
+        for event, data in events:
+            if event == "agent":
+                found = data
+                break
+        assert found is not None
+        assert found["type"] == "result"
+        assert found["subtype"] != "success"
+        assert "boom" in found["result"]
+    finally:
+        conn.close()
+
+
+def test_a_failed_agent_spawn_is_a_json_error_not_a_reset(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A binary that cannot spawn at all (`claude` missing from PATH, a dead
+    LUCID_AGENT_BIN) puts nothing on `/api/events` — so the composer's only
+    way to hear about it is this request failing as JSON rather than the
+    connection resetting on an uncaught server-side traceback.
+    """
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(tmp_path / "no-such-binary"))
+    status, payload = _post(f"{server}/api/agent", {"prompt": "cut the retake"})
+    assert status == 500
+    assert "could not start the agent" in payload["error"]
+
+
+def test_agent_stop_with_no_subprocess_running_is_a_no_op(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent/stop", {})
+    assert status == 200
+    assert payload["stopped"] is True
+
+
+# -- render jobs -------------------------------------------------------------
+#
+# `ops.export` is monkeypatched to a stub that writes a tiny real WAV instead
+# of shelling out to auto-editor (PLAN.md § Finishing; the task's own
+# guidance for this test style) — these exercise the job model's plumbing,
+# not a real render. `ops.verify` is separately stubbed where a completion
+# payload's shape is asserted, so the test does not depend on whisper being
+# on this machine's PATH; where it is *not* stubbed, the real absence of
+# whisper (CLAUDE.md) drives the honest `verify: skipped` path for free.
+
+
+def _fast_export_stub(
+    path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+) -> dict[str, Any]:
+    _make_wav(Path(output), duration=0.3)
+    return {
+        "output": output,
+        "format": "media",
+        "timebase": 1000.0,
+        "segments": 1,
+        "timeline_duration": 0.3,
+    }
+
+
+def _render_output_path(project: Path, job_id: str) -> Path:
+    # RenderJob._output_path: `web-<job_id><suffix>` under renders/, where the
+    # suffix follows the fixture's one clip, vo.wav.
+    return project / "renders" / f"web-{job_id}.wav"
+
+
+def _next_render_event(events: Iterator[tuple[str, Any]], job_id: str) -> dict[str, Any]:
+    """The first non-`running` `render` event for `job_id` off an open stream."""
+    for event, data in events:
+        if event == "render" and data.get("job_id") == job_id and data.get("status") != "running":
+            return data
+    raise AssertionError(f"no completion event arrived for render {job_id}")
+
+
+def test_render_accepted_returns_a_job_id(server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ops, "export", _fast_export_stub)
+    status, payload = _post(f"{server}/api/render", {})
+    assert status == 202
+    assert isinstance(payload["job_id"], str) and payload["job_id"]
+
+
+def test_a_second_render_while_one_is_running_is_refused(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = threading.Event()
+
+    def _stub(
+        path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+    ) -> dict[str, Any]:
+        _make_wav(Path(output), duration=0.2)
+        gate.wait(timeout=5)
+        return {"output": output, "format": "media", "timebase": 1000.0}
+
+    monkeypatch.setattr(ops, "export", _stub)
+    try:
+        status, _ = _post(f"{server}/api/render", {})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/render", {})
+        assert status == 409
+        assert "error" in payload
+    finally:
+        gate.set()
+
+
+def test_render_stop_deletes_the_partial_output_and_reports_cancelled(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = threading.Event()
+
+    def _stub(
+        path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+    ) -> dict[str, Any]:
+        _make_wav(Path(output), duration=0.2)
+        gate.wait(timeout=5)
+        return {"output": output, "format": "media", "timebase": 1000.0}
+
+    monkeypatch.setattr(ops, "export", _stub)
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {})
+        assert status == 202
+        job_id = payload["job_id"]
+        output = _render_output_path(project, job_id)
+
+        deadline = time.monotonic() + 5
+        while not output.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert output.exists(), "the stub never wrote its partial output"
+
+        status, _ = _post(f"{server}/api/render/stop", {})
+        assert status == 200
+
+        # Deleted the instant `stop` answers, not merely once the background
+        # export call eventually notices the cancellation (PLAN.md line 1832:
+        # the partial output is deleted, not left).
+        assert not output.exists()
+
+        gate.set()
+        found = _next_render_event(events, job_id)
+        assert found["status"] == "cancelled"
+        assert not output.exists()
+    finally:
+        gate.set()
+        conn.close()
+
+
+def test_render_completion_event_carries_dimensions_and_check_results(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ops, "export", _fast_export_stub)
+    monkeypatch.setattr(ops, "verify", lambda *a, **k: {"agrees": True, "stub": True})
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {})
+        assert status == 202
+        job_id = payload["job_id"]
+
+        found = _next_render_event(events, job_id)
+        assert found["status"] == "done"
+        assert Path(found["output"]).exists()
+        # (a) honesty: these are ffprobe's own read of the file that landed on
+        # disk, not auto-editor's exit code.
+        assert found["has_video"] is False
+        assert found["has_audio"] is True
+        assert found["duration"] == pytest.approx(0.3, abs=0.05)
+
+        # (b) the completion card is where the existing checks land.
+        checks = found["checks"]
+        assert checks["verify"] == {"agrees": True, "stub": True}
+        for name in ("check_frames", "check_black", "spot_frames"):
+            assert checks[name]["skipped"] is True
+            assert "video" in checks[name]["reason"]
+    finally:
+        conn.close()
+
+
+def test_render_endpoints_reject_a_bad_host(server: str) -> None:
+    for path in ("/api/render", "/api/render/stop"):
+        request = urllib.request.Request(
+            f"{server}{path}",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request) as response:
+                code = response.status
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+        assert code == 403, path
+
+
+def test_render_endpoints_require_json_content_type(server: str) -> None:
+    for path in ("/api/render", "/api/render/stop"):
+        status, payload = _post(f"{server}{path}", {}, content_type="text/plain")
+        assert status == 400, path
+        assert "application/json" in payload["error"]
+
+
+def test_render_stop_with_no_job_running_is_a_no_op(server: str) -> None:
+    status, payload = _post(f"{server}/api/render/stop", {})
+    assert status == 200
+    assert payload["stopped"] is True
+
+
+def test_render_on_an_empty_timeline_is_refused_before_a_job_starts(
+    project: Path, server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `ops.undo` empties the seeded timeline back to nothing to import; simpler
+    # to point the render at a project whose timeline was never seeded.
+    empty = project.parent / "empty-proj"
+    ops.init(empty)
+    httpd = webui.make_server(empty, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, payload = _post(f"http://127.0.0.1:{httpd.server_address[1]}/api/render", {})
+        assert status == 400
+        assert "error" in payload
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)

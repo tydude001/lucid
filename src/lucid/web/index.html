@@ -4,10 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>lucid</title>
+    <!-- Empty data URI, not a missing tag: without it the browser falls back
+         to GET /favicon.ico, which this server has no route for and which
+         logs a 404 on every load. -->
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
     <header id="bar">
+      <span class="brand">lucid</span>
+      <span class="sep">/</span>
       <span id="project" class="name">…</span>
       <select id="clip" title="clip"></select>
       <span class="stats">
@@ -16,82 +22,79 @@
         · <b id="cutcount">–</b> cuts
       </span>
       <span class="spacer"></span>
+      <button id="export" class="primary" title="render a watermark-free MP4 in the window">
+        Export
+      </button>
       <button id="undo" title="roll back the last timeline mutation">
         Undo <span id="depth" class="depth"></span>
       </button>
-      <button id="reload" title="re-read the timeline from disk">Reload</button>
     </header>
 
-    <section id="stage">
-      <div id="viewer">
-        <!-- Audio-only clips play through this too; it just shows nothing. -->
-        <video id="media" preload="metadata"></video>
-      </div>
-
-      <div id="transport">
-        <button id="play" title="play the timeline (space)">▶</button>
-        <span id="clock" class="clock">0:00.0 / 0:00.0</span>
-        <span class="spacer"></span>
-        <span id="playhint" class="hint">
-          playing the source through the edit — each seam is a seek, so expect a
-          click rather than a clean join
-        </span>
-      </div>
-
-      <div class="strip-block">
-        <div class="strip-label">
-          timeline — what plays
-          <span class="hint">click to seek · drag to select a span to cut</span>
-        </div>
-        <div id="timeline" class="strip"><div id="playhead" class="playhead"></div></div>
-      </div>
-
-      <div class="strip-block">
-        <div class="strip-label">
-          source — the recording, with what the edit removed
-          <span class="hint">click to seek to where that source instant now plays</span>
-        </div>
-        <div id="source" class="strip source"></div>
-      </div>
-    </section>
-
-    <main id="panes">
-      <div id="transcript-pane">
+    <div id="workspace">
+      <aside id="transcript-pane" class="pane">
         <div class="pane-head">
           transcript
           <span class="hint">click a word · drag or shift-click to extend</span>
         </div>
-        <div id="transcript" class="transcript"></div>
-      </div>
-
-      <aside id="inspector">
-        <div class="pane-head">selection</div>
-        <div id="selection" class="empty">Nothing selected.</div>
-
-        <div id="controls" hidden>
-          <label class="ctl">
-            pad
-            <input id="pad" type="number" step="0.05" min="0" value="0" />
-            <span class="hint">seconds added to each side, to reach the silence between words</span>
-          </label>
-          <label class="ctl check">
-            <input id="confirm" type="checkbox" />
-            allow a suspect boundary
-          </label>
-          <div class="buttons">
-            <button id="plan" class="primary">Preview</button>
-            <button id="apply">Cut</button>
-            <button id="keep">Keep only</button>
-            <button id="clear">Clear</button>
-          </div>
-        </div>
-
-        <div class="pane-head">result</div>
-        <div id="result" class="empty">Nothing run yet.</div>
+        <div id="transcript"></div>
       </aside>
-    </main>
+
+      <section id="preview-pane" class="pane">
+        <div id="viewer">
+          <!-- Never display:none, even on an audio-only clip (PLAN.md §
+               Layout) — player.js draws a level display into #visualizer
+               instead when there is no picture to show. -->
+          <video id="media" preload="metadata"></video>
+          <canvas id="visualizer" width="960" height="240"></canvas>
+        </div>
+        <div id="transport">
+          <button id="play" title="play the timeline (space)">▶</button>
+          <span id="clock" class="clock">0:00.0 / 0:00.0</span>
+          <span class="spacer"></span>
+          <span id="playhint" class="hint">
+            playing the source through the edit — each seam is a seek, so
+            expect a click rather than a clean join
+          </span>
+        </div>
+      </section>
+
+      <aside id="agent-pane" class="pane">
+        <div class="pane-head">agent</div>
+        <div id="agent-feed" class="agent-feed"></div>
+        <form id="agent-composer" class="agent-composer">
+          <textarea
+            id="agent-prompt"
+            rows="2"
+            placeholder="Ask the agent to edit this project…"
+          ></textarea>
+          <div class="agent-composer-row">
+            <button id="agent-stop" type="button" hidden>Stop</button>
+            <button id="agent-send" type="submit" class="primary">Send</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
+    <section id="timeline-pane">
+      <div class="timeline-head">
+        <span class="pane-head-inline">timeline</span>
+        <span class="hint">
+          lanes are projections of one track — no lane the render cannot
+          produce (PLAN.md § The timeline)
+        </span>
+        <span class="spacer"></span>
+        <label class="zoom-ctl">
+          zoom
+          <input id="zoom" type="range" min="1" max="10" step="0.1" value="1" />
+        </label>
+      </div>
+      <div id="timeline-tracks">
+        <div id="track-headers" class="track-headers"></div>
+        <div id="track-lanes" class="track-lanes"></div>
+      </div>
+    </section>
 
     <div id="toast" hidden></div>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

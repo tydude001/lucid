@@ -12,6 +12,7 @@ inspectable with ordinary tools::
         verify/             <render>.json — what a finished render was heard to say
         frames/             <render-stem>/*.png — spot-check frames pulled from a render
         attenuated/         <clip_id>.<ext> — derived, gain-reduced copies of clip media
+        waveform/           <clip_id>.json — RMS envelope, keyed by media size+mtime
       renders/              preview.mp4, final.mp4, …
 
 The OTIO file is authoritative for the edit; renders are derived from it and
@@ -40,6 +41,7 @@ HISTORY_DIR = "cache/history"
 VERIFY_DIR = "cache/verify"
 FRAMES_DIR = "cache/frames"
 ATTENUATED_DIR = "cache/attenuated"
+WAVEFORM_DIR = "cache/waveform"
 RENDER_DIR = "renders"
 
 _SUBDIRS = (
@@ -50,6 +52,7 @@ _SUBDIRS = (
     VERIFY_DIR,
     FRAMES_DIR,
     ATTENUATED_DIR,
+    WAVEFORM_DIR,
     RENDER_DIR,
 )
 
@@ -102,8 +105,15 @@ class Project:
     def attenuated_dir(self) -> Path:
         return self.root / ATTENUATED_DIR
 
+    @property
+    def waveform_dir(self) -> Path:
+        return self.root / WAVEFORM_DIR
+
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"
+
+    def waveform_path(self, clip_id: str) -> Path:
+        return self.waveform_dir / f"{clip_id}.json"
 
     # -- history ---------------------------------------------------------
 

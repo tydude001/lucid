@@ -1747,24 +1747,39 @@ exist, and `--permission-mode` takes `manual` among others. There is **no
 `--cwd` flag**; the working directory is set on the spawn.
 
 ```
-claude -p --input-format stream-json --output-format stream-json
+claude -p --verbose --input-format stream-json --output-format stream-json
        --mcp-config <generated: one server, lucid mcp -C <project>>
        --strict-mcp-config
+       --tools ''
        --allowedTools 'mcp__lucid__*'
        --disallowedTools Bash Write Edit WebFetch WebSearch
        --permission-mode manual
 # cwd=<project root>, set on the Popen, not by a flag
 ```
 
-**The tool allowlist is the security boundary, and it is the whole design.**
-Today a bypass of the `Host`/content-type guards costs you a mangled edit that
-`Undo` reverses. An agent panel without an allowlist would make the same bypass
-cost arbitrary code execution as the user, because Claude Code has Bash. So the
-agent gets lucid's MCP tools **and nothing else**, which bounds a fully
-hijacked agent to operations the undo stack already reverses. `--permission-mode
-manual` is deliberate and is the belt to the allowlist's braces: there is no
-TTY on a subprocess, so anything falling outside the allowlist cannot be
-approved and fails closed rather than running.
+`--verbose` is not optional either, and not for logging: 2.1.226 refuses
+`--print --output-format=stream-json` without it — errors and **exits 0**
+with nothing on stdout, which the SSE-consuming page has no way to see as
+failure (a submitted prompt just sits "busy" forever). Verified by direct
+reproduction, not recalled.
+
+**The tool allowlist is the security boundary, and it is the whole design —
+but `--allowedTools`/`--disallowedTools`/`--permission-mode manual` alone do
+not enforce it against built-in tools.** Verified against 2.1.226: those three
+flags govern *permission prompts*; a built-in tool named in neither list (the
+reproduction used `Glob`) simply never triggers one and runs. `--tools ''`
+is what actually disables the built-in set, leaving only the MCP tools
+`--strict-mcp-config` exposes — that is the flag that makes "the agent gets
+lucid's MCP tools and nothing else" true, not the allow/disallow lists on
+their own. Today a bypass of the `Host`/content-type guards costs you a
+mangled edit that `Undo` reverses. An agent panel without this bound would
+make the same bypass cost arbitrary code execution as the user, because
+Claude Code has Bash. So the agent gets lucid's MCP tools **and nothing
+else**, which bounds a fully hijacked agent to operations the undo stack
+already reverses. `--permission-mode manual` remains the belt to the
+allowlist's braces for the MCP tools themselves: there is no TTY on a
+subprocess, so an MCP tool call outside `--allowedTools` cannot be approved
+and fails closed rather than running.
 
 **This was chosen against the two looser options, not defaulted into**
 (2026-08-08). Read-only project file access via `--add-dir` was rejected

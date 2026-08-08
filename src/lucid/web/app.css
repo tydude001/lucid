@@ -1,4 +1,118 @@
-/* lucid's preview UI. One stylesheet, no framework, no build step. */
+/* lucid's workspace UI — app shell + design system.
+ *
+ * PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace, § Layout.
+ * One stylesheet, no framework, no build step. This file is CLOSED to the
+ * pane stages that fill in transcript.js / timeline.js / agent.js: they
+ * render into the classes documented below rather than adding new ones
+ * here. If a pane needs something that doesn't exist yet, that is a signal
+ * to extend this file deliberately, not to reach for an inline style.
+ *
+ * ---------------------------------------------------------------------
+ * DESIGN SYSTEM — read this before writing a pane module
+ * ---------------------------------------------------------------------
+ *
+ * Layout skeleton (see index.html):
+ *   #bar                  top bar: brand/project, stats, Export, Undo
+ *   #workspace             grid: transcript-pane | preview-pane | agent-pane
+ *   #timeline-pane          full-width strip under the workspace, ~22vh —
+ *                          the picture in #preview-pane is the largest thing
+ *                          on screen, not this strip and not the transcript.
+ *
+ * Generic pane chrome, used by all three panes and reusable by any future
+ * one:
+ *   .pane                  flex column, its own vertical scroll, a border
+ *                          toward the neighbour pane
+ *   .pane-head              the small-caps label row at the top of a pane
+ *   .pane-head-inline        the same label style, inline rather than a
+ *                          full header row (the timeline's head row)
+ *   .hint                   dim, small, explanatory text — captions, not
+ *                          content
+ *   .pane-placeholder       "nothing here yet" body copy — a stub's honest
+ *                          placeholder, or a genuine empty state
+ *
+ * Preview pane (#viewer / #transport, owned by player.js — not a stub, the
+ * seam-jumping loop is ported unchanged from tier 2):
+ *   #viewer                 never `display:none` (tier 2's worst behaviour,
+ *                          PLAN.md § Layout) — holds the <video> or, on an
+ *                          audio-only clip, a level display instead
+ *   #viewer.audio            the audio-only state: video hidden, canvas shown
+ *
+ * Transcript pane (#transcript, filled by transcript.js):
+ *   .transcript-toolbar     top-of-pane controls (e.g. the show-cuts toggle)
+ *   .toggle                  a small on/off control, styled like a chip
+ *   .para                   one paragraph block (PLAN.md § Read-model
+ *                          additions: `paragraph` is word-order-driven, not
+ *                          duration-driven)
+ *   .para-ts                  the inline timestamp at a paragraph's head
+ *   .w                      one word — same states as tier 2:
+ *     .w.gone                cut — struck through, dim
+ *     .w.partial             survived in part — dashed underline
+ *     .w.suspect             suspect duration — tinted, no glyph (CLAUDE.md:
+ *                           a glyph reads as punctuation the speaker didn't
+ *                           say)
+ *     .w.sel                 inside the current selection
+ *     .w.playing             the word under the playhead right now
+ *   .selection-toolbar       floating, positioned to the selection's screen
+ *                          rect (PLAN.md § Where the cut controls go) —
+ *                          Preview / Cut / Keep only live here
+ *   .toolbar-popover          the pad + suspect-boundary-confirmation popover
+ *
+ * Timeline pane (#track-headers / #track-lanes, filled by timeline.js):
+ *   .timeline-head           the ruler-and-zoom row above the tracks
+ *   .zoom-ctl                 the zoom control
+ *   .track-headers            sticky left column, one row per lane
+ *   .track-header              one row in that column (e.g. "V1")
+ *   .track-header.ruler-spacer  an empty header row the height of .ruler, so
+ *                              the header column and the lane column line up
+ *   .track-lanes              the horizontally-scrolling lane area — headers
+ *                             and lanes stay vertically in sync because they
+ *                             are two columns of one flex row, not two
+ *                             independent scrollers
+ *   .ruler / .ruler-tick / .ruler-label
+ *   .lane                     one lane's row; modifiers .lane-v1 .lane-a1
+ *                             .lane-cc are cosmetic only — *which* lanes
+ *                             exist is a data question answered by the view,
+ *                             never a lane `export` cannot produce (CLAUDE.md
+ *                             / PLAN.md § The trap this section exists to
+ *                             write down)
+ *   .clip-block                one DOM block per timeline segment
+ *   .waveform-canvas            the <canvas> an A1 lane draws its envelope
+ *                             into (from `/api/waveform/<clip_id>`)
+ *   .seam-tick                  a cut boundary, drawn as a 1px line
+ *   .gap                        a removed stretch, on a source-coordinate lane
+ *   .playhead-line               the shared vertical line, positioned by `left`
+ *   .drag-box                    the box a strip drag draws while it is live
+ *
+ * Agent pane (#agent-feed / #agent-composer, filled by agent.js):
+ *   .agent-feed               the scrolling list — "one feed for everything
+ *                             that happened to the edit" (PLAN.md § Where
+ *                             the cut controls go)
+ *   .agent-entry                one feed item; modifiers say who/what it is:
+ *     .agent-entry--user         a prompt the person sent
+ *     .agent-entry--agent        a text delta from the model
+ *     .agent-entry--tool         a tool-use step, from the stream-json feed
+ *     .agent-entry--system       an op result — a cut/keep/undo, from a
+ *                               person or the agent, rendered the same way
+ *                               either way
+ *   .agent-progress              a running list of tool-use steps mid-turn
+ *   .agent-progress-step           one step; add .active or .done
+ *   .completion-card              a render's finished state — dimensions,
+ *                                duration, and the four checks
+ *   .check-row / .check-badge       one check's name and its badge; badge
+ *                                modifiers: .ok .warn .fail .skip
+ *   .agent-composer                the input row: textarea + Send/Stop
+ *
+ * Shared, reused wherever an op's result is echoed — op results render into
+ * the agent feed (PLAN.md § Where the cut controls go), but the transcript's
+ * own selection toolbar uses these too for its Preview panel:
+ *   .quote / .quote .ctx / .quote .hit    the word-range echo, three words
+ *                                        either side (CLAUDE.md)
+ *   .rows                                  a two-column key/value table
+ *   .warn / .warn.bad                      a flagged condition / a hard error
+ *
+ * #toast                     a transient bottom-right message, unchanged
+ *                            from tier 2
+ */
 
 :root {
   --bg: #14161a;
@@ -11,6 +125,18 @@
   --partial: #c8912f;
   --sel: #3d6fb4;
   --accent: #74a8e8;
+  --agent: #8b7fd1;
+  --ok: var(--kept);
+  --err: var(--cut);
+  --skip: var(--dim);
+
+  --pane-transcript-w: 26rem;
+  --pane-agent-w: 24rem;
+  --timeline-h: 22vh;
+  --timeline-h-min: 180px;
+  --track-header-w: 84px;
+  --lane-h: 42px;
+  --ruler-h: 22px;
 }
 
 * {
@@ -24,11 +150,12 @@ body {
 }
 
 body {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr minmax(var(--timeline-h-min), var(--timeline-h));
   background: var(--bg);
   color: var(--ink);
   font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+  overflow: hidden;
 }
 
 button {
@@ -55,8 +182,10 @@ button.primary {
   color: var(--accent);
 }
 
-input[type="number"] {
-  width: 62px;
+input[type="number"],
+input[type="range"],
+select,
+textarea {
   padding: 3px 5px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -65,13 +194,13 @@ input[type="number"] {
   font: inherit;
 }
 
-select {
-  padding: 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--ink);
-  font: inherit;
+input[type="number"] {
+  width: 62px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
 }
 
 .spacer {
@@ -84,20 +213,30 @@ select {
   font-weight: normal;
 }
 
-.empty {
+.pane-placeholder {
   padding: 10px 12px;
   color: var(--dim);
 }
 
-/* -- header ------------------------------------------------------------ */
+/* -- top bar ------------------------------------------------------------ */
 
 #bar {
+  grid-row: 1;
   display: flex;
   gap: 12px;
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+}
+
+#bar .brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+#bar .sep {
+  color: var(--dim);
 }
 
 #bar .name {
@@ -113,155 +252,29 @@ select {
   color: var(--dim);
 }
 
-/* -- stage: viewer, transport, strips ---------------------------------- */
+/* -- workspace: transcript | preview | agent ----------------------------- */
 
-#stage {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-#viewer {
-  display: flex;
-  justify-content: center;
-  max-height: 34vh;
-}
-
-#viewer video {
-  max-width: 100%;
-  max-height: 34vh;
-  background: #000;
-  border-radius: 4px;
-}
-
-/* An audio-only clip has no picture, and an empty black box is not a preview
-   — the transport and the strips below are the whole interface for it. */
-#viewer.audio {
-  display: none;
-}
-
-#transport {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin: 8px 0;
-}
-
-.clock {
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, monospace;
-}
-
-.strip-block {
-  margin-bottom: 8px;
-}
-
-.strip-label {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  margin-bottom: 3px;
-  color: var(--dim);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.strip {
-  position: relative;
-  height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: #0f1114;
-  overflow: hidden;
-  cursor: crosshair;
-  user-select: none;
-}
-
-.strip .seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: var(--kept);
-  opacity: 0.55;
-}
-
-.strip .seg:hover {
-  opacity: 0.8;
-}
-
-.strip .gap {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(180, 69, 63, 0.5) 0 4px,
-    rgba(180, 69, 63, 0.2) 4px 8px
-  );
-}
-
-/* A seam is an instant, not a width — draw it as a line. */
-.strip .seam {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--cut);
-}
-
-.strip .seam::after {
-  content: "";
-  position: absolute;
-  left: -3px;
-  right: -3px;
-  top: 0;
-  bottom: 0;
-  cursor: pointer;
-}
-
-.playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--accent);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.drag-box {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: rgba(61, 111, 180, 0.4);
-  border-left: 1px solid var(--sel);
-  border-right: 1px solid var(--sel);
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* -- panes ------------------------------------------------------------- */
-
-#panes {
-  display: flex;
-  flex: 1;
+#workspace {
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: var(--pane-transcript-w) 1fr var(--pane-agent-w);
   min-height: 0;
 }
 
-#transcript-pane {
+.pane {
   display: flex;
-  flex: 1;
   flex-direction: column;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
-#inspector {
-  display: flex;
-  flex-direction: column;
-  width: 380px;
+#transcript-pane {
+  border-right: 1px solid var(--line);
+}
+
+#agent-pane {
   border-left: 1px solid var(--line);
-  overflow-y: auto;
 }
 
 .pane-head {
@@ -277,20 +290,106 @@ select {
   letter-spacing: 0.04em;
 }
 
-/* -- the transcript ---------------------------------------------------- */
+/* -- preview pane: the picture is the largest thing on screen ----------- */
 
-.transcript {
+#viewer {
+  position: relative;
   flex: 1;
-  padding: 12px 14px;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+#viewer video {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+#viewer #visualizer {
+  display: none;
+  width: 100%;
+  height: 100%;
+}
+
+/* An audio-only clip has no picture, but the pane is never display:none
+   (tier 2's worst behaviour) — the video box is hidden in favour of a level
+   display drawn from the actual playing audio (player.js). */
+#viewer.audio video {
+  visibility: hidden;
+  position: absolute;
+}
+
+#viewer.audio #visualizer {
+  display: block;
+}
+
+#transport {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+}
+
+/* -- transcript pane ------------------------------------------------------ */
+
+.transcript-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.toggle {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toggle.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#transcript {
+  flex: 1;
   overflow-y: auto;
-  font-size: 15px;
-  line-height: 2;
+  padding: 12px 14px 80px;
+  position: relative;
+}
+
+.para {
+  margin: 0 0 1.1em;
+}
+
+.para-ts {
+  display: inline-block;
+  margin-right: 8px;
+  color: var(--dim);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  vertical-align: 2px;
 }
 
 .w {
   padding: 1px 2px;
   border-radius: 3px;
   cursor: pointer;
+  font-size: 15px;
+  line-height: 2;
 }
 
 .w:hover {
@@ -312,8 +411,7 @@ select {
 
 /* Tint only — deliberately no marker character. This pane's whole job is
    showing the exact words, and a glyph appended to one reads as punctuation
-   the speaker did not say: "falls!" and "here's!" are what an appended "!"
-   actually looked like. The tooltip carries the detail. */
+   the speaker did not say. The tooltip carries the detail. */
 .w.suspect {
   background: rgba(200, 145, 47, 0.22);
   box-shadow: inset 0 -2px 0 var(--partial);
@@ -329,32 +427,346 @@ select {
   color: #10131a;
 }
 
-/* -- inspector contents ------------------------------------------------ */
-
-#selection,
-#result {
-  padding: 10px 12px;
+.selection-toolbar {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  z-index: 5;
 }
 
-.ctl {
+.selection-toolbar button {
+  padding: 3px 8px;
+}
+
+.toolbar-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  z-index: 6;
+}
+
+/* -- agent pane ------------------------------------------------------------ */
+
+.agent-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-entry {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 2px solid var(--line);
+  background: #12151a;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.agent-entry--user {
+  border-left-color: var(--accent);
+}
+
+.agent-entry--agent {
+  border-left-color: var(--agent);
+}
+
+.agent-entry--tool {
+  border-left-color: var(--dim);
+  color: var(--dim);
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+}
+
+.agent-entry--system {
+  border-left-color: var(--kept);
+}
+
+.agent-progress {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 6px 12px;
+  padding: 4px 0;
 }
 
-.ctl.check {
-  flex-direction: row;
-  gap: 7px;
-  align-items: center;
-}
-
-.buttons {
+.agent-progress-step {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 12px 12px;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--dim);
 }
+
+.agent-progress-step.active {
+  color: var(--accent);
+}
+
+.agent-progress-step.done {
+  color: var(--kept);
+}
+
+.completion-card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: #12151a;
+}
+
+.check-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.check-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.check-badge.ok {
+  background: rgba(76, 159, 112, 0.18);
+  color: var(--ok);
+}
+
+.check-badge.warn {
+  background: rgba(200, 145, 47, 0.18);
+  color: var(--partial);
+}
+
+.check-badge.fail {
+  background: rgba(180, 69, 63, 0.18);
+  color: var(--err);
+}
+
+.check-badge.skip {
+  background: rgba(131, 139, 153, 0.15);
+  color: var(--skip);
+}
+
+.agent-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.agent-composer-row {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* -- timeline pane --------------------------------------------------------- */
+
+#timeline-pane {
+  grid-row: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.timeline-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.pane-head-inline {
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.zoom-ctl {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+#timeline-tracks {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.track-headers {
+  display: flex;
+  flex-direction: column;
+  width: var(--track-header-w);
+  flex: 0 0 auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.track-header {
+  height: var(--lane-h);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--line);
+}
+
+.track-header.ruler-spacer {
+  height: var(--ruler-h);
+}
+
+.track-lanes {
+  position: relative;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.ruler {
+  position: sticky;
+  top: 0;
+  height: var(--ruler-h);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+
+.ruler-label {
+  position: absolute;
+  top: 2px;
+  font-size: 10px;
+  color: var(--dim);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.lane {
+  position: relative;
+  height: var(--lane-h);
+  border-bottom: 1px solid var(--line);
+  cursor: crosshair;
+  user-select: none;
+}
+
+.lane-v1 {
+  background: #0f1114;
+}
+
+.lane-a1 {
+  background: #0f1114;
+}
+
+.lane-cc {
+  background: #101215;
+}
+
+.clip-block {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 3px;
+  background: var(--kept);
+  opacity: 0.6;
+  overflow: hidden;
+  padding: 2px 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.clip-block:hover {
+  opacity: 0.85;
+}
+
+.waveform-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* A seam is an instant, not a width — draw it as a line. */
+.seam-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--cut);
+}
+
+.gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(180, 69, 63, 0.5) 0 4px,
+    rgba(180, 69, 63, 0.2) 4px 8px
+  );
+}
+
+.playhead-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.drag-box {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(61, 111, 180, 0.4);
+  border-left: 1px solid var(--sel);
+  border-right: 1px solid var(--sel);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* -- shared echo / result styling ------------------------------------------ */
 
 .quote {
   margin: 6px 0;

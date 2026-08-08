@@ -11,6 +11,7 @@ wants something to print as JSON.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -273,6 +274,49 @@ def _placed_segments(edit: tl.Edit) -> list[dict[str, Any]]:
     return placed
 
 
+#: `paragraph` break tuning (PLAN.md § Read-model additions). The word-count
+#: arm is the guarantee, independent of timing; the gap arm is opportunistic
+#: and may break earlier but is never required to.
+PARAGRAPH_MIN_WORDS = 40
+PARAGRAPH_GAP_MIN_WORDS = 15
+PARAGRAPH_GAP_SILENCE = 0.75
+
+
+def _paragraphs(words: Sequence[tx.Word]) -> dict[int, int]:
+    """Which paragraph each word belongs to, word-order-driven (CLAUDE.md).
+
+    Breaks after a sentence-ending word (`.`, `?`, `!`) once the current
+    paragraph holds `PARAGRAPH_MIN_WORDS` — that is the guarantee, and it
+    fires regardless of timing. A silence of `PARAGRAPH_GAP_SILENCE` after a
+    sentence end may break earlier, once the paragraph already holds
+    `PARAGRAPH_GAP_MIN_WORDS` — but that arm is opportunistic, not a promise.
+
+    The asymmetry that makes the gap arm safe: whisper inflates the *duration*
+    of the word following a swallowed retake, which only ever pushes that
+    word's `end` later — and a later `end` can only *shrink* the measured gap
+    to the next word's `start`, never widen it. A bad transcript can therefore
+    only suppress an early break (an ugly paragraph); it cannot invent one
+    (a lie about where a sentence ended).
+    """
+    assigned: dict[int, int] = {}
+    current = 0
+    count = 0
+    for i, word in enumerate(words):
+        assigned[word.index] = current
+        count += 1
+        if i + 1 >= len(words) or not word.text.rstrip().endswith((".", "?", "!")):
+            continue
+        if count >= PARAGRAPH_MIN_WORDS:
+            current += 1
+            count = 0
+        elif count >= PARAGRAPH_GAP_MIN_WORDS:
+            gap = words[i + 1].start - word.end
+            if gap >= PARAGRAPH_GAP_SILENCE:
+                current += 1
+                count = 0
+    return assigned
+
+
 def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list[dict[str, Any]]:
     """Each word, with whether it survived the edit and where it now plays.
 
@@ -286,8 +330,12 @@ def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list
     The timeline coordinates come from `Edit.timeline_span` — the singular,
     first-survivor form, which is right here for the same reason it is right
     for captions: one word wants one place to be highlighted, not a list.
+
+    `paragraph` (see `_paragraphs`) is computed over every word in transcript
+    order, cut or not — it is a property of the document, not of the edit.
     """
     suspect = {item["index"]: item for item in _suspect_durations(parsed)}
+    paragraphs = _paragraphs(parsed.words)
     placements = []
     for word in parsed.words:
         # A zero-width word is not a range, so `timeline_span`'s `b > a` test
@@ -306,6 +354,7 @@ def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list
             "partial": span is not None and (word.end - word.start) - covered > tl.MIN_SEGMENT,
             "timeline_start": span[0] if span else None,
             "timeline_end": span[1] if span else None,
+            "paragraph": paragraphs[word.index],
         }
         if word.index in suspect:
             item["suspect"] = suspect[word.index]
@@ -416,6 +465,107 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         result["transcript_missing"] = True
     else:
         result["words"] = placements
+    return result
+
+
+def _default_clip_id(project: Project, clips: dict[str, dict[str, Any]]) -> str | None:
+    """The clip a project-level view opens with when none is named.
+
+    Same preference as `timeline_view` — the timeline's own clip, else the
+    first registered one — but does not require a timeline to exist, unlike
+    `_load_edit`: a clip that has been imported but not yet seeded is still a
+    valid thing to ask a waveform about.
+    """
+    if project.timeline_path.exists():
+        found = next((s.clip_id for s in tl.read(project.timeline_path).segments), None)
+        if found is not None:
+            return found
+    return next(iter(clips), None)
+
+
+#: `ops.waveform`'s return contract, verbatim (PLAN.md § Read-model
+#: additions) — the server and web UI stages code against this shape.
+_WAVEFORM_FIELDS = ("clip_id", "frame_ms", "rms", "duration_s")
+
+
+def _cached_waveform(cache_path: Path, stat: Any) -> dict[str, Any] | None:
+    """The cached envelope, if `cache_path` still describes the file at `stat`.
+
+    Keyed by size and mtime rather than a hash: cheap to check (no re-read of
+    the media) and exactly what `attenuate_noises` or a re-import changes when
+    they replace a clip's audio.
+    """
+    if not cache_path.exists():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if payload.get("size") != stat.st_size or payload.get("mtime_ns") != stat.st_mtime_ns:
+        return None
+    try:
+        return {field: payload[field] for field in _WAVEFORM_FIELDS}
+    except KeyError:
+        return None
+
+
+# Deliberately no MCP tool (PLAN.md § Read-model additions): the convention
+# binds MCP tools to have a CLI subcommand, not the reverse, and 19,000 floats
+# is a picture, not something an agent should reason over — `loud_gaps` and
+# `unaccounted_sound` already answer the numeric questions about this same
+# envelope. CLI only: `lucid waveform`.
+def waveform(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
+    """RMS per 20ms frame for the timeline's waveform lane, normalised to bytes.
+
+    `energy.envelope` is a Python loop — roughly a second of work per 385s of
+    8kHz audio, and linear — so the result is cached under `cache/waveform/`,
+    keyed by the resolved media file's size and mtime rather than recomputed
+    per request. A cache hit never calls `energy.decode`.
+
+    Resolves media through `media.media_path()`, never `root / clip["media"]`
+    (CLAUDE.md): the waveform drawn is of the audio that will actually be
+    exported, attenuated copy included.
+
+    Each frame's RMS is normalised against the loudest frame in the file, to
+    0-255 — the same scale a canvas waveform draws from directly, and a full
+    file so the picture does not silently renormalise every time a cut
+    changes what is visible.
+
+    Return contract, fixed:
+    `{"clip_id": str, "frame_ms": 20, "rms": [0-255 ints], "duration_s": float}`
+    """
+    project = Project.open(path)
+    clips = _clips_by_id(project)
+    if clip_id is None:
+        clip_id = _default_clip_id(project, clips)
+    if clip_id is None:
+        raise ProjectError("this project has no clips to measure")
+    clip = media.get_clip(project, clip_id)
+    source = media.media_path(project, clip)
+    if not source.is_file():
+        raise ProjectError(f"{clip_id}'s media is missing from disk: {source}")
+
+    stat = source.stat()
+    cache_path = project.waveform_path(clip_id)
+    cached = _cached_waveform(cache_path, stat)
+    if cached is not None:
+        return cached
+
+    env = energy.envelope(energy.decode(source))
+    peak = max(env) if env else 0.0
+    scale = 255.0 / peak if peak > 0 else 0.0
+    result: dict[str, Any] = {
+        "clip_id": clip_id,
+        "frame_ms": round(energy.FRAME * 1000),
+        "rms": [min(255, round(v * scale)) for v in env],
+        "duration_s": round(len(env) * energy.FRAME, 3),
+    }
+
+    project.waveform_dir.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, **result}),
+        encoding="utf-8",
+    )
     return result
 
 
