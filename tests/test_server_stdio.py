@@ -44,6 +44,7 @@ EXPECTED_TOOLS = {
     "cut_by_time",
     "locate",
     "timeline_status",
+    "timeline_view",
     "undo",
     "add_captions",
     "verify",
@@ -152,6 +153,7 @@ TOOL_TO_COMMAND = {
     "cut_by_time": "cut-at",
     "locate": "locate",
     "timeline_status": "status",
+    "timeline_view": "view",
     "undo": "undo",
     "add_captions": "captions",
     "verify": "verify",
@@ -168,6 +170,7 @@ CLI_ONLY = {
     "mcp",  # starts the server; nothing to call it from
     "ping",  # a tool, but takes no project and needs no mapping
     "info",  # prints the raw manifest, which MCP clients get from other tools
+    "web",  # serves the UI until Ctrl-C; an agent cannot watch a page
 }
 
 
@@ -2915,3 +2918,111 @@ def test_locate_works_on_a_clip_with_no_transcript(tmp_path: Path) -> None:
     assert result["present"] is True
     assert result["words"] is None
     assert result["transcript_missing"] is True
+
+
+# -- timeline_view: the whole edit in one payload -------------------------
+#
+# `locate` asked once per range; this asks once for the clip. The cases that
+# matter are the ones a view drawn off the transcript instead of the edit
+# would get wrong.
+
+
+@needs_ffprobe
+def test_timeline_view_names_each_seam_by_the_surviving_words_either_side(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The seam is a word boundary, not a timeline second.
+
+    Asking the transcript what sits at the seam's *source* time answers with
+    the word that was removed — a cut begins exactly where the outgoing
+    segment ends — so the lookup has to happen among the survivors, in
+    timeline coordinates.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]])
+        return await client.call("timeline_view", path=str(project))
+
+    view = anyio.run(_with_server, body)
+
+    assert len(view["seams"]) == 1
+    seam = view["seams"][0]
+    assert (seam["before"]["index"], seam["after"]["index"]) == (1, 4)
+    assert seam["removed"] == pytest.approx(1.9)
+    assert seam["timeline_time"] == pytest.approx(3.0)
+
+
+@needs_ffprobe
+def test_timeline_view_reports_cut_words_absent_and_later_words_moved(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]])
+        return await client.call("timeline_view", path=str(project))
+
+    words = {w["index"]: w for w in anyio.run(_with_server, body)["words"]}
+
+    assert words[2]["present"] is False and words[2]["timeline_start"] is None
+    assert words[3]["present"] is False
+    # The index never renumbers; only the answer moves.
+    assert words[6]["start"] == pytest.approx(9.0), "the index must not renumber"
+    assert words[6]["timeline_start"] == pytest.approx(9.0 - 1.9)
+
+
+@needs_ffprobe
+def test_timeline_view_marks_a_word_a_cut_only_half_removed(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Partial survival is normal on whisper timings, so it is reported.
+
+    w10 runs 3.0-3.9; cutting render time 3.5-4.5 takes half of it. A
+    containment test would call the word gone (DOGFOOD.md § 2).
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_time", path=str(project), spans=[[3.5, 4.5]])
+        return await client.call("timeline_view", path=str(project))
+
+    words = {w["index"]: w for w in anyio.run(_with_server, body)["words"]}
+
+    assert words[2]["present"] is True
+    assert words[2]["partial"] is True
+    assert words[2]["covered"] == pytest.approx(0.5)
+
+
+@needs_ffprobe
+def test_timeline_view_carries_both_coordinate_systems_per_segment(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]])
+        return await client.call("timeline_view", path=str(project))
+
+    view = anyio.run(_with_server, body)
+    first, second = view["segments"]
+
+    assert (first["start"], first["timeline_start"]) == (pytest.approx(0.0), pytest.approx(0.0))
+    assert first["end"] == pytest.approx(3.0)
+    # Source 4.9 onward, but it plays from 3.0 — the pair a caller otherwise
+    # recomputes by summing durations.
+    assert second["start"] == pytest.approx(4.9)
+    assert second["timeline_start"] == pytest.approx(3.0)
+    assert view["undo_depth"] == 1

@@ -253,6 +253,26 @@ def timeline_status(path: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
+    """The whole edit at once: segments, cut seams, and every word's fate.
+
+    timeline_status counts things; this says what they are. Each segment
+    carries both coordinate systems (source in, timeline out), each seam is
+    named by the surviving words either side of it rather than by the second
+    it currently sits at, and each word reports whether it survived, how much
+    of it did, and where it now plays.
+
+    Survival is an overlap test, so a word a cut split reports present with
+    `partial` set — that is normal on whisper timings, not a defect. Words
+    with a suspect duration carry the same flag attach_transcript reported.
+
+    This is locate asked once for the whole clip instead of once per range,
+    and it is what the `lucid web` view draws. Read-only.
+    """
+    return ops.timeline_view(path, clip_id=clip_id)
+
+
+@mcp.tool()
 def undo(path: str) -> dict[str, Any]:
     """Roll the timeline back to the state before the last mutation."""
     return ops.undo(path)

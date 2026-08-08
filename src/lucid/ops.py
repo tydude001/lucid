@@ -258,6 +258,167 @@ def status(path: Path | str) -> dict[str, Any]:
     }
 
 
+def _placed_segments(edit: tl.Edit) -> list[dict[str, Any]]:
+    """Every segment with its timeline coordinates alongside its source ones.
+
+    `Edit.segments` carries source time only — where a segment *plays* is the
+    running sum of everything before it, which is the arithmetic every cut
+    invalidates and every caller otherwise redoes.
+    """
+    placed = []
+    offset = 0.0
+    for seg in edit.segments:
+        placed.append({**seg.as_dict(), "timeline_start": offset, "timeline_end": offset + seg.duration})
+        offset += seg.duration
+    return placed
+
+
+def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list[dict[str, Any]]:
+    """Each word, with whether it survived the edit and where it now plays.
+
+    Survival is an **overlap** test, never containment (CLAUDE.md): whisper
+    inflates the duration of the word following a swallowed retake, so a word
+    routinely straddles a cut edge and survives in part. `covered` is how much
+    of it is left and `partial` says so out loud, because a word drawn as
+    simply "kept" when half of it is gone is the same lie the containment test
+    told.
+
+    The timeline coordinates come from `Edit.timeline_span` — the singular,
+    first-survivor form, which is right here for the same reason it is right
+    for captions: one word wants one place to be highlighted, not a list.
+    """
+    suspect = {item["index"]: item for item in _suspect_durations(parsed)}
+    placements = []
+    for word in parsed.words:
+        # A zero-width word is not a range, so `timeline_span`'s `b > a` test
+        # would report it cut wherever it actually sits. Locate the instant.
+        if word.end > word.start:
+            span = edit.timeline_span(clip_id, word.start, word.end)
+            covered = edit.covers(clip_id, word.start, word.end)
+        else:
+            at = edit.timeline_time(clip_id, word.start)
+            span = None if at is None else (at, at)
+            covered = 0.0
+        item: dict[str, Any] = {
+            **word.as_dict(),
+            "present": span is not None,
+            "covered": covered,
+            "partial": span is not None and (word.end - word.start) - covered > tl.MIN_SEGMENT,
+            "timeline_start": span[0] if span else None,
+            "timeline_end": span[1] if span else None,
+        }
+        if word.index in suspect:
+            item["suspect"] = suspect[word.index]
+        placements.append(item)
+    return placements
+
+
+def _seams(edit: tl.Edit, clip_id: str, placements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The cut boundaries, named by the words either side of each one.
+
+    A seam is where two segments meet: material was removed between them and
+    the hole closed, so it is a single instant on the timeline and a *gap* in
+    the source. Naming it by word index rather than by timeline second is the
+    whole property this project defends — a later cut moves the second and
+    leaves the words alone.
+
+    The words are looked up in **timeline** coordinates, among the survivors
+    only. Asking the transcript what sits at the seam's source time answers
+    with the word that was *removed* — the cut starts exactly where the
+    outgoing segment ends — which is the one word a person reading across the
+    join will not hear.
+    """
+    survivors = [w for w in placements if w["present"]]
+    seams = []
+    offset = 0.0
+    for before, after in pairwise(edit.segments):
+        offset += before.duration
+        if before.clip_id != after.clip_id:
+            # Not a cut in one recording; it is a join between two of them,
+            # and "the words either side" would be from different transcripts.
+            continue
+        seam: dict[str, Any] = {
+            "timeline_time": offset,
+            "clip_id": before.clip_id,
+            "source_end": before.end,
+            "source_start": after.start,
+            "removed": after.start - before.end,
+        }
+        if before.clip_id == clip_id:
+            heard_before = [
+                w for w in survivors if w["timeline_end"] <= offset + tl.MIN_SEGMENT
+            ]
+            heard_after = [
+                w for w in survivors if w["timeline_start"] >= offset - tl.MIN_SEGMENT
+            ]
+            if heard_before:
+                seam["before"] = {"index": heard_before[-1]["index"], "text": heard_before[-1]["text"]}
+            if heard_after:
+                seam["after"] = {"index": heard_after[0]["index"], "text": heard_after[0]["text"]}
+        seams.append(seam)
+    return seams
+
+
+def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
+    """The whole edit in one payload: segments, seams, and every word's fate.
+
+    The read model behind `lucid web` (ROADMAP.md § Next). It exists as an op
+    rather than inside the server because a view that computed word survival
+    itself would be a second implementation of the overlap test, and the front
+    ends are meant to hold no logic of their own — the same rule that keeps
+    the CLI and the MCP server in parity.
+
+    `clip_id` defaults to whichever clip the timeline actually opens with,
+    which is the one clip a single-track edit almost always has. A clip with
+    no transcript still returns segments and seams; `words` is null and
+    `transcript_missing` is set, matching `locate`'s policy rather than
+    refusing a valid question about a picture-only clip.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    clips = _clips_by_id(project)
+
+    if clip_id is None:
+        clip_id = next((s.clip_id for s in edit.segments), None) or next(iter(clips), None)
+    if clip_id is None:
+        raise ProjectError("this project has no clips to view")
+    clip = media.get_clip(project, clip_id)
+
+    try:
+        parsed: tx.Transcript | None = _transcript(project, clip_id)
+    except tx.TranscriptError:
+        parsed = None
+
+    placements = [] if parsed is None else _word_placements(edit, clip_id, parsed)
+
+    result: dict[str, Any] = {
+        "project": str(project.root),
+        "name": project.read_manifest().get("name", project.root.name),
+        "clip_id": clip_id,
+        "clips": [
+            {
+                "clip_id": c["clip_id"],
+                "duration": c.get("duration"),
+                "has_video": bool(c.get("has_video")),
+                "has_transcript": project.transcript_path(c["clip_id"]).exists(),
+            }
+            for c in clips.values()
+        ],
+        "source_duration": clip.get("duration"),
+        "timeline_duration": edit.duration,
+        "timebase": _rate(project),
+        "undo_depth": len(project.snapshots()),
+        "segments": _placed_segments(edit),
+        "seams": _seams(edit, clip_id, placements),
+    }
+    if parsed is None:
+        result["words"] = None
+        result["transcript_missing"] = True
+    else:
+        result["words"] = placements
+    return result
+
+
 def _resolve(parsed: tx.Transcript, ranges: Iterable[Sequence[int]]) -> list[tuple[float, float]]:
     resolved = []
     for item in ranges:

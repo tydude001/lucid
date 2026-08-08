@@ -11,7 +11,7 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, asr, captions, energy, ops
+from lucid import __version__, asr, captions, energy, ops, webui
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
@@ -214,6 +214,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("status", help="show the current timeline")
+
+    p_view = sub.add_parser(
+        "view", help="the whole edit as one payload: segments, seams, every word's fate"
+    )
+    p_view.add_argument(
+        "--clip-id", help="which clip's words to report (default: the one the timeline opens with)"
+    )
+
+    p_web = sub.add_parser("web", help="serve the preview/timeline UI on localhost")
+    p_web.add_argument("--host", default=webui.DEFAULT_HOST, help=f"bind address ({webui.DEFAULT_HOST})")
+    p_web.add_argument(
+        "--port", type=int, default=webui.DEFAULT_PORT, help=f"port ({webui.DEFAULT_PORT}); 0 picks a free one"
+    )
+    p_web.add_argument("--open", action="store_true", help="open a browser at it")
+    p_web.add_argument("--verbose", action="store_true", help="log every request, media ranges included")
 
     sub.add_parser("undo", help="roll back the last timeline mutation")
 
@@ -541,6 +556,23 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return _emit(ops.status(args.project))
 
 
+def _cmd_view(args: argparse.Namespace) -> int:
+    return _emit(ops.timeline_view(args.project, clip_id=args.clip_id))
+
+
+def _cmd_web(args: argparse.Namespace) -> int:
+    # Blocks until Ctrl-C. Unlike every other subcommand this one prints no
+    # JSON — its output is the page.
+    webui.serve(
+        args.project,
+        host=args.host,
+        port=args.port,
+        verbose=args.verbose,
+        open_browser=args.open,
+    )
+    return 0
+
+
 def _cmd_undo(args: argparse.Namespace) -> int:
     return _emit(ops.undo(args.project))
 
@@ -661,6 +693,8 @@ _COMMANDS = {
     "cut-at": _cmd_cut_at,
     "locate": _cmd_locate,
     "status": _cmd_status,
+    "view": _cmd_view,
+    "web": _cmd_web,
     "undo": _cmd_undo,
     "captions": _cmd_captions,
     "verify": _cmd_verify,
