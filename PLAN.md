@@ -1531,3 +1531,351 @@ be a second read of the media for a picture `energy.py` already answers
 numerically. Seams click on playback — each one is a seek, and the page says
 so rather than implying a clean join. Nothing here renders, exports or
 finishes; that is still ROADMAP.md's tier-2/tier-3 line.
+
+## Tier 3 is the goal — the Daydream-shaped workspace — 2026-08-08
+
+**The decision: lucid grows a workspace, not a shell.** § The preview/timeline
+web UI shipped and was used, and the verdict on use was that it is a correct
+*instrument* and a poor *editor*. ROADMAP.md had already left tier 3
+"revisitable — a question behind the web UI"; this is the answer, taken
+deliberately rather than arrived at by drift.
+
+What reopened it was not the handoff argument the closing note anticipated. It
+was simpler: the page is unpleasant to work in, and every reason it is
+unpleasant is a reason inside the window.
+
+### What using it actually exposed
+
+Measured against the real Scream VO at 67 segments, not against a mock:
+
+* **The picture is not the centre.** `#viewer` is capped at 34vh above two
+  strips, and on an audio-only clip it is `display:none` outright — so the
+  largest thing on screen is a transcript and the smallest is the thing being
+  edited.
+* **The transcript is one 929-word paragraph.** No breaks, no timestamps, no
+  scroll to the playing word. It is addressable and unreadable at once.
+* **67 segments in a 34px strip is a barcode.** No ruler, no zoom, no track
+  header, no clip name, no waveform. The strip proves the edit exists; it does
+  not let you work on it.
+* **The inspector is empty almost always.** "Nothing selected · Nothing run
+  yet" is the resting state of 380px of a 1440px window.
+* **There is no agent in the window at all** — which is the category
+  difference, not a craft one. lucid's agent lives in another application.
+
+### The line that moves, and the one that does not
+
+ROADMAP.md § "What separates tier 2 from tier 3 is finishing, not mutation"
+stays true and stays the definition. **What changes is that lucid now intends
+to cross it**, in this order: the workspace first, finishing second. A window
+good enough to edit in is worth building before the render path can finish a
+video inside it, because the window is what makes the render path's gaps
+visible.
+
+**Non-goals do not move.** No cloud, no accounts, no metering, no upload. The
+agent panel below is what makes that non-trivial to keep, and it is why the
+panel is shaped the way it is.
+
+### The agent panel, and why it does not become a fourth implementation
+
+CLAUDE.md's convention — *the web UI draws and it plays, it never decides* —
+survives this intact, and it constrains the design rather than yielding to it.
+
+The panel hosts a **local `claude` subprocess** (2.1.226 on this box) run as
+`claude -p --input-format stream-json --output-format stream-json
+--mcp-config`, with lucid's own `lucid mcp` attached. So:
+
+* the agent reaches the timeline **only** through the MCP tools, which are the
+  same `ops` functions the CLI and the page's own buttons call. There is no
+  privileged path, and the panel adds no new one — it adds a *client of the
+  existing one*;
+* it rides Claude Code's existing auth. No API key, no key storage, no request
+  leaving for an endpoint lucid chose. § Non-goals holds;
+* `stream-json` is already the progress list the panel needs to draw. Daydream
+  renders "Reading transcript → Editing transcript → Done!"; that is a tool-use
+  stream with a stylesheet on it.
+
+The page still never computes an edit. It now hosts something that asks for
+one, and draws the answer — which is the same relationship it already has to
+its own Preview button.
+
+### The trap this section exists to write down
+
+**Do not draw tracks the export cannot produce.** The UI can grow a V2 lane and
+a ducked A2 in an afternoon; `export` cannot follow it. § The multi-track
+costing spike measured the wall: auto-editor 31.x gates multi-*source*
+timelines behind a paid key and **degrades the render to 720x576 with a warning
+and exit 0** rather than failing. A workspace that draws a b-roll lane over
+that produces a beautiful window and a silently wrong file.
+
+So the timeline is built as a real NLE timeline **over the single-track `Edit`
+that exists** — ruler, zoom, lanes, named clip blocks, waveform — and widens
+when the September decision gate widens the model, not before. Lanes drawn
+today are *projections of one track*, and the code says so where it draws
+them.
+
+### Not a desktop app, and the reasoning is on file
+
+Tier 3 named "a full desktop editor". What is being built is the editor, not
+the packaging, and those were never the same decision.
+
+Everything that makes Daydream feel like Daydream is inside the window. The
+native shell buys a title bar and costs a second stack — which § Non-goals
+already refuses — and this repo has *measured* the specific friction: the
+OpenChatCut trial (§ First milestones) found an Electron GUI that must be
+running before its MCP tools register, a confirmation card per tool per
+session, and a transport that goes stale after an import. Adopting that shape
+to gain chrome would be paying the trial's own findings forward.
+
+If the finished page still reads as a browser tab, wrapping *that same page* in
+a Chrome `--app` window or Tauri is a day's work against a week's. The shell is
+deferred because it is cheap and reversible, not because it is unwanted.
+
+**And the asymmetry that makes any of this worth doing: Daydream has no Linux
+build.** PRIOR-ART.md § Daydream — no Windows or Linux build on the download
+page, docs or FAQ. On this box the competitor cannot run at all.
+
+### The design — panes, endpoints, and what each one is not allowed to do
+
+Written before building, because three of the decisions below are expensive to
+reverse once the page exists.
+
+#### Layout
+
+One CSS grid, three columns over a full-width timeline. No framework, no build
+step — that constraint is inherited from § Non-goals and is not revisited.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ lucid / <project>                    [Export] [Undo (n)] │  top bar
+├────────────┬─────────────────────────┬───────────────────┤
+│ transcript │        preview          │      agent        │
+│  ~26rem    │        flex: 1          │      ~24rem       │
+│            │   transport under it    │  feed + composer  │
+├────────────┴─────────────────────────┴───────────────────┤
+│ ruler · zoom                                             │  timeline
+│ V1 ▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓▓▓                                  │  ~22vh
+│ A1 ╫╫╫╫│╫╫╫╫╫╫│╫╫╫╫╫╫╫╫                                  │
+│ CC ──────────────────────────                            │
+└──────────────────────────────────────────────────────────┘
+```
+
+The one thing this fixes that is not cosmetic: **the picture becomes the
+largest element on screen**, and an audio-only clip gets a drawn level display
+rather than `display:none`. The current page's worst behaviour is that on the
+only real project in the repo it renders no viewer at all.
+
+#### Files, and why they split
+
+`app.js` is 744 lines today and this roughly triples it. ES modules, served
+flat out of `/static/` — which the existing static handler already permits
+(flat names, `.js` allowed) and which the existing CSP (`default-src 'self'`)
+already satisfies. No bundler is introduced.
+
+| module | holds |
+|---|---|
+| `app.js` | entry, the one `view` state, wiring |
+| `api.js` | fetch + SSE, the JSON content-type header |
+| `transcript.js` | the document pane and selection |
+| `timeline.js` | ruler, lanes, clip blocks, waveform canvas, zoom |
+| `player.js` | the seam-jumping playback loop, transport |
+| `agent.js` | the feed, the composer, the tool-progress list |
+| `dom.js` | `el`/`$`, time formatting |
+
+`player.js` inherits the existing seam loop unchanged. It is the one piece of
+the current page that is genuinely good and it is not being rewritten for
+tidiness — it is the thing that makes seeing an edit cost no render.
+
+#### Read-model additions
+
+Two, and both are ops rather than server-side computation, for the reason
+`timeline_view` already is one: a view that computed its own answers would be
+a second implementation.
+
+**`paragraph`, a new field on each word in `timeline_view`.** The transcript is
+one 929-word block today because nothing tells the page where to break. The
+rule is deliberately **word-order-driven, not duration-driven**: break after a
+sentence-ending word once the paragraph holds ≥40 words. A silence of ≥0.75 s
+after a sentence end may break earlier, once the paragraph holds ≥15 words —
+but that arm is opportunistic and the word count is the guarantee. This is the
+CLAUDE.md rule about durations applied to a cosmetic feature: whisper inflates
+a duration to swallow a retake, which can only ever *suppress* a gap break,
+never invent one. A suppressed break is an ugly paragraph; an invented one
+would be a lie about where a sentence ended.
+
+**`ops.waveform(path, clip_id)` — CLI `lucid waveform`, no MCP tool.** RMS per
+20 ms frame from `energy.decode` + `energy.envelope`, normalised to bytes,
+cached under a new `cache/waveform/` keyed by the media's size and mtime. The
+cost is why it is cached and not computed per request: `envelope` is a Python
+loop, and 385 s at 8 kHz is ~3 M multiply-adds — roughly a second here, and
+linear, so an hour of footage is ~15 s. It is deliberately **not** an MCP
+tool: the convention binds MCP tools to have CLI subcommands, not the reverse,
+and 19 000 floats is a picture, not something an agent should reason over —
+`loud_gaps` and `unaccounted_sound` already answer the numeric questions.
+
+The waveform is drawn **through the edit**: each timeline segment maps to a
+source range, and the lane draws that slice of the source envelope. So no
+timeline-space envelope is ever computed, and a cut needs no recompute.
+
+#### The timeline
+
+* **Zoom is pixels-per-second**, one number, fit-to-window by default. The
+  current strip has no zoom, which is why 67 segments render as a barcode.
+* **Track headers are a sticky left column**; lanes scroll horizontally
+  together in one container.
+* **Clip blocks are DOM, the waveform is `<canvas>`.** Blocks need hover, title
+  and hit-testing and there are tens of them; the envelope is thousands of
+  points and needs none of that. 67 blocks does not warrant virtualisation —
+  the threshold to revisit is ~2000.
+* **Lanes are projections of one `Edit`.** V1 only when the clip
+  `has_video`, A1 always, CC only when captions exist. **No V2, no A2, no lane
+  that `export` cannot produce** — § The trap this section exists to write
+  down, above.
+
+#### The agent panel, in mechanism
+
+```
+POST /api/agent      {prompt}     → 202, work happens on the stream
+POST /api/agent/stop              → interrupt the running turn
+GET  /api/events                  → SSE: agent deltas, tool calls, project-changed
+```
+
+One subprocess per server, spawned lazily:
+
+Flags below verified against the installed `claude` 2.1.226 rather than
+recalled — `--allowedTools`, `--disallowedTools` and `--strict-mcp-config` all
+exist, and `--permission-mode` takes `manual` among others. There is **no
+`--cwd` flag**; the working directory is set on the spawn.
+
+```
+claude -p --input-format stream-json --output-format stream-json
+       --mcp-config <generated: one server, lucid mcp -C <project>>
+       --strict-mcp-config
+       --allowedTools 'mcp__lucid__*'
+       --disallowedTools Bash Write Edit WebFetch WebSearch
+       --permission-mode manual
+# cwd=<project root>, set on the Popen, not by a flag
+```
+
+**The tool allowlist is the security boundary, and it is the whole design.**
+Today a bypass of the `Host`/content-type guards costs you a mangled edit that
+`Undo` reverses. An agent panel without an allowlist would make the same bypass
+cost arbitrary code execution as the user, because Claude Code has Bash. So the
+agent gets lucid's MCP tools **and nothing else**, which bounds a fully
+hijacked agent to operations the undo stack already reverses. `--permission-mode
+manual` is deliberate and is the belt to the allowlist's braces: there is no
+TTY on a subprocess, so anything falling outside the allowlist cannot be
+approved and fails closed rather than running.
+
+**This was chosen against the two looser options, not defaulted into**
+(2026-08-08). Read-only project file access via `--add-dir` was rejected
+because it widens what an injected transcript can pull into a tool result for
+no capability lucid's own tools do not already expose; Bash was rejected
+because it converts a guard bypass into arbitrary code execution, which is the
+single thing the allowlist exists to prevent. If a future need argues for
+widening this, it is a decision that gets written here, not a flag someone
+adds to make a debugging session easier.
+
+**`--strict-mcp-config` is not optional, and it is the trap worth writing
+down.** Without it the spawned agent inherits *the user's own* MCP servers —
+on this box that is Gmail, Google Drive and Calendar. A video editor's agent
+panel silently holding a mail client is exactly the kind of privilege nobody
+audits later. The flag confines it to the one generated config.
+
+The subprocess also runs with the project as its working directory, and its
+lucid MCP server is bound to that one project with `-C`, so it cannot wander
+to another project even through the tools it *is* allowed.
+
+**Prompt injection is in scope and is bounded the same way.** The transcript is
+attacker-influenced content whenever the footage is not yours, and the agent
+reads it. An injected instruction cannot reach outside the allowlist; that is
+the property the allowlist exists to buy, and it is the reason not to relax it
+for convenience later.
+
+**View invalidation is uniform.** The server tracks a revision — `project.otio`
+mtime plus undo depth — and the SSE stream emits `project-changed` when it
+moves. The page reloads `/api/view` on that event, which covers an agent edit,
+the page's own edit, and a `lucid cut` run in a terminal beside it, without
+three code paths.
+
+#### Where the cut controls go
+
+The right pane is the agent now, so the inspector cannot stay there. Selecting
+words raises a **floating toolbar anchored to the selection** — Preview, Cut,
+Keep only, and a small popover for pad and the suspect-boundary confirmation.
+
+The op's *result* renders into the agent feed as a system entry. That is the
+substantive choice: **one feed for everything that happened to the edit**,
+whether a person or the agent caused it, in order. The alternative — a separate
+result panel — reproduces the current page's emptiest region and splits the
+history of an editing session across two places.
+
+The echo rules do not move. A word range still shows the three words either
+side (CLAUDE.md), and Preview is still `plan=True` on the same op rather than
+its own endpoint.
+
+#### Finishing — the render happens in the window
+
+**Decided 2026-08-08: Export renders a watermark-free MP4 in the window**, and
+the MLT/Kdenlive handoff stays as an additional way out rather than the only
+one. This is the sentence that actually crosses the tier line. ROADMAP.md's
+"what separates tier 2 from tier 3 is finishing, not mutation" has been the
+definition since the tiers were written; this is lucid choosing to cross it,
+with the definition left standing so the crossing stays legible.
+
+`ops.export` already does both — `export_format=None` renders, `"kdenlive"`
+writes MLT — so no new render path is written. What is new is that a render is
+long enough that a blocking HTTP request is the wrong shape:
+
+```
+POST /api/render   {preset}   → 202 {job_id}
+GET  /api/events              → job progress and completion on the same stream
+POST /api/render/stop         → cancel; the partial output is deleted, not left
+```
+
+One job at a time per server, output under `renders/`. Three things the job
+model has to get right, all of them already-measured traps rather than
+guesses:
+
+* **auto-editor's exit code does not mean success** (§ The multi-track costing
+  spike). The job reads the output's actual dimensions before reporting
+  success, and says what it got rather than that it finished.
+* **A finished render is checkable, and the checks exist.** `verify`,
+  `check_frames`, `check_black` and `spot_frames` already answer whether the
+  render says what the timeline says. The window is the first place those have
+  somewhere useful to appear — the completion card is where they belong, not a
+  separate command a person has to remember.
+* **The proxy must not be what gets rendered.** The preview proxy below and
+  the attenuated copy both resolve through `media.media_path()`; export reads
+  through the same function. That ordering is load-bearing and gets a test,
+  because the failure is a finished, delivered file at preview quality.
+
+#### What this design still does not answer
+
+* **Multi-project.** `lucid web` serves one project per process. Daydream's
+  breadcrumb implies a project list; nothing here builds one.
+* **Video, and the codec wall under it.** Every claim above about the picture
+  is unverified against real footage, because the only project in the repo is
+  an audio-only VO. Frame stepping and letterboxing get checked against a real
+  clip before they are believed.
+
+  The wall found while planning, and it is a *container and profile* problem
+  rather than a Linux one. ffprobe on a representative NAS source reports
+  `codec_name=hevc`, `codec_tag_string=hev1`, `profile=Main 10`,
+  `pix_fmt=yuv420p10le` — which is precisely the combination wiki `home.md`
+  already records as un-playable in a browser (H.264, or H.265 tagged `hvc1`;
+  `hev1` does not play). That rule was written for the Vault browser and holds
+  here for the same reason.
+
+  So `/api/media/` streaming the source byte-for-byte — what makes the current
+  page's "no render" claim true for audio — **does not carry over to picture**.
+  The preview would show nothing and blame the file.
+
+  This does not break the design; it adds a step the design must not skip. The
+  fix is a cached **proxy transcode** into a new `cache/proxy/`, resolved the
+  way `media.media_path()` already prefers an attenuated copy. Note before
+  building it that homebase already runs an encoder service for exactly this
+  conversion (wiki `homebase.md`, port 8765) — worth checking whether lucid
+  should call it rather than grow its own ffmpeg path. Two consequences to
+  keep honest either way: seeing a *video* edit costs one proxy pass, not
+  zero, and the proxy must never reach `export`, which reads through
+  `media_path()` — so the resolution order is load-bearing and gets a test.

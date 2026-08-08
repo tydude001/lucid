@@ -36,12 +36,28 @@ and caption the rest" becomes a chat message instead of an afternoon.
    localhost, out of the same package. **Built** (`lucid web`); because it
    plays the source through the edit rather than a render of it, seeing an
    edit costs no render. [PLAN.md](PLAN.md) § The preview/timeline web UI.
-3. **Full desktop editor** — not a goal, because of where a video gets
-   *finished*, not because tier 2 stops at looking: OTIO/MLT export hands
-   finishing to Resolve/Premiere/Kdenlive, which is what keeps lucid headless,
-   CLI-first and open where Daydream — which *is* a full desktop NLE — is a
-   closed, metered GUI app. Reopened as a question behind tier 2 rather than
-   flatly out; ROADMAP.md's closing note has what it would have to answer.
+3. **Full editor workspace** — **now the goal, decided 2026-08-08.** Tier 2
+   shipped, got used, and came back a correct *instrument* and a poor
+   *editor*: the picture is not the centre of the window, the transcript is
+   one unbroken wall, 67 segments render as a barcode in a 34px strip, and the
+   agent is in a different application entirely. So lucid grows a real
+   workspace — three panes over an NLE timeline, with the agent *in* the
+   window. [PLAN.md](PLAN.md) § Tier 3 is the goal — the Daydream-shaped
+   workspace.
+
+   Finishing moves in with it: **Export renders a watermark-free MP4 from the
+   window**, and the OTIO/MLT handoff to Resolve/Premiere/Kdenlive stays as an
+   additional way out rather than the only one. That is the sentence that
+   crosses the tier line, and it is crossed deliberately.
+
+   Two things that decision did **not** change. It is a workspace, not a
+   desktop app: everything that makes Daydream feel like Daydream is inside
+   the window, and a native shell buys chrome at the price of a second stack
+   — deferred as cheap and reversible, not rejected. And the agent panel is a
+   local `claude` subprocess speaking to lucid's own MCP server, restricted to
+   lucid's tools and nothing else, so it reaches the timeline only through the
+   tools the CLI calls, on your existing auth, with nothing uploaded. The
+   non-goals — cloud, accounts, metering — stay dead.
 
 ## Try it
 

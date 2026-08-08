@@ -34,12 +34,20 @@ It bought more than the "see it before rendering" it was queued for: the page
 plays the source and jumps the seams, so **seeing an edit costs no render at
 all**. PLAN.md § The preview/timeline web UI.
 
-**Ordering answers to measured defects, not to competitors.** A prior-art pass
-the same day found Daydream to be a full desktop NLE rather than the chat front
-end the README claimed — it corrected the pitch and moved nothing here, because
-it produced no failing case and has no Linux build to test against.
-PLAN.md § What lucid is, stated narrowly holds the conclusion;
-[PRIOR-ART.md](PRIOR-ART.md) § Daydream the evidence.
+**Then it got worked in, and refilled Next again** — with the workspace that
+`lucid web` turned out not to be. Tier 3 is now the goal; the queue is under
+**Now** below. PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace.
+
+**Ordering answers to measured defects, not to competitors**, and the
+workspace is not the exception it looks like. A prior-art pass on 2026-08-07
+found Daydream to be a full desktop NLE rather than the chat front end the
+README claimed — it corrected the pitch and moved nothing here, because it
+produced no failing case and has no Linux build to test against. That is still
+what happened: the thing that moved the roadmap a day later was **using
+`lucid web` on the real Scream VO**, which produced five specific failing
+cases inside the window. Daydream supplies the shape of the fix. It did not
+supply the reason. PLAN.md § What lucid is, stated narrowly holds the
+conclusion; [PRIOR-ART.md](PRIOR-ART.md) § Daydream the evidence.
 
 ## The property everything below defends
 
@@ -63,20 +71,61 @@ containment; anything emitting times for playback maps through
 
 ---
 
-## Now, and Next — both cleared
+## Now — the workspace
 
-Nothing is queued. What "verified" means for anything that lands here: run
-against the real Scream VO, where the defect actually occurred, not a
+**Tier 3 is the goal, decided 2026-08-08**, and this is the queue that follows
+from it. The decision, the evidence that drove it, and the trap it exists to
+prevent are in PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace;
+this file does not restate them.
+
+The trigger was use, not argument. `lucid web` shipped the same day it was
+queued and was then worked in, and what came back was that it is a correct
+instrument and a poor editor — every complaint being about the inside of the
+window, none about the handoff the tier-3 note had expected to be the wall.
+
+In order, each item standing alone — the first four are the window, the fifth
+is the tier line:
+
+1. **App shell and design system.** Three panes over a bottom timeline; the
+   picture becomes the centre of the window rather than a 34vh strip above two
+   others. No framework and no build step — that constraint is unchanged.
+2. **The transcript as a document.** Paragraphs off whisper's own segments,
+   inline timestamps, a show-cuts toggle, cut text struck through in place,
+   scroll to the playing word. It is addressable already; this makes it
+   readable at the same time.
+3. **A real timeline.** Ruler, zoom, track headers, named clip blocks, and a
+   waveform from `energy.envelope` — cached, because it is a second read of
+   the media. **Lanes drawn over today's single-track `Edit` are projections
+   of one track and are labelled as such in the code.**
+4. **The agent panel.** A local `claude` subprocess with `lucid mcp` attached,
+   streamed to the page. This is the category difference and the only piece
+   with genuinely new plumbing; everything above it is front end. Its tool
+   allowlist is lucid's MCP tools and nothing else — **decided against the
+   looser options, not defaulted into**, and not a flag to widen mid-debug.
+5. **Render in the window.** Export produces a watermark-free MP4 from the
+   page, through a job model, with the existing render checks reported on the
+   completion card. `ops.export` already renders; what is new is the job, the
+   progress, and reading auto-editor's *output* rather than its exit code.
+   **This is the item that crosses the tier line** — everything above it is a
+   better window onto the tier-2 lucid that already exists.
+
+"Verified" is unchanged and is not negotiable for a UI item either: run
+against the real Scream VO, where the defects actually occurred, not a
 synthetic fixture. It is on the NAS at `TheVaultData/content stuff/Good
 Sometimes/Videos/Every Scream Sequel Falls Apart At The REVEAL/VO/VO.json`,
 mounted at `~/TheVaultData`. Its word indices address **the v1 recording**;
 the pending re-record produces a different file with different indices and
-does not retire the recorded findings as evidence.
+does not retire the recorded findings as evidence. A UI item is additionally
+verified **in a browser** — the flatpak-Chrome recipe, and the silent trap in
+it, are in wiki `tooling.md` § Headless browser.
 
-The Decision gate below is what remains, and the web UI shipping does not move
-it — for the reason it was queued ahead of it: the picture track is a derived
-projection, so a view built against today's `Edit` widens with the model
-rather than blocking on it.
+The Decision gate below still does not move, and the workspace does not move
+it either — for the reason the web UI was queued ahead of it in the first
+place: the picture track is a derived projection, so a view built against
+today's `Edit` widens with the model rather than blocking on it. **The
+converse is the standing constraint on item 3:** the view must not widen
+*ahead* of the model, because the export degrades silently rather than
+failing.
 
 ## Decision gate — multi-track, decide mid-September
 
@@ -172,22 +221,20 @@ validated:
 Non-goals stay where they are: PLAN.md § Non-goals, written down so they stay
 dead — cloud, competing on finishing, a plugin system before two users.
 
-**One scope line moved, and it is not one of those.** README's tier 3, a full
-desktop editor, has read "explicitly *not* a goal" since the tiers were
-written, and the prior-art pass that found Daydream to *be* one left that
-standing. It is now **revisitable — a question behind the web UI, not queued
-work.**
+**What separates tier 2 from tier 3 is still finishing, not mutation** — the
+definition did not change, only lucid's intent to cross it, which § Now item 5
+is. The order is workspace first, finishing second, because the window is what
+makes the render path's gaps visible.
 
-**What separates tier 2 from tier 3 is finishing, not mutation.** The web UI
-writes; what keeps it tier 2 is that the edit still leaves through OTIO/MLT
-instead of being finished in place. That is the failure the
-OpenChatCut trial actually measured — its export was flattened media,
-subtitles or FCPXML, none of which opens on this box, so the timeline was
-trapped in the app unless the video was finished there. So what reopens tier 3
-is evidence that the *handoff* is the wall, not wanting to click a cut. What
-it would have to answer first is already measured rather than argued — the
-Electron-as-MCP-host friction from the OpenChatCut trial (the GUI must be
-running before its tools register, a confirmation card per tool per session, a
-transport that goes stale after an import) and its dependency scale against
-lucid's Python package and three subprocesses. PLAN.md § First milestones,
-the trial; [PRIOR-ART.md](PRIOR-ART.md) § OpenChatCut.
+**This note predicted the wrong wall, and the prediction stays on the record.**
+It expected tier 3 to reopen on evidence that the *handoff* was trapping
+timelines — the failure the OpenChatCut trial measured, where export was
+flattened media, subtitles or FCPXML, none of which opens on this box. What
+actually reopened it was the *window*: every complaint from working in `lucid
+web` sat inside it, and the handoff was never reached.
+
+The Electron-as-MCP-host friction this note held up as tier 3's cost is still
+measured and still true, and it now argues for a **workspace rather than a
+desktop app** — a distinction the original tier-3 wording never drew.
+PLAN.md § First milestones, the trial; [PRIOR-ART.md](PRIOR-ART.md)
+§ OpenChatCut.

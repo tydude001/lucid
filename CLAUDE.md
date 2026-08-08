@@ -49,6 +49,11 @@ installed package or the upstream repo, not your memory.
   `Host` header **and** requires `application/json` on mutations; loopback
   alone does not guard a server that can rewrite your edit. PLAN.md § The
   preview/timeline web UI.
+  - **Timeline lanes are projections of one `Edit`, not tracks. Never draw a
+    lane `export` cannot produce** — the multi-source render degrades silently
+    (see auto-editor above), so the window would look right and the file would
+    be wrong. The view widens when the model does, never ahead of it.
+    PLAN.md § Tier 3 is the goal.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a
