@@ -40,6 +40,10 @@ the goal, and its queue is now built; what little remains of it is in the
 wiki's Open items table. PLAN.md § Tier 3 is the goal — the Daydream-shaped
 workspace.
 
+**And then it refilled Next a third time, with the Decision gate itself — now
+decided rather than pending.** **Next is the layered timeline**, a six-step
+build order in PLAN.md § The layered timeline. Nothing in it is written yet.
+
 **Ordering answers to measured defects, not to competitors**, and the
 workspace is not the exception it looks like. A prior-art pass on 2026-08-07
 found Daydream to be a full desktop NLE rather than the chat front end the
@@ -73,7 +77,7 @@ containment; anything emitting times for playback maps through
 
 ---
 
-## Now — the workspace is built; the gate is what's next
+## Now — the workspace is built; the gate is decided, and the build is queued
 
 **The workspace queue shipped 2026-08-08** — shell, transcript-as-document,
 the real timeline, the agent panel, and render in the window, the last of
@@ -101,84 +105,104 @@ projection, so the view widens with the model rather than blocking on it.
 not widen *ahead* of the model, because the export degrades silently rather
 than failing.
 
-## Decision gate — multi-track, decide mid-September
+**And it is what moved the gate below** — the question that decided it was
+asked of the window, not of the code.
 
-**The call:** does lucid *trim your VO* (single track, done) or *edit your
-video* (tracks, cue tables, compositing)? PLAN.md § Open questions says to
-decide against the next real video. That is no longer October: the **Scream VO
-re-record** comes first, and it drags a full re-cut, a re-carded beat map, a
-reapplied score and one specific multi-track edit behind it. The **October
-Horror Bracket, part 1 due Oct 1** still sets the outside date, format
-decisions wanted mid-September.
+## Next — the layered timeline. The gate is decided: lucid edits your video
 
-**The gate now has a named edit to answer rather than a hypothetical.** Beat 3's
-Billy/Stu line — "Movies don't create psychos. Movies make psychos more
-creative." — is the film stating the video's own thesis, and the wanted edit is
-to duck VO under the clip's own audio and let it land. The mechanism exists:
-splitting a shot into muted and unmuted producers with an extra mix transition,
-built for the v4 postscript, rejected on the watch *there* for a reason that
-does not apply here (that line was merely adjacent dialogue, and adjacency is
-not a joke), and left inert in `assemble_scream.py` rather than deleted. It is
-blocked only on the re-record opening a clean seam. If lucid cannot express
-this edit, it trims your VO.
+**Decided 2026-08-08, ahead of its mid-September date, because the decision
+turned out to rest on a measurement rather than a preference.** The gate asked
+whether lucid *trims your VO* (single track, done) or *edits your video*
+(tracks, cue tables, compositing). It edits your video. Design, build order,
+evidence and what stays blocked: PLAN.md § The layered timeline — the gate is
+decided, and `melt` renders it. That section is written to be picked up cold;
+this one says only why it ranks first.
 
-**Its prerequisite now exists.** Billy/Stu was rejected for v4 on measurement,
-not taste: a word-level whisper pass on the *source clip* put the line at
-105.35–109.15 s against VO's own thesis sentence at 105.97–109.85 s — no seam,
-so ducking there would cut a load-bearing VO line rather than empty air. The
-missing comparison — does this clip's speech overlap VO's speech once both are
-mapped through the edit? — is `speech_overlap` (CLI `speech-overlap`): clip
-words against a proposed placement, VO words through `Edit.timeline_span`
-exactly as captions map them, both trimmed through `energy.believable` first,
-overlap tested in timeline coordinates rather than containment. Run against
-the actual Billy/Stu clip and the VO's own nearest thesis region, it measured
-74–85% overlap with only sub-second clean seams — the same "no seam" verdict
-that shelved the duck for v4, now from the tool rather than by hand. PLAN.md
+**What moved it was that the gate had been costed against the wrong renderer.**
+§ The multi-track costing spike priced multi-*source* export as gated behind
+auto-editor's paid key — correctly — and concluded the choice was one of four
+options, none free. But DOGFOOD.md § 4 had **already** concluded, from the video
+that shipped, that rendering a multi-track project needs `melt` rather than
+auto-editor. Nothing connected the two. Measured 2026-08-08: `melt` renders the
+real 23-source Scream assembly at **1920x1080** with no gate, from the Kdenlive
+flatpak already installed and already resolved by `picture.melt_command()`. Two
+of the four options existed only to buy back what `melt` does for free.
+
+The build order is six steps in that PLAN.md section, each shippable alone.
+Three constraints on it that this file owns:
+
+- **The cue table stays source-addressed** — `(clip_id, word_index, asset)`,
+  nothing in timeline coordinates. This is § The property everything below
+  defends, and Design B preserves it by construction rather than by care.
+- **Refuse to build when a cue lands in a cut range.** It fired correctly twice
+  on Scream. Build it before the thing it guards.
+- **The picture lane lands in the same change that lets `export` produce it**,
+  never earlier — the view must not widen ahead of the model, because the
+  export degrades silently rather than failing.
+
+Seed the table from `assemble_scream.py`'s existing 37 cues, so the first
+layered timeline lucid builds is a video that has already been watched.
+
+**The outside date is unchanged and still real:** the **October Horror Bracket,
+part 1 due Oct 1**, with format decisions wanted mid-September. The **Scream VO
+re-record** still comes first for *that video* and still drags a re-cut, a
+re-carded beat map and a reapplied score behind it — but it no longer gates
+this work, because the layered timeline ships without the duck.
+
+### The one edit that stays blocked, and it is not lucid's fault
+
+Beat 3's Billy/Stu line — "Movies don't create psychos. Movies make psychos
+more creative." — is the film stating the video's own thesis, and the wanted
+edit is to duck VO under the clip's own audio and let it land. The mechanism
+exists: splitting a shot into muted and unmuted producers with an extra mix
+transition, built for the v4 postscript and left inert in
+`assemble_scream.py` rather than deleted.
+
+**It is blocked by the recording, not by the model.** Billy/Stu was rejected
+for v4 on measurement, not taste: a word-level whisper pass on the *source
+clip* put the line at 105.35–109.15 s against VO's own thesis sentence at
+105.97–109.85 s. `speech_overlap` (CLI `speech-overlap`) re-measured that
+properly — both sides trimmed through `energy.believable`, overlap tested in
+timeline coordinates rather than containment — and returned **74–85% overlap
+with only sub-second clean seams**. There is no seam to duck into. PLAN.md
 § `speech_overlap`, the ducking prerequisite Billy/Stu never had, has the
-numbers. What it does not do is design or build the duck itself, and the
-DECISION stays open at mid-September regardless — the check answers "can this
-clip speak here", not "should lucid grow tracks to let it".
+numbers.
 
-**The cost is measured, and it moved the gate off lucid's data model.**
-Widening the model is cheap and the picture track turns out to be a *derived
-projection* rather than state, so `Edit` stays single-track. The expense is
-getting a multi-**source** timeline out at all: auto-editor 31.x gates that
-behind a paid key, and a duck needs the clip's audio *and* the VO — so
-**Billy/Stu is unexportable free whichever way the model question falls.** What
-is actually being decided in September is therefore one of four: pay for a key
-(collides with PLAN.md § Non-goals), build auto-editor from source (its licence
-permits it), write MLT directly (reverses the rule below), or keep exports
-single-source and hand Kdenlive a computed cue sheet. Evidence, tables and the
-two designs costed: PLAN.md § The multi-track costing spike.
+So this edit waits on the **VO re-record**, or on **inserting a hold** — opening
+a gap in the VO for the film's line to play in, which is new work because
+`Edit` only ever removes. That is the same work as `vo_extend` below, whose
+stated reason for being parked expires with this decision. Decide it on a
+watch, not in the abstract. **Nothing here blocks the six build steps**; the
+layered timeline ships without the duck.
 
-`assemble_scream.py` (534 lines, stdlib) is still the worked reference for the
-mechanism — though auto-editor's own exporter now writes the MLT structure it
-hand-rolls — and the decision is cheaper than it was because the model is
-validated:
+### Two things worth not re-deriving
 
-- A cue table of `(source_word_index, asset)` — nothing positioned in
-  timeline coordinates. Each cue runs to the next.
-- `timeline_time()` honouring MLT's frame-inclusive `out`, validated by exact
-  frame-count agreement with `melt`.
-- **Refuse to build** when a cue points into a cut range — this failed loudly
-  and correctly twice on Scream, both times catching a stale cue after a
-  recut. Whatever multi-track shape lucid adopts keeps this behaviour.
-- Rendering multi-track does **not** in itself mean `melt` — measured
-  2026-08-08, auto-editor renders a two-track v3 at full resolution and exports
-  it to a four-tractor MLT project that `melt` reads. It is multi-*source*, not
-  multi-track, that auto-editor gates; the costing spike above has the table.
-  When rendering does fall to `melt`, it has three silent traps (consumer
-  profile → runaway memory; Qt needs a display; flatpak `/tmp`), all documented
-  in DOGFOOD.md § 4 — do not re-derive them.
+- **It is multi-*source*, not multi-track, that auto-editor gates.** Measured
+  2026-08-08: auto-editor renders a two-track v3 at full resolution and exports
+  it to a four-tractor MLT that `melt` reads. Two distinct `src` files is the
+  wall, on one track or several. The costing spike has the table.
+- **`melt` has three silent traps** — consumer profile → runaway memory; Qt
+  needs a display; a flatpak's `/tmp` is not the host's. All three produce
+  output rather than an error. DOGFOOD.md § 4, and
+  `goodsometimes/scripts/render.py` handles all of them plus a `systemd-run`
+  memory cap. Read it before writing the render call.
+
+`assemble_scream.py` (534 lines, stdlib) remains the worked reference for the
+mechanism and the source of the 37 seed cues.
 
 ## Parked — deliberately, with the reasoning
 
-- **`vo_extend`, the mirror of `cut_by_time`.** Appending real tail time only
-  becomes lucid's problem the day it mutates an MLT project in place instead
-  of regenerating one through auto-editor, which is not on the table. The two
-  constraints it would inherit are written down so they are not rediscovered
-  as a surprise: PLAN.md § The `vo_extend` mirror is a deliberate non-goal,
-  for now.
+- **`vo_extend`, the mirror of `cut_by_time` — unparked by the gate decision,
+  but not yet queued.** Its stated reason for being parked was that appending
+  real tail time only matters the day lucid stops regenerating timelines
+  through auto-editor. That day is the layered timeline above. It is also the
+  same operation as *inserting a hold* to unblock Billy/Stu without a
+  re-record, which is what would actually motivate building it. Two reasons it
+  is still not in **Next**: it is the one item that touches `Edit`'s
+  subtractive invariant, and the case for it is editorial — decide it on a
+  watch, after the six steps land. The two MLT constraints it inherits are
+  already written down: PLAN.md § The `vo_extend` mirror is a deliberate
+  non-goal, for now.
 - **Energy-snapping cut edges.** Measured non-urgent on Scream-like material:
   every known retake boundary had 0.34–2.48 s of silence and a flat 0.1 s pad
   never clipped. The failures that *looked* like drift were transcript

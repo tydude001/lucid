@@ -275,6 +275,13 @@ left. The conclusion survives because it was always the load-bearing one, but
   auto-editor at all. Sequence and what gates it:
   [ROADMAP.md](ROADMAP.md) § Decision gate.
 
+  **Decided 2026-08-08: lucid edits your video.** This bullet is answered and
+  is kept for the reasoning, not as an open question. The multi-source timeline
+  does not come out of auto-editor at all — it comes out of `melt`, which has
+  no source-count gate and was already this repo's stated multi-track renderer
+  ([DOGFOOD.md](DOGFOOD.md) § 4). Design, build order and what stays blocked:
+  § The layered timeline — the gate is decided, and `melt` renders it.
+
 ## Non-goals (write them down so they stay dead)
 
 - Cloud anything. No accounts, no metering, no upload.
@@ -913,6 +920,15 @@ mutating one in place. The day lucid mutates an MLT project directly instead
 of regenerating it, it owns both constraints above — until then they are
 documented so they are not rediscovered as a surprise, not implemented.
 
+> **Narrowed 2026-08-08** by § The layered timeline — the gate is decided, and
+> `melt` renders it. Single-source `export` still goes through auto-editor,
+> exactly as described above. The **multi-source** path generates MLT itself,
+> because auto-editor's kdenlive exporter refuses it outright (exit 2) — so
+> lucid now owns both constraints above on that path, and the declared-length
+> sweep gets an assertion rather than a comment. It still only ever
+> *generates*, never *mutates*, which is the distinction this paragraph was
+> actually defending.
+
 ## `check_black` and `spot_frames`, the rest of the picture-side checks — 2026-08-08
 
 [ROADMAP.md](ROADMAP.md) § Picture-side render checks — the rest of them.
@@ -1391,6 +1407,14 @@ Design B is the recommendation for the model half.
 
 ### What this does to the gate
 
+> **Superseded 2026-08-08 by § The layered timeline — the gate is decided, and
+> `melt` renders it.** Every measurement in this section stands; the conclusion
+> below does not. It prices the gate as if auto-editor were the only renderer,
+> which contradicts [DOGFOOD.md](DOGFOOD.md) § 4 — `melt` has no source-count
+> gate and renders the real 23-source Scream assembly at 1920x1080. Options 1
+> and 2 are dropped and option 3 is the path. Read the four options below as
+> the reasoning that was corrected, not as open choices.
+
 **The model question is answered and it is cheap. The gate now turns entirely
 on the export wall**, and the gate's own named test edit is what forces it: a
 duck needs the film clip's audio *and* the VO, which is two sources, so
@@ -1423,6 +1447,13 @@ Option 4 is the honest default and option 2 is the cheapest way to get the
 duck. The DECISION stays open at mid-September as scheduled; what changed is
 that it is now a question about auto-editor's business model rather than about
 lucid's data model.
+
+> **End of the superseded conclusion.** The gate closed the same day instead of
+> in September: the question was never auto-editor's business model, because
+> auto-editor was never the renderer. Option 3 — write MLT, render via `melt` — is the
+> path, and it collides with nothing once the "never writes MLT" rule is read
+> as what it says (never *mutates*) rather than what it is usually summarised
+> as. § The layered timeline — the gate is decided, and `melt` renders it.
 
 Housekeeping, noticed in passing: the "68 cuts" figure repeated across these
 docs is approximate, and no VO timeline has exactly that count — measured,
@@ -1900,3 +1931,148 @@ guesses:
   keep honest either way: seeing a *video* edit costs one proxy pass, not
   zero, and the proxy must never reach `export`, which reads through
   `media_path()` — so the resolution order is load-bearing and gets a test.
+
+## The layered timeline — the gate is decided, and `melt` renders it — 2026-08-08
+
+[ROADMAP.md](ROADMAP.md) § Decision gate asked whether lucid trims your VO or
+edits your video. **It edits your video.** This section is the decision, the
+measurement that forced it, and the build order — written to be picked up cold
+in a later session.
+
+### The gate was mis-framed, and the correction is one measurement
+
+§ The multi-track costing spike priced the model as cheap and the export as the
+wall: auto-editor 31.x gates any timeline naming two distinct `src` files down
+to 720x576 with **exit 0**. Every number in that section is correct and stands.
+
+What it did not do is connect back to [DOGFOOD.md](DOGFOOD.md) § 4, which had
+already concluded — from the video that shipped — that **rendering a multi-track
+project needs `melt`, not auto-editor**. So the gate's "four options, none free"
+framing quietly assumed auto-editor was the only renderer, when this repo's own
+dogfood notes had already said it was the wrong one.
+
+Measured today, closing that loop, against the real assembly rather than a
+fixture:
+
+```sh
+melt "…/Every Scream Sequel Falls Apart At The REVEAL - assembly v3.kdenlive" \
+     in=0 out=90 -consumer avformat:spike.mp4 vcodec=libx264 acodec=aac
+```
+
+| | result |
+|---|---|
+| distinct source files in that project | **23** — `VO.wav`, 9 film clips, 13 cards |
+| structure | 4 tractors, 5 playlists |
+| render | **1920x1080**, 91 frames, h264 + aac stereo |
+| licence gate encountered | **none** |
+
+`melt` has no source-count gate, is already installed (inside the Kdenlive
+flatpak, `filesystems=host` already granted), and is already resolved by
+`picture.melt_command()`. Two of the spike's own choices were the documented
+traps being obeyed rather than luck: it passed `WAYLAND_DISPLAY`, and it passed
+**the codec and nothing else** on the consumer. Both are DOGFOOD § 4; do not
+re-derive them, and read `goodsometimes/scripts/render.py` before writing the
+render call — it handles all three traps plus a `systemd-run` memory cap.
+
+**So the wall is auto-editor's, not this box's.** Options 1 (buy a key) and 2
+(fork the Nim source, re-patch every release, and assert un-gatedness forever by
+probing render *resolution* because the exit code lies) both existed to buy back
+something `melt` does for free. They are dropped.
+
+### What this does to "lucid never writes MLT"
+
+That rule (§ `cut_by_time`, at *the `vo_extend` mirror*) is narrower than its
+summary. It says lucid **regenerates** a timeline through `auto-editor --export
+kdenlive` rather than **mutating** MLT in place, so it never owns MLT's two
+sharp edges: `<blank>` silently adding runtime every downstream cue is blind to,
+and four declared-length spots (both tractors' `out`, the sequence track's
+`out`, `producer0`'s length) that must be swept in step.
+
+The rule pays for itself only while auto-editor writes the XML. On the
+multi-source path it writes nothing — the kdenlive exporter **refuses, exit 2**.
+So the XML is not being re-adopted from something that would otherwise produce
+it; it is being written because nothing else will.
+
+**The rule is therefore narrowed, not abandoned:**
+
+- **Single-source `export` is unchanged.** It still shells out to auto-editor,
+  render and `--export kdenlive` both. Nothing about today's behaviour moves.
+- **The multi-source path generates MLT from the `Edit` plus the cue table**,
+  every time, from scratch. It **still never mutates** an existing project — the
+  distinction the original rule actually cared about survives intact.
+- Generating means lucid now owns both sharp edges above. They are already
+  written down in this file precisely so this day would not be a surprise, and
+  the declared-length sweep gets an assertion rather than a comment.
+
+### The design: Design B, unchanged
+
+§ The multi-track costing spike costed two designs, recommended B, and
+validated it against the real 37-cue table. Nothing found since argues against
+it; that section keeps the numbers.
+
+`Edit` stays **single-track and subtractive**. The picture is a *derived
+projection* recomputed on every build, so there is nothing positioned to go
+stale, and ROADMAP.md § The property everything below defends is preserved by
+construction rather than by care. Untouched: all five addressing methods
+(`timeline_time`, `timeline_span`, `timeline_spans`, `source_at`,
+`source_spans`), `remove`, `keep_only`, `from_otio`, `to_otio`, captions,
+verify, cut, locate.
+
+Design A — widening `Edit` to N positioned tracks — stays rejected. Rippling the
+VO would invalidate every stored position on the picture track, which is the
+property traded away for the thing it was defending against.
+
+### Build order
+
+Each step is shippable and verifiable on its own. Parity is not optional:
+every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions).
+
+1. **The cue table.** `(clip_id, word_index, asset)` in the manifest,
+   source-addressed, nothing in timeline coordinates. Ops `cue_add`, `cue_rm`,
+   `cue_ls`; CLI `lucid cue add|rm|ls`; MCP to match. Bump `schema_version` and
+   keep the reader tolerant of manifests without the key.
+2. **The shot projection.** `build_shots` minus all XML — map each cue's word
+   through the surviving ranges, each shot running to the next cue. ~150–200
+   lines. `assemble_scream.py` is the worked reference; take its arithmetic,
+   not its structure.
+3. **Refuse to build when a cue lands in a cut range.** This fired correctly
+   twice on Scream, both times catching a stale cue after a recut. It is the
+   safety property of the whole feature and it is not optional. Test it first.
+4. **The MLT writer**, multi-source path only. Owns the `<blank>` and
+   declared-length constraints named above. Every emitted length asserted
+   against the `Edit`'s own frame total from `autoeditor.frame_layout` — never
+   from a duration (CLAUDE.md).
+5. **Render through `melt`**, DOGFOOD § 4's three traps handled, exit code
+   trusted for nothing. Assert the output's **resolution and frame count**, not
+   its status.
+6. **The picture lane in the web UI.** This becomes legal for the first time
+   here and not before: the timeline may not draw a lane `export` cannot
+   produce, so V2 lands in the same change that makes `export` able to produce
+   it — never earlier. CLAUDE.md § Conventions, and § Tier 3 is the goal.
+
+Seed the cue table from `assemble_scream.py`'s existing 37 cues, so the first
+layered timeline lucid builds is **this video**, checkable against a file that
+has already been watched — rather than an empty project that can only be
+checked against itself.
+
+### What stays blocked, and it is not lucid
+
+**The Billy/Stu duck.** It was rejected on measurement, not taste: the clip's
+line sits at 105.35–109.15 s against the VO's own thesis sentence at
+105.97–109.85 s, and `speech_overlap` re-measured 74–85% overlap with only
+sub-second clean seams (§ `speech_overlap`). There is no seam to duck into. That
+is a property of **the v1 recording**, and no amount of multi-track fixes it.
+
+Two ways out, and the choice is editorial rather than technical:
+
+- **The re-record**, which was always the plan and opens a real pause.
+- **Insert a hold** — open a gap in the VO and let the film's line play in it.
+  lucid cannot do this today: `Edit` only ever removes, so a non-subtractive
+  operation is new work, and it is the same work as § The `vo_extend` mirror is
+  a deliberate non-goal, for now. That section's stated reason for parking —
+  that it only matters the day lucid owns MLT generation — **expires with this
+  decision.** Re-cost it against a watch, not in the abstract, and note it is
+  the one item here that touches `Edit`'s subtractive invariant.
+
+Neither blocks steps 1–6. The layered timeline ships without the duck.
+

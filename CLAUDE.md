@@ -23,6 +23,11 @@ installed package or the upstream repo, not your memory.
     path degrades to 720x576 with a warning and **exit 0** rather than
     failing.** Track count is free; two distinct `src` files is the wall.
     PLAN.md § The multi-track costing spike.
+  - **That gate is auto-editor's, not this box's — don't design around it.**
+    **Single-source goes through auto-editor; multi-source generates MLT and
+    renders through `melt`**, which has no source-count gate. `melt`'s own
+    three traps all produce output rather than an error: DOGFOOD.md § 4.
+    PLAN.md § The layered timeline.
 - **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
@@ -59,7 +64,8 @@ installed package or the upstream repo, not your memory.
     lane `export` cannot produce** — the multi-source render degrades silently
     (see auto-editor above), so the window would look right and the file would
     be wrong. The view widens when the model does, never ahead of it.
-    PLAN.md § Tier 3 is the goal.
+    PLAN.md § Tier 3 is the goal. The picture lane is queued and still
+    illegal — it lands in the same change that teaches `export` to produce it.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a

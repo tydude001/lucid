@@ -145,6 +145,11 @@ index should echo back the words it resolved to.**
 
 ## 4. Rendering a multi-track project needs `melt`, not auto-editor
 
+> **This section decided the multi-track gate, once it was noticed** — the gate
+> had been costed as though auto-editor were the only renderer. Measured
+> 2026-08-08: `melt` renders the real 23-source Scream assembly at 1920x1080,
+> ungated. PLAN.md § The layered timeline.
+
 `export --render` shells out to auto-editor, which is right for a single-track
 cut. A multi-track MLT project needs `melt`, and it has three traps that all
 produce output rather than an error:

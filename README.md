@@ -50,6 +50,12 @@ and caption the rest" becomes a chat message instead of an afternoon.
    additional way out rather than the only one. That is the sentence that
    crosses the tier line, and it is crossed deliberately.
 
+   **The multi-track question "full editor" implies is answered too, decided
+   2026-08-08: lucid edits your video.** Clips and cards lay over the VO from a
+   cue table addressed by *word index*, so a recut recomputes shot positions
+   instead of invalidating them. Not built yet — [PLAN.md](PLAN.md) § The
+   layered timeline.
+
    Two things that decision did **not** change. It is a workspace, not a
    desktop app: everything that makes Daydream feel like Daydream is inside
    the window, and a native shell buys chrome at the price of a second stack
@@ -203,7 +209,8 @@ are:
 lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
 ```
 
-Multi-track editing is not built yet — see the milestones in [PLAN.md](PLAN.md).
+Multi-track editing is **decided but not built** — [PLAN.md](PLAN.md) § The
+layered timeline has the design and the six-step build order.
 
 ## Development
 
