@@ -47,10 +47,10 @@ build order in PLAN.md § The layered timeline. Nothing in it is written yet.
 **And a direction was set the same day, wider than any refill: lucid copies
 Daydream — the full feature set and the look/feel.** Tyler's call, 2026-08-08,
 made after capturing the entire site (every page, all sixteen videos, the
-docs, the CSS tokens). The map of what that means, feature by feature, and the
-design-system spec are PLAN.md § The Daydream parity map; the observation
-record is PRIOR-ART.md § Daydream, the full-site pass. The order it implies is
-§ Then — the Daydream parity queue, below.
+docs, the CSS tokens). The whole parity plan — the product observed, the
+design system, the feature map, the build order — is one document,
+[DAYDREAM.md](DAYDREAM.md); the order it implies is § Then — the Daydream
+parity queue, below.
 
 **Ordering answers to measured defects, not to competitors** — that was the
 rule, and the workspace was not the exception it looked like: a prior-art pass
@@ -205,40 +205,25 @@ mechanism and the source of the 37 seed cues.
 
 ## Then — the Daydream parity queue
 
-The full map — every Daydream feature against what lucid has, plus the design
-spec — is PLAN.md § The Daydream parity map; the map also records the four
-things parity deliberately does not import (metering/cloud, the desktop
-shell, Premiere/FCP XML, Codex). This section owns only the order, which is
-governed by two facts: **the layered timeline is the enabler for most of the
-map** (b-roll, graphics, and the V2 lane are all illegal to draw until
-`export` can produce them), and **the look/feel pass is the one big item
-gated on nothing**.
+The whole parity plan lives in [DAYDREAM.md](DAYDREAM.md) — the observed
+product, the design system, the per-feature design notes, and what parity
+deliberately does not import. This section keeps only the ranking, governed
+by two facts: **the layered timeline is the enabler for most of the map**
+(b-roll, graphics, and the V2 lane are illegal to draw until `export` can
+produce them), and **the look/feel pass is the one big item gated on
+nothing**.
 
-1. **The look/feel pass** — retheme the workspace to the warm-paper system
-   (tokens, three type voices, pastel clip blocks, light+dark themes) and pick
-   up the small parity cosmetics that ride it: model label and thumbs in the
-   agent feed, inline pause markers in the transcript, export presets.
-   Independent of the model, so it can land while the layered timeline is
-   built — but it counts as UI work, and the verified bar (real Scream VO, real
-   browser) applies.
+1. **The look/feel pass** — the warm-paper retheme plus the small cosmetics
+   that ride it (DAYDREAM.md § Build order names them). Independent of the
+   model; it is UI work, so the verified bar applies.
 2. **The layered timeline, steps 1–6** — already Next, above. Everything
    below waits on its picture lane.
-3. **Caption styling** — position, font, colour, highlight as properties the
-   agent can set; burn-in at export. Extends the shipped captions path;
-   needs no picture lane, ranked here to land near the graphics work it
-   visually belongs to.
-4. **Motion graphics + templates** — agent-authored card/overlay assets placed
-   as cues, `melt`-rendered; the 13 Scream cards are the worked prior.
-   Design note before build.
-5. **B-roll by description** — the biggest new subsystem and the one that
-   must not be copied blind: Daydream's hour-metering implies cloud
-   inference, lucid is local-only. Costed local design (frame-sample →
-   describe/embed on this box) **before** any build. Also strictly after the
-   picture lane.
-6. **The long tail, cheap-to-late:** aspect swap (16:9 ↔ 9:16, touches both
-   render paths), import roles + assets pane (rides the b-roll design),
-   multi-project picker, HTTP MCP transport, properties pane (only once
-   graphics exist to inspect).
+3. **Caption styling**, then 4. **motion graphics + templates**, then
+   5. **b-roll by description** — the last two get costed design notes
+   before any build; b-roll especially must not copy Daydream blind, whose
+   hour-metering implies cloud inference where lucid is local-only.
+6. **The long tail** — aspect swap, import roles + assets pane,
+   multi-project picker, HTTP MCP transport, properties pane.
 
 ## Parked — deliberately, with the reasoning
 

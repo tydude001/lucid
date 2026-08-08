@@ -57,10 +57,9 @@ and caption the rest" becomes a chat message instead of an afternoon.
    layered timeline.
 
    **And "the same workflow" became "the same product", decided 2026-08-08:**
-   lucid copies Daydream's full feature set and warm-paper look. The
-   feature-by-feature map and design spec are [PLAN.md](PLAN.md) § The
-   Daydream parity map; the order is [ROADMAP.md](ROADMAP.md) § Then — the
-   Daydream parity queue.
+   lucid copies Daydream's full feature set and warm-paper look. The whole
+   parity plan — the product observed, the design system, the
+   feature-by-feature map, the build order — is [DAYDREAM.md](DAYDREAM.md).
 
    Two things that decision did **not** change. It is a workspace, not a
    desktop app: everything that makes Daydream feel like Daydream is inside

@@ -2078,99 +2078,10 @@ Neither blocks steps 1–6. The layered timeline ships without the duck.
 
 ## The Daydream parity map — copy the features and the look — 2026-08-08
 
-**The direction, set by Tyler on 2026-08-08: lucid copies Daydream — the full
-feature set and the look/feel, not just the workspace shape.** Until now
-Daydream supplied the *shape* of fixes whose *reasons* came from lucid's own
-failing cases (ROADMAP.md's ordering note). This widens that deliberately:
-parity is now a stated goal in itself. Three things do not move, and where a
-Daydream behaviour conflicts with them the constraint wins and the divergence
-is recorded below: § Non-goals (no cloud, no accounts, no metering, no
-upload), the web-UI conventions (the page draws and plays, it never decides;
-no lane `export` cannot produce), and ROADMAP.md § The property everything
-below defends (cues address the source by word index, never the timeline).
-
-The whole surface was captured 2026-08-08 — every page, all sixteen homepage
-videos frame-sampled, the full docs site, the CSS design tokens. Method and
-the evidence that is about *Daydream* rather than about lucid's plan:
-PRIOR-ART.md § Daydream, the full-site pass. One honest limit: the scroll
-animations were reconstructed from DOM structure, keyframes and the videos,
-not watched live in a browser — close enough to copy from, not pixel-testimony.
-
-### The map
-
-"Built" is grounded in the shipped code (`src/lucid/web/`, `ops.py`), not in
-the sections that planned it. Cite rows by feature name.
-
-| Daydream feature | lucid today | the gap, and where it lands |
-|---|---|---|
-| Three-pane workspace over a full-width timeline; top bar with project name and Export | **Built** — § Tier 3 is the goal | Look/feel only (§ The look, below) |
-| Agent chat: Claude Code as a subprocess riding your existing account, tool-use drawn as a checklist, stop button | **Built, same mechanism** — § The agent panel, in mechanism | Cosmetics ride the look pass: model label on the composer, per-turn thumbs, `@`-mentions of assets. None change the boundary flags |
-| Transcript as document: select-and-cut, Show cuts with strikethrough, paragraphs | **Built** — paragraphs, show-cuts, selection toolbar | Inline pause markers (`[2.4s]`) between words, and **restore-one-cut** from struck text — today only `undo` walks the stack; un-removing a *specific* range is a small new op on ranges `Edit` already stores |
-| Multi-track timeline: V1/V2/A1/A2/CC, filmstrip thumbnails, snapping, lock/visibility | V1/A1/CC projections of one `Edit`, waveform, zoom, ruler | § The layered timeline is the enabler; V2 lands at build-order step *the picture lane in the web UI*, never earlier. Thumbnails/snapping/track toggles ride that change |
-| **B-roll by description** — imported footage is watched/indexed, then searched by prompt; place from transcript selection or timeline range | **Nothing exists.** Closest primitives: `spot_frames` samples frames; cues place assets | The biggest new subsystem, and the one where their design can't be copied blind: Daydream meters "video processing for search" by the hour, which smells like cloud inference; lucid is local-only, so indexing (frame-sample → describe/embed on this box) needs its own costed design *before* build. Also gated behind the picture lane — placing b-roll the export can't render is the standing trap |
-| **Motion graphics from a prompt + a Templates tab** | Nothing generalised. The 13 Scream cards are the worked prior: pre-rendered stills placed as cues, rendered by `melt` | Graphics = generated card/overlay assets placed as cues on the picture track — same mechanism, agent-authored assets. Templates are a starter library of those. After the picture lane; design before build |
-| Captions: word-highlight default, agent-restyled freely, regenerate preserving style | Caption generation built, timeline-mapped (§ Captions came out of the timeline) | Styling surface — position, font, colour, highlight — as caption properties the agent can set; burn-in at export. Extends the existing captions path |
-| 16:9 ↔ 9:16 aspect swap | Nothing | Touches model and both render paths (auto-editor args, MLT profile). After the layered timeline; small design note first |
-| Export presets (YouTube / TikTok / Web / Custom) + watermark-free MP4 in-app | Render-in-window built | Presets are a small mapping onto existing `ops.export` args. Cheap, anytime |
-| XML handoff to Premiere / Resolve / FCP | Kdenlive MLT handoff built | **Divergence, recorded:** no Premiere/FCP exists on a Linux box and the OpenChatCut trial measured the handoff ceiling (§ First milestones). Kdenlive stays the handoff. Not queued |
-| Local MCP server any client can drive (HTTP, fixed port, auto-registered) | MCP built, stdio | An HTTP transport would let an already-running workspace be driven from outside without a second spawn. MCP SDK v2 supports it. Optional, small-medium, unranked |
-| Import by role: Voiceover/Talking-Head vs Footage/Images/Music; Assets pane | `import` + `attach-transcript` exist; no roles, no pane | Roles decide transcribe-vs-index, so this rides the b-roll design, not before it |
-| Multi-project: Projects breadcrumb and list | One project per `lucid web` process — named unanswered in § Tier 3's design | A picker page over `--root`, late; nothing else blocks on it |
-| Properties pane (transform, crop, opacity, fonts on graphics) | Deliberately removed in favour of the agent feed | Returns only when graphics exist to inspect. After motion graphics |
-| Dark **and light** themes, toggle in the top bar | Dark only, cool palette | Rides the look pass — the token rework below makes the second theme nearly free |
-| 30+ transcription languages | Whisper is already multilingual | Verify on one non-English clip; expected free |
-| Local & private | **Already stronger** — no metering, no account, nothing leaves | No work. This is the line lucid holds that Daydream's own pricing table blurs |
-
-### The look, specified — copy the system, not the assets
-
-What gets copied is the design system; the name, logo, and copy text do not.
-Every typeface involved is open (Geist, Source Serif 4, JetBrains Mono, Inter
-Tight, Poppins), so the system is reproducible without borrowing a file.
-
-* **Warm paper, two themes.** Light: background `hsl(48 27% 98%)`, text
-  `hsl(48 14% 7%)`, muted text `hsl(42 4% 51%)`, hairline borders
-  `hsl(42 12% 83%)`, panel stripe `hsl(48 20% 95%)`. Dark: background
-  `hsl(48 6% 7%)`, text `hsl(48 27% 97%)`, borders `hsl(42 6% 18%)`. Radius
-  `0.5rem`. The current page's cool slate (`#14161a`) is what this replaces —
-  the warmth *is* the look.
-* **Three type voices, used consistently:** a clean sans for UI and body
-  (Geist Sans); an italic serif for the one accented word in a heading
-  (Source Serif 4 — "polished *video*."); mono for anything numeric —
-  timecodes, word indices, section numbers (JetBrains Mono). The numbered
-  editorial labels (`01`–`07`, `Q.01`) are part of the voice.
-* **Timeline:** low-saturation pastel clip blocks (rose / mint / lavender /
-  powder-blue), filmstrip thumbnails on video clips, sticky track headers
-  with lock/visibility icons, thin ruler, single accent-blue playhead.
-* **Agent feed:** user prompt in a bordered rounded bubble, tool progress as
-  green-check checklist lines, response as plain text, composer with a
-  "Start New Task" affordance, model label, and keyboard hints
-  (`Enter to send`, toggle chord) in muted mono.
-* **Motion is restrained in-app:** a blinking cursor (`steps(2)` at 1 s), a
-  0.5 s spinner, and that is nearly all — the site's spectacle is scroll-driven
-  choreography of *mock app panes*, marketing-only. In the app, the moving
-  element is the edit itself. Do not import marketing motion into the tool.
-* **The marketing move worth stealing the day lucid wants a page:** the hero
-  is a live HTML replica of the editor that performs an edit as you watch —
-  typing, agent checklist ticking, playhead moving — not a screen recording.
-  lucid's workspace is already HTML; a demo mode of the real page beats a mock.
-
-### What parity explicitly does not import
-
-* **Metering, accounts, sign-up, cloud.** § Non-goals holds. Daydream meters
-  transcription and "video processing" hours against its own "never uploaded"
-  copy (PRIOR-ART.md § Daydream); lucid's local-only claim stays asterisk-free.
-* **The desktop shell.** § Not a desktop app, and the reasoning is on file —
-  unchanged. If the finished page wants chrome, wrap the same page later.
-* **Premiere/Resolve/FCP XML.** Divergence recorded in the map.
-* **Codex as a second agent.** The panel speaks the installed `claude`; a
-  second CLI is a config problem for the day someone has one, not a design
-  problem now.
-* **Uncosted cloud-shaped subsystems.** B-roll search lands only with a local
-  inference design that this box can actually run, costed before built.
-
-The standing trap governs every row above: **no feature's UI lands ahead of
-its export.** The map adds features; it does not relax the ordering rule that
-kept the window honest.
-
-Order of work lives in ROADMAP.md, not here.
-
+The parity direction (Tyler, 2026-08-08: lucid copies Daydream's full feature
+set and look/feel), the observed product, the design-system spec, the
+feature-by-feature map against shipped code, and the build order are one
+document: [DAYDREAM.md](DAYDREAM.md). The constraints that bind every parity
+item are lucid's own and live where they always did: § Non-goals, the web-UI
+conventions (no lane `export` cannot produce — CLAUDE.md), and ROADMAP.md
+§ The property everything below defends.

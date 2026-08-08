@@ -4,8 +4,10 @@ Architecture, stack decisions, and open questions live in [PLAN.md](PLAN.md).
 The competitor/dependency survey behind those decisions is in
 [PRIOR-ART.md](PRIOR-ART.md). What the first real video exposed, and the four
 things it said to build next, is in [DOGFOOD.md](DOGFOOD.md). The build order
-and the rationale behind it is [ROADMAP.md](ROADMAP.md). Open-item status
-lives in the wiki, not here.
+and the rationale behind it is [ROADMAP.md](ROADMAP.md). The Daydream parity
+plan — the product observed, its design system, the feature map and its build
+order — is [DAYDREAM.md](DAYDREAM.md). Open-item status lives in the wiki,
+not here.
 
 ## Things that will bite you
 
