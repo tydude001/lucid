@@ -97,6 +97,11 @@ _STATIC_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
+    # The three type voices, vendored beside the stylesheet rather than
+    # fetched from a CDN — which the `default-src 'self'` CSP would refuse
+    # anyway (DAYDREAM.md § Typography). Flat names, because `_send_static`
+    # serves a filename and never a path.
+    ".woff2": "font/woff2",
 }
 
 #: Read size for streaming media. Large enough that a long range is not a

@@ -326,6 +326,13 @@ remainders are wiki rows (binding the agent's MCP server to its `-C` project,
 and the video preview proxy). The verified bar for any UI item: run against
 the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
 
+The look/feel pass — the parity queue's head — shipped 2026-08-08 too
+(HISTORY.md § The look pass). What it left on the queue is the small items
+that were to ride it: model label, per-turn thumbs, `@`-mentions, inline
+pause markers, `restore`, export presets. Two of those are not cosmetic and
+want their own step: `restore` is a real op with CLI + MCP parity, and pause
+markers inherit the duration-inflation rule.
+
 ### Done — the layered timeline
 
 The gate was decided — **lucid edits your video** — and all six steps shipped
@@ -344,9 +351,10 @@ The whole parity plan — observed product, design system, per-feature notes,
 non-imports — is [DAYDREAM.md](DAYDREAM.md). Ranking, governed by the layered
 timeline being the enabler and the look pass being gated on nothing:
 
-1. **The look/feel pass** (plus the small cosmetics that ride it —
-   DAYDREAM.md § Build order names them) — the head of the queue, and always
-   the item gated on nothing.
+1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass).
+   The small cosmetics that were to ride it (DAYDREAM.md § Build order names
+   them) did not, and stay at the head of the queue as the item gated on
+   nothing.
 2. **Caption styling**, then 3. **motion graphics + templates**, then
 4. **b-roll by description** — the last two get costed design notes before
    any build; b-roll must not copy Daydream blind, whose hour-metering
@@ -354,11 +362,12 @@ timeline being the enabler and the look pass being gated on nothing:
 5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane.
 
-**What step 6 left for the look pass:** the picture lane is drawn but not
-previewed — clicking a shot seeks the transport and the viewer stays black,
-because the preview pane still plays one clip's media. That is the video
-preview proxy (a wiki row), and it is what makes V2 a picture rather than a
-plan of one.
+**What step 6 left, and the look pass did not take:** the picture lane is
+drawn but not previewed — clicking a shot seeks the transport and the viewer
+stays black, because the preview pane still plays one clip's media. That is
+the video preview proxy (a wiki row), and it is what makes V2 a picture
+rather than a plan of one. It is a data problem, not a look one, which is
+why the retheme went past it.
 
 ### Parked — deliberately, with the reasoning
 

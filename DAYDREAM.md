@@ -190,8 +190,8 @@ shadcn/Tailwind zinc (`240 x% x%` neutrals) — the *warmth lives in the
 surfaces, not the widgets*. Accent colours are functional, not brand: one
 blue for selection/playhead, green checks, red destructive.
 
-The current page's cool slate (`--bg: #14161a`, `--ink: #dfe3ea` in
-`src/lucid/web/app.css`) is what this replaces. **The warmth is the look.**
+**The warmth is the look** — and it is what `src/lucid/web/app.css` now
+carries, in place of the cool slate it shipped with.
 
 ### Typography — three voices, six families observed
 
@@ -256,18 +256,19 @@ beats a mock** — the replica would be the product, not a copy of it.
 sections that planned it. Order of work is § Build order at the end; this map
 is the inventory with design detail per row. Cite rows by feature name.
 
-### Workspace shell — built; the gap is the look
+### Workspace shell — built, and rethemed
 
 Three panes over a full-width timeline: built (PLAN.md § Tier 3 is the
-goal). The retheme is § The design system above, applied to
-`src/lucid/web/app.css`'s existing custom properties — the variables are
-already the single point of change (`--bg`, `--ink`, `--panel`, `--line`,
-lane colours). Work items: the warm token set in light **and** dark (the
-page is dark-only today; the token rework makes the second theme a media
-query plus a toggle), vendored fonts, the three type voices applied
-(mono for every timecode and word index, serif accent available for any
-future headings), top-bar layout to match (project name left, Export right,
-theme toggle).
+goal). The retheme shipped 2026-08-08 — HISTORY.md § The look pass has the
+account and the measurements. What landed: the warm token set in light **and**
+dark, the three families vendored as woff2, the three voices applied, the
+pastel lanes, and the top bar in Daydream's order.
+
+One thing the plan above got wrong, worth keeping written down: it expected
+"a media query plus a toggle". That shape stores the palette twice. What was
+built is `light-dark()` per token declared once, with `color-scheme` as the
+whole switch — see CLAUDE.md, which also carries the trap that costs you a
+black-on-black canvas if you read a colour token from JS.
 
 ### Agent panel — built, same mechanism; cosmetics remain
 
@@ -306,11 +307,12 @@ shipped. Missing against Daydream:
   Show-cuts already renders the struck text to anchor it on. Small, and it
   completes the loop their docs call "review and restore your cuts".
 
-### Timeline — V1/A1/CC built; polish now, lanes later
+### Timeline — V1/V2/A1/CC built; two small items left
 
-Shipped: lanes as projections, waveform canvas, zoom, ruler. Rides the look
-pass: pastel clip palette, clip filename labels, sticky headers. Two items
-with real (small) machinery:
+Shipped: lanes as projections, waveform canvas, zoom, ruler, and the pastel
+palette from the look pass. Left, both with real (small) machinery — plus
+clip *filename* labels, held back on purpose because a block labelled by
+`clip_id` is the name every other surface in lucid uses:
 
 * **Filmstrip thumbnails** on V1 clips: ffmpeg frame-samples per clip,
   cached like waveforms (`cache/thumbs/`, keyed media size+mtime); drawn
@@ -320,11 +322,12 @@ with real (small) machinery:
   is more than one *real* track to lock or link — meaningful post-layered
   timeline, decorative before it.
 
-V2/A2 and everything that fills them: **gated on the layered timeline**
-(PLAN.md § The layered timeline), whose build-order step *the picture lane in
-the web UI* is the single legal point where the view widens. That gate is
-absolute — the export degrades silently rather than failing, so a lane drawn
-early produces a beautiful window and a wrong file.
+V2 arrived through that gate and no other way — the picture lane, step 6 of
+the layered timeline, drawn only once `export` could render it. A2 and
+anything else that widens the view is held to the same rule, and the rule is
+absolute: the export degrades silently rather than failing, so a lane drawn
+early produces a beautiful window and a wrong file (PLAN.md § The layered
+timeline).
 
 ### B-roll by description — the biggest new subsystem, design before build
 
@@ -451,9 +454,12 @@ item is unchanged — real Scream VO, real browser (wiki `tooling.md`
 § Headless browser).
 
 1. **The look/feel pass** — warm tokens light+dark, vendored fonts, three
-   type voices, pastel timeline, top-bar parity; plus the small items that
-   ride it: model label, thumbs, `@`-mentions, inline pause markers,
-   `restore`, export presets.
+   type voices, pastel timeline, top-bar parity: **shipped 2026-08-08**
+   (HISTORY.md § The look pass). The small items that were to ride it did
+   **not** ship and are now the head of the queue on their own: model label,
+   thumbs, `@`-mentions, inline pause markers, `restore`, export presets.
+   Two of those are not cosmetic — `restore` is a real op needing CLI + MCP
+   parity and a `plan` echo, and pause markers inherit the duration rule.
 2. **The layered timeline, steps 1–6** (PLAN.md § The layered timeline) —
    already Next; ends with the picture lane, the legal gate for the rest.
 3. **Caption styling** — the style object, agent-settable, burn-in at

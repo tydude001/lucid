@@ -1,18 +1,62 @@
 /* lucid's workspace UI — app shell + design system.
  *
  * PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace, § Layout.
- * One stylesheet, no framework, no build step. This file is CLOSED to the
- * pane stages that fill in transcript.js / timeline.js / agent.js: they
- * render into the classes documented below rather than adding new ones
- * here. If a pane needs something that doesn't exist yet, that is a signal
- * to extend this file deliberately, not to reach for an inline style.
+ * The look is DAYDREAM.md § The design system, specified — warm paper, three
+ * type voices, pastel timeline. One stylesheet, no framework, no build step.
+ * This file is CLOSED to the pane modules that fill in transcript.js /
+ * timeline.js / agent.js: they render into the classes documented below
+ * rather than adding new ones here. If a pane needs something that doesn't
+ * exist yet, that is a signal to extend this file deliberately, not to reach
+ * for an inline style.
+ *
+ * ---------------------------------------------------------------------
+ * TOKENS AND THEME — read this before touching a colour
+ * ---------------------------------------------------------------------
+ *
+ * Every colour in this file is `light-dark(<light>, <dark>)` declared ONCE in
+ * :root, and both themes fall out of `color-scheme`. That is the whole theme
+ * mechanism: there is no second copy of the palette under a media query and
+ * no `[data-theme]` block that redefines tokens, so a colour cannot drift
+ * between the two themes by being edited in one place and not the other.
+ *
+ *   default        `color-scheme: light dark` — the OS preference decides
+ *   [data-theme]   set by theme.js to `only light` / `only dark`, which is
+ *                  the toggle. It also fixes form controls and scrollbars,
+ *                  which a hand-rolled palette swap does not.
+ *
+ * The palette is Daydream's warm paper (HSL triplets verbatim from
+ * DAYDREAM.md § Tokens). **The warmth is the look** — it lives in the
+ * surfaces; the accents underneath stay functional, not brand: one blue for
+ * selection and the playhead, green for kept/ok, red for cut/destructive,
+ * amber for the partial and suspect states.
+ *
+ * Two colours end up as canvas fills, which cannot inherit: the waveform's
+ * ink (timeline.js) and the level display's bars (player.js). Each is set as
+ * the `color` of the canvas element itself, below, and the module reads
+ * `getComputedStyle(canvas).color` back. **Do not "simplify" that to reading
+ * the custom property directly** — `getPropertyValue('--waveform-ink')`
+ * returns the literal text `light-dark(…)`, which is not a value `fillStyle`
+ * can parse, and an unparseable fillStyle is silently ignored, so the canvas
+ * paints in whatever colour it had before. That failure is invisible in the
+ * light theme and paints black-on-black in the dark one; it was caught in a
+ * real browser, not by a test.
+ *
+ * Type is three voices (DAYDREAM.md § Typography), vendored as woff2 beside
+ * this file — no CDN, which the `default-src 'self'` CSP requires anyway:
+ *   --font-sans    Geist Sans — UI and body
+ *   --font-serif   Source Serif 4 — the accent voice, italic, one phrase at
+ *                  a time; `.serif-accent`. Used today by the brand mark and
+ *                  available for any heading that earns it.
+ *   --font-mono    JetBrains Mono — every timecode, word index, and keyboard
+ *                  hint. Reach for `.mono` rather than naming a family.
  *
  * ---------------------------------------------------------------------
  * DESIGN SYSTEM — read this before writing a pane module
  * ---------------------------------------------------------------------
  *
  * Layout skeleton (see index.html):
- *   #bar                  top bar: brand/project, stats, Export, Undo
+ *   #bar                  top bar: brand/project left, Export/Undo/theme
+ *                         right (DAYDREAM.md § Workspace shell)
  *   #workspace             grid: transcript-pane | preview-pane | agent-pane
  *   #timeline-pane          full-width strip under the workspace, ~22vh —
  *                          the picture in #preview-pane is the largest thing
@@ -29,12 +73,16 @@
  *                          content
  *   .pane-placeholder       "nothing here yet" body copy — a stub's honest
  *                          placeholder, or a genuine empty state
+ *   .mono                   the numeric voice: timecodes, word indices,
+ *                          keyboard hints
+ *   .serif-accent           the italic-serif accent voice, one phrase
  *
  * Preview pane (#viewer / #transport, owned by player.js — not a stub, the
  * seam-jumping loop is ported unchanged from tier 2):
  *   #viewer                 never `display:none` (tier 2's worst behaviour,
  *                          PLAN.md § Layout) — holds the <video> or, on an
- *                          audio-only clip, a level display instead
+ *                          audio-only clip, a level display instead. Black in
+ *                          both themes: it is a letterbox, not a surface.
  *   #viewer.audio            the audio-only state: video hidden, canvas shown
  *
  * Transcript pane (#transcript, filled by transcript.js):
@@ -74,7 +122,9 @@
  *                             lanes exist is a data question answered by the
  *                             view, never a lane `export` cannot produce
  *                             (CLAUDE.md / PLAN.md § The trap this section
- *                             exists to write down)
+ *                             exists to write down). What each modifier does
+ *                             is set `--clip-fill` to its pastel; the block
+ *                             itself never names a colour.
  *   .clip-block                one DOM block per timeline segment
  *   .clip-block.shot-block      one shot on V2, the cue table's picture lane
  *   .clip-block.shot-card        …that shot is a held still, not footage
@@ -116,23 +166,137 @@
  *
  * #toast                     a transient bottom-right message, unchanged
  *                            from tier 2
+ *
+ * Motion is austere by instruction (DAYDREAM.md § Motion): a spinner, a
+ * cursor, an accordion. **Do not import marketing motion into the tool** — in
+ * the app, the moving element is the edit itself.
  */
 
+/* -- the three voices, vendored (OFL; LICENSE-*.txt beside these files) ---- */
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/static/geist-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/static/geist-sans-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/static/geist-sans-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("/static/geist-sans-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Variable, one file per style — the accent voice is the italic. */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/static/source-serif-4.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/static/source-serif-4-italic.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/static/jetbrains-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* -- tokens --------------------------------------------------------------- */
+
 :root {
-  --bg: #14161a;
-  --panel: #1b1e24;
-  --line: #2c313a;
-  --ink: #dfe3ea;
-  --dim: #838b99;
-  --kept: #4c9f70;
-  --cut: #b4453f;
-  --partial: #c8912f;
-  --sel: #3d6fb4;
-  --accent: #74a8e8;
-  --agent: #8b7fd1;
+  /* The OS decides unless theme.js overrides it below. */
+  color-scheme: light dark;
+
+  /* Surfaces — warm paper. */
+  --bg: light-dark(hsl(48 27% 98%), hsl(48 6% 7%));
+  --panel: light-dark(hsl(48 20% 95%), hsl(48 5% 11%));
+  --panel-2: light-dark(hsl(41 19% 93%), hsl(48 5% 9%));
+  --sunken: light-dark(hsl(41 16% 91%), hsl(48 5% 8%));
+
+  /* Ink. */
+  --ink: light-dark(hsl(48 14% 7%), hsl(48 27% 97%));
+  --ink-2: light-dark(hsl(42 5% 27%), hsl(42 9% 80%));
+  --dim: light-dark(hsl(42 4% 51%), hsl(42 4% 55%));
+
+  /* Hairlines. */
+  --line: light-dark(hsl(42 12% 83%), hsl(42 6% 18%));
+  --line-2: light-dark(hsl(42 14% 91%), hsl(42 6% 14%));
+
+  /* Functional accents — not brand. */
+  --accent: light-dark(hsl(216 68% 44%), hsl(213 71% 68%));
+  --sel: light-dark(hsl(216 70% 50%), hsl(214 49% 47%));
+  --kept: light-dark(hsl(150 46% 30%), hsl(148 35% 46%));
+  --cut: light-dark(hsl(3 62% 44%), hsl(3 48% 48%));
+  --partial: light-dark(hsl(35 78% 34%), hsl(38 62% 48%));
+  --agent: light-dark(hsl(252 42% 48%), hsl(248 45% 66%));
   --ok: var(--kept);
   --err: var(--cut);
   --skip: var(--dim);
+
+  /* Tinted washes — the same accents at surface strength. */
+  --wash-accent: light-dark(hsl(216 70% 50% / 0.12), hsl(213 71% 68% / 0.16));
+  --wash-kept: light-dark(hsl(150 46% 30% / 0.12), hsl(148 35% 46% / 0.18));
+  --wash-cut: light-dark(hsl(3 62% 44% / 0.12), hsl(3 48% 48% / 0.18));
+  --wash-partial: light-dark(hsl(35 78% 34% / 0.14), hsl(38 62% 48% / 0.2));
+  --wash-dim: light-dark(hsl(42 4% 51% / 0.14), hsl(42 4% 55% / 0.15));
+
+  /* The one primary action: a filled button, everything else quiet. */
+  --primary-fill: light-dark(hsl(48 12% 12%), hsl(48 20% 92%));
+  --primary-ink: light-dark(hsl(48 27% 98%), hsl(48 12% 10%));
+
+  /* Timeline pastels, low saturation (DAYDREAM.md § Component language).
+     Which lane gets which is set on the .lane-* modifier, never on a block. */
+  --clip-lavender: light-dark(hsl(258 46% 88%), hsl(258 22% 32%));
+  --clip-powder: light-dark(hsl(205 54% 86%), hsl(205 26% 30%));
+  --clip-mint: light-dark(hsl(152 40% 85%), hsl(152 22% 26%));
+  --clip-rose: light-dark(hsl(350 58% 89%), hsl(350 20% 33%));
+  --clip-sand: light-dark(hsl(41 34% 88%), hsl(41 10% 24%));
+  --clip-ink: light-dark(hsl(48 14% 18%), hsl(48 20% 90%));
+  --clip-edge: light-dark(hsl(42 12% 76% / 0.9), hsl(42 6% 30% / 0.9));
+
+  /* Canvas fills, read from JS — see the header note. */
+  --waveform-ink: light-dark(hsl(48 14% 7% / 0.5), hsl(48 27% 97% / 0.35));
+  --viz-bar: light-dark(hsl(216 68% 44%), hsl(213 71% 68%));
+
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* 0.5rem everywhere (DAYDREAM.md § Tokens). --radius-xs is the exception
+     with a reason: a 8px radius on a 36px-tall clip block reads as a pill,
+     not a clip. */
+  --radius: 0.5rem;
+  --radius-xs: 4px;
 
   --pane-transcript-w: 26rem;
   --pane-agent-w: 24rem;
@@ -141,6 +305,16 @@
   --track-header-w: 84px;
   --lane-h: 42px;
   --ruler-h: 22px;
+}
+
+/* The toggle. `color-scheme` is the whole switch: it re-resolves every
+   light-dark() above and repaints the browser's own widgets with it. */
+:root[data-theme="light"] {
+  color-scheme: only light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: only dark;
 }
 
 * {
@@ -153,46 +327,86 @@ body {
   margin: 0;
 }
 
+/* `minmax(0, 1fr)`, not the implicit `auto` column, and this is load-bearing:
+   an `auto` grid track never shrinks below its items' min-content, so the
+   timeline's own content width propagated back up and made the whole page
+   1728px wide in a 1600px window — pushing Export off the right edge. Found
+   by measuring in a real browser; it predates the look pass and was invisible
+   because `overflow: hidden` here hides the scrollbar that would have said
+   so. `.track-lanes` gets the matching `min-width: 0` for the same reason. */
 body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr minmax(var(--timeline-h-min), var(--timeline-h));
   background: var(--bg);
   color: var(--ink);
-  font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+  font: 13px/1.5 var(--font-sans);
   overflow: hidden;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One emphasised phrase, and it carries the brand. Not a decoration to
+   sprinkle: DAYDREAM.md § Typography is explicit that it is one per heading. */
+.serif-accent {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 600;
 }
 
 button {
   padding: 4px 10px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--panel);
-  color: var(--ink);
+  color: var(--ink-2);
   font: inherit;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--dim);
+  background: var(--panel-2);
+  color: var(--ink);
 }
 
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: default;
 }
 
+/* The one filled thing on the page. If a second button ever wants this
+   class, the answer is that there is only one primary action per surface. */
 button.primary {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: transparent;
+  background: var(--primary-fill);
+  color: var(--primary-ink);
+  font-weight: 500;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--primary-fill);
+  color: var(--primary-ink);
+  opacity: 0.88;
+}
+
+/* Paper needs a visible focus ring far more than the old dark page did. */
+:is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 input[type="number"],
 input[type="range"],
 select,
 textarea {
-  padding: 3px 5px;
+  padding: 3px 6px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--bg);
   color: var(--ink);
   font: inherit;
@@ -200,6 +414,7 @@ textarea {
 
 input[type="number"] {
   width: 62px;
+  font-family: var(--font-mono);
 }
 
 textarea {
@@ -229,14 +444,14 @@ textarea {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 
 #bar .brand {
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 16px;
+  letter-spacing: -0.01em;
 }
 
 #bar .sep {
@@ -247,13 +462,32 @@ textarea {
   font-weight: 600;
 }
 
+#bar .stats {
+  color: var(--dim);
+  font-size: 11.5px;
+}
+
 #bar .stats b {
-  color: var(--accent);
-  font-weight: 600;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .depth {
   color: var(--dim);
+  font-family: var(--font-mono);
+}
+
+/* Quiet and unlabelled by text — the glyph is the label. Fixed width because
+   the three glyphs measure 9–17px in the fallback font, and a button that
+   resized on every click would make the top bar twitch. */
+#theme {
+  min-width: 32px;
+  padding: 4px 6px;
+  font-size: 14px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 /* -- workspace: transcript | preview | agent ----------------------------- */
@@ -285,17 +519,19 @@ textarea {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--panel-2);
   color: var(--dim);
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 /* -- preview pane: the picture is the largest thing on screen ----------- */
 
+/* Black in both themes on purpose: this is a letterbox around a picture, and
+   paper behind a video reads as a bug rather than as the theme. */
 #viewer {
   position: relative;
   flex: 1;
@@ -311,10 +547,12 @@ textarea {
   max-height: 100%;
 }
 
+/* Same contract as .waveform-canvas: `color` is what player.js paints with. */
 #viewer #visualizer {
   display: none;
   width: 100%;
   height: 100%;
+  color: var(--viz-bar);
 }
 
 /* An audio-only clip has no picture, but the pane is never display:none
@@ -333,14 +571,15 @@ textarea {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
 
 .clock {
   font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
+  color: var(--ink-2);
 }
 
 /* -- transcript pane ------------------------------------------------------ */
@@ -349,12 +588,12 @@ textarea {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--line);
 }
 
 .toggle {
-  padding: 2px 8px;
+  padding: 2px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--panel);
@@ -365,13 +604,14 @@ textarea {
 
 .toggle.on {
   border-color: var(--accent);
+  background: var(--wash-accent);
   color: var(--accent);
 }
 
 #transcript {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px 80px;
+  padding: 14px 16px 80px;
   position: relative;
 }
 
@@ -384,7 +624,8 @@ textarea {
   margin-right: 8px;
   color: var(--dim);
   font-size: 11px;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   vertical-align: 2px;
 }
 
@@ -397,7 +638,7 @@ textarea {
 }
 
 .w:hover {
-  background: #262b33;
+  background: var(--wash-dim);
 }
 
 /* Cut, and cut is the loud state — this is the thing you came to check. */
@@ -417,7 +658,7 @@ textarea {
    showing the exact words, and a glyph appended to one reads as punctuation
    the speaker did not say. The tooltip carries the detail. */
 .w.suspect {
-  background: rgba(200, 145, 47, 0.22);
+  background: var(--wash-partial);
   box-shadow: inset 0 -2px 0 var(--partial);
 }
 
@@ -428,7 +669,7 @@ textarea {
 
 .w.playing {
   background: var(--accent);
-  color: #10131a;
+  color: light-dark(hsl(48 27% 98%), hsl(48 14% 7%));
 }
 
 .selection-toolbar {
@@ -437,9 +678,9 @@ textarea {
   gap: 6px;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: light-dark(0 8px 24px hsl(42 14% 40% / 0.22), 0 8px 24px hsl(0 0% 0% / 0.5));
   z-index: 5;
 }
 
@@ -454,9 +695,9 @@ textarea {
   margin-top: 4px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: light-dark(0 8px 24px hsl(42 14% 40% / 0.22), 0 8px 24px hsl(0 0% 0% / 0.5));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -469,17 +710,20 @@ textarea {
 .agent-feed {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+/* A bordered rounded bubble per entry, hairline on paper (DAYDREAM.md §
+   Component language) — the left edge is who said it. */
 .agent-entry {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
   border-left: 2px solid var(--line);
-  background: #12151a;
+  background: var(--panel-2);
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
@@ -495,7 +739,7 @@ textarea {
 .agent-entry--tool {
   border-left-color: var(--dim);
   color: var(--dim);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 11.5px;
 }
 
@@ -528,9 +772,9 @@ textarea {
 
 .completion-card {
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px;
-  background: #12151a;
+  border-radius: var(--radius);
+  padding: 11px;
+  background: var(--panel-2);
 }
 
 .check-row {
@@ -544,28 +788,29 @@ textarea {
 .check-badge {
   padding: 1px 7px;
   border-radius: 999px;
+  font-family: var(--font-mono);
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
 .check-badge.ok {
-  background: rgba(76, 159, 112, 0.18);
+  background: var(--wash-kept);
   color: var(--ok);
 }
 
 .check-badge.warn {
-  background: rgba(200, 145, 47, 0.18);
+  background: var(--wash-partial);
   color: var(--partial);
 }
 
 .check-badge.fail {
-  background: rgba(180, 69, 63, 0.18);
+  background: var(--wash-cut);
   color: var(--err);
 }
 
 .check-badge.skip {
-  background: rgba(131, 139, 153, 0.15);
+  background: var(--wash-dim);
   color: var(--skip);
 }
 
@@ -573,15 +818,27 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-top: 1px solid var(--line);
   background: var(--panel);
+}
+
+.agent-composer textarea {
+  border-radius: var(--radius);
 }
 
 .agent-composer-row {
   display: flex;
   gap: 6px;
+  align-items: center;
   justify-content: flex-end;
+}
+
+/* Muted mono keyboard hints in the composer (DAYDREAM.md § Component
+   language) — the row's first child, so it sits left of the buttons. */
+.agent-composer-row .hint {
+  margin-right: auto;
+  font-family: var(--font-mono);
 }
 
 /* -- timeline pane --------------------------------------------------------- */
@@ -599,7 +856,7 @@ textarea {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -608,7 +865,7 @@ textarea {
   color: var(--dim);
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .zoom-ctl {
@@ -640,12 +897,12 @@ textarea {
   height: var(--lane-h);
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 12px;
   color: var(--dim);
+  font-family: var(--font-mono);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--line);
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--line-2);
 }
 
 .track-header.ruler-spacer {
@@ -655,16 +912,24 @@ textarea {
 .track-lanes {
   position: relative;
   flex: 1;
+  /* A flex item's default `min-width: auto` is its content, so without this
+     the lane row's width becomes the floor for this box, then for the page —
+     see the note on `body`. It is also what makes `overflow-x` actually
+     scroll instead of just growing. */
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
+/* Sticky, and the one place the backdrop blur belongs: lanes scroll under it. */
 .ruler {
   position: sticky;
   top: 0;
   height: var(--ruler-h);
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: light-dark(hsl(48 20% 95% / 0.82), hsl(48 5% 11% / 0.82));
+  backdrop-filter: blur(6px);
+  z-index: 2;
 }
 
 .ruler-tick {
@@ -680,14 +945,16 @@ textarea {
   top: 2px;
   font-size: 10px;
   color: var(--dim);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .lane {
   position: relative;
   height: var(--lane-h);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-2);
+  background: var(--sunken);
   cursor: crosshair;
   user-select: none;
 }
@@ -695,18 +962,14 @@ textarea {
 /* V2 — the cue table's picture, over the edit. Legal since step 5 of the
    layered timeline made `export` able to render it. */
 .lane-v2 {
-  background: #12141a;
-}
-
-.lane-v2 .clip-block {
-  background: var(--sel);
+  --clip-fill: var(--clip-lavender);
 }
 
 /* A card is a still held for the length of the shot, not footage played
    through — worth telling apart at a glance, since a card that ran long
    looks identical to a clip that did. */
 .lane-v2 .clip-block.shot-card {
-  background: var(--agent);
+  --clip-fill: var(--clip-rose);
 }
 
 /* The picture plan refused, so there is no lane to draw and the reason is
@@ -716,8 +979,8 @@ textarea {
   position: absolute;
   inset: 3px 0;
   padding: 2px 8px;
-  border-radius: 3px;
-  background: rgba(180, 69, 63, 0.18);
+  border-radius: var(--radius-xs);
+  background: var(--wash-cut);
   border: 1px solid var(--cut);
   color: var(--ink);
   font-size: 11px;
@@ -728,39 +991,48 @@ textarea {
 }
 
 .lane-v1 {
-  background: #0f1114;
+  --clip-fill: var(--clip-powder);
 }
 
 .lane-a1 {
-  background: #0f1114;
+  --clip-fill: var(--clip-mint);
 }
 
+/* Sand rather than a fifth pastel: a caption block is text, and it should
+   stay quieter than the picture and audio it describes. */
 .lane-cc {
-  background: #101215;
+  --clip-fill: var(--clip-sand);
 }
 
 .clip-block {
   position: absolute;
   top: 3px;
   bottom: 3px;
-  border-radius: 3px;
-  background: var(--kept);
-  opacity: 0.6;
+  border: 1px solid var(--clip-edge);
+  border-radius: var(--radius-xs);
+  background: var(--clip-fill, var(--clip-mint));
+  color: var(--clip-ink);
   overflow: hidden;
-  padding: 2px 5px;
+  padding: 2px 6px;
   font-size: 11px;
   white-space: nowrap;
 }
 
+/* An overlay rather than a second fill: it reads the same over any pastel,
+   in either theme, so hover is one rule instead of five. */
 .clip-block:hover {
-  opacity: 0.85;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 999px light-dark(hsl(0 0% 0% / 0.06), hsl(0 0% 100% / 0.08));
 }
 
+/* `color` is not decorative here: timeline.js reads it back for the canvas
+   fill. See the note at the top of this file before changing it. */
 .waveform-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  color: var(--waveform-ink);
 }
 
 /* A seam is an instant, not a width — draw it as a line. */
@@ -776,11 +1048,8 @@ textarea {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(180, 69, 63, 0.5) 0 4px,
-    rgba(180, 69, 63, 0.2) 4px 8px
-  );
+  background: repeating-linear-gradient(45deg, var(--cut) 0 1px, transparent 1px 6px);
+  opacity: 0.5;
 }
 
 .playhead-line {
@@ -798,7 +1067,7 @@ textarea {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(61, 111, 180, 0.4);
+  background: var(--wash-accent);
   border-left: 1px solid var(--sel);
   border-right: 1px solid var(--sel);
   pointer-events: none;
@@ -811,7 +1080,8 @@ textarea {
   margin: 6px 0;
   padding: 8px 10px;
   border-left: 2px solid var(--sel);
-  background: #12151a;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  background: var(--sunken);
   font-size: 14px;
   line-height: 1.7;
 }
@@ -838,9 +1108,15 @@ textarea {
   vertical-align: top;
 }
 
+/* The value column is numbers and word indices far more often than prose. */
+.rows td + td {
+  font-family: var(--font-mono);
+}
+
 .rows td:first-child {
   padding-right: 10px;
   color: var(--dim);
+  font-family: var(--font-sans);
   white-space: nowrap;
 }
 
@@ -848,12 +1124,13 @@ textarea {
   margin: 8px 0;
   padding: 8px 10px;
   border-left: 2px solid var(--partial);
-  background: rgba(200, 145, 47, 0.1);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  background: var(--wash-partial);
 }
 
 .bad {
   border-left-color: var(--cut);
-  background: rgba(180, 69, 63, 0.12);
+  background: var(--wash-cut);
 }
 
 #toast {
@@ -863,8 +1140,9 @@ textarea {
   max-width: 46ch;
   padding: 10px 14px;
   border: 1px solid var(--cut);
-  border-radius: 4px;
-  background: #2a1a1a;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: light-dark(0 8px 28px hsl(42 14% 40% / 0.26), 0 8px 28px hsl(0 0% 0% / 0.55));
   z-index: 10;
 }

@@ -4,15 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>lucid</title>
-    <!-- Empty data URI, not a missing tag: without it the browser falls back
-         to GET /favicon.ico, which this server has no route for and which
-         logs a 404 on every load. -->
-    <link rel="icon" href="data:," />
+    <!-- A real asset, not the `data:,` placeholder this used to be: that
+         avoided the /favicon.ico 404 but tripped `default-src 'self'` instead
+         — CSP counts a data: URI as a foreign image — so every load logged a
+         security error to the console. Verified in a real browser. -->
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
+    <!-- Classic, not a module, and before the body on purpose: a module is
+         deferred, so the page would paint in the wrong theme first. See
+         theme.js's header. -->
+    <script src="/static/theme.js"></script>
   </head>
   <body>
     <header id="bar">
-      <span class="brand">lucid</span>
+      <span class="brand serif-accent">lucid</span>
       <span class="sep">/</span>
       <span id="project" class="name">…</span>
       <select id="clip" title="clip"></select>
@@ -22,12 +27,17 @@
         · <b id="cutcount">–</b> cuts
       </span>
       <span class="spacer"></span>
-      <button id="export" class="primary" title="render a watermark-free MP4 in the window">
-        Export
-      </button>
       <button id="undo" title="roll back the last timeline mutation">
         Undo <span id="depth" class="depth"></span>
       </button>
+      <!-- The one filled button on the page, and it sits at the right end
+           (DAYDREAM.md § Workspace shell). -->
+      <button id="export" class="primary" title="render a watermark-free MP4 in the window">
+        Export
+      </button>
+      <!-- Glyph and title are set by theme.js, which knows which of the three
+           states is live. -->
+      <button id="theme" type="button" title="theme">◐</button>
     </header>
 
     <div id="workspace">
@@ -68,6 +78,7 @@
             placeholder="Ask the agent to edit this project…"
           ></textarea>
           <div class="agent-composer-row">
+            <span class="hint">Enter sends · Shift-Enter newline</span>
             <button id="agent-stop" type="button" hidden>Stop</button>
             <button id="agent-send" type="submit" class="primary">Send</button>
           </div>

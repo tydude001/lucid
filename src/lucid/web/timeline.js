@@ -91,6 +91,19 @@ function laneHeightPx() {
   return Number.isFinite(n) && n > 0 ? n : LANE_H_FALLBACK;
 }
 
+/** The waveform's ink, read off the canvas's own computed `color`.
+ *
+ * A canvas fill cannot inherit, so the colour has to come across from CSS
+ * somehow — and it is deliberately NOT read from the `--waveform-ink` custom
+ * property, because a custom property reads back as its literal text
+ * (`light-dark(…)`), which `fillStyle` cannot parse and silently ignores. A
+ * real `color` on a real element is resolved to `rgb(…)` before JS sees it.
+ * app.css's header has the full account; this was a black-on-black waveform
+ * in the dark theme until a real browser showed it. */
+function canvasInk(canvas, fallback) {
+  return getComputedStyle(canvas).color || fallback;
+}
+
 /** Fit-to-window pixels-per-second, times the #zoom slider's multiplier. */
 function computePxPerSec(duration) {
   const container = $("track-lanes");
@@ -279,7 +292,7 @@ function drawWaveformLane(canvas, segments, pxPerSec, laneHeight, contentWidth) 
   if (!g) return;
   g.clearRect(0, 0, canvas.width, canvas.height);
   const mid = canvas.height / 2;
-  g.fillStyle = "rgba(20, 22, 26, 0.55)"; // var(--bg), read over the block's own fill
+  g.fillStyle = canvasInk(canvas, "rgba(20, 22, 26, 0.55)"); // read over the block's own pastel
 
   for (const seg of segments) {
     const entry = ensureWaveform(seg.clip_id);
@@ -397,6 +410,14 @@ export function init(passedCtx) {
   }
 
   window.addEventListener("resize", () => {
+    if (lastState) render();
+  });
+
+  // The lanes are CSS and repaint themselves, but the waveform is a canvas
+  // and holds whatever ink it was drawn with — so a theme flip has to redraw
+  // it or it keeps the previous theme's. theme.js raises this for both the
+  // toggle and an OS preference change.
+  window.addEventListener("lucid:theme", () => {
     if (lastState) render();
   });
 

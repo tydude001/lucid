@@ -11,6 +11,7 @@ from __future__ import annotations
 import http.client
 import json
 import math
+import re
 import shlex
 import shutil
 import struct
@@ -475,12 +476,40 @@ def test_the_page_and_its_assets_are_served_from_the_package(server: str) -> Non
     assert status == 200
     assert headers["Content-Type"].startswith("text/html")
     assert b'src="/static/app.js"' in body
+    # theme.js is loaded from <head> as a classic script, not a module: a
+    # module is deferred and the page would paint in the wrong theme first.
+    assert b'<script src="/static/theme.js"></script>' in body
 
-    for asset, prefix in (("app.js", "text/javascript"), ("app.css", "text/css")):
+    for asset, prefix in (
+        ("app.js", "text/javascript"),
+        ("theme.js", "text/javascript"),
+        ("app.css", "text/css"),
+    ):
         status, headers, body = _get(f"{server}/static/{asset}")
         assert status == 200, asset
         assert headers["Content-Type"].startswith(prefix)
         assert body
+
+
+def test_the_vendored_fonts_are_served_and_the_css_asks_for_them(server: str) -> None:
+    """The three type voices ship in the package, not from a CDN.
+
+    A CDN would be refused by this server's own `default-src 'self'` CSP, so
+    a missing woff2 does not fail loudly — the page just silently falls back
+    to a system font and the look pass quietly undoes itself.
+    """
+    _, _, css = _get(f"{server}/static/app.css")
+    wanted = {
+        name.decode()
+        for name in re.findall(rb'url\("/static/([^"]+\.woff2)"\)', css)
+    }
+    assert wanted, "app.css declares no vendored fonts"
+
+    for name in sorted(wanted):
+        status, headers, body = _get(f"{server}/static/{name}")
+        assert status == 200, name
+        assert headers["Content-Type"] == "font/woff2", name
+        assert body[:4] == b"wOF2", name
 
 
 def test_static_serving_refuses_a_path_rather_than_a_name(server: str) -> None:

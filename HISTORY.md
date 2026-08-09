@@ -1876,3 +1876,101 @@ them does not attribute them to it.
 - **Nothing here authors a cue.** The page draws the lane; cues are still
   added by CLI, MCP or the agent panel. Cue editing in the window belongs to
   the parity queue's assets pane, not to this step.
+
+## The look pass, head of the Daydream parity queue — 2026-08-08
+
+The item DAYDREAM.md § Build order named first and gated on nothing: warm
+tokens in light **and** dark, vendored fonts, the three type voices, the
+pastel timeline, top-bar parity. The palette is Daydream's own HSL triplets,
+copied verbatim from DAYDREAM.md § Tokens — the system, not the assets; the
+name, logo and copy are not taken and every typeface involved is OFL.
+
+### The theme mechanism, and why there is no second palette
+
+`light-dark()` on every token, declared once in `:root`, with `color-scheme`
+as the entire switch. No `@media (prefers-color-scheme: dark)` block
+redefining the palette and no `[data-theme]` block either — the usual shape
+for this stores the colours twice, and two copies is how a token gets edited
+in one theme and not the other. `color-scheme` also repaints the browser's own
+scrollbars and form widgets, which a hand-rolled swap does not.
+
+`theme.js` is therefore tiny and holds no colours: it sets `data-theme` and
+raises an event. It is a **classic script in `<head>`, not a module** —
+a module is deferred, so it would run after the first paint and the toggle
+would announce itself with a flash on every load. Three states, not two:
+`auto` is a real answer, and a two-state toggle makes the first click a
+permanent opt-out of the OS preference with no way back.
+
+Fonts are vendored as woff2 beside `app.css` (`FONTS.md` has provenance and
+licences). Not a preference — this server sends `default-src 'self'`, so a CDN
+`<link>` would be refused and the page would silently fall back to a system
+font. Flat filenames, because `_send_static` serves a name and never a path.
+
+### Three defects the browser found and no test could
+
+Each produced a page that *looked* fine from the outside, which is the
+recurring shape of this repo's UI bugs.
+
+- **A canvas fill cannot read a colour token.**
+  `getPropertyValue('--waveform-ink')` returns the literal text
+  `light-dark(…)`; `fillStyle` cannot parse it, and **an unparseable
+  `fillStyle` is silently ignored**, so the canvas keeps the colour it already
+  had — black. Invisible in the light theme, black-on-black in the dark one.
+  The fix is to put the colour on the canvas element as a real `color` and
+  read `getComputedStyle(canvas).color`, which is resolved to `rgba(…)` before
+  JS sees it. Measured after: light `rgba(20, 19, 15, 0.5)`, dark
+  `rgba(249, 249, 245, 0.35)`, mean painted pixel `(13,13,9)` and
+  `(249,249,247)` respectively.
+- **A canvas does not repaint itself on a theme change.** CSS does; a canvas
+  holds whatever ink it was drawn with. Hence `theme.js`'s `lucid:theme`
+  event — timeline.js re-renders on it and player.js drops its cached bar
+  colour. It fires for an OS preference change too, because in `auto` that is
+  a theme change with no click behind it.
+- **The 128px horizontal overflow was a grid track, and it predated this.**
+  Step 6 recorded it as "the overflowing nodes are the top bar's" and left it;
+  measured at HEAD it is 1728px of page in a 1600px window, unchanged by the
+  look pass. The cause is `body`'s implicit `auto` grid column, which never
+  shrinks below its items' min-content — so the timeline's content width
+  propagated up and pushed Export off the right edge. `minmax(0, 1fr)` on the
+  body grid plus `min-width: 0` on `.track-lanes` fixes it; `overflow: hidden`
+  on `body` is why it never showed a scrollbar to give itself away.
+
+A fourth, smaller: the favicon was `data:,` — added to avoid a `/favicon.ico`
+404, but CSP counts a data: URI as a foreign image, so **every load logged a
+security error**. Now a real `/static/favicon.svg`. The page's console is
+clean.
+
+### Verified in a real browser, against the real Scream VO
+
+`~/lucid-scream-v2/proj` over CDP, 1600×1000 (wiki `tooling.md` § Headless
+browser), read back from computed style rather than from the stylesheet.
+
+| | light | dark |
+|---|---|---|
+| page background | `rgb(251, 251, 249)` | `rgb(19, 18, 17)` |
+| V2 / A1 / CC clip fills | `219,210,238` · `201,232,218` · `235,228,214` | `74,64,100` · `52,81,67` · `67,63,55` |
+| waveform ink | `rgba(20, 19, 15, 0.5)` | `rgba(249, 249, 245, 0.35)` |
+| level-display bars | `rgb(36, 97, 188)` | `rgb(115, 168, 231)` |
+| horizontal overflow | none | none |
+| console entries | none | none |
+
+Body in Geist Sans, the brand in italic Source Serif 4, every timecode and
+word index in JetBrains Mono — all three families reported `loaded` by
+`document.fonts`. The toggle cycles auto → light → dark → auto with the
+background following it, and `Export` is the one filled button, near-black on
+paper and inverting to near-white on the dark theme.
+
+### What the look pass did not include
+
+The small items DAYDREAM.md § Build order lists as riding it are **not** done:
+model label, per-turn thumbs, `@`-mentions, inline pause markers, `restore`,
+export presets. Two are more than cosmetic and want their own step —
+`restore` is a real op needing CLI + MCP parity and a `plan` echo, and pause
+markers have the duration-inflation rule to respect (a gap computed from word
+boundaries under-reports, never over-reports, so a suppressed marker is
+cosmetic and an invented one would be a lie).
+
+Filmstrip thumbnails and clip *filename* labels are also still open. The
+blocks label by `clip_id`, which is deliberate for now: it is the name every
+other surface in lucid addresses a clip by, and a filename would make the lane
+disagree with the CLI.

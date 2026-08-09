@@ -208,6 +208,22 @@ function ensureVisualizer() {
   }
 }
 
+/* The bar colour comes from CSS, so the palette keeps exactly one home
+ * (app.css § TOKENS AND THEME). It is read off #visualizer's own computed
+ * `color` and not from the `--viz-bar` custom property, which reads back as
+ * unparsed `light-dark(…)` text that `fillStyle` silently refuses — see
+ * app.css's header, and timeline.js's `canvasInk` for the same trap.
+ *
+ * Cached because this is called every animation frame, and invalidated by
+ * theme.js's event rather than re-measured: that event covers both the toggle
+ * and an OS preference change, which is every way the answer can move. */
+let barColour = null;
+
+function vizBarColour() {
+  if (barColour === null) barColour = getComputedStyle(visualizer).color || "#74a8e8";
+  return barColour;
+}
+
 function drawVisualizer() {
   if (!analyser || !vizCtx) return;
   if (!$("viewer").classList.contains("audio")) return;
@@ -216,7 +232,7 @@ function drawVisualizer() {
   const w = visualizer.width;
   const h = visualizer.height;
   vizCtx.clearRect(0, 0, w, h);
-  vizCtx.fillStyle = "#74a8e8";
+  vizCtx.fillStyle = vizBarColour();
   const barW = w / data.length;
   for (let i = 0; i < data.length; i++) {
     const barH = (data[i] / 255) * h;
@@ -250,6 +266,11 @@ export function init(passedCtx) {
   });
 
   $("play").addEventListener("click", () => toggle());
+
+  // Drop the cached bar colour; the next frame re-reads it in the new theme.
+  window.addEventListener("lucid:theme", () => {
+    barColour = null;
+  });
 
   window.addEventListener("keydown", (event) => {
     const tag = event.target.tagName;

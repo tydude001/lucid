@@ -75,6 +75,13 @@ installed package or the upstream repo, not your memory.
     be wrong. The view widens when the model does, never ahead of it.
     PLAN.md § Tier 3 is the goal. The picture lane (V2) is **drawn as of step
     6**, and only because step 5 made `export` able to render it.
+  - **The palette lives once, as `light-dark()` in `app.css`'s `:root`, and
+    JS must never read a colour token.** `getPropertyValue('--x')` returns
+    literal `light-dark(…)` text, which `fillStyle` **silently ignores** —
+    right in one theme, black-on-black in the other. Give the element a real
+    `color` and read `getComputedStyle(el).color`; a canvas also needs
+    `theme.js`'s `lucid:theme` event to know to repaint. HISTORY.md § The
+    look pass.
   - **The picture lane draws `timeline_view`'s `shots` — the projection
     *already through `mlt.plan_picture`* — never `build_shots` directly.** The
     two disagree: `plan_picture` refuses a shot longer than its asset, so the
