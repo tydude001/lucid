@@ -87,6 +87,10 @@
  *   #picture                 the V2 layer over both: the shot under the
  *                          playhead, `contain` so nothing is cropped
  *   .picture-note             why a shot is not showing, in words
+ *   #caption-layer           CC over both — geometry only, because every
+ *                          visible property comes off /api/captions so the
+ *                          preview shows the render's look and not lucid's
+ *   #caption-line             the one displayed cue; .cw is a karaoke word
  *
  * Transcript pane (#transcript, filled by transcript.js):
  *   .transcript-toolbar     top-of-pane controls (e.g. the show-cuts toggle)
@@ -646,6 +650,45 @@ textarea {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+
+/* The caption layer — geometry only.
+
+   Every visible property of a caption (font, size, colour, outline, box,
+   which corner, how far in) comes off /api/captions as an inline style, and
+   deliberately not from this file: these pixels stand in for pixels ffmpeg
+   will burn, so a palette token leaking in here would make the preview a
+   picture of lucid's theme rather than of the render. The rules below only
+   say where the layer sits and that it never eats a click.
+
+   `left/top/width/height` are set by player.js to the *video's* content box,
+   not this element's parent — a letterboxed frame must not have its captions
+   float in the black bars, where the burn-in cannot put them. */
+#caption-layer {
+  position: absolute;
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+}
+
+#caption-layer[hidden] {
+  display: none;
+}
+
+/* One line, placed by flex from the style's named position. `white-space:
+   pre-wrap` because the words are joined with real spaces and a run of them
+   is meaningful spacing in a caption, not markup to collapse. */
+#caption-line {
+  white-space: pre-wrap;
+  text-align: center;
+  line-height: 1.25;
+  max-width: 84%; /* mirrors to_ass's MarginL/MarginR of 8% a side */
+}
+
+/* Word-highlight (karaoke). The colour is set inline per word; this only
+   makes the span a span. */
+#caption-line .cw {
+  transition: none;
 }
 
 /* Why a shot is not showing, in words — a <video> that cannot decode its

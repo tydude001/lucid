@@ -52,6 +52,8 @@ EXPECTED_TOOLS = {
     "timeline_view",
     "undo",
     "add_captions",
+    "caption_view",
+    "caption_style",
     "verify",
     "check_frames",
     "check_black",
@@ -166,6 +168,8 @@ TOOL_TO_COMMAND = {
     "timeline_view": "view",
     "undo": "undo",
     "add_captions": "captions",
+    "caption_view": "caption-view",
+    "caption_style": "caption-style",
     "verify": "verify",
     "check_frames": "frames",
     "check_black": "black",
@@ -1306,6 +1310,121 @@ def test_captions_follow_the_timeline_not_the_recording(
     # now heard at 4.1 — a caption still quoting 6.0 would be the bug.
     assert "0:00:04.10" in written
     assert "0:00:06.00" not in written
+
+
+@needs_ffprobe
+def test_a_stored_style_reaches_the_ass_file_and_survives_a_cut(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Caption styling's whole claim, exercised over the wire.
+
+    The style is project state and the captions are derived, so a restyle
+    cannot be lost by a later edit — there is nothing coupling the two. The
+    agent sets it once and every regeneration picks it back up.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    subtitles = tmp_path / "vo.ass"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        styled = await client.call(
+            "caption_style", path=str(project), preset="karaoke", size=80, text="yellow"
+        )
+        # The cut lands *after* the restyle, which is the case that used to
+        # have no answer: regenerate has to come back styled.
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[2, 3]]
+        )
+        view = await client.call("caption_view", path=str(project))
+        written = await client.call("add_captions", path=str(project), output=str(subtitles))
+        read_back = await client.call("caption_style", path=str(project))
+        return {"styled": styled, "view": view, "written": written, "read_back": read_back}
+
+    out = anyio.run(_with_server, body)
+    text = subtitles.read_text(encoding="utf-8")
+
+    assert out["styled"]["written"] is True
+    assert out["styled"]["changed"] == ["preset", "size", "text"]
+    assert out["styled"]["stored"] == {"preset": "karaoke", "size": 80, "text": "&H0000D4FF"}
+
+    # Stored, not flattened: the manifest carries three fields and the rest
+    # still come from the preset.
+    assert out["read_back"]["stored"] == out["styled"]["stored"]
+    assert out["read_back"]["written"] is False, "reading is not a mutation"
+
+    assert "Style: lucid,DejaVu Sans,80," in text
+    assert "\\k" in text, "karaoke survived the cut that followed the restyle"
+    # SecondaryColour is the *unspoken* colour — the swap this layer exists for.
+    assert out["view"]["style"]["ass"]["text"] == "&H0000D4FF"
+    assert out["view"]["style"]["resolved"]["text"] == "#ffd400ff"
+
+    # One derivation behind both: what the window would draw and what the file
+    # contains are the same cues.
+    assert len(out["view"]["cues"]) == out["written"]["cues"]
+    assert out["view"]["words"] == out["written"]["words"] == 6
+    assert out["view"]["words_cut"] == 2
+
+
+@needs_ffprobe
+def test_caption_style_plan_writes_nothing(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        planned = await client.call("caption_style", path=str(project), size=99, plan=True)
+        after = await client.call("caption_style", path=str(project))
+        return {"planned": planned, "after": after}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["resolved"]["size"] == 99
+    assert out["planned"]["written"] is False
+    assert out["after"]["resolved"]["size"] == 64, "the project never took it"
+
+
+@needs_ffprobe
+def test_caption_view_reports_a_missing_transcript_rather_than_failing(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The view a person has open while making exactly this mistake."""
+    audio, _ = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call("caption_view", path=str(project))
+
+    out = anyio.run(_with_server, body)
+
+    assert out["cues"] == []
+    assert "transcript" in out["cues_error"]
+    assert out["style"]["resolved"]["preset"] == "clean", "still says what the look is"
 
 
 def _heard(path: Path, words: list[str]) -> Path:

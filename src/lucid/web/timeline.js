@@ -12,8 +12,13 @@
  * and export wrong (CLAUDE.md; PLAN.md § The trap this section exists to
  * write down). V1 only when the displayed clip `has_video`, A1 always (the
  * recording has audio even for a picture clip), CC only when a transcript
- * exists to caption from — all three built from `state.segments`, the same
+ * exists to caption from. V1 and A1 are built from `state.segments`, the same
  * single track `export` reads.
+ *
+ * **CC is built from `/api/captions`, not from segments**, and the difference
+ * is the same rule V2 is held to: a cue breaks on sentence ends, silences and
+ * a word count, so one block per segment drew caption lines the `.ass` file
+ * will never contain. See `buildCaptionRow`.
  *
  * **V2 is the picture lane, and it became legal at step 5 and not before**
  * (PLAN.md § The layered timeline, build order step 6): `export` renders a
@@ -134,20 +139,40 @@ function buildRuler(duration, pxPerSec) {
   return ruler;
 }
 
-/** Words this view knows survived and fall inside one timeline segment —
- * only possible for the segment whose clip matches the transcript this
- * view loaded (`state.clip_id`); a segment from another clip gets no
- * caption text, never a guess. */
-function captionText(seg, state) {
-  if (!state.words || seg.clip_id !== state.clip_id) return null;
-  const text = state.words
-    .filter(
-      (w) => w.present && w.timeline_start >= seg.timeline_start - 1e-6 && w.timeline_start < seg.timeline_end,
-    )
-    .map((w) => w.text)
-    .join(" ");
-  if (!text) return null;
-  return text.length > 60 ? `${text.slice(0, 57)}…` : text;
+/** The CC lane: one block per *cue*, straight off `/api/captions`.
+ *
+ * Not one block per segment, which is what this drew until captions grew a
+ * stored style. A segment is a piece of the edit and a cue is a line of
+ * subtitle, and they are not the same shape — cues break on sentence ends,
+ * silences and a word count, so a lane of segments showed caption blocks the
+ * `.ass` file will never contain. That is the picture lane's rule applied to
+ * this one (never draw a lane the export cannot produce), and it is the same
+ * failure in a quieter register: nothing looks wrong, it is just a different
+ * set of captions from the ones that ship.
+ *
+ * Consequently the grouping is never computed here — `ops._caption_cues` is
+ * the one derivation, and this draws its answer, refusals included. */
+function buildCaptionRow(captions, pxPerSec, duration) {
+  const row = el("div", "lane lane-cc");
+  row.style.width = `${Math.max(1, duration * pxPerSec)}px`;
+
+  if (!captions || captions.cues_error) {
+    const why = captions ? captions.cues_error : "captions unavailable";
+    row.append(el("div", "lane-refusal", `no captions — ${why}`));
+    return row;
+  }
+
+  for (const cue of captions.cues) {
+    const block = el("div", "clip-block");
+    block.style.left = `${(cue.start * pxPerSec).toFixed(1)}px`;
+    block.style.width = `${Math.max(1, (cue.end - cue.start) * pxPerSec).toFixed(1)}px`;
+    block.textContent = cue.text;
+    block.title = `${fmt(cue.start)}–${fmt(cue.end)} · ${cue.words.length} words\n${cue.text}`;
+    row.append(block);
+  }
+
+  seekOnClick(row, pxPerSec);
+  return row;
 }
 
 /** One row: a `.clip-block` per timeline segment (hover/title/hit-testing,
@@ -164,14 +189,8 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state) {
     const block = el("div", "clip-block");
     block.style.left = `${(seg.timeline_start * pxPerSec).toFixed(1)}px`;
     block.style.width = `${Math.max(1, (seg.timeline_end - seg.timeline_start) * pxPerSec).toFixed(1)}px`;
-    if (kind === "CC") {
-      const text = captionText(seg, state);
-      block.textContent = text || "";
-      block.title = text || `${seg.clip_id} — no caption text (no transcript for this segment's clip)`;
-    } else {
-      block.textContent = seg.clip_id;
-      block.title = `${seg.clip_id} · source ${secs(seg.start)}–${secs(seg.end)} · timeline ${fmt(seg.timeline_start)}–${fmt(seg.timeline_end)}`;
-    }
+    block.textContent = seg.clip_id;
+    block.title = `${seg.clip_id} · source ${secs(seg.start)}–${secs(seg.end)} · timeline ${fmt(seg.timeline_start)}–${fmt(seg.timeline_end)}`;
     row.append(block);
   }
 
@@ -358,6 +377,10 @@ function render() {
   // segments `export` renders. V2 is the cue table's picture, drawn from
   // `state.shots` — which `export` renders through MLT and `melt`, and could
   // not before step 5 (CLAUDE.md; PLAN.md § The layered timeline).
+  // The captions are their own read model (/api/captions) — same edit, but
+  // placed, grouped and styled, and none of those three are this file's to do.
+  const captions = ctx ? ctx.getCaptions() : null;
+
   const kinds = [];
   if (state.shots || state.shots_error) kinds.push("V2"); // topmost: the picture sits over the edit's own track
   if (clip.has_video) kinds.push("V1");
@@ -366,11 +389,16 @@ function render() {
 
   const waveformDraws = [];
   for (const kind of kinds) {
-    headers.append(header(kind, kind === "V2" ? "the cue table's picture, over the edit" : undefined));
+    let note;
+    if (kind === "V2") note = "the cue table's picture, over the edit";
+    if (kind === "CC") note = "one block per cue, as the .ass will break them";
+    headers.append(header(kind, note));
     const row =
       kind === "V2"
         ? buildPictureRow(state, pxPerSec, duration)
-        : buildLaneRow(kind, state.segments, pxPerSec, duration, state);
+        : kind === "CC"
+          ? buildCaptionRow(captions, pxPerSec, duration)
+          : buildLaneRow(kind, state.segments, pxPerSec, duration, state);
     if (kind === "A1") {
       const canvas = el("canvas", "waveform-canvas");
       // The blocks underneath still carry hover/title/hit-testing; letting

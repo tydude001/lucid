@@ -99,12 +99,32 @@ class Cue:
     def text(self) -> str:
         return " ".join(w.text for w in self.words)
 
+    def karaoke_spans(self) -> list[tuple[CueWord, float, float]]:
+        """Each word with the interval its `\\k` tag actually highlights.
+
+        Not `(word.start, word.end)`: a `\\k` duration covers the *gap before*
+        its word as well, so the highlight sits on a word from the moment the
+        previous one finished. Emitted here rather than derived twice, because
+        the preview overlay draws the same highlight the burn-in will and two
+        implementations of this rule is two chances for the window to show a
+        different film from the file.
+        """
+        spans = []
+        cursor = self.start
+        for word in self.words:
+            spans.append((word, cursor, max(word.end, cursor)))
+            cursor = word.end
+        return spans
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "start": self.start,
             "end": self.end,
             "text": self.text,
-            "words": [w.as_dict() for w in self.words],
+            "words": [
+                {**word.as_dict(), "highlight_start": lit, "highlight_end": until}
+                for word, lit, until in self.karaoke_spans()
+            ],
         }
 
 
@@ -140,10 +160,10 @@ def place(edit: Edit, transcripts: dict[str, Transcript]) -> tuple[list[CueWord]
 def group(
     words: list[CueWord],
     *,
-    max_words: int = 7,
-    max_gap: float = 0.7,
-    max_duration: float = 6.0,
-    hold: float = 0.3,
+    max_words: int | None = None,
+    max_gap: float | None = None,
+    max_duration: float | None = None,
+    hold: float | None = None,
 ) -> list[Cue]:
     """Gather words into displayable lines.
 
@@ -151,7 +171,17 @@ def group(
     the viewer has. That is deliberate and has a consequence worth knowing:
     two words seconds apart in the recording but adjacent after a cut belong
     to one cue, because that is how they now play.
+
+    Omitted arguments come from `DEFAULT_GROUPING` rather than from literals in
+    this signature, because a stored style carries the same four numbers and
+    two sets of defaults is two answers to what an unstyled project groups on.
     """
+    max_words = int(DEFAULT_GROUPING["max_words"] if max_words is None else max_words)
+    max_gap = float(DEFAULT_GROUPING["max_gap"] if max_gap is None else max_gap)
+    max_duration = float(
+        DEFAULT_GROUPING["max_duration"] if max_duration is None else max_duration
+    )
+    hold = float(DEFAULT_GROUPING["hold"] if hold is None else hold)
     if max_words < 1:
         raise CaptionError("max_words must be at least 1")
 
@@ -198,6 +228,13 @@ class Preset:
     #: In karaoke, `primary` is the colour a word turns *as it is spoken* and
     #: `secondary` is how it sits before then. With the two equal, `\\k` tags
     #: are still emitted but nothing visibly changes.
+    #:
+    #: **And it stays primary for the rest of the line.** `\\k` is a fill that
+    #: sweeps left to right, not one word lit at a time — measured by burning
+    #: this and reading the pixels back, which is also how the preview overlay
+    #: was caught disagreeing with it. A single-word highlight is a different
+    #: construction (one Dialogue event per word) and is not what `to_ass`
+    #: writes.
     primary: str
     secondary: str
     outline_colour: str
@@ -213,9 +250,16 @@ class Preset:
     karaoke: bool
 
 
-#: Deliberately small (PLAN.md). DejaVu Sans is chosen because it ships with
-#: essentially every Linux distribution — libass silently substitutes a missing
-#: font, so a fancier default would render differently per machine.
+#: Deliberately small (PLAN.md). DejaVu Sans is the default because it ships
+#: with most Linux distributions — libass silently substitutes a missing font,
+#: so a fancier default would render differently per machine.
+#:
+#: **That reasoning does not hold on this box, and the check below is why it is
+#: now reported rather than assumed.** Bazzite ships Noto, not DejaVu:
+#: `fc-match "DejaVu Sans"` answers `Noto Sans`, so every caption lucid has
+#: burned here was drawn in a font nobody chose. `font_match` is what makes
+#: that visible instead of silent — it is not fixed by changing this table,
+#: because the same substitution can happen to any font on any other machine.
 PRESETS: dict[str, Preset] = {
     "clean": Preset(
         font="DejaVu Sans",
@@ -274,6 +318,376 @@ def preset(name: str) -> Preset:
         ) from None
 
 
+def font_match(name: str) -> dict[str, Any]:
+    """What fontconfig will actually hand libass for `name`.
+
+    A missing font is the one styling failure with no symptom: libass
+    substitutes without a warning, ffmpeg exits 0, and the render is in a
+    typeface nobody picked — and the browser preview substitutes too, by its
+    own rules, so the two do not even agree on the wrong answer. `fc-match`
+    is the same resolution libass performs, so asking it is the check.
+
+    `available` is null rather than false when `fc-match` is missing: "we
+    could not tell" and "the font is not here" are different answers, and
+    reporting the first as the second would send someone installing a font
+    they already have.
+    """
+    try:
+        found = subprocess.run(
+            ["fc-match", "--format=%{family}", name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,  # a non-zero fc-match is "cannot tell", not a failure
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"font": name, "available": None, "resolves_to": None}
+
+    families = [f.strip() for f in (found.stdout or "").split(",") if f.strip()]
+    if not families:
+        return {"font": name, "available": None, "resolves_to": None}
+
+    wanted = name.strip().casefold()
+    available = any(f.casefold() == wanted for f in families)
+    return {
+        "font": name,
+        "available": available,
+        "resolves_to": families[0],
+        **(
+            {}
+            if available
+            else {
+                "warning": (
+                    f"{name!r} is not installed — libass will draw these captions in "
+                    f"{families[0]!r} without saying so, and the preview will pick its "
+                    "own substitute"
+                )
+            }
+        ),
+    }
+
+
+# -- the style a project stores -------------------------------------------
+#
+# `Preset` above is ASS's vocabulary. What a person — or the agent — asks for
+# is not, and three of ASS's fields are actively misleading handed straight to
+# a caller:
+#
+# * `PrimaryColour` is the colour a word turns *as it is spoken* and
+#   `SecondaryColour` is how it sits before then. So with karaoke on, the base
+#   text colour is the *secondary* one. Set "primary" to yellow expecting
+#   yellow captions and you get white captions that flash yellow.
+# * the alpha byte is **transparency**, not opacity: `&H00…` is fully opaque
+#   where CSS's `#rrggbbaa` reads a trailing `00` as fully transparent. The two
+#   conventions are exact inverses, so a value copied across without the
+#   inversion is not slightly wrong, it is invisible.
+# * `BorderStyle` is a two-value enum, not a border width — the width is
+#   `Outline`, a different field with a similar name.
+#
+# So a stored style speaks in `text`/`highlight`/`box`/`position`, and this
+# section is the only place the translation happens. Downstream still gets a
+# `Preset`, which is what `to_ass` takes.
+
+#: Named positions to ASS alignment (the numpad layout). Named because
+#: `alignment=8` is unreadable and `alignment=9` is a plausible typo for it
+#: that lands the captions in a different corner.
+ALIGNMENTS: dict[str, int] = {
+    "bottom-left": 1,
+    "bottom": 2,
+    "bottom-right": 3,
+    "left": 4,
+    "middle": 5,
+    "right": 6,
+    "top-left": 7,
+    "top": 8,
+    "top-right": 9,
+}
+_POSITIONS = {value: name for name, value in ALIGNMENTS.items()}
+
+#: A deliberately tiny vocabulary — enough that "make the captions yellow"
+#: needs no hex, not so much that this becomes a colour database. Anything
+#: else is `#rgb`, `#rrggbb`, `#rrggbbaa`, or ASS's own `&H…` passed through.
+NAMED_COLOURS: dict[str, str] = {
+    "white": "#ffffff",
+    "black": "#000000",
+    "yellow": "#ffd400",
+    "amber": "#ffb000",
+    "red": "#e5484d",
+    "green": "#30a46c",
+    "blue": "#3b82f6",
+    "cyan": "#22d3ee",
+    "magenta": "#e93d82",
+    "grey": "#8b8b8b",
+    "gray": "#8b8b8b",
+    "transparent": "#00000000",
+}
+
+_HEX = re.compile(r"^#?([0-9a-fA-F]{3,8})$")
+_ASS_COLOUR = re.compile(r"^&H([0-9a-fA-F]{1,8})&?$")
+
+
+def ass_colour(value: str) -> str:
+    """Any colour a caller might write, as ASS `&HAABBGGRR`.
+
+    Accepts a name from `NAMED_COLOURS`, `#rgb`, `#rrggbb`, `#rrggbbaa`, or an
+    `&H…` value passed straight through. The alpha inversion happens here and
+    nowhere else: CSS alpha is opacity, ASS alpha is transparency, so a fully
+    opaque colour is `ff` on one side and `00` on the other.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise CaptionError("a colour cannot be empty")
+    text = value.strip()
+
+    passthrough = _ASS_COLOUR.match(text)
+    if passthrough:
+        return f"&H{passthrough.group(1).upper().zfill(8)}"
+
+    text = NAMED_COLOURS.get(text.lower(), text)
+    match = _HEX.match(text)
+    if match is None:
+        raise CaptionError(
+            f"unreadable colour {value!r} — write #rrggbb, #rrggbbaa, an ASS "
+            f"&HAABBGGRR value, or one of: {', '.join(sorted(NAMED_COLOURS))}"
+        )
+
+    digits = match.group(1)
+    if len(digits) == 3:
+        digits = "".join(c * 2 for c in digits)
+    if len(digits) == 6:
+        digits += "ff"
+    if len(digits) != 8:
+        raise CaptionError(f"unreadable colour {value!r} — 3, 6 or 8 hex digits, not {len(digits)}")
+
+    red, green, blue, alpha = (int(digits[n : n + 2], 16) for n in (0, 2, 4, 6))
+    return f"&H{255 - alpha:02X}{blue:02X}{green:02X}{red:02X}"
+
+
+def css_colour(value: str) -> str:
+    """The inverse of `ass_colour`, for the preview overlay.
+
+    The browser draws the same look the burn-in will, and it can only do that
+    from a colour it understands — so the translation is owned here rather
+    than reimplemented in JavaScript, which would be a second place for the
+    alpha inversion to be got wrong.
+    """
+    match = _ASS_COLOUR.match(value.strip())
+    if match is None:
+        raise CaptionError(f"not an ASS colour: {value!r}")
+    digits = match.group(1).zfill(8)
+    alpha, blue, green, red = (int(digits[n : n + 2], 16) for n in (0, 2, 4, 6))
+    return f"#{red:02x}{green:02x}{blue:02x}{255 - alpha:02x}"
+
+
+#: Grouping defaults. They live here rather than only in `group`'s signature
+#: because a stored style carries them: how a line breaks is as much of the
+#: look as the font is, and a preview that grouped differently from the burn-in
+#: would be showing a caption the file will never contain.
+DEFAULT_GROUPING: dict[str, float] = {
+    "max_words": 7,
+    "max_gap": 0.7,
+    "max_duration": 6.0,
+    "hold": 0.3,
+}
+
+#: Every field a stored style may carry, with the type each is coerced to.
+#: `preset` is the base; the rest override one of its fields. Anything not
+#: listed is refused rather than ignored, because a typo'd key that is
+#: silently dropped looks exactly like a setting that had no effect.
+STYLE_FIELDS: dict[str, str] = {
+    "preset": "name",
+    "font": "text",
+    "size": "int",
+    "text": "colour",
+    "highlight": "colour",
+    "outline_colour": "colour",
+    "box_colour": "colour",
+    "bold": "bool",
+    "box": "bool",
+    "outline_width": "float",
+    "shadow": "float",
+    "position": "position",
+    "margin": "int",
+    "karaoke": "bool",
+    "max_words": "int",
+    "max_gap": "float",
+    "max_duration": "float",
+    "hold": "float",
+}
+
+DEFAULT_PRESET = "clean"
+
+
+@dataclass(frozen=True)
+class Style:
+    """A resolved caption look: the ASS style, plus how lines are broken.
+
+    `stored` is what the project actually holds — a base preset name and only
+    the fields overridden on top of it, never a flattened copy. That is what
+    makes "the boxed preset, but bigger" survive a later improvement to the
+    boxed preset, and what keeps the manifest readable by a person.
+    """
+
+    ass: Preset
+    max_words: int
+    max_gap: float
+    max_duration: float
+    hold: float
+    stored: dict[str, Any]
+
+    @property
+    def base(self) -> str:
+        return str(self.stored.get("preset", DEFAULT_PRESET))
+
+    @property
+    def grouping(self) -> dict[str, Any]:
+        return {
+            "max_words": self.max_words,
+            "max_gap": self.max_gap,
+            "max_duration": self.max_duration,
+            "hold": self.hold,
+        }
+
+    def describe(self) -> dict[str, Any]:
+        """The style as three views of one thing, because one is never enough.
+
+        `stored` is what the project holds and what a later call edits;
+        `resolved` is every field in force after the preset is applied, which
+        is the only way to answer "so what colour *is* it" — and it quotes
+        colours in CSS, because that is the form a reader can check and the
+        preview overlay can draw. `ass` is the same four colours in the form
+        that reaches the subtitle file, kept because the two differ by an
+        alpha inversion and seeing both is how that stays honest.
+        """
+        colours = {
+            "text": self.ass.secondary if self.ass.karaoke else self.ass.primary,
+            "highlight": self.ass.primary,
+            "outline_colour": self.ass.outline_colour,
+            "box_colour": self.ass.back,
+        }
+        return {
+            "stored": dict(self.stored),
+            "resolved": {
+                "preset": self.base,
+                "font": self.ass.font,
+                "size": self.ass.size,
+                **{name: css_colour(value) for name, value in colours.items()},
+                "bold": self.ass.bold != 0,
+                "box": self.ass.border_style == 3,
+                "outline_width": self.ass.outline,
+                "shadow": self.ass.shadow,
+                "position": _POSITIONS.get(self.ass.alignment, str(self.ass.alignment)),
+                "margin": self.ass.margin_v,
+                "karaoke": self.ass.karaoke,
+                **self.grouping,
+            },
+            "ass": colours,
+        }
+
+
+def _coerce(field: str, kind: str, value: Any) -> Any:
+    if kind == "colour":
+        return ass_colour(value if isinstance(value, str) else str(value))
+    if kind in ("name", "text"):
+        name = str(value).strip()
+        if not name:
+            raise CaptionError(f"{field} cannot be empty")
+        return name
+    if kind == "position":
+        name = str(value).strip().lower().replace("_", "-")
+        if name not in ALIGNMENTS:
+            raise CaptionError(
+                f"unknown caption position {value!r} — one of: {', '.join(ALIGNMENTS)}"
+            )
+        return name
+    if kind == "bool":
+        return bool(value)
+    try:
+        return int(value) if kind == "int" else float(value)
+    except (TypeError, ValueError):
+        raise CaptionError(f"{field} must be a number, not {value!r}") from None
+
+
+def normalise(stored: dict[str, Any] | None) -> dict[str, Any]:
+    """Check and canonicalise a stored style, without resolving it.
+
+    Colours come out as ASS values whatever they went in as, so the manifest
+    holds one representation rather than whichever the last caller happened to
+    type. An unknown key is an error here — see `STYLE_FIELDS`.
+    """
+    if stored is None:
+        return {}
+    if not isinstance(stored, dict):
+        raise CaptionError("a caption style must be a JSON object")
+
+    unknown = sorted(set(stored) - set(STYLE_FIELDS))
+    if unknown:
+        raise CaptionError(
+            f"unknown caption style field(s) {', '.join(unknown)} — "
+            f"settable: {', '.join(sorted(STYLE_FIELDS))}"
+        )
+
+    clean: dict[str, Any] = {}
+    for field, kind in STYLE_FIELDS.items():
+        if field in stored and stored[field] is not None:
+            clean[field] = _coerce(field, kind, stored[field])
+    if "preset" in clean:
+        preset(clean["preset"])  # fail here, not at resolve time
+    if clean.get("size", 1) < 1:
+        raise CaptionError("size must be at least 1")
+    if clean.get("max_words", 1) < 1:
+        raise CaptionError("max_words must be at least 1")
+    return clean
+
+
+def resolve(stored: dict[str, Any] | None) -> Style:
+    """A stored style — base preset plus overrides — as something drawable.
+
+    The karaoke swap happens here: `text` is what a word looks like before it
+    is spoken and `highlight` what it turns into, which is ASS's *secondary*
+    and *primary* in that order. With karaoke off there is no "before", so
+    both ASS slots take `text` and `highlight` is carried but inert — stored
+    rather than dropped, so turning karaoke on does not lose the colour that
+    was chosen for it.
+    """
+    clean = normalise(stored)
+    base = preset(str(clean.get("preset", DEFAULT_PRESET)))
+
+    karaoke = bool(clean.get("karaoke", base.karaoke))
+    text = clean.get("text", base.secondary if base.karaoke else base.primary)
+    # A non-karaoke preset has no highlight colour to inherit — its two slots
+    # hold the same value — so switching karaoke on over one would otherwise
+    # produce a word-highlight nobody can see, which reads as the flag not
+    # working. Fall back to the karaoke preset's own colour instead: the one
+    # place in this file that has already decided what a highlight looks like.
+    highlight = clean.get("highlight", base.primary if base.karaoke else PRESETS["karaoke"].primary)
+    box = clean.get("box", base.border_style == 3)
+
+    ass = Preset(
+        font=str(clean.get("font", base.font)),
+        size=int(clean.get("size", base.size)),
+        primary=highlight if karaoke else text,
+        secondary=text,
+        outline_colour=clean.get("outline_colour", base.outline_colour),
+        back=clean.get("box_colour", base.back),
+        bold=(-1 if clean["bold"] else 0) if "bold" in clean else base.bold,
+        border_style=3 if box else 1,
+        outline=float(clean.get("outline_width", base.outline)),
+        shadow=float(clean.get("shadow", base.shadow)),
+        alignment=ALIGNMENTS[clean["position"]] if "position" in clean else base.alignment,
+        margin_v=int(clean.get("margin", base.margin_v)),
+        karaoke=karaoke,
+    )
+    grouping = {**DEFAULT_GROUPING, **{k: clean[k] for k in DEFAULT_GROUPING if k in clean}}
+    return Style(
+        ass=ass,
+        max_words=int(grouping["max_words"]),
+        max_gap=float(grouping["max_gap"]),
+        max_duration=float(grouping["max_duration"]),
+        hold=float(grouping["hold"]),
+        stored=clean,
+    )
+
+
 # -- ASS -----------------------------------------------------------------
 
 
@@ -302,14 +716,12 @@ def _dialogue_text(cue: Cue, style: Preset) -> str:
 
     # Each \k is the duration of its own word *plus the gap before it*, so the
     # highlight stays locked to the audio instead of drifting forward by the
-    # accumulated silence between words.
-    parts = []
-    cursor = cue.start
-    for word in cue.words:
-        centis = max(0, round((word.end - cursor) * 100))
-        parts.append(f"{{\\k{centis}}}{_escape(word.text)}")
-        cursor = word.end
-    return " ".join(parts)
+    # accumulated silence between words. `karaoke_spans` owns that rule; the
+    # preview overlay reads the same spans off `as_dict`.
+    return " ".join(
+        f"{{\\k{max(0, round((until - lit) * 100))}}}{_escape(word.text)}"
+        for word, lit, until in cue.karaoke_spans()
+    )
 
 
 def to_ass(

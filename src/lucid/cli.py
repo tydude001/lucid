@@ -317,24 +317,81 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cap.add_argument(
         "--clip-id", help="caption only this clip (default: every clip with a transcript)"
     )
+    # Every one of these defaults to None rather than to a number, and that is
+    # load-bearing: the defaults live on the *project* now (`caption-style`),
+    # so a flag that defaulted to 7 here would silently overrule a stored 4.
     p_cap.add_argument(
-        "--preset", default="clean", choices=sorted(captions.PRESETS), help="caption style (clean)"
+        "--preset", choices=sorted(captions.PRESETS), help="override the project's base preset, for this file only"
     )
-    p_cap.add_argument("--max-words", type=int, default=7, help="words per caption line (7)")
+    p_cap.add_argument("--max-words", type=int, help="words per caption line (project's, else 7)")
     p_cap.add_argument(
-        "--max-gap", type=float, default=0.7, help="silence that starts a new line (0.7s)"
+        "--max-gap", type=float, help="silence that starts a new line (project's, else 0.7s)"
     )
     p_cap.add_argument(
-        "--max-duration", type=float, default=6.0, help="longest a line stays up (6.0s)"
+        "--max-duration", type=float, help="longest a line stays up (project's, else 6.0s)"
     )
     p_cap.add_argument(
-        "--hold", type=float, default=0.3, help="linger after the last word (0.3s)"
+        "--hold", type=float, help="linger after the last word (project's, else 0.3s)"
     )
     p_cap.add_argument(
         "--burn", help="burn the captions into this video — must be a render of this timeline"
     )
     p_cap.add_argument(
         "--burn-output", help="captioned video path (default: renders/<name>-captioned.<ext>)"
+    )
+
+    p_capview = sub.add_parser(
+        "caption-view", help="the captions this timeline would produce, and the style in force"
+    )
+    p_capview.add_argument(
+        "--clip-id", help="caption only this clip (default: every clip with a transcript)"
+    )
+
+    p_capstyle = sub.add_parser(
+        "caption-style", help="read or change the caption look this project keeps"
+    )
+    p_capstyle.add_argument(
+        "--preset", choices=sorted(captions.PRESETS), help="the base look everything else overrides"
+    )
+    p_capstyle.add_argument("--font", help="font family, as libass will look it up")
+    p_capstyle.add_argument(
+        "--size", type=int, help=f"point size against a {captions.REFERENCE_HEIGHT}-line canvas"
+    )
+    p_capstyle.add_argument(
+        "--text", metavar="COLOUR", help="the words' colour — #rrggbb[aa], a name, or ASS &H…"
+    )
+    p_capstyle.add_argument(
+        "--highlight", metavar="COLOUR", help="what a word turns as it is spoken (karaoke only)"
+    )
+    p_capstyle.add_argument("--outline-colour", metavar="COLOUR", help="the outline's colour")
+    p_capstyle.add_argument("--box-colour", metavar="COLOUR", help="the box/shadow colour")
+    p_capstyle.add_argument("--outline-width", type=float, help="outline thickness")
+    p_capstyle.add_argument("--shadow", type=float, help="drop-shadow depth")
+    p_capstyle.add_argument(
+        "--position", choices=sorted(captions.ALIGNMENTS), help="where on the frame the line sits"
+    )
+    p_capstyle.add_argument("--margin", type=int, help="distance from that edge")
+    # Three-state, and it has to be: `store_true` would default to False, and
+    # False is a *setting* here — it would turn karaoke off on every unrelated
+    # `caption-style --size 72`. BooleanOptionalAction with default=None gives
+    # --karaoke / --no-karaoke / say nothing.
+    for flag, helptext in (
+        ("bold", "draw the text bold"),
+        ("box", "draw an opaque box behind the text instead of an outline"),
+        ("karaoke", "highlight each word as it is spoken"),
+    ):
+        p_capstyle.add_argument(
+            f"--{flag}", action=argparse.BooleanOptionalAction, default=None, help=helptext
+        )
+    p_capstyle.add_argument("--max-words", type=int, help="words per caption line")
+    p_capstyle.add_argument("--max-gap", type=float, help="silence that starts a new line")
+    p_capstyle.add_argument("--max-duration", type=float, help="longest a line stays up")
+    p_capstyle.add_argument("--hold", type=float, help="linger after the last word")
+    p_capstyle.add_argument(
+        "--reset", action="store_true", help="drop every override before applying these"
+    )
+    p_capstyle.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
     p_verify = sub.add_parser(
@@ -726,6 +783,38 @@ def _cmd_captions(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_caption_view(args: argparse.Namespace) -> int:
+    return _emit(ops.caption_view(args.project, clip_id=args.clip_id))
+
+
+def _cmd_caption_style(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.caption_style(
+            args.project,
+            preset=args.preset,
+            font=args.font,
+            size=args.size,
+            text=args.text,
+            highlight=args.highlight,
+            outline_colour=args.outline_colour,
+            box_colour=args.box_colour,
+            bold=args.bold,
+            box=args.box,
+            outline_width=args.outline_width,
+            shadow=args.shadow,
+            position=args.position,
+            margin=args.margin,
+            karaoke=args.karaoke,
+            max_words=args.max_words,
+            max_gap=args.max_gap,
+            max_duration=args.max_duration,
+            hold=args.hold,
+            reset=args.reset,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     return _emit(
         ops.verify(
@@ -843,6 +932,8 @@ _COMMANDS = {
     "web": _cmd_web,
     "undo": _cmd_undo,
     "captions": _cmd_captions,
+    "caption-view": _cmd_caption_view,
+    "caption-style": _cmd_caption_style,
     "verify": _cmd_verify,
     "frames": _cmd_frames,
     "black": _cmd_black,

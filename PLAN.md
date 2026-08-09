@@ -334,7 +334,22 @@ The look/feel pass — the parity queue's head — shipped 2026-08-08 too
 (HISTORY.md § The look pass), and the six small items it left behind shipped
 the same day: model label, per-turn thumbs, `@`-mentions, inline pause
 markers, `restore`, export presets. HISTORY.md § The head of the parity queue.
-**The queue's head is clear**; the next ranked item is caption styling.
+
+**Caption styling, the next ranked item, shipped 2026-08-09** — the style is
+project state and the captions are derived from it, so a restyle survives
+every later edit (HISTORY.md § Caption styling). Two measurements out of it
+carry past captions. ASS `\k` is a left-to-right *fill*, not a per-word step,
+and the preview was corrected to match the file rather than the other way
+round. And **`DejaVu Sans` is not installed on this box** — `fc-match`
+answers `Noto Sans`, so every caption lucid has burned here was drawn in a
+substitute, silently, and the preset comment claiming otherwise was wrong.
+The substitution is now reported on every call; **whether lucid's default
+should name a font this machine actually has is an open call**, deliberately
+not taken, because changing the table would silently restyle every existing
+project.
+
+The next ranked item is motion graphics + templates, which wants a costed
+design note before any build.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
@@ -364,8 +379,11 @@ timeline being the enabler and the look pass being gated on nothing:
 1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass),
    and so are the six small items that were to ride it and didn't
    (HISTORY.md § The head of the parity queue). This rung is done.
-2. **Caption styling**, then 3. **motion graphics + templates**, then
-4. **b-roll by description** — the last two get costed design notes before
+2. **Caption styling** — shipped 2026-08-09 (HISTORY.md § Caption styling).
+   What it left is per-word *animation*, which shares a construction question
+   with a single-word highlight and is an export cost, not a styling one.
+   Then 3. **motion graphics + templates**, then
+4. **b-roll by description** — both get costed design notes before
    any build; b-roll must not copy Daydream blind, whose hour-metering
    implies cloud inference where lucid is local-only.
 5. **The long tail** — aspect swap, import roles + assets pane,

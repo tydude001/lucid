@@ -73,6 +73,13 @@
  *   getView()            the current view payload — same shape as `update`'s
  *                        `state` — for a handler that fires outside `update`
  *                        (e.g. a click callback closed over nothing else).
+ *   getCaptions()        the current /api/captions payload (`ops.caption_view`):
+ *                        `{style, cues, words, words_cut}`, or `cues: []` with
+ *                        a `cues_error`, or null if the fetch failed. Fetched
+ *                        by app.js alongside the view and refreshed with it —
+ *                        a second read model because captions are the same
+ *                        edit placed, grouped and styled, and no pane may do
+ *                        any of those three itself.
  *   on(event, cb)        subscribe to the shared event bus. `cb(payload)`.
  *   emit(event, payload)  publish on the shared event bus.
  * }
@@ -80,7 +87,10 @@
  * Bus events (app.js re-publishes every SSE record under its own event
  * name, so a later stage can listen for one without app.js ever needing to
  * change for it):
- *   'project-changed'   {revision: [mtime, undo_depth]} — app.js already
+ *   'project-changed'   {revision: [otio_mtime, manifest_mtime, undo_depth]}
+ *                       — the manifest is in there because the cue table and
+ *                       the caption style live in it and not in the timeline
+ *                       (webui.py `_revision`). app.js already
  *                       reloads the view and calls every pane's `update` on
  *                       this; only subscribe yourself for some *other*
  *                       reaction (e.g. a toast).

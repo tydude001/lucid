@@ -570,6 +570,91 @@ def test_waveform_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> No
     assert "nope" in payload["error"]
 
 
+# -- captions ---------------------------------------------------------------
+#
+# The second read model. It is a separate endpoint from /api/view because it is
+# a different derivation of the same edit — placed, grouped and styled — and
+# because it moves when the *manifest* moves rather than when the timeline
+# does, which is also why `_revision` watches both.
+
+
+def test_captions_reach_the_page_with_the_style_in_force(server: str) -> None:
+    status, payload = _json(f"{server}/api/captions")
+
+    assert status == 200
+    assert payload["cues"], "eight words should produce at least one cue"
+    assert payload["style"]["resolved"]["preset"] == "clean"
+    assert payload["resolution"] == [1920, 1080]
+    first = payload["cues"][0]
+    assert first["start"] == 0.0
+    assert {"start", "end", "text", "words"} <= set(first)
+
+
+def test_a_caption_word_carries_the_span_its_highlight_runs_over(server: str) -> None:
+    """The overlay must not light a word at its own start — a `\\k` duration
+    covers the gap before it (captions.Cue.karaoke_spans). The server sends the
+    spans so the browser cannot get this rule differently from the burn-in."""
+    _, payload = _json(f"{server}/api/captions")
+    words = payload["cues"][0]["words"]
+
+    assert words[1]["start"] == 1.0
+    assert words[1]["highlight_start"] == pytest.approx(0.9), "when w0 stopped"
+    assert words[0]["highlight_start"] == 0.0
+
+
+def test_the_style_a_restyle_stores_comes_back_on_the_next_fetch(
+    project: Path, server: str
+) -> None:
+    ops.caption_style(project, preset="karaoke", size=80, text="yellow")
+
+    _, payload = _json(f"{server}/api/captions")
+    look = payload["style"]["resolved"]
+
+    assert look["size"] == 80
+    assert look["karaoke"] is True
+    assert look["text"] == "#ffd400ff", "CSS, because the overlay is what draws it"
+    assert look["highlight"] != look["text"], "or the word-highlight shows nothing"
+
+
+def test_captions_follow_a_cut(server: str) -> None:
+    """Timeline seconds, not source seconds — the clock the viewer has."""
+    _, before = _json(f"{server}/api/captions")
+    status, _ = _post(f"{server}/api/cut", {"clip_id": "vo", "ranges": [[0, 0]], "mode": "cut"})
+    assert status == 200
+    _, after = _json(f"{server}/api/captions")
+
+    assert after["words_cut"] == 1
+    assert after["cues"][0]["text"] != before["cues"][0]["text"]
+    # w1 was heard at 1.0 and is now heard at 0.1 — the 0.9s w0 occupied is
+    # gone from the timeline, so everything after it moved by that much.
+    assert after["cues"][0]["start"] == pytest.approx(0.1)
+
+
+def test_a_restyle_moves_the_revision_so_an_open_window_repaints(
+    project: Path, server: str
+) -> None:
+    """The style lives in the manifest and nothing about it touches
+    project.otio, so a revision watching the timeline alone would leave the
+    preview overlay drawing the old look until an unrelated edit moved it."""
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        _, first = next(events)
+
+        ops.caption_style(project, size=80)
+
+        for event, data in events:
+            if event == "project-changed" and data["revision"] != first["revision"]:
+                break
+        else:
+            pytest.fail("no project-changed event followed the restyle")
+    finally:
+        conn.close()
+
+
 # -- the picture layer's assets -------------------------------------------
 #
 # What the viewer loads to show the shot under the playhead. A card is not a

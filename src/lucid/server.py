@@ -432,11 +432,11 @@ def add_captions(
     path: str,
     output: str,
     clip_id: str | None = None,
-    preset: str = "clean",
-    max_words: int = 7,
-    max_gap: float = 0.7,
-    max_duration: float = 6.0,
-    hold: float = 0.3,
+    preset: str | None = None,
+    max_words: int | None = None,
+    max_gap: float | None = None,
+    max_duration: float | None = None,
+    hold: float | None = None,
     burn: str | None = None,
     burn_output: str | None = None,
 ) -> dict[str, Any]:
@@ -444,8 +444,12 @@ def add_captions(
 
     Timings follow the *timeline*, not the original recording, so captions stay
     correct after cuts; words that were cut are omitted and counted as
-    `words_cut`. Presets are "clean", "karaoke" (per-word highlight) and
-    "boxed".
+    `words_cut`.
+
+    The look comes from the project — set it with caption_style, see it with
+    caption_view. The arguments here override it for this one file and are not
+    written back, so regenerating after a cut is styled the project's way
+    again. Leave them unset unless you specifically want a one-off.
 
     The sidecar .ass is the default exit — Kdenlive loads it and it stays
     restylable. Pass `burn` (a render of THIS timeline) to burn the captions in
@@ -462,6 +466,92 @@ def add_captions(
         hold=hold,
         burn=burn,
         burn_output=burn_output,
+    )
+
+
+@mcp.tool()
+def caption_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
+    """The captions this timeline would produce, and the style in force.
+
+    add_captions without writing a file: the same cues, in timeline seconds,
+    already grouped by the project's own break rules — so this is how to check
+    a restyle, or read back what a caption actually says at some moment,
+    before committing a file to it.
+
+    Reports rather than refuses: a project with no transcript, or one whose
+    every word has been cut, comes back with an empty `cues` and a
+    `cues_error` saying which. Read-only.
+    """
+    return ops.caption_view(path, clip_id=clip_id)
+
+
+@mcp.tool()
+def caption_style(
+    path: str,
+    preset: str | None = None,
+    font: str | None = None,
+    size: int | None = None,
+    text: str | None = None,
+    highlight: str | None = None,
+    outline_colour: str | None = None,
+    box_colour: str | None = None,
+    bold: bool | None = None,
+    box: bool | None = None,
+    outline_width: float | None = None,
+    shadow: float | None = None,
+    position: str | None = None,
+    margin: int | None = None,
+    karaoke: bool | None = None,
+    max_words: int | None = None,
+    max_gap: float | None = None,
+    max_duration: float | None = None,
+    hold: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the caption look this project keeps.
+
+    The style is project state and the captions are derived from it, so a
+    restyle survives every later cut: regenerating re-reads this. Call it with
+    no arguments to read the current look and learn the field names; any
+    argument sets that field and leaves the others alone. `reset` drops every
+    override first — `reset` plus `preset` starts clean from a preset.
+
+    `preset` is the base look ("clean", "karaoke" for per-word highlight, or
+    "boxed"); everything else overrides one of its fields, and only the
+    overrides are stored.
+
+    Colours take "#rrggbb", "#rrggbbaa", a name ("yellow", "white", "red", …)
+    or an ASS "&H…" value. `text` is the word's colour and `highlight` what it
+    turns as it is spoken, which only shows with karaoke on. `position` is
+    named: "bottom", "top", "top-right", and so on. Both come back resolved,
+    because ASS quotes colours backwards and alpha-inverted.
+
+    `plan` validates and resolves without writing. Use caption_view to see the
+    result on the actual timeline.
+    """
+    return ops.caption_style(
+        path,
+        preset=preset,
+        font=font,
+        size=size,
+        text=text,
+        highlight=highlight,
+        outline_colour=outline_colour,
+        box_colour=box_colour,
+        bold=bold,
+        box=box,
+        outline_width=outline_width,
+        shadow=shadow,
+        position=position,
+        margin=margin,
+        karaoke=karaoke,
+        max_words=max_words,
+        max_gap=max_gap,
+        max_duration=max_duration,
+        hold=hold,
+        reset=reset,
+        plan=plan,
     )
 
 

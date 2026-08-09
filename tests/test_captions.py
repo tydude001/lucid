@@ -8,17 +8,23 @@ than eyeballed in a player.
 
 from __future__ import annotations
 
+import re
 from itertools import pairwise
 
 import pytest
 
 from lucid.captions import (
+    DEFAULT_GROUPING,
     PRESETS,
     CaptionError,
     CueWord,
+    ass_colour,
+    css_colour,
+    font_match,
     group,
     place,
     preset,
+    resolve,
     to_ass,
 )
 from lucid.timeline import Edit, Segment
@@ -207,3 +213,145 @@ def test_every_preset_renders() -> None:
 def test_an_unknown_preset_lists_the_real_ones() -> None:
     with pytest.raises(CaptionError, match="clean"):
         preset("neon")
+
+
+# -- the stored style ----------------------------------------------------
+#
+# The colour tests are the load-bearing ones. ASS quotes a colour as
+# `&HAABBGGRR` — the channels reversed *and* the alpha byte inverted relative
+# to CSS — so a value that survived a careless port is not slightly off, it is
+# a different colour at a different opacity, and it still renders.
+
+
+def test_a_colour_is_reversed_and_alpha_inverted() -> None:
+    # Pure red, fully opaque: CSS ff0000 / alpha ff, ASS 0000FF / alpha 00.
+    assert ass_colour("#ff0000") == "&H000000FF"
+    assert ass_colour("#0000ff") == "&H00FF0000"
+    # Half-transparent black: CSS alpha 0x80 opacity -> ASS 0x7f transparency.
+    assert ass_colour("#00000080") == "&H7F000000"
+
+
+def test_every_colour_form_survives_a_round_trip() -> None:
+    for value in ("#ff0000", "#0000ffff", "#12345678", "#abc", "yellow", "transparent"):
+        there = ass_colour(value)
+        assert ass_colour(css_colour(there)) == there, value
+
+
+def test_an_ass_colour_passes_straight_through() -> None:
+    """Otherwise a stored style would be re-inverted every time it was read."""
+    assert ass_colour("&H80FF00FF") == "&H80FF00FF"
+    assert ass_colour(ass_colour("#ff0000")) == "&H000000FF"
+
+
+def test_an_unreadable_colour_names_what_is_accepted() -> None:
+    with pytest.raises(CaptionError, match="#rrggbb"):
+        ass_colour("chartreuse")
+
+
+# -- resolution ----------------------------------------------------------
+
+
+def test_only_the_overrides_are_stored() -> None:
+    """A flattened copy would freeze a preset's other fields at today's values."""
+    style = resolve({"preset": "boxed", "size": 72})
+    assert style.stored == {"preset": "boxed", "size": 72}
+    assert style.ass.size == 72
+    assert style.ass.font == PRESETS["boxed"].font
+    assert style.ass.border_style == PRESETS["boxed"].border_style
+
+
+def test_text_is_the_secondary_slot_when_karaoke_is_on() -> None:
+    """ASS's Primary is the *spoken* colour — the trap this layer exists for."""
+    style = resolve({"preset": "karaoke", "text": "#ffffff", "highlight": "#ff0000"})
+    assert style.ass.secondary == ass_colour("#ffffff")
+    assert style.ass.primary == ass_colour("#ff0000")
+    assert style.describe()["resolved"]["text"] == "#ffffffff"
+    assert style.describe()["resolved"]["highlight"] == "#ff0000ff"
+
+
+def test_text_takes_both_slots_when_karaoke_is_off() -> None:
+    style = resolve({"preset": "clean", "text": "#00ff00"})
+    assert style.ass.primary == style.ass.secondary == ass_colour("#00ff00")
+
+
+def test_karaoke_over_a_plain_preset_still_shows_a_highlight() -> None:
+    """Both slots equal would emit \\k tags that change nothing visible."""
+    style = resolve({"preset": "clean", "karaoke": True})
+    assert style.ass.primary != style.ass.secondary
+    assert "\\k" in to_ass(group(_words((0.0, 0.4)), hold=0.0), style=style.ass)
+
+
+def test_a_named_position_becomes_an_alignment_and_back() -> None:
+    style = resolve({"position": "top-right"})
+    assert style.ass.alignment == 9
+    assert style.describe()["resolved"]["position"] == "top-right"
+
+
+def test_an_unknown_field_is_refused_rather_than_ignored() -> None:
+    """A silently dropped typo looks exactly like a setting that had no effect."""
+    with pytest.raises(CaptionError, match="fontsize"):
+        resolve({"fontsize": 40})
+
+
+def test_an_unknown_preset_is_refused_at_store_time() -> None:
+    with pytest.raises(CaptionError, match="neon"):
+        resolve({"preset": "neon"})
+
+
+def test_grouping_is_part_of_the_stored_style() -> None:
+    """Line breaks are as much of the look as the font — and if they were not
+    stored, the preview and the burn-in would group differently."""
+    style = resolve({"max_words": 2})
+    assert style.max_words == 2
+    assert style.max_gap == DEFAULT_GROUPING["max_gap"]
+    cues = group(_words((0.0, 0.4), (0.5, 1.0), (1.1, 1.5)), max_words=style.max_words, hold=0.0)
+    assert [len(c.words) for c in cues] == [2, 1]
+
+
+def test_the_default_style_is_the_clean_preset() -> None:
+    assert resolve(None).ass == PRESETS["clean"]
+    assert resolve({}).stored == {}
+
+
+# -- the karaoke spans the preview and the burn-in share -----------------
+
+
+def test_a_highlight_span_covers_the_gap_before_its_word() -> None:
+    """`\\k` durations are cumulative from the cue's start, so a word lights up
+    the moment the previous one ended — not at its own start. The preview
+    overlay reads these same numbers off `as_dict`."""
+    cue = group(_words((0.0, 0.4), (0.9, 1.3)), hold=0.0)[0]
+    spans = cue.karaoke_spans()
+    assert [(lit, until) for _, lit, until in spans] == [(0.0, 0.4), (0.4, 1.3)]
+
+    words = cue.as_dict()["words"]
+    assert words[1]["start"] == 0.9, "the word still reports when it is spoken"
+    assert words[1]["highlight_start"] == 0.4, "but lights up when the last one ended"
+
+
+def test_the_spans_and_the_k_tags_are_the_same_numbers() -> None:
+    cue = group(_words((0.0, 0.4), (0.9, 1.3), (1.35, 2.0)), hold=0.0)[0]
+    text = to_ass([cue], style=resolve({"preset": "karaoke"}).ass)
+    tags = [int(n) for n in re.findall(r"\\k(\d+)", text)]
+    assert tags == [round((until - lit) * 100) for _, lit, until in cue.karaoke_spans()]
+
+
+# -- the font that is not there ------------------------------------------
+
+
+def test_a_missing_font_is_reported_rather_than_substituted_silently() -> None:
+    """The one styling failure with no symptom: libass swaps the font, ffmpeg
+    exits 0, and the render is in a typeface nobody picked."""
+    match = font_match("Definitely Not A Real Font 91537")
+
+    assert match["available"] is False
+    assert match["resolves_to"]
+    assert "not installed" in match["warning"]
+
+
+def test_a_font_that_is_there_carries_no_warning() -> None:
+    installed = font_match("Definitely Not A Real Font 91537")["resolves_to"]
+    match = font_match(installed)
+
+    assert match["available"] is True
+    assert "warning" not in match

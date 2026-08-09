@@ -140,12 +140,22 @@ split comes back as one piece per survivor, so "half of it is still in there"
 is a readable answer rather than a short one.
 
 Captions are generated from the *timeline*, not the transcript, so they stay
-correct after cuts:
+correct after cuts. Their **look is stored on the project** and the captions
+are derived from it, which is what makes a restyle survive every later edit —
+there is nothing coupling the two, so regenerating just re-reads the style:
 
 ```sh
-lucid captions subs.ass --preset karaoke     # sidecar ASS, Kdenlive loads it
+lucid caption-style --preset karaoke --size 80 --highlight yellow
+lucid caption-style                          # read it back, resolved
+lucid caption-view                           # the cues this timeline produces
+lucid captions subs.ass                      # sidecar ASS, Kdenlive loads it
 lucid captions subs.ass --burn render.mp4    # or burn in with ffmpeg
 ```
+
+Colours take `#rrggbb`, a name, or ASS's own `&H…`, and come back resolved in
+both — ASS quotes them channel-reversed and alpha-inverted, so a value that
+looks right is routinely a different colour. The window draws the same style
+over the preview and on the CC lane, so what you see is what burns in.
 
 `verify` closes the loop the other way: it transcribes a finished render and
 diffs it against the words the timeline should play. That catches a class of

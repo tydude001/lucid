@@ -20,6 +20,10 @@
  *   update(state)  call with the current /api/view payload whenever it
  *                  changes. Toggles the audio-only state and loads the
  *                  timeline's own clip the first time a view arrives.
+ *   captions(p)    call with the current /api/captions payload. A second
+ *                  read model rather than a field on the view: it is derived
+ *                  from the same edit but grouped and styled, and a front end
+ *                  must never do either itself.
  *   player         the object placed on `ctx.player` for the other panes:
  *                    seek(t)       seek the timeline to `t` seconds
  *                    now()         the current timeline second
@@ -28,8 +32,8 @@
  *                    seekWord(w)   seek to a word's timeline_start, if present
  *
  * player.js owns #viewer, #media, #visualizer, #picture (with #picture-video,
- * #picture-still, #picture-note), #transport, #play, #clock, #playhint and
- * touches no other pane's DOM. Every animation frame it emits
+ * #picture-still, #picture-note), #caption-layer (with #caption-line),
+ * #transport, #play, #clock, #playhint and touches no other pane's DOM. Every animation frame it emits
  * a 'playhead' event `{now, total}` on the shared bus, and a 'playing-word'
  * event `{index}` whenever the playing word changes — transcript.js and
  * timeline.js paint their own playheads/highlights from those rather than
@@ -173,6 +177,7 @@ function tick() {
   paintPlayhead(t);
   paintWord(t);
   paintPicture(t);
+  paintCaption(t);
   drawVisualizer();
 }
 
@@ -313,6 +318,197 @@ function paintPicture(t) {
   if (pictureVideo.paused) pictureVideo.play().catch(() => {});
 }
 
+/* -- the caption layer: what the burn-in will put on the frame -----------
+ *
+ * Draws `/api/captions` — `ops.caption_view`, which is `add_captions` without
+ * the file. That matters more here than anywhere else in this window: these
+ * pixels are a claim about pixels ffmpeg will burn, so every visible property
+ * arrives from the server already resolved (font, size, both colours, the
+ * outline, the box, which corner, how far in) and nothing about the look is
+ * decided in here or taken from lucid's own palette. Where the CSS token rule
+ * elsewhere is about a canvas silently refusing `light-dark(…)`, the rule here
+ * is stronger and different: a caption that borrowed the theme would be a
+ * preview of the window instead of a preview of the render.
+ *
+ * Three things it gets exactly right, because getting them approximately
+ * right would make it a decoration:
+ *
+ *  * the cue boundaries and word timings are the ones `to_ass` writes — same
+ *    grouping, from the same stored style, off the one derivation in
+ *    `ops._caption_cues`;
+ *  * the karaoke highlight uses `highlight_start`, not the word's own start,
+ *    because a `\k` duration covers the gap before its word
+ *    (`Cue.karaoke_spans`) — and it *fills* rather than stepping, see
+ *    `paintKaraoke`;
+ *  * the layer is placed over the *video's content box*, not the viewer's —
+ *    a letterboxed frame must not show its captions floating in the black
+ *    bars, which is precisely where the burn-in cannot put them.
+ *
+ * What it only approximates, and cannot do better in a browser: libass's
+ * outline and box rendering (drawn here as a text stroke and a background),
+ * and font substitution — libass picks its own replacement for a missing
+ * family, and so does the browser, but not necessarily the same one.
+ */
+
+const CAPTION_REFERENCE = 1080; // captions.REFERENCE_HEIGHT — sizes are quoted
+// against this, whatever the footage is, so the overlay scales by the ratio
+
+let captionLayer = null;
+let captionLine = null;
+let captionState = null; // the /api/captions payload, or null before it lands
+let cueCursor = 0;
+let shownCue = null;
+
+/* The frame the captions burn into, in #viewer's own coordinates: the
+ * project's caption canvas, `contain`-fitted into the viewer the same way
+ * both media elements are.
+ *
+ * The canvas — `caption_view`'s `resolution`, which is the PlayRes `to_ass`
+ * writes — and deliberately not whichever element currently has picture in
+ * it. Measured off the DOM instead, this box changed size every time a shot
+ * started or ended: the Scream assembly's picture track has holes, and the
+ * captions are the same size across them because the render's canvas does not
+ * move. It is also the only box available on an audio-only project, where
+ * every element in here reports `videoWidth 0` and the captions are still the
+ * thing being styled. */
+function captionBox() {
+  const viewer = $("viewer");
+  const box = { left: 0, top: 0, width: viewer.clientWidth, height: viewer.clientHeight };
+  const canvas = captionState && captionState.resolution;
+  if (!canvas || !canvas[0] || !canvas[1] || !box.width || !box.height) return box;
+
+  const scale = Math.min(box.width / canvas[0], box.height / canvas[1]);
+  const drawnW = canvas[0] * scale;
+  const drawnH = canvas[1] * scale;
+  return {
+    left: (box.width - drawnW) / 2,
+    top: (box.height - drawnH) / 2,
+    width: drawnW,
+    height: drawnH,
+  };
+}
+
+/* ASS alignment is the numpad; the server sends it back as a name. */
+function placeLine(position) {
+  const bottom = position.startsWith("bottom");
+  const top = position.startsWith("top");
+  captionLayer.style.alignItems = bottom ? "flex-end" : top ? "flex-start" : "center";
+  const left = position.endsWith("left");
+  const right = position.endsWith("right");
+  captionLayer.style.justifyContent = left ? "flex-start" : right ? "flex-end" : "center";
+  return { bottom, top };
+}
+
+function cueAt(t) {
+  const cues = captionState && captionState.cues;
+  if (!cues || !cues.length) return null;
+  // The same wrap-around walk as shotAt and paintWord, for the same reason.
+  for (let n = 0; n < cues.length; n++) {
+    const i = (cueCursor + n) % cues.length;
+    if (cues[i].start <= t && t < cues[i].end) {
+      cueCursor = i;
+      return cues[i];
+    }
+  }
+  return null;
+}
+
+/* Rebuild the line's contents. Word spans only when karaoke is on — with it
+ * off every word is the same colour forever, and a span per word would be
+ * churn nobody can see. */
+function buildLine(cue, look) {
+  captionLine.textContent = "";
+  if (!look.karaoke) {
+    captionLine.textContent = cue.text;
+    captionLine.style.color = look.text;
+    return;
+  }
+  captionLine.style.color = look.text;
+  cue.words.forEach((word, n) => {
+    const span = document.createElement("span");
+    span.className = "cw";
+    span.textContent = n ? ` ${word.text}` : word.text;
+    captionLine.append(span);
+  });
+}
+
+/* A `\k` tag switches its word to PrimaryColour when its turn comes and the
+ * word *stays* that colour for the rest of the line — karaoke is a fill that
+ * sweeps left to right, not a single word lit at a time. So the test is
+ * `highlight_start <= t`, with no upper bound.
+ *
+ * Measured, not assumed: burning this project's own `.ass` over a flat frame
+ * and reading the pixels back put four words in the highlight colour at
+ * t=4.70 where a one-word-at-a-time overlay had lit one (HISTORY.md § Caption
+ * styling). A per-word-only highlight is a different construction — one
+ * Dialogue event per word — and is not what `to_ass` writes today. */
+function paintKaraoke(cue, look, t) {
+  const spans = captionLine.children;
+  for (let n = 0; n < spans.length && n < cue.words.length; n++) {
+    spans[n].style.color = cue.words[n].highlight_start <= t ? look.highlight : look.text;
+  }
+}
+
+function paintCaption(t) {
+  if (!captionLayer) return;
+  const cue = cueAt(t);
+  if (!cue) {
+    if (!captionLayer.hidden) {
+      captionLayer.hidden = true;
+      shownCue = null;
+    }
+    return;
+  }
+
+  const look = captionState.style.resolved;
+  const frame = captionBox();
+  const scale = frame.height / CAPTION_REFERENCE;
+
+  captionLayer.hidden = false;
+  captionLayer.style.left = `${frame.left}px`;
+  captionLayer.style.top = `${frame.top}px`;
+  captionLayer.style.width = `${frame.width}px`;
+  captionLayer.style.height = `${frame.height}px`;
+
+  const edge = placeLine(look.position);
+  captionLine.style.fontFamily = `"${look.font}", sans-serif`;
+  captionLine.style.fontSize = `${Math.max(1, look.size * scale)}px`;
+  captionLine.style.fontWeight = look.bold ? "700" : "400";
+  captionLine.style.paddingBottom = edge.bottom ? `${look.margin * scale}px` : "0";
+  captionLine.style.paddingTop = edge.top ? `${look.margin * scale}px` : "0";
+
+  if (look.box) {
+    // BorderStyle 3 draws an opaque box, and libass paints it in the
+    // *outline* colour — not the box/shadow colour, whose ASS name
+    // (BackColour) suggests otherwise.
+    captionLine.style.background = look.outline_colour;
+    captionLine.style.webkitTextStroke = "";
+    captionLine.style.boxDecorationBreak = "clone";
+    captionLine.style.padding = `${0.12 * look.size * scale}px ${0.3 * look.size * scale}px`;
+  } else {
+    captionLine.style.background = "none";
+    captionLine.style.webkitTextStroke = `${look.outline_width * scale}px ${look.outline_colour}`;
+    captionLine.style.paintOrder = "stroke fill";
+  }
+
+  if (shownCue !== cue.start) {
+    shownCue = cue.start;
+    buildLine(cue, look);
+  }
+  if (look.karaoke) paintKaraoke(cue, look, t);
+}
+
+/* Called by app.js whenever /api/captions lands — on load, and again after
+ * every 'project-changed', which now fires on a manifest write too so a
+ * restyle from the agent panel reaches this without a reload
+ * (webui.py `_revision`). */
+export function captions(payload) {
+  captionState = payload && payload.cues && payload.cues.length ? payload : null;
+  cueCursor = 0;
+  shownCue = null;
+  if (captionLayer && !captionState) captionLayer.hidden = true;
+}
+
 /* -- the audio-only level display ----------------------------------------
  * Never `display:none` the viewer (PLAN.md § Layout) — an audio-only clip
  * gets a level display driven by the actual playing audio instead. A
@@ -397,6 +593,8 @@ export function init(passedCtx) {
   pictureVideo = $("picture-video");
   pictureStill = $("picture-still");
   pictureNote = $("picture-note");
+  captionLayer = $("caption-layer");
+  captionLine = $("caption-line");
 
   media.addEventListener("loadedmetadata", () => {
     if (pendingSeek !== null) {

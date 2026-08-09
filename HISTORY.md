@@ -2333,3 +2333,156 @@ hev1) is not decodable in a browser here"* where it used to draw black.
   the picture. Multi-clip V1 playback is not this change.
 - **Nothing here authors a cue**, same as step 6. The layer draws what the
   projection says.
+
+## Caption styling, second in the Daydream parity queue — 2026-08-09
+
+The gap DAYDREAM.md § Captions named: lucid generated timeline-mapped captions
+but the look was an *argument*, so nothing persisted it, nothing previewed it,
+and "restyle, then keep editing" had no answer. The fix is the separation that
+section specified — **a caption-style object in the project, and caption
+content derived** — which makes regenerate-preserving-style true by
+construction rather than by care. There is nothing to preserve, because
+nothing was ever coupled to a particular generation.
+
+`caption_style` reads or writes it, `caption_view` shows what the timeline
+would produce, `add_captions` takes its look from the project, and the window
+draws the same thing in the viewer and on the CC lane. Both new ops have their
+`lucid` subcommand and their MCP tool, per the parity convention.
+
+### What is stored, and what is not
+
+The manifest key is `caption_style`, additive and read with `.get()` — **not a
+`SCHEMA_VERSION` bump**, which would make `Project.open` refuse every existing
+project to gain nothing. What it holds is the base preset name plus *only the
+fields overridden on top of it*, never a flattened copy: the manifest stays
+readable, and a later improvement to a preset still reaches a project that
+only changed its size.
+
+Line grouping (`max_words`, `max_gap`, `max_duration`, `hold`) is in there with
+the font and the colours, and that is not tidiness. How a line breaks is as
+much of the look as the typeface, and had it stayed a call-site default, the
+preview would have grouped one way and the burn-in another — a window showing
+captions the `.ass` file does not contain. For the same reason `group()`'s
+defaults now come from `DEFAULT_GROUPING` rather than from literals in its
+signature: two sets of defaults is two answers.
+
+`add_captions` still takes `preset` and the four grouping numbers, but they
+override *for that file only* and are not written back. One writer for the
+style, and it is not the thing that generates files.
+
+### ASS speaks a different language, and three of its words are traps
+
+The stored style says `text`/`highlight`/`box`/`position`; `captions.resolve`
+is the only place that becomes ASS, because ASS's own vocabulary is actively
+misleading:
+
+- **`PrimaryColour` is the colour a word turns as it is *spoken*** and
+  `SecondaryColour` is how it sits before then. So with karaoke on, the base
+  text colour is the secondary one. Set "primary" to yellow expecting yellow
+  captions and you get white captions that flash yellow.
+- **The alpha byte is transparency, not opacity.** `&H00…` is fully opaque
+  where CSS's `#rrggbbaa` reads a trailing `00` as fully transparent. The two
+  are exact inverses, so a value copied across without the inversion is not
+  slightly wrong, it is invisible.
+- **`BorderStyle` is a two-value enum, not a width** — the width is `Outline`,
+  a different field with a similar name.
+
+Hence every echo quotes colours twice, resolved: CSS for a reader and the
+preview, ASS for the file. An unknown style field is refused rather than
+ignored, because a silently dropped typo looks exactly like a setting that had
+no effect.
+
+One behaviour worth naming: switching karaoke on over a non-karaoke preset used
+to inherit that preset's two identical colour slots, emitting `\k` tags that
+changed nothing visible — the flag looking broken. It now falls back to the
+karaoke preset's own highlight.
+
+### Two things the browser and ffmpeg disagreed about, and both were real
+
+Verified against `~/lucid-scream-v2/proj` over CDP (wiki `tooling.md` §
+Headless browser) at 1600×1000, then against libass by burning the project's
+own `.ass` over a flat 2541×1080 frame and reading the pixels back. The window
+alone would have passed both times.
+
+- **`\k` is a fill, not a step.** The overlay lit one word at a time; the
+  burned frame at t=4.70 had *four* words in the highlight colour (ink from
+  x=822 to x=1390) and three in the base colour (x=1408 to x=1720). A `\k`
+  tag switches its word to `PrimaryColour` when its turn comes and the word
+  **stays** that colour for the rest of the line — karaoke sweeps left to
+  right. The preview was corrected to match the file, not the other way round;
+  a genuine one-word-at-a-time highlight is a different construction (one
+  Dialogue event per word) and is not what `to_ass` writes.
+- **`DejaVu Sans` is not installed on this box.** The preset comment justified
+  it as shipping "with essentially every Linux distribution" — Bazzite ships
+  Noto, and `fc-match "DejaVu Sans"` answers `Noto Sans`. So every caption
+  lucid has burned here was drawn in a font nobody chose, silently: libass
+  substitutes without a warning and ffmpeg exits 0. `captions.font_match` now
+  asks fontconfig the same question libass will and reports the answer on
+  every `caption_style` and `caption_view` call. `available` is null rather
+  than false when `fc-match` is missing, because "cannot tell" and "not here"
+  are different answers.
+
+  The preset table was **not** changed. The substitution can happen to any font
+  on any other machine, so the fix is reporting it, not picking a different
+  default — and picking one would silently change the look of every existing
+  project. Whether lucid's default should name a font this box actually has is
+  a call left open.
+
+A third defect, found the same way and of the recurring shape: a renamed
+function with a stale call site threw `ReferenceError` **once per animation
+frame** inside `paintCaption`. The overlay simply never appeared, the page
+looked idle rather than broken, and the Python suite cannot see it.
+
+### The overlay, and why its geometry comes from the canvas
+
+`#caption-layer` is placed over the *caption canvas* — `caption_view`'s
+`resolution`, which is the PlayRes `to_ass` writes — `contain`-fitted into
+`#viewer`, and **not** over whichever element currently holds picture.
+Measured off the DOM instead, the box changed size whenever a shot started or
+ended, and it is unavailable at all on an audio-only project, where every
+element in the viewer reports `videoWidth 0`. Sizes scale by
+`frame.height / 1080`, since a style's numbers are quoted against
+`REFERENCE_HEIGHT` whatever the footage is.
+
+Every visible property arrives from the server already resolved. That rule is
+stronger here than the palette rule elsewhere in the window: these pixels are a
+claim about pixels ffmpeg will burn, so a caption borrowing lucid's theme would
+be a preview of the window rather than of the render.
+
+Read back at t=4.70 with the karaoke preset at size 80, `#ff3b30` highlight,
+bottom, margin 96: layer 800×340 in an 800×687 viewer (2541:1080, exact),
+font-size 25.19px (`80 × 340/1080`), padding-bottom 30.22px (`96 × 340/1080`),
+stroke 0.944px (`3 × 340/1080`), `flex-end`/`center`, and the fill boundary
+falling between "are" and "still" — the same four words libass filled. Console
+clean.
+
+### The CC lane stopped lying, and `_revision` grew a field
+
+The lane drew one block per *timeline segment*. A segment is a piece of the
+edit and a cue is a line of subtitle, and they are not the same shape — cues
+break on sentence ends, silences and a word count. So it was drawing caption
+blocks the `.ass` will never contain: the picture lane's rule (never draw a
+lane the export cannot produce) failing in a quieter register, because nothing
+looks wrong. It now draws `/api/captions`, refusals included: 215 cue blocks on
+the Scream assembly, the first reading *"The first 12"*.
+
+And `_revision` now watches the **manifest's** mtime as well as the timeline's.
+Both the caption style and the cue table live in the manifest and neither
+touches `project.otio`, so an open window kept drawing the old style — and, it
+turns out, the old picture lane after a `cue_add` — until some unrelated edit
+moved the timeline. That second half was a pre-existing bug in the V2 lane's
+invalidation, fixed here by accident of needing the same thing.
+
+### What this does not cover
+
+- **Per-word animation** — the pop/scale/slide Daydream applies to a
+  highlighted word. Karaoke is a colour fill and nothing here moves a glyph;
+  DAYDREAM.md § Captions always parked this as an export question, and it is
+  the same construction question the one-word-at-a-time highlight raises.
+- **No styling UI.** The agent restyles and the window renders it — which is
+  the parity target, but it does mean there is no colour picker. `/api/captions`
+  is GET-only for that reason; a POST route with nothing calling it would be
+  dead code.
+- **Burn-in is still opt-in on `add_captions`.** `export` does not take a
+  captions flag, and the sidecar `.ass` remains the default exit because
+  Kdenlive loads it and it stays restylable.

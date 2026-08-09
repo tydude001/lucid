@@ -24,6 +24,11 @@ import * as timeline from "./timeline.js";
 import * as agent from "./agent.js";
 
 let view = null; // the /api/view payload — the whole read model, shared read-only
+let captions = null; // the /api/captions payload: cues in timeline seconds and
+// the style in force. A second endpoint rather than a field on the view — it
+// is a different derivation of the same edit (placed, grouped, styled), it
+// moves when the manifest moves rather than when the timeline does, and the
+// view is already the larger of the two payloads.
 
 /* -- the event bus --------------------------------------------------------
  * Panes talk through this, never by importing each other. app.js also
@@ -46,7 +51,11 @@ function getView() {
   return view;
 }
 
-const ctx = { api, player: player.player, getView, on, emit };
+function getCaptions() {
+  return captions;
+}
+
+const ctx = { api, player: player.player, getView, getCaptions, on, emit };
 
 function toast(message) {
   const box = $("toast");
@@ -77,11 +86,24 @@ async function load(clipId) {
     toast(err.message);
     return;
   }
+  // Fetched after the view and not in parallel with it: a bad clip_id has to
+  // fail on the view, where the toast above already reports it, rather than
+  // as a second error about captions. Its own failure is deliberately quiet —
+  // a project with no transcript is the ordinary case, not something to
+  // interrupt anyone about, and `caption_view` already reports rather than
+  // raises for every case that is not a broken project.
+  try {
+    captions = await api(`/api/captions${query}`);
+  } catch {
+    captions = null;
+  }
+
   renderBar();
   transcript.update(view);
   timeline.update(view);
   agent.update(view);
   player.update(view);
+  player.captions(captions);
   player.player.seek(Math.min(at, Math.max(0, view.timeline_duration - 0.01)));
 }
 

@@ -208,18 +208,27 @@ def _ranges(spec: str, size: int) -> tuple[int, int] | None:
 
 
 def _revision(project_root: Path) -> list[float | int]:
-    """`project.otio` mtime plus undo depth (PLAN.md § View invalidation).
+    """`project.otio` mtime, the manifest's, and undo depth (PLAN.md § View
+    invalidation).
 
-    Not a single counter: a mutation changes the mtime, an undo changes the
-    depth without necessarily changing the mtime to something new-looking (a
-    restore overwrites the file, but a second undo back to a state that was
-    never re-saved can otherwise look unchanged). Comparing the pair catches
-    both.
+    Not a single counter: a mutation changes the otio mtime, an undo changes
+    the depth without necessarily changing that mtime to something
+    new-looking (a restore overwrites the file, but a second undo back to a
+    state that was never re-saved can otherwise look unchanged). Comparing
+    the tuple catches both.
+
+    **The manifest is in here because two things the view draws live in it and
+    not in the timeline at all** — the cue table behind the V2 lane, and the
+    caption style the preview overlay draws. `cue_add` and `caption_style`
+    write the manifest and never touch `project.otio`, so a revision that
+    watched the timeline alone left an open window showing the old picture
+    lane until something unrelated moved the edit.
     """
     project = Project.open(project_root)
     timeline = project.timeline_path
     mtime = timeline.stat().st_mtime if timeline.exists() else 0.0
-    return [mtime, len(project.snapshots())]
+    manifest = project.manifest_path
+    return [mtime, manifest.stat().st_mtime if manifest.exists() else 0.0, len(project.snapshots())]
 
 
 class EventBus:
@@ -847,6 +856,10 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
                 self._send_json(ops.timeline_view(str(self.project_root), clip_id=clip_id))
+            elif path == "/api/captions":
+                query = parse_qs(url.query)
+                clip_id = (query.get("clip_id") or [None])[0]
+                self._send_json(ops.caption_view(str(self.project_root), clip_id=clip_id))
             elif path == "/api/events":
                 self._send_events()
             elif path.startswith("/api/waveform/"):

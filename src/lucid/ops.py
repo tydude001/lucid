@@ -2684,16 +2684,202 @@ def _caption_canvas(project: Project) -> tuple[int, int]:
     return captions.DEFAULT_RESOLUTION
 
 
+#: Where a project keeps its caption look. A manifest key rather than a new
+#: file, and read with `.get()` rather than behind a schema bump: a project
+#: written before this existed is not wrong, it is unstyled, and bumping
+#: `SCHEMA_VERSION` for an additive key would make `Project.open` refuse every
+#: existing project to gain nothing.
+CAPTION_STYLE_KEY = "caption_style"
+
+
+def _stored_caption_style(project: Project) -> dict[str, Any]:
+    stored = project.read_manifest().get(CAPTION_STYLE_KEY)
+    if stored is None:
+        return {}
+    if not isinstance(stored, dict):
+        raise captions.CaptionError(
+            f"{project.manifest_path}'s {CAPTION_STYLE_KEY!r} must be a JSON object"
+        )
+    return stored
+
+
+def caption_style(
+    path: Path | str,
+    *,
+    preset: str | None = None,
+    font: str | None = None,
+    size: int | None = None,
+    text: str | None = None,
+    highlight: str | None = None,
+    outline_colour: str | None = None,
+    box_colour: str | None = None,
+    bold: bool | None = None,
+    box: bool | None = None,
+    outline_width: float | None = None,
+    shadow: float | None = None,
+    position: str | None = None,
+    margin: int | None = None,
+    karaoke: bool | None = None,
+    max_words: int | None = None,
+    max_gap: float | None = None,
+    max_duration: float | None = None,
+    hold: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the caption look this project keeps.
+
+    **The style is project state; the captions are derived.** That separation
+    is the whole point of this op rather than a pile of arguments on
+    `add_captions`: regenerating captions after a cut re-runs the derivation
+    and picks the style back up, so "restyle, then keep editing" cannot lose
+    the styling — there is nothing to preserve, because nothing was ever
+    coupled to a particular generation.
+
+    Called with no arguments it changes nothing and reports the current look,
+    which is also how to find out what the fields are called. Any argument
+    sets that field and leaves the rest alone; `reset` drops every override
+    first, so `reset` plus `preset` is how to start clean from a preset.
+
+    What is stored is the base preset name plus only the fields overridden on
+    top of it — never a flattened copy — so the manifest stays readable and a
+    later improvement to a preset still reaches a project that only changed
+    its size. `plan` resolves and validates without writing.
+
+    Colours take `#rrggbb`, `#rrggbbaa`, a name (`yellow`, `white`, …) or an
+    ASS `&H…` value; positions are named (`bottom`, `top-right`, …). Both are
+    echoed back resolved, in both vocabularies, because ASS quotes colours
+    alpha-first-and-backwards and a value that looks right is routinely a
+    different colour than the one meant.
+    """
+    project = Project.open(path)
+    changes = {
+        "preset": preset,
+        "font": font,
+        "size": size,
+        "text": text,
+        "highlight": highlight,
+        "outline_colour": outline_colour,
+        "box_colour": box_colour,
+        "bold": bold,
+        "box": box,
+        "outline_width": outline_width,
+        "shadow": shadow,
+        "position": position,
+        "margin": margin,
+        "karaoke": karaoke,
+        "max_words": max_words,
+        "max_gap": max_gap,
+        "max_duration": max_duration,
+        "hold": hold,
+    }
+    changes = {field: value for field, value in changes.items() if value is not None}
+
+    base = {} if reset else _stored_caption_style(project)
+    style = captions.resolve({**base, **changes})
+
+    write = bool(changes or reset) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if style.stored:
+            manifest[CAPTION_STYLE_KEY] = style.stored
+        else:
+            manifest.pop(CAPTION_STYLE_KEY, None)
+        project.write_manifest(manifest)
+
+    return {
+        "project": str(project.root),
+        "changed": sorted(changes),
+        "reset": bool(reset),
+        "written": write,
+        "plan": bool(plan),
+        # Reported on every call, not only when the font changes: a project can
+        # be opened on a machine that has a different set of fonts from the one
+        # it was styled on, and the substitution is silent at every other layer.
+        "font": captions.font_match(style.ass.font),
+        **style.describe(),
+    }
+
+
+def _caption_cues(
+    project: Project,
+    edit: tl.Edit,
+    style: captions.Style,
+    clip_id: str | None,
+) -> tuple[list[captions.Cue], list[captions.CueWord], int, dict[str, Any]]:
+    """Place and group every transcribed word — the one derivation.
+
+    Shared by `caption_view` and `add_captions` so that what the window draws
+    and what the subtitle file contains cannot be two different groupings of
+    the same words. The grouping numbers come off the style for the same
+    reason the font does: line breaks are part of the look.
+    """
+    transcripts = _transcripts_for(project, clip_id)
+    placed, cut = captions.place(edit, transcripts)
+    cues = captions.group(
+        placed,
+        max_words=style.max_words,
+        max_gap=style.max_gap,
+        max_duration=style.max_duration,
+        hold=style.hold,
+    )
+    return cues, placed, cut, {"clips": sorted(transcripts)}
+
+
+def caption_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
+    """The captions this timeline would produce, with the style in force.
+
+    `add_captions` without the writing — the read model behind the preview
+    overlay and the window's CC lane, and the way to see a restyle before
+    committing a file to it. Cues are in *timeline* seconds, already grouped
+    by the stored style's own break rules, so a front end draws them and
+    decides nothing.
+
+    Read-only, and it reports rather than raises where `add_captions` refuses:
+    a project with no transcript, or one whose every word has been cut, comes
+    back with `cues: []` and the reason, because this is the view a person has
+    open while making exactly that mistake. `resolution` is the reference
+    canvas the style's sizes and margins are quoted against — 1080 tall
+    whatever the footage is (`captions.REFERENCE_HEIGHT`), which is what a
+    preview must scale by to show the size that will burn in.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    style = captions.resolve(_stored_caption_style(project))
+    width, height = _caption_canvas(project)
+
+    result: dict[str, Any] = {
+        "project": str(project.root),
+        "clip_id": clip_id,
+        "resolution": [width, height],
+        "timeline_duration": edit.duration,
+        "style": style.describe(),
+        "font": captions.font_match(style.ass.font),
+    }
+    try:
+        cues, placed, cut, meta = _caption_cues(project, edit, style, clip_id)
+    except tx.TranscriptError as exc:
+        return {**result, "cues": [], "words": 0, "words_cut": 0, "cues_error": str(exc)}
+
+    result.update(meta)
+    result["cues"] = [cue.as_dict() for cue in cues]
+    result["words"] = len(placed)
+    result["words_cut"] = cut
+    if not cues:
+        result["cues_error"] = "no transcribed word survives on the timeline"
+    return result
+
+
 def add_captions(
     path: Path | str,
     output: Path | str,
     *,
     clip_id: str | None = None,
-    preset: str = "clean",
-    max_words: int = 7,
-    max_gap: float = 0.7,
-    max_duration: float = 6.0,
-    hold: float = 0.3,
+    preset: str | None = None,
+    max_words: int | None = None,
+    max_gap: float | None = None,
+    max_duration: float | None = None,
+    hold: float | None = None,
     burn: Path | str | None = None,
     burn_output: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -2704,6 +2890,14 @@ def add_captions(
     The count that did is reported as `words_cut`, so a missing sentence can be
     told apart from a bug.
 
+    The look comes from the project (`caption_style`), not from this call.
+    `preset` and the four grouping numbers still override it for a one-off
+    file, but they override *for this file only* — they are not written back,
+    so the next regeneration is styled the way the project says again. That
+    asymmetry is deliberate: one writer for the style, and it is not this.
+
+    `caption_view` is this op's `plan`: same cues, same style, nothing written.
+
     `burn` renders the captions into a video with ffmpeg. It has to be a render
     of *this* timeline — burning onto the untrimmed source lines the captions up
     against audio that has since moved. The default exit is the sidecar `.ass`,
@@ -2711,24 +2905,30 @@ def add_captions(
     """
     project = Project.open(path)
     edit = _load_edit(project)
-    style = captions.preset(preset)
-    transcripts = _transcripts_for(project, clip_id)
 
-    placed, cut = captions.place(edit, transcripts)
+    stored = _stored_caption_style(project)
+    overrides = {
+        "preset": preset,
+        "max_words": max_words,
+        "max_gap": max_gap,
+        "max_duration": max_duration,
+        "hold": hold,
+    }
+    overrides = {field: value for field, value in overrides.items() if value is not None}
+    style = captions.resolve({**stored, **overrides})
+
+    cues, placed, cut, meta = _caption_cues(project, edit, style, clip_id)
     if not placed:
         raise captions.CaptionError(
             "no transcribed word survives on the timeline — nothing to caption"
         )
-    cues = captions.group(
-        placed, max_words=max_words, max_gap=max_gap, max_duration=max_duration, hold=hold
-    )
 
     destination = Path(output).expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
         captions.to_ass(
             cues,
-            style=style,
+            style=style.ass,
             resolution=_caption_canvas(project),
             title=project.read_manifest().get("name", "lucid"),
         ),
@@ -2737,8 +2937,10 @@ def add_captions(
 
     result: dict[str, Any] = {
         "output": str(destination),
-        "preset": preset,
-        "clips": sorted(transcripts),
+        "preset": style.base,
+        "style": style.describe(),
+        "overrides": sorted(overrides),
+        **meta,
         "cues": len(cues),
         "words": len(placed),
         "words_cut": cut,

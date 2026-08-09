@@ -337,6 +337,11 @@ clip *filename* labels, held back on purpose because a block labelled by
   is more than one *real* track to lock or link — meaningful post-layered
   timeline, decorative before it.
 
+The CC lane was rebuilt on 2026-08-09: it drew one block per timeline
+*segment*, which is not the shape a cue is, so it showed caption lines the
+`.ass` would never contain — V2's rule failing quietly. It now draws
+`/api/captions` (HISTORY.md § Caption styling).
+
 V2 arrived through that gate and no other way — the picture lane, step 6 of
 the layered timeline, drawn only once `export` could render it. A2 and
 anything else that widens the view is held to the same rule, and the rule is
@@ -380,18 +385,23 @@ Needs a short design note (asset format, where generated assets live in the
 project, animation — static cards first; animated later via melt affine/
 kdenlivetitle or ffmpeg-rendered clips).
 
-### Captions — generation built; styling is the gap
+### Captions — generation and styling built; per-word animation is the gap
 
 lucid generates timeline-mapped captions (HISTORY.md § Captions came out of the
-timeline). Daydream adds: word-highlight as the default style, agent-driven
-restyling (font, colour, position, per-word animation), regenerate that
-**preserves styling** across transcript edits. Design: a caption-style object
-in the project (separate from caption *content*, which is derived — that
-separation is what makes regenerate-preserving-style true by construction),
-settable via an op the agent calls, rendered in the preview overlay, burned
-in at export (ASS subtitle styling through ffmpeg covers font/colour/
-position; per-word animation is an export question to cost in the same
-note).
+timeline), and styles them as of 2026-08-09 (HISTORY.md § Caption styling).
+The design this row specified is what shipped: a caption-style object in the
+project, separate from caption *content*, which is derived — so
+regenerate-preserving-style is true by construction rather than by care.
+`caption_style` writes it, `caption_view` shows the result, `add_captions`
+reads it, and the window draws it in the viewer and on the CC lane.
+
+**What is left is per-word animation** — the pop/scale/slide Daydream applies
+to the highlighted word. Karaoke here is a colour fill and nothing moves a
+glyph. It shares a construction question with a *single-word* highlight (as
+opposed to `\k`'s left-to-right fill, which is what ASS actually does): both
+want one Dialogue event per word rather than one per line, and both are
+export questions to cost before building. Also absent by choice: a styling
+UI. The agent restyles and the window renders it, which is the parity target.
 
 ### Aspect swap 16:9 ↔ 9:16 — after the layered timeline, and now load-bearing
 

@@ -69,6 +69,10 @@ installed package or the upstream repo, not your memory.
   `Host` header **and** requires `application/json` on mutations; loopback
   alone does not guard a server that can rewrite your edit. HISTORY.md § The
   preview/timeline web UI.
+  - **The view's revision watches the manifest as well as `project.otio`.**
+    The cue table and the caption style live in the manifest and neither
+    touches the timeline, so a `_revision` reading the otio alone left an
+    open window drawing a stale picture lane and a stale caption look.
   - **Timeline lanes are projections of one `Edit`, not tracks. Never draw a
     lane `export` cannot produce** — the multi-source render degrades silently
     (see auto-editor above), so the window would look right and the file would
@@ -143,6 +147,22 @@ installed package or the upstream repo, not your memory.
     `picture.display_env()`, which exports both — and note the environment it
     is compensating for is the **MCP stdio transport's**, which passes HOME,
     PATH and little else. HISTORY.md § Rendering through `melt`.
+- **A caption's look is project state (`caption_style`), and ASS is never
+  written by hand.** Three of its fields mean the opposite of what they read
+  as: `PrimaryColour` is the colour a word turns *as it is spoken* (so with
+  karaoke on the base colour is the *secondary* slot), the alpha byte is
+  **transparency** and so the exact inverse of CSS's, and `BorderStyle` is a
+  two-value enum while the width is `Outline`. `captions.resolve` is the one
+  place that translation happens. HISTORY.md § Caption styling.
+  - `\k` is a **fill, not a step** — a word turns primary at its turn and
+    stays primary to the end of the line, so "highlight one word" is a
+    different construction from what `to_ass` writes.
+  - Line grouping is stored *with* the style, because a preview that grouped
+    differently from the burn-in would show captions the file cannot contain.
+    One derivation, `ops._caption_cues`, behind both.
+  - **The font may not be there.** libass substitutes silently and ffmpeg
+    exits 0; `DejaVu Sans` — lucid's own default — resolves to `Noto Sans` on
+    this box. `captions.font_match` reports it; nothing prevents it.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.
