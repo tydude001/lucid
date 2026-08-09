@@ -75,13 +75,11 @@ installed package or the upstream repo, not your memory.
     be wrong. The view widens when the model does, never ahead of it.
     PLAN.md § Tier 3 is the goal. The picture lane (V2) is **drawn as of step
     6**, and only because step 5 made `export` able to render it.
-  - **The picture lane is drawn from `timeline_view`'s `shots`, which is the
-    projection *already put through the MLT writer's planner*** — never from
-    `build_shots` directly. `plan_picture` refuses shots `build_shots` is
-    happy with (one longer than the asset it points at), and drawing those
-    would be the same lie as drawing a track the renderer degrades. A refusal
-    from either comes back as `shots_error` and the lane draws the message,
-    because a stale cue is what the window is being opened to find.
+  - **The picture lane draws `timeline_view`'s `shots` — the projection
+    *already through `mlt.plan_picture`* — never `build_shots` directly.** The
+    two disagree: `plan_picture` refuses a shot longer than its asset, so the
+    raw projection would draw one `export` rejects. A refusal from either
+    arrives as `shots_error` for the lane to draw, never as an exception.
     HISTORY.md § The picture lane.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the

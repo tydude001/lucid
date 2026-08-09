@@ -330,15 +330,8 @@ the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
 
 The gate was decided — **lucid edits your video** — and all six steps shipped
 2026-08-08. Design, evidence, and what stays blocked: § The layered timeline —
-the gate is decided, and `melt` renders it. The three constraints the ordering
-owned all held: the cue table stayed source-addressed (`(clip_id, word_index,
-asset)`, nothing in timeline coordinates); **refuse-to-build when a cue lands
-in a cut range** was built before the thing it guards, and could not have been
-deferred past step 2; and the picture lane landed in the same change that let
-`export` produce it, never earlier. The table was seeded from
-`assemble_scream.py`'s 37 cues, so the first layered timeline lucid built is a
-video that had already been watched — and finding the *right* project to seed
-was itself a finding (HISTORY.md § Rendering through `melt`).
+the gate is decided, and `melt` renders it; the account of each step, and of
+the three constraints the ordering owned, is HISTORY.md.
 
 The outside date is real: the **October Horror Bracket, part 1 due Oct 1**,
 format decisions wanted mid-September. The Billy/Stu duck stays blocked by
@@ -352,23 +345,20 @@ non-imports — is [DAYDREAM.md](DAYDREAM.md). Ranking, governed by the layered
 timeline being the enabler and the look pass being gated on nothing:
 
 1. **The look/feel pass** (plus the small cosmetics that ride it —
-   DAYDREAM.md § Build order names them). **This is the head of the queue now
-   that the layered timeline is done**, and it was always the item gated on
-   nothing.
-2. ~~The layered timeline, steps 1–6~~ — shipped 2026-08-08, § Done above.
-3. **Caption styling**, then 4. **motion graphics + templates**, then
-5. **b-roll by description** — the last two get costed design notes before
+   DAYDREAM.md § Build order names them) — the head of the queue, and always
+   the item gated on nothing.
+2. **Caption styling**, then 3. **motion graphics + templates**, then
+4. **b-roll by description** — the last two get costed design notes before
    any build; b-roll must not copy Daydream blind, whose hour-metering
    implies cloud inference where lucid is local-only.
-6. **The long tail** — aspect swap, import roles + assets pane,
+5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane.
 
-**One thing step 6 leaves on the table for the look pass to pick up**, since
-it is cosmetic rather than a missing capability: the picture lane is drawn but
-**not previewed**. Clicking a shot seeks the transport, which plays the VO
-through the edit; the viewer stays black, because the preview pane still plays
-one clip's media. Showing the *shot* under the playhead is the video preview
-proxy row in the wiki, and it is what would make V2 a viewer rather than a map.
+**What step 6 left for the look pass:** the picture lane is drawn but not
+previewed — clicking a shot seeks the transport and the viewer stays black,
+because the preview pane still plays one clip's media. That is the video
+preview proxy (a wiki row), and it is what makes V2 a picture rather than a
+plan of one.
 
 ### Parked — deliberately, with the reasoning
 
@@ -590,10 +580,9 @@ timeline-space envelope is ever computed, and a cut needs no recompute.
 * **Lanes are projections of one `Edit`.** V1 only when the clip
   `has_video`, A1 always, CC only when captions exist. **No lane that `export`
   cannot produce** — § The trap this section exists to write down, above.
-  Written when that ruled out V2 as well; **V2 stopped being ruled out at step
-  5 of the layered timeline and was drawn at step 6**, which is the rule
-  working rather than an exception to it — the lane waited for the renderer
-  and not the other way round. There is still no A2.
+  Written when that also ruled out V2; V2 became producible at step 5 and was
+  drawn at step 6, which is the rule working rather than an exception to it.
+  There is still no A2.
 
 #### The agent panel, in mechanism
 
@@ -909,14 +898,12 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
    here and not before: the timeline may not draw a lane `export` cannot
    produce, so V2 lands in the same change that makes `export` able to produce
    it — never earlier. CLAUDE.md § Conventions, and § Tier 3 is the goal.
-   **Built 2026-08-08** — HISTORY.md § The picture lane, step 6 of the layered
-   timeline. What it turned out the rule actually demanded, and what the step
-   is worth remembering for: **not a lane drawn from `build_shots`.** The
-   projection is happy with a shot longer than the asset it points at and the
-   MLT writer is not, so the lane is drawn from `timeline_view`'s `shots` —
-   the projection *already put through `mlt.plan_picture`* — and a refusal
-   from either step comes back as a message the lane draws rather than an
-   exception that takes the window down with it.
+   **Built 2026-08-08** — HISTORY.md § The picture lane. What the rule turned
+   out to demand: **not a lane drawn from `build_shots`.** The projection
+   accepts a shot longer than its asset and the MLT writer refuses it, so the
+   lane draws `timeline_view`'s `shots` — the projection already through
+   `mlt.plan_picture` — and a refusal from either arrives as a message rather
+   than an exception.
 
 Seed the cue table from `assemble_scream.py`'s existing 37 cues, so the first
 layered timeline lucid builds is **this video**, checkable against a file that
