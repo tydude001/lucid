@@ -375,27 +375,20 @@ the standing trap.
 
 The worked prior is already in the repo's history: the Scream assembly's 13
 cards are pre-rendered stills placed as cues and rendered by `melt`. Motion
-graphics generalise exactly that mechanism: **the agent authors an asset
-(SVG/HTML → rendered still or short clip), the asset lands as a cue on the
-picture track, `melt` composites it** — full-frame or overlay. Templates are
-a starter library of those assets with editable text/colour slots, which is
-also what makes a Properties pane meaningful later. Their docs' advice
-("iterate one graphic at a time") is a prompt-guidance line, free to adopt.
-**The design note is written: lucid `PLAN.md` § Motion graphics and templates,
-2026-08-09.** It settles asset format (SVG source plus PNG rasterisation, both
-in `assets/cards/`, no schema bump), the generator (`graphics.py` shelling
-ImageMagick, which links **librsvg** here — and which substitutes a missing
-font pixel-identically and silently, the caption trap on a second renderer),
-and the canvas (cards generate at the project's size; the Scream cards are
-1920x1080 in an 1920x816 film, so 24% of the frame is black bar).
+graphics generalise exactly that mechanism: **the agent authors an asset, it
+lands as a cue on the picture track, `melt` composites it** — full-frame or
+overlay. Templates are a starter library of those assets with editable
+text/colour slots, which is also what makes a Properties pane meaningful
+later. Their docs' advice ("iterate one graphic at a time") is a
+prompt-guidance line, free to adopt.
 
-Its one real cost is **animation, which is a length problem rather than a
-rendering one**: a still has no length to run out of, an animated card is a
-video clip that does, and a shot's length is derived from the edit — so a
-baked-length graphic is a cue carrying a length, the failure lucid `PLAN.md`
-§ The property everything below defends is built to prevent. Static cards
-first is therefore forced, not preferred; animation must be intro-then-hold or
-loop, and gets its own note.
+**The design is settled, in lucid `PLAN.md` § Motion graphics and templates**
+(2026-08-09) — asset format, generator, canvas, and the measurements behind
+each. What changes *this map* is that the row ships in two pieces rather than
+one: static cards need no new timeline mechanism at all, while animation
+carries a length that a shot's derived length cannot be trusted to match, so
+it is deferred to its own note rather than being the second half of this
+build.
 
 ### Captions — generation and styling built; per-word animation is the gap
 
