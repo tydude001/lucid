@@ -15,6 +15,7 @@ from lucid import __version__, asr, captions, energy, ops, webui
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
+from lucid.graphics import GraphicsError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
 from lucid.picture import PictureError
@@ -156,6 +157,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tx.add_argument("--first", type=int, help="first word index (inclusive)")
     p_tx.add_argument("--last", type=int, help="last word index (inclusive)")
     p_tx.add_argument("--search", help="locate a phrase; returns word ranges")
+
+    p_card = sub.add_parser("card", help="generate the card assets a picture cue points at")
+    card_sub = p_card.add_subparsers(dest="card_command", required=True)
+
+    p_card_render = card_sub.add_parser(
+        "render", help="rasterise assets/cards/<name>.svg to the PNG card:<name> resolves to"
+    )
+    p_card_render.add_argument("name", help="the <name> in card:<name>, without an extension")
+    p_card_render.add_argument(
+        "--width", type=int, help="render width in pixels (with --height; fits, never distorts)"
+    )
+    p_card_render.add_argument(
+        "--height", type=int, help="render height in pixels (with --width)"
+    )
 
     p_cue = sub.add_parser("cue", help="manage the picture cue table (word_index -> asset)")
     cue_sub = p_cue.add_subparsers(dest="cue_command", required=True)
@@ -664,6 +679,12 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_card(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.card_render(args.project, args.name, width=args.width, height=args.height)
+    )
+
+
 def _cmd_cue(args: argparse.Namespace) -> int:
     if args.cue_command == "add":
         return _emit(ops.cue_add(args.project, args.clip_id, args.word_index, args.asset))
@@ -937,6 +958,7 @@ _COMMANDS = {
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
+    "card": _cmd_card,
     "cue": _cmd_cue,
     "shots": _cmd_shots,
     "seed": _cmd_seed,
@@ -977,6 +999,7 @@ _EXPECTED = (
     VerifyError,
     PictureError,
     EnergyError,
+    GraphicsError,
     # `plan_picture` refuses a shot longer than the asset it points at, and
     # that refusal fired for real on the Scream assembly (HISTORY.md
     # § Rendering through `melt`) — it is a message to read, not a traceback.

@@ -189,6 +189,31 @@ def get_transcript(
 
 
 @_tool()
+def card_render(
+    path: str, name: str, width: int | None = None, height: int | None = None
+) -> dict[str, Any]:
+    """Rasterise `assets/cards/<name>.svg` into the PNG `card:<name>` shows.
+
+    Author the SVG under the project's `assets/cards/`, then render it here;
+    both files are kept, so a card can be re-edited rather than redrawn. The
+    PNG is what a `card:` cue resolves to, so a card is not usable until this
+    has run.
+
+    `width`/`height` are given together or not at all and set the *render*
+    size — the document is drawn at that scale rather than rasterised and
+    resampled — and they fit rather than distort, so a size at a different
+    aspect from the document's comes back smaller on one axis. Omitted, the
+    document renders at its own declared size.
+
+    Every call reports the fonts the document names and what fontconfig will
+    actually draw. Read `font_warnings`: a card naming a face this machine
+    lacks renders pixel-identically to one naming a face it has, so nothing
+    downstream can catch the substitution.
+    """
+    return ops.card_render(path, name, width=width, height=height)
+
+
+@_tool()
 def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
     """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
 

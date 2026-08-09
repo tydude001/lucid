@@ -41,6 +41,7 @@ EXPECTED_TOOLS = {
     "attach_transcript",
     "transcribe",
     "get_transcript",
+    "card_render",
     "cue_add",
     "cue_rm",
     "cue_ls",
@@ -158,6 +159,7 @@ TOOL_TO_COMMAND = {
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
+    "card_render": "card",
     "cue_add": "cue",
     "cue_rm": "cue",
     "cue_ls": "cue",
@@ -272,6 +274,31 @@ def test_cut_by_transcript_end_to_end(tmp_path: Path, sources: tuple[Path, Path]
 
 
 @needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_card_render_over_the_wire(tmp_path: Path) -> None:
+    """A card rendered through the server lands where a `card:` cue looks."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        cards = Project.open(project).cards_dir
+        cards.mkdir(parents=True, exist_ok=True)
+        (cards / "receipt.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080">'
+            '<rect width="1920" height="1080" fill="#101418"/></svg>',
+            encoding="utf-8",
+        )
+        return await client.call("card_render", path=str(project), name="receipt")
+
+    out = anyio.run(_with_server, body)
+
+    assert out["asset"] == "card:receipt"
+    assert (out["width"], out["height"]) == (1920, 1080)
+    assert Path(out["output"]) == Project.open(project).cards_dir / "receipt.png"
+    assert Path(out["output"]).is_file()
+
+
 def test_cue_table_add_ls_rm_end_to_end(tmp_path: Path, sources: tuple[Path, Path]) -> None:
     """The cue table over the wire — no timeline needed, only a transcript."""
     audio, transcript = sources

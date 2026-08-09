@@ -163,8 +163,18 @@ installed package or the upstream repo, not your memory.
   translation and `ops._caption_cues` the only derivation. HISTORY.md § Caption
   styling has each trap and the measurement behind it.
   - **The font named in a style may not be installed** — libass substitutes
-    silently and ffmpeg still exits 0. `captions.font_match` reports it;
-    nothing prevents it. Which fonts this box has: wiki `tooling.md` § Fonts.
+    silently and ffmpeg still exits 0, and **a card's SVG has the same hole**:
+    it rasterises pixel-identically whether the face exists or not.
+    `captions.font_match` reports both; nothing prevents either. Which fonts
+    this box has: wiki `tooling.md` § Fonts.
+- **Cards rasterise through `magick`, and the size knob goes *before* the
+  input.** `-size WxH` is a vector render at that size and **fits, never
+  distorts** — 1920x816 asked of a 16:9 document gives 1450x816. `-resize`
+  after the input rasterises at native size and resamples the pixels, which is
+  what wrecks text; `graphics.render_svg` has no resize path, so a card that
+  should fill the frame is *authored* at the canvas size. Never hand melt the
+  SVG — it rasterises through Qt, not librsvg, and the two disagree with no
+  error on either side. HISTORY.md § The card renderer.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

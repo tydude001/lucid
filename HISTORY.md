@@ -2652,3 +2652,85 @@ segments, undo depth 0 — the figures § The schema migration recorded), and
 the same call against `~/lucid-dogfood/scream-picture` is refused naming both
 directories. `lucid -C /nonexistent-project mcp` exits 1 with the one-line
 message and no traceback.
+
+## The card renderer, step 1 of motion graphics — 2026-08-09
+
+PLAN.md § Motion graphics and templates costed the item and found it needs no
+new timeline mechanism: the Scream assembly's cards already ride the cue table
+as stills, so what was missing is a generator for the asset. This is its
+renderer — `graphics.py`, `ops.card_render`, `lucid card render`, MCP
+`card_render`. SVG in, PNG out, both kept: the cue table and the preview
+`<img>` want a raster, and a card you cannot re-edit is one you redraw from
+scratch to change a year.
+
+`magick` is shelled the way `asr` shells whisper and `picture` shells melt.
+IM6's `convert` is deliberately not in the resolution order — it is a
+different SVG renderer with different defaults, and every measurement below
+was taken on IM7's librsvg coder, so falling back to it would render through
+something the numbers do not describe.
+
+### Four measurements, and what each one decided
+
+1. **`-size WxH` before the input is a vector render; `-resize` after it is a
+   resample.** Same 1920x1080 card: `-size` gave an 8-bit, 256-colour raster,
+   `-resize` a 16-bit one an order of magnitude larger — it rasterises at the
+   document's native size and then scales the *pixels*, which is the one thing
+   not to do to text. So the size knob goes before the input, and `render_svg`
+   has no resize path at all.
+
+2. **`-size` fits, it does not distort.** 1920x816 asked of a 16:9 document
+   gives **1450x816**, not a squashed 1920. This is § Motion graphics and
+   templates' finding 4 restated as a mechanism rather than an observation:
+   cards pillarbox not because fitting is wrong but because a card authored at
+   a different aspect from its film has nowhere else to go. It is also why
+   step 3 has to author templates *at* the canvas size — resizing here could
+   never have closed it. `RENDER_FIT` names the policy and a test asserts the
+   1450.
+
+3. **A missing font renders pixel-identical at exit 0.** The caption trap
+   (CLAUDE.md), reproduced on a second renderer: the same card naming
+   `Noto Sans` and naming a face that does not exist compared at
+   `magick compare -metric AE` **0**. Nothing in the PNG records that a
+   substitution happened, so the report is the only guard there is — and like
+   `captions.font_match`, which it reuses rather than duplicating, it reports
+   and does not prevent.
+
+4. **Unlike melt, magick's exit code can be trusted here.** A truncated SVG
+   and a file that is not SVG at all both exit 1 naming `RenderRSVGImage`.
+   Worth writing down only because so much else in this repo exits 0 on
+   failure — it means this module does not have to prove its output exists by
+   other means. It reads the finished raster's dimensions back off the file
+   anyway (`mlt.declared_frames`' discipline), because after measurement 2 the
+   size asked for and the size that landed are different numbers.
+
+### The font report is per declaration, not per face
+
+A `font-family` value is a fallback stack, and the stack is what decides the
+outcome. Reporting each face separately would warn about `'Card Face',
+sans-serif` with the first one installed — a warning about working output,
+the false-alarm shape finding 3 of the design note exists to not repeat. So
+one entry per declaration: `available` is true when *some* named face in the
+stack is installed, `drawn` is what fontconfig will actually use, and generic
+families are excluded from the installed question because `sans-serif` is not
+an uninstalled font, it is a request with no face. The tri-state from
+`font_match` survives — null still means `fc-match` could not be reached,
+which sends someone somewhere different from "the font is not here".
+
+Families are read by walking the parsed tree, not by pattern-matching the
+markup: the three places a family can be named — the presentation attribute,
+an inline `style=`, and CSS in a `<style>` element — share no syntax, and a
+regex loose enough to catch all three swallows the rest of the tag.
+
+### Verified on a real project, not only on `tmp_path`
+
+`lucid -C proj card render receipt` on a card authored at the film's 1920x816:
+renders 1920x816, and the paper reads back **exactly `(250,245,236)`** against
+the source's `#faf5ec` — the design note's finding 3 (no colour management
+needed) holding at the near end of the pipeline too. The missing-card path
+exits 1 naming the cards that do have a source.
+
+It also caught the live thing: the card named `DejaVu Sans` and came back
+`available: false, drawn: Noto Sans`. That is the same substitution caption
+styling hit, which means **the open call about lucid's default font is no
+longer only about captions** — a template shipping a face this box lacks would
+put every generated card in a typeface nobody picked, invisibly.

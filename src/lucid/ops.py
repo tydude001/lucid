@@ -19,7 +19,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from lucid import asr, autoeditor, captions, energy, media, mlt, picture
+from lucid import asr, autoeditor, captions, energy, graphics, media, mlt, picture
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -213,6 +213,54 @@ def get_transcript(
         "text": " ".join(w.text for w in words),
         "words": [w.as_dict() for w in words],
     }
+
+
+# -- cards -----------------------------------------------------------------
+#
+# Step 1 of PLAN.md § Motion graphics and templates: the asset a `card:` cue
+# resolves to, generated rather than drawn elsewhere and copied in. SVG is the
+# source and PNG the rasterisation, both kept — the cue table and the preview
+# `<img>` want a raster, and a card you cannot re-edit is a card you redraw
+# from scratch to change a year. No schema bump: `assets/cards/` is a
+# directory, not a manifest field.
+
+
+def card_render(
+    path: Path | str,
+    name: str,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> dict[str, Any]:
+    """Rasterise `assets/cards/<name>.svg` to the PNG its cue resolves to.
+
+    The PNG is what `_resolve_asset` looks for, and it is written beside the
+    source under exactly the name `card:<name>` resolves to — a card
+    rasterised anywhere else is a card the cue table cannot find, and the
+    error for that arrives at export.
+
+    The font report rides along on every call because it is the only guard
+    there is: a card naming a face this box lacks renders pixel-identically
+    to one naming a face it has, at exit 0 (`graphics`' docstring). It
+    reports and does not prevent, the same call `captions.font_match` made.
+    """
+    project = Project.open(path)
+    if not name or "/" in name or name.startswith("."):
+        raise ProjectError(
+            f"card name {name!r} is not a card name — it is the `<name>` in "
+            "`card:<name>`, so it names one file in assets/cards/, not a path"
+        )
+    source = project.cards_dir / f"{name}.svg"
+    if not source.is_file():
+        existing = sorted(p.name for p in project.cards_dir.glob("*.svg"))
+        raise ProjectError(
+            f"no card source at {source} (cards with an SVG source: "
+            f"{', '.join(existing) or 'none'})"
+        )
+    rendered = graphics.render_svg(
+        source, project.cards_dir / f"{name}.png", width=width, height=height
+    )
+    return {"card": name, "asset": f"card:{name}", **rendered}
 
 
 # -- cue table -------------------------------------------------------------
