@@ -85,6 +85,18 @@ def _time_span(value: str) -> list[float]:
     )
 
 
+def _resolution(value: str) -> tuple[int, int]:
+    """Parse a `WIDTHxHEIGHT` export resolution, e.g. `1080x1920`."""
+    width_str, _, height_str = value.partition("x")
+    try:
+        width, height = int(width_str), int(height_str)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a resolution — use WIDTHxHEIGHT, e.g. 1920x1080"
+        ) from None
+    return (width, height)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lucid",
@@ -194,6 +206,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="allow a boundary word flagged with a suspect duration (see `transcript`)",
     )
     p_cut.add_argument(
+        "--through-pause",
+        action="store_true",
+        help="extend each cut range's trailing edge through the pause after its last "
+        "word, when the gap clears the marker threshold (cut mode only)",
+    )
+    p_cut.add_argument(
         "--plan",
         action="store_true",
         help="show what these ranges resolve to and what the edit would become, "
@@ -219,6 +237,27 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show what these spans resolve to and what the edit would become, "
         "without touching the timeline",
+    )
+
+    p_restore = sub.add_parser("restore", help="un-cut word ranges that are currently absent")
+    p_restore.add_argument("clip_id")
+    p_restore.add_argument(
+        "ranges",
+        nargs="+",
+        type=_word_range,
+        metavar="FIRST:LAST",
+        help="inclusive word ranges to restore",
+    )
+    p_restore.add_argument(
+        "--pad",
+        type=float,
+        default=0.0,
+        help="match the pad used on the original cut, to bring the padding sliver back too",
+    )
+    p_restore.add_argument(
+        "--plan",
+        action="store_true",
+        help="show what would be restored without touching the timeline",
     )
 
     p_locate = sub.add_parser(
@@ -475,6 +514,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="frame rate for the NLE timeline, and for a multi-source render "
         "(default: the picture's, else 30)",
     )
+    p_export.add_argument(
+        "--preset",
+        # Read off ops.EXPORT_PRESETS rather than restated here, so a preset
+        # added there cannot silently go unreachable from the CLI. 'custom'
+        # is not in that dict (ops._resolve_preset handles it specially) so
+        # it is added back explicitly.
+        choices=[*sorted(ops.EXPORT_PRESETS), "custom"],
+        help="a named quality bundle (--render only; an NLE export has no bitrate). "
+        "'custom' requires --resolution. No 'tiktok-reels' — 9:16 needs a real "
+        "reframe (DAYDREAM.md § Aspect swap), not offered here",
+    )
+    p_export.add_argument(
+        "--resolution",
+        type=_resolution,
+        metavar="WIDTHxHEIGHT",
+        help="single-source render only: letterboxes the existing frame to this "
+        "size — does not crop or reframe it. Refused on a multi-source (melt) "
+        "project",
+    )
 
     return parser
 
@@ -568,6 +626,7 @@ def _cmd_cut(args: argparse.Namespace) -> int:
             keep=ranges if args.keep else None,
             pad=args.pad,
             confirm_suspect=args.confirm_suspect,
+            through_pause=args.through_pause,
             plan=args.plan,
         )
     )
@@ -582,6 +641,12 @@ def _cmd_cut_at(args: argparse.Namespace) -> int:
             confirm_suspect=args.confirm_suspect,
             plan=args.plan,
         )
+    )
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.restore(args.project, args.clip_id, args.ranges, pad=args.pad, plan=args.plan)
     )
 
 
@@ -723,7 +788,16 @@ def _cmd_speech_overlap(args: argparse.Namespace) -> int:
 
 def _cmd_export(args: argparse.Namespace) -> int:
     fmt = None if args.render else args.export_format
-    return _emit(ops.export(args.project, args.output, export_format=fmt, fps=args.fps))
+    return _emit(
+        ops.export(
+            args.project,
+            args.output,
+            export_format=fmt,
+            fps=args.fps,
+            preset=args.preset,
+            resolution=args.resolution,
+        )
+    )
 
 
 def _cmd_ping(_args: argparse.Namespace) -> int:
@@ -751,6 +825,7 @@ _COMMANDS = {
     "seed": _cmd_seed,
     "cut": _cmd_cut,
     "cut-at": _cmd_cut_at,
+    "restore": _cmd_restore,
     "locate": _cmd_locate,
     "status": _cmd_status,
     "view": _cmd_view,

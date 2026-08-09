@@ -361,6 +361,7 @@ def render(
     expect_duration: float | None = None,
     max_memory: str | None = RENDER_MAX_MEMORY,
     timeout: int = RENDER_TIMEOUT,
+    consumer_args: tuple[str, ...] = RENDER_ARGS,
 ) -> dict[str, Any]:
     """Render an MLT project with `melt`, and check what actually came out.
 
@@ -369,7 +370,14 @@ def render(
     output rather than an error, so all three are handled here rather than
     hoped past (HISTORY.md § 4):
 
-    * **the codec and nothing else** goes on the consumer — `RENDER_ARGS`;
+    * **the codec and nothing else** goes on the consumer — `RENDER_ARGS` by
+      default, or `consumer_args` — but never anything past those same four
+      keys (`vcodec`/`crf`/`preset`/`acodec`): adding `ab`/`width`/`height`/
+      `progressive` on top of them is what correlated with the unbounded
+      memory growth this comment cites below, and no one has since isolated
+      which of those additions was the cause. A caller may vary the *values*
+      of the four measured-safe keys (`ops.EXPORT_PRESETS`); widening the key
+      set itself needs that isolation work redone first;
     * **Qt needs a display**, or every `qimage` producer and the `qtblend`
       transition refuse to load, the picture lane vanishes and the render still
       exits 0. Missing one is a refusal here, not a warning, because the
@@ -404,7 +412,7 @@ def render(
     work = scratch("render-")
     staged = work / (destination.name or "render.mp4")
     melt = melt_command()
-    command = [*melt, str(path), "-consumer", f"avformat:{staged}", *RENDER_ARGS]
+    command = [*melt, str(path), "-consumer", f"avformat:{staged}", *consumer_args]
     capped = bool(max_memory) and shutil.which("systemd-run") is not None
     if capped:
         command = [
@@ -481,7 +489,7 @@ def render(
         "project": str(path),
         "exit_code": completed.returncode,
         "memory_cap": max_memory if capped else None,
-        "consumer": list(RENDER_ARGS),
+        "consumer": list(consumer_args),
         **measured,
         "expected_frames": expect_frames,
         "expected_resolution": list(expect_resolution) if expect_resolution else None,

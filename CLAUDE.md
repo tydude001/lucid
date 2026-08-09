@@ -137,3 +137,15 @@ installed package or the upstream repo, not your memory.
     (right for captions — one span per word); `Edit.timeline_spans` returns
     every surviving piece. A range a cut split has more than one answer, and
     the singular reports one without saying so. HISTORY.md § `locate`.
+  - **Segments are half-open `[start, end)`, and that is wrong for exactly one
+    thing: a zero-width word.** Whisper emits `start == end` often, and the
+    last word of a transcript lands on the last segment's own end — where the
+    half-open test says "cut" about material plainly still there. `closed_end=`
+    on `timeline_time` is for *instants* only; passing it for one edge of a
+    range double-counts the join between two segments. HISTORY.md § The head
+    of the parity queue.
+- **`Edit` never stored what it removed** — it is surviving segments and
+  nothing else, so "what was cut" is derived (`Edit.gaps` against the clip's
+  registered duration), never read back. `restore` is bounded by those gaps,
+  which is what keeps the timeline a subset of the source and separates it
+  from the parked `vo_extend`. PLAN.md § Parked.

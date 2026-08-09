@@ -270,42 +270,54 @@ built is `light-dark()` per token declared once, with `color-scheme` as the
 whole switch — see CLAUDE.md, which also carries the trap that costs you a
 black-on-black canvas if you read a colour token from JS.
 
-### Agent panel — built, same mechanism; cosmetics remain
+### Agent panel — built, cosmetics included
 
-The mechanism is already identical by convergence: a local `claude`
-subprocess with tool-use streamed to a checklist (PLAN.md § The agent panel,
-in mechanism — the security flags there are settled and do not reopen here).
-Remaining, all cosmetic, none touching the boundary:
+The mechanism is identical by convergence: a local `claude` subprocess with
+tool-use streamed to a checklist (PLAN.md § The agent panel, in mechanism —
+the security flags there are settled and do not reopen here). The four
+remaining cosmetics shipped 2026-08-08 (HISTORY.md § The head of the parity
+queue), none of them adding a tool, widening the allowlist, or giving the
+subprocess a new path to the project:
 
-* **Model label** in the composer — read from the stream-json `init`
-  message's model field; no new endpoint.
-* **Per-turn thumbs** — a small POST that appends to a project-local log.
-  Useful only if something reads it; build the log, defer any use.
-* **`@`-mentions of assets** — completion over the project's `media/`
-  entries; inserts the media name into the prompt text. Pure composer sugar;
-  the agent already reaches media through the tools.
-* `Start New Task` = clear conversation (fresh subprocess turn), which
-  exists conceptually; needs only the affordance.
+* **Model label** in the composer — the stream-json `init` message's model
+  field, which the panel was already receiving and dropping. No endpoint.
+* **Per-turn thumbs** — one JSON line appended to `cache/agent_thumbs.jsonl`,
+  carrying session and turn ids so a later reader can tell *which* turn was
+  rated. Nothing reads it yet, as planned. It obeys the `Host` and
+  content-type guards like every POST, and deliberately does **not** bump the
+  revision or fire `project-changed` — it never touches `project.otio`.
+* **`@`-mentions of assets** — completion over `view.clips`, which the view
+  already ships, so no endpoint and no new capability.
+* `Start New Task` — the one with a real edge rather than only an affordance:
+  killing the subprocess mid-turn trips the stdout pump's silent-exit branch,
+  so a deliberate reset announced itself as a crash until a suppress-once
+  flag was added.
 
-### Transcript document — built; two gaps
+### Transcript document — built, both gaps closed
 
-Paragraphs, show-cuts with strikethrough, selection → floating toolbar: all
-shipped. Missing against Daydream:
+Paragraphs, show-cuts with strikethrough, selection → floating toolbar
+shipped with the workspace; the two gaps below closed 2026-08-08
+(HISTORY.md § The head of the parity queue).
 
-* **Inline pause markers.** Render `[1.2s]` between word spans where the gap
-  between one word's end and the next word's start exceeds a threshold
-  (theirs show down to 0.4 s). The CLAUDE.md duration rule applies exactly
-  here: whisper inflates a word's duration to swallow a retake, which makes
-  a *gap* computed from word boundaries **under**-report, never over-report
-  — a suppressed marker is cosmetic, an invented one would be a lie. Same
-  logic as the `paragraph` field's silence arm; derive both from the same
-  place. Markers must be selectable-with-text so cutting a phrase cuts its
-  trailing pause, which is what Daydream's docs show.
-* **Restore one cut.** Today only `undo` walks the stack. `Edit` stores its
-  removed ranges, so un-removing a *specific* range is a real op
-  (`restore`?) with CLI + MCP parity and the standard `plan=True` echo.
-  Show-cuts already renders the struck text to anchor it on. Small, and it
-  completes the loop their docs call "review and restore your cuts".
+* **Inline pause markers.** `[1.2s]` between word spans, from `ops._gap_after`
+  — the one gap computation the `paragraph` field's silence arm now calls too,
+  because two of them is how they drift. The CLAUDE.md duration rule is what
+  makes the field safe: whisper inflates a word's duration to swallow a
+  retake, which makes a gap measured to the next word's `start` **under**-report,
+  never over-report, so a bad transcript can suppress a marker and cannot
+  invent one. Markers are selectable with the text — a `.pause` node resolves
+  to the word it trails and never becomes a bound of its own, and when it is
+  the selection's *trailing* edge the cut extends through the pause
+  (`--through-pause`). That last clause is where the bug was: the flag was
+  first computed from whichever node the gesture moved, so extending a
+  selection leftward silently cancelled it.
+* **Restore one cut.** Shipped as `restore`, with CLI + MCP parity and the
+  standard `plan=True` echo, anchored on the struck text show-cuts already
+  renders. **This section's premise was wrong and the correction is worth
+  keeping:** it said "`Edit` stores its removed ranges". It does not — `Edit`
+  is surviving segments and nothing else — so the ranges are derived by
+  `Edit.gaps` against the clip's registered duration, which also covers the
+  head/tail case a stored table would have missed.
 
 ### Timeline — V1/V2/A1/CC built; two small items left
 
@@ -378,18 +390,46 @@ in at export (ASS subtitle styling through ffmpeg covers font/colour/
 position; per-word animation is an export question to cost in the same
 note).
 
-### Aspect swap 16:9 ↔ 9:16 — after the layered timeline
+### Aspect swap 16:9 ↔ 9:16 — after the layered timeline, and now load-bearing
 
 Touches the model (a project aspect/resolution property), both render paths
 (auto-editor args on the single-source path, the MLT profile on the
 multi-source path), and the preview letterbox. Small design note first;
 mechanically modest after the MLT writer exists.
 
-### Export presets — cheap, anytime
+**It stopped being only a parity nicety on 2026-08-08:** it is what a
+`tiktok-reels` export preset is waiting on (§ Export presets), which is the
+first thing anyone wanting a vertical export will reach for. Two things the
+preset work already measured and this item inherits: `-res` on the
+single-source path letterboxes rather than reframes, and the melt path cannot
+take a resolution at all until HISTORY.md § 4's memory-growth combination is
+isolated — so a real 9:16 needs an answer on the multi-source side, not just
+a flag on the other one.
 
-YouTube / TikTok-Reels / Web / Custom map onto `ops.export`'s existing
-arguments as named bundles surfaced in the window's Export flow and the CLI.
-An afternoon; rides any pass that touches the export dialog.
+### Export presets — built, minus the one that needs aspect swap
+
+Shipped 2026-08-08 (HISTORY.md § The head of the parity queue) as `youtube`,
+`web` and `custom`, on `ops.export`, the CLI and the window's Export flow.
+
+**"Cheap, anytime" was optimistic in two ways, and both are worth keeping on
+the record.** First, the sentence this row used to carry — that the presets
+"map onto `ops.export`'s existing arguments" — was false: `export` took
+`output`, `export_format` and `fps`, and had no resolution or quality argument
+to bundle. Second, the bundles are deliberately narrow. They vary only the
+four consumer keys `picture.RENDER_ARGS` already hardcodes, because HISTORY.md
+§ 4 measured a melt consumer reaching 14.6 GB with `width`/`height`/`ab` in the
+combination and nobody has since isolated which addition caused it. A preset
+that widens the consumer is a memory-growth experiment in a feature's clothes.
+
+**`tiktok-reels` is not shipped, and it is blocked rather than skipped.** 9:16
+is mechanically producible on the single-source path — measured, a 320x240
+clip renders to 608x1080 — but only as the 16:9 frame pillarboxed, never a
+filled or reframed vertical video. That reframe is § Aspect swap below. On the
+melt path a resolution override is refused outright for the memory reason
+above, so the preset could not have been offered consistently across the two
+writers even as a letterbox. A platform's name over a quiet pillarbox is the
+correct-pixels-wrong-video failure this document's constraint 2 exists to
+prevent.
 
 ### MCP over HTTP — optional, unranked
 
@@ -455,11 +495,11 @@ item is unchanged — real Scream VO, real browser (wiki `tooling.md`
 
 1. **The look/feel pass** — warm tokens light+dark, vendored fonts, three
    type voices, pastel timeline, top-bar parity: **shipped 2026-08-08**
-   (HISTORY.md § The look pass). The small items that were to ride it did
-   **not** ship and are now the head of the queue on their own: model label,
-   thumbs, `@`-mentions, inline pause markers, `restore`, export presets.
-   Two of those are not cosmetic — `restore` is a real op needing CLI + MCP
-   parity and a `plan` echo, and pause markers inherit the duration rule.
+   (HISTORY.md § The look pass). The six small items that were to ride it and
+   didn't — model label, thumbs, `@`-mentions, inline pause markers,
+   `restore`, export presets — **shipped the same day** as their own step
+   (HISTORY.md § The head of the parity queue). This rung is done, except for
+   `tiktok-reels`, which is blocked on § Aspect swap in item 6.
 2. **The layered timeline, steps 1–6** (PLAN.md § The layered timeline) —
    already Next; ends with the picture lane, the legal gate for the rest.
 3. **Caption styling** — the style object, agent-settable, burn-in at

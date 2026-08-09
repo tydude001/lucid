@@ -123,6 +123,7 @@ a real VO before assuming it needs lucid's architecture underneath.
 | `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before lucid existed |
 | `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
 | `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call. Echoes the words each index resolved to and takes `plan=True` to resolve without writing — HISTORY.md § `cut --plan` |
+| `restore` | OTIO, hand-rolled | un-cut a specific word range. Not in the original surface, and not the mirror it looks like: `Edit` never stored what it removed, so the removed ranges are *derived* — `Edit.gaps` against the clip's registered duration. Bounded by those gaps, so the timeline stays a subset of the source and the subtractive invariant holds; that is what separates it from the still-parked `vo_extend`. Built 2026-08-08 — HISTORY.md § The head of the parity queue |
 | `remove_silences` | auto-editor subprocess | do not reimplement; auto-editor's `--edit` language (`"(or audio:0.03 motion:0.06)"`, labels, `--margin`) is richer than thresholds-as-parameters |
 | `add_captions` | ffmpeg + ASS | word-timed, styled via a small preset set; sidecar `.ass` by default, burn-in opt-in. Built 2026-08-07 — HISTORY.md § Captions came out of the timeline, not the transcript |
 | `render` | OTIO → auto-editor v3 | a mapping layer, not a renderer — see the render decision below |
@@ -327,11 +328,17 @@ and the video preview proxy). The verified bar for any UI item: run against
 the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
 
 The look/feel pass — the parity queue's head — shipped 2026-08-08 too
-(HISTORY.md § The look pass). What it left on the queue is the small items
-that were to ride it: model label, per-turn thumbs, `@`-mentions, inline
-pause markers, `restore`, export presets. Two of those are not cosmetic and
-want their own step: `restore` is a real op with CLI + MCP parity, and pause
-markers inherit the duration-inflation rule.
+(HISTORY.md § The look pass), and the six small items it left behind shipped
+the same day: model label, per-turn thumbs, `@`-mentions, inline pause
+markers, `restore`, export presets. HISTORY.md § The head of the parity queue.
+**The queue's head is clear**; the next ranked item is caption styling.
+
+One named thing did not ship and is blocked rather than unfinished: a
+**`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
+of the 16:9 frame and a real reframe is § Next's own deferred aspect-swap
+item. Shipping a platform's name over a quiet letterbox is the
+correct-pixels-wrong-video failure the trap below exists to prevent, so it
+waits for the item that does it properly.
 
 ### Done — the layered timeline
 
@@ -351,16 +358,19 @@ The whole parity plan — observed product, design system, per-feature notes,
 non-imports — is [DAYDREAM.md](DAYDREAM.md). Ranking, governed by the layered
 timeline being the enabler and the look pass being gated on nothing:
 
-1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass).
-   The small cosmetics that were to ride it (DAYDREAM.md § Build order names
-   them) did not, and stay at the head of the queue as the item gated on
-   nothing.
+1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass),
+   and so are the six small items that were to ride it and didn't
+   (HISTORY.md § The head of the parity queue). This rung is done.
 2. **Caption styling**, then 3. **motion graphics + templates**, then
 4. **b-roll by description** — the last two get costed design notes before
    any build; b-roll must not copy Daydream blind, whose hour-metering
    implies cloud inference where lucid is local-only.
 5. **The long tail** — aspect swap, import roles + assets pane,
-   multi-project picker, HTTP MCP transport, properties pane.
+   multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
+   is no longer only a parity nicety** — it is what a `tiktok-reels` export
+   preset is waiting on, and the preset is the first thing anyone reaching
+   for a vertical export will ask for. It still costs what it always did:
+   the project model, both render paths, and the preview letterbox.
 
 **What step 6 left, and the look pass did not take:** the picture lane is
 drawn but not previewed — clicking a shot seeks the transport and the viewer

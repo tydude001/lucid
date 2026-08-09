@@ -3,16 +3,32 @@
 Both live only in the CLI by design, so the stdio suite cannot reach them.
 `cut-at`'s whole value rests on the span parsing; `init`'s on not creating a
 project somewhere the caller did not name.
+
+One exception: `test_cut_through_pause_flag_parses_and_reaches_ops` below,
+which checks the CLI-specific plumbing for `cut --through-pause`
+(argparse's `store_true` reaching `ops.cut_by_transcript` under the right
+keyword) — the underlying behaviour it enables is already covered end-to-end
+over the wire in test_server_stdio.py; this only guards the one hop that
+file cannot reach, since it never spawns `lucid cut` itself.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
+import shutil
+import struct
+import wave
 from pathlib import Path
 
 import pytest
 
 from lucid.cli import _parse_timecode, _time_span, main
+
+needs_ffprobe = pytest.mark.skipif(
+    shutil.which("ffprobe") is None, reason="ffprobe is not installed"
+)
 
 
 def test_parse_timecode_reads_colon_parts_optional_from_the_right() -> None:
@@ -86,3 +102,198 @@ def test_explicit_dash_c_dot_is_not_mistaken_for_an_unset_default(
     assert main(["-C", ".", "init", "proj"]) == 1
     assert not _project_exists(tmp_path)
     assert not _project_exists(tmp_path / "proj")
+
+
+# -- `cut --through-pause` -------------------------------------------------
+#
+# The behaviour `through_pause` enables is proven end-to-end over the wire in
+# test_server_stdio.py; what only a real `lucid cut` invocation can prove is
+# that the flag's plumbing through argparse actually reaches `ops` under the
+# right keyword.
+
+
+def _make_wav(path: Path, *, tones: list[tuple[float, float]], duration: float = 12.0) -> None:
+    """A wav with tone bursts at `tones` and silence elsewhere — the same
+    shape test_server_stdio.py's `sources` fixture builds, kept local here so
+    this file stays free of a cross-file import for one helper.
+    """
+    rate = 22050
+    with wave.open(str(path), "w") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        frames = bytearray()
+        for i in range(int(rate * duration)):
+            t = i / rate
+            loud = any(a <= t < b for a, b in tones)
+            value = int(12000 * math.sin(2 * math.pi * 220 * t)) if loud else 0
+            frames += struct.pack("<h", value)
+        out.writeframes(bytes(frames))
+
+
+def _make_sources(root: Path) -> tuple[Path, Path]:
+    """A four-burst recording and a transcript with two words per burst —
+    words 0.1s apart within a burst, 1.1s apart across a burst boundary, so
+    word 3 -> word 4's gap (1.1s) clears PAUSE_MARKER_MIN and word 0 -> word
+    1's gap (0.1s) does not.
+    """
+    audio = root / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 2.0), (3.0, 5.0), (6.0, 8.0), (9.0, 11.0)])
+
+    words = []
+    for burst, (start, _) in enumerate([(0.0, 2.0), (3.0, 5.0), (6.0, 8.0), (9.0, 11.0)]):
+        for n in range(2):
+            at = start + n
+            words.append({"word": f"w{burst}{n}", "start": at, "end": at + 0.9})
+
+    transcript = root / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+@needs_ffprobe
+def test_cut_through_pause_flag_parses_and_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    # Word 3 (w11, end 4.9s) sits right before the 1.1s gap to word 4 (w20,
+    # start 6.0s) — wide enough to have drawn a `[1.1s]` marker.
+    assert main(["-C", str(project), "cut", clip_id, "2:3", "--through-pause", "--plan"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    applied = plan["applied"][0]
+    assert applied["word_end"] == pytest.approx(4.9)
+    assert applied["source_end"] == pytest.approx(6.0)
+
+    # Without the flag, the same range's boundary stays at the word's own end.
+    assert main(["-C", str(project), "cut", clip_id, "2:3", "--plan"]) == 0
+    plain = json.loads(capsys.readouterr().out)
+    assert plain["applied"][0]["source_end"] == pytest.approx(4.9)
+
+
+# -- `restore` --------------------------------------------------------------
+#
+# The op itself is proven end-to-end over the wire in test_server_stdio.py;
+# what only a real `lucid restore` invocation can prove is that argparse's
+# word-range/`--pad`/`--plan` plumbing actually reaches `ops.restore` under
+# the right keywords.
+
+
+@needs_ffprobe
+def test_restore_flag_parses_and_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "cut", clip_id, "2:3"]) == 0
+    cut = json.loads(capsys.readouterr().out)
+    assert cut["removed"] > 0.0
+
+    # --plan resolves the same numbers a real restore would, without writing.
+    assert main(["-C", str(project), "restore", clip_id, "2:3", "--plan"]) == 0
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["plan"] is True
+    assert planned["applied"][0]["already_present"] is False
+    assert planned["restored"] == pytest.approx(cut["removed"], abs=1e-6)
+
+    # The real call reverses the cut exactly.
+    assert main(["-C", str(project), "restore", clip_id, "2:3"]) == 0
+    restored = json.loads(capsys.readouterr().out)
+    assert restored["restored"] == pytest.approx(cut["removed"], abs=1e-6)
+    assert restored["applied"][0]["already_present"] is False
+
+    # A second restore of the same, now-present range is a no-op, not an error.
+    assert main(["-C", str(project), "restore", clip_id, "2:3"]) == 0
+    noop = json.loads(capsys.readouterr().out)
+    assert noop["applied"][0]["already_present"] is True
+    assert noop["restored"] == pytest.approx(0.0)
+
+
+# -- `export --preset`/`--resolution` ----------------------------------------
+#
+# `ops.export` itself, its presets, and the resolution/melt/NLE refusals are
+# proven end-to-end over the wire in test_server_stdio.py; this only guards
+# the CLI-specific hop those tests cannot reach — `_resolution`'s own parsing,
+# and that `--preset`/`--resolution` reach `ops.export` under the right
+# keywords.
+
+
+def test_resolution_reads_widthxheight() -> None:
+    from lucid.cli import _resolution
+
+    assert _resolution("1920x1080") == (1920, 1080)
+    assert _resolution("608x1080") == (608, 1080)
+
+
+def test_resolution_rejects_garbage() -> None:
+    from lucid.cli import _resolution
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        _resolution("banana")
+    with pytest.raises(argparse.ArgumentTypeError):
+        _resolution("1920")
+
+
+def test_export_preset_and_resolution_flags_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    # An unknown preset is refused by ops.export, not silently accepted —
+    # argparse's own `choices=` can't even construct this call, so this
+    # proves the CLI hop reaches ops.export's own check for 'custom' without
+    # a resolution.
+    out = tmp_path / "out.wav"
+    assert main(["-C", str(project), "export", str(out), "--render", "--preset", "custom"]) == 1
+    err = capsys.readouterr().err
+    assert "custom" in err
+
+    # `--preset`/`--resolution` do reach ops.export under the right keywords:
+    # a bare NLE export (the default `--format kdenlive`, no `--render`)
+    # combined with `--preset` is refused for the "no bitrate" reason, which
+    # only fires if `preset` actually arrived at ops.export.
+    assert (
+        main(
+            [
+                "-C",
+                str(project),
+                "export",
+                str(tmp_path / "out.kdenlive"),
+                "--preset",
+                "youtube",
+            ]
+        )
+        == 1
+    )
+    err = capsys.readouterr().err
+    assert "bitrate" in err

@@ -229,10 +229,20 @@ def to_v3(
     return payload
 
 
-def run_timeline(payload: dict[str, Any], output: Path | str, *, export: str | None = None) -> Path:
+def run_timeline(
+    payload: dict[str, Any],
+    output: Path | str,
+    *,
+    export: str | None = None,
+    render_args: list[str] | None = None,
+) -> Path:
     """Write a v3 timeline and hand it to auto-editor to render or export.
 
     `export=None` renders media; `export="kdenlive"` writes an MLT project.
+    `render_args` is extra argv spliced in before `-o` — auto-editor's own
+    `-res`/`-c:v`/`-crf`/`-preset`/`-c:a` flags, for the export-preset
+    resolution/quality knobs (`ops.EXPORT_PRESETS`). Meaningless (and never
+    passed) on the export path, since a project file has no bitrate.
     Returns the path auto-editor actually wrote.
     """
     output = Path(output).expanduser()
@@ -244,6 +254,8 @@ def run_timeline(payload: dict[str, Any], output: Path | str, *, export: str | N
         args = [str(timeline_path)]
         if export:
             args += ["--export", export]
+        if render_args:
+            args += render_args
         args += ["-o", str(output)]
         _run(args)
 

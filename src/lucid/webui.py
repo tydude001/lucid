@@ -42,6 +42,7 @@ import tempfile
 import threading
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -274,6 +275,13 @@ class AgentSession:
         self._lock = threading.Lock()
         self._proc: subprocess.Popen[str] | None = None
         self._mcp_config_path: Path | None = None
+        #: Set only by `close()`'s kill branch, and only when it actually
+        #: kills a live proc — never unconditionally, or it would wrongly
+        #: swallow a *genuine* future crash report after an earlier no-op
+        #: reset. Consumed once, by `_pump_stdout`'s silent-exit branch, so a
+        #: deliberate `reset()` (item 4, DAYDREAM.md § Agent panel) does not
+        #: also surface as a synthetic `error_no_output` result event.
+        self._suppress_next_exit_report = False
 
     def _mcp_config(self) -> Path:
         """Write the generated one-server MCP config lazily, once.
@@ -393,6 +401,14 @@ class AgentSession:
         # stderr is drained by its own thread; without this join a fast exit
         # can report a truncated tail while that thread is still mid-read.
         stderr_thread.join(timeout=2)
+        with self._lock:
+            suppressed, self._suppress_next_exit_report = self._suppress_next_exit_report, False
+        if suppressed:
+            # A deliberate `reset()` (item 4) killed this proc on purpose —
+            # the exit is expected, not a silent failure, so it gets no
+            # synthetic result event. The client clears `busy` itself instead
+            # of waiting on this stream (see `_handle_agent_new_task`).
+            return
         detail = "".join(stderr_tail).strip()[-2000:] or (
             f"the agent process exited (code {proc.returncode}) without producing a response"
         )
@@ -449,11 +465,19 @@ class AgentSession:
         Nothing else reaps either one — the subprocess otherwise outlives the
         server it belonged to, and every session that prompted the agent
         would leave one `lucid-mcp-*.json` behind in `$TMPDIR`.
+
+        Also the mechanism `reset()` (item 4) reuses for a live mid-session
+        "Start New Task": when a proc is actually killed here, the
+        `_suppress_next_exit_report` flag is set first so `_pump_stdout`'s
+        silent-exit safety net — written for a genuinely broken subprocess —
+        does not also fire for this deliberate kill.
         """
         with self._lock:
             proc, self._proc = self._proc, None
             config, self._mcp_config_path = self._mcp_config_path, None
         if proc is not None and proc.poll() is None:
+            with self._lock:
+                self._suppress_next_exit_report = True
             proc.kill()
             proc.wait(timeout=5)
         if config is not None:
@@ -461,6 +485,18 @@ class AgentSession:
                 config.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    def reset(self) -> None:
+        """`POST /api/agent/new-task`: kill the running subprocess so the next
+        prompt spawns fresh with no conversation history.
+
+        Same mechanics as `close()` — the alias exists so a live per-request
+        reset does not read as server shutdown, which is `close()`'s only
+        caller today. `send()` already respawns lazily
+        (`if self._proc is None or self._proc.poll() is not None`), so "fresh
+        subprocess turn" needs nothing beyond making the current one gone.
+        """
+        self.close()
 
 
 def _run_checks(project_root: Path, output: Path, has_video: bool) -> dict[str, Any]:
@@ -561,7 +597,7 @@ class RenderJob:
         suffix = ".mp4" if view.get("layered") else (media.media_path(project, clip).suffix or ".mp4")
         return project.render_dir / f"web-{job_id}{suffix}"
 
-    def start(self, preset: str | None) -> str:
+    def start(self, preset: str | None, resolution: tuple[int, int] | None = None) -> str:
         job_id = uuid.uuid4().hex
         output = self._output_path(job_id)
         cancel = threading.Event()
@@ -572,7 +608,7 @@ class RenderJob:
             self._cancel = cancel
             self._output = output
         threading.Thread(
-            target=self._run, args=(job_id, output, cancel, preset), daemon=True
+            target=self._run, args=(job_id, output, cancel, preset, resolution), daemon=True
         ).start()
         return job_id
 
@@ -608,23 +644,50 @@ class RenderJob:
         self.bus.publish("render", {"job_id": job_id, "status": "error", "error": str(exc)})
 
     def _run(
-        self, job_id: str, output: Path, cancel: threading.Event, preset: str | None
+        self,
+        job_id: str,
+        output: Path,
+        cancel: threading.Event,
+        preset: str | None,
+        resolution: tuple[int, int] | None,
     ) -> None:
-        self.bus.publish("render", {"job_id": job_id, "status": "running", "preset": preset})
+        self.bus.publish(
+            "render",
+            {
+                "job_id": job_id,
+                "status": "running",
+                "preset": preset,
+                "resolution": list(resolution) if resolution else None,
+            },
+        )
         # The finally is a backstop for non-EXPECTED exceptions only: a bug
         # still propagates with its traceback (the HTTP handlers' rule), but
         # it must not leave `_running` latched — that would turn one bug into
         # a permanent 409 for every render until the server restarts.
         try:
-            self._run_inner(job_id, output, cancel, preset)
+            self._run_inner(job_id, output, cancel, preset, resolution)
         finally:
             self._finish()
 
     def _run_inner(
-        self, job_id: str, output: Path, cancel: threading.Event, preset: str | None
+        self,
+        job_id: str,
+        output: Path,
+        cancel: threading.Event,
+        preset: str | None,
+        resolution: tuple[int, int] | None,
     ) -> None:
+        # Only passed on when actually set, so a plain `/api/render {}` call
+        # still hits `ops.export(path, output, export_format=None)` exactly
+        # as it did before preset/resolution existed — the shape a stubbed
+        # `ops.export` in the test suite still expects.
+        export_kwargs: dict[str, Any] = {}
+        if preset is not None:
+            export_kwargs["preset"] = preset
+        if resolution is not None:
+            export_kwargs["resolution"] = resolution
         try:
-            ops.export(str(self.project_root), str(output), export_format=None)
+            ops.export(str(self.project_root), str(output), export_format=None, **export_kwargs)
         except EXPECTED as exc:
             self._finish()
             if cancel.is_set():
@@ -744,6 +807,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/agent/stop":
             self._handle_agent_stop()
+            return
+        if url.path == "/api/agent/new-task":
+            self._handle_agent_new_task()
             return
         if url.path == "/api/render":
             self._handle_render_start()
@@ -946,26 +1012,61 @@ class Handler(BaseHTTPRequestHandler):
         agent.stop()
         self._send_json({"stopped": True})
 
+    def _handle_agent_new_task(self) -> None:
+        """`POST /api/agent/new-task {}` — kill the live subprocess so the
+        next prompt starts a fresh conversation (DAYDREAM.md § Agent panel,
+        item 4: "needs only the affordance" — `AgentSession.reset()` and
+        `send()`'s existing lazy respawn already do the rest).
+
+        Same shape as `_handle_agent_stop`: a plain 200 acknowledgement, no
+        `self.server`-free `_POST_ROUTES` entry because this needs the live
+        `AgentSession` off `self.server`.
+        """
+        try:
+            _json_body(self)
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        agent: AgentSession = self.server.agent  # type: ignore[attr-defined]
+        agent.reset()
+        self._send_json({"reset": True})
+
     def _handle_render_start(self) -> None:
-        """`POST /api/render {"preset": optional}` — 202, work happens on the stream.
+        """`POST /api/render {"preset": optional, "resolution": optional}` —
+        202, work happens on the stream.
 
         Like `/api/agent`, the reply only acknowledges; progress and
-        completion arrive as `render` events on `/api/events`. `preset` is
-        accepted and echoed on the `running` event, but not yet wired to
-        `ops.export` — which takes no preset today — because a knob to grow
-        into is not the same thing as a parameter to silently swallow.
+        completion arrive as `render` events on `/api/events`. Both fields
+        are threaded straight to `ops.export` (`ops.EXPORT_PRESETS`) — this
+        handler only checks their *shape* (a string; a 2-element list of
+        ints), never whether the combination is valid. An invalid
+        combination (an unknown preset name, `resolution` on a layered
+        project, `preset`/`resolution` with an NLE `export_format` — this
+        endpoint never asks for one, so that specific combination cannot
+        happen here) still raises inside `ops.export`, on the render worker
+        thread, and surfaces as the existing `error` render event — the
+        window draws and plays, it does not decide.
         """
         try:
             payload = _json_body(self)
             preset = payload.get("preset")
             if preset is not None and not isinstance(preset, str):
                 raise WebUIError("'preset' must be a string")
+            resolution = payload.get("resolution")
+            if resolution is not None:
+                if (
+                    not isinstance(resolution, list)
+                    or len(resolution) != 2
+                    or not all(isinstance(n, int) and not isinstance(n, bool) for n in resolution)
+                ):
+                    raise WebUIError("'resolution' must be a two-element list of integers")
+                resolution = (resolution[0], resolution[1])
         except WebUIError as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
             return
         job: RenderJob = self.server.render_job  # type: ignore[attr-defined]
         try:
-            job_id = job.start(preset)
+            job_id = job.start(preset, resolution)
         except RenderBusyError as exc:
             self._fail(HTTPStatus.CONFLICT, str(exc))
             return
@@ -1058,6 +1159,7 @@ def _cut_words(root: str, payload: dict[str, Any]) -> dict[str, Any]:
         keep=ranges if mode == "keep" else None,
         pad=_float_arg(payload, "pad"),
         confirm_suspect=bool(payload.get("confirm_suspect")),
+        through_pause=bool(payload.get("through_pause")),
         plan=bool(payload.get("plan")),
     )
 
@@ -1072,21 +1174,84 @@ def _cut_at(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _restore(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    ranges = _ranges_arg(payload, "ranges")
+    return ops.restore(
+        root,
+        _clip_arg(payload),
+        ranges,
+        pad=_float_arg(payload, "pad"),
+        plan=bool(payload.get("plan")),
+    )
+
+
 def _undo(root: str, _payload: dict[str, Any]) -> dict[str, Any]:
     return ops.undo(root)
+
+
+def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/agent/thumbs` — append one rating to `Project.thumbs_path`.
+
+    DAYDREAM.md § Agent panel, item 2: "useful only if something reads it;
+    build the log, defer any use." So this is telemetry, not an `ops`
+    mutation — no CLI subcommand, matching the existing precedent that
+    `/api/agent`, `/api/agent/stop`, `/api/render` and `/api/render/stop`
+    also have no CLI equivalents (CLAUDE.md's parity rule is scoped to MCP
+    tools, and this route touches no MCP tool either).
+
+    `session_id` + `turn_id` are the pair that let a later reader tell WHICH
+    turn was rated: `session_id` is constant across every turn of one
+    subprocess (the stream-json `result` event's own field, verified live
+    against the installed `claude` binary), `turn_id` — that event's `uuid`
+    — is unique per turn. `prompt` is optional, echoed for convenience; it is
+    not part of the identifying pair.
+
+    Deliberately does not touch `project.otio`: `_revision()` only stats
+    `project.timeline_path` and counts `project.snapshots()`, and this writes
+    to neither, so no `project-changed` event fires from this call.
+    """
+    rating = payload.get("rating")
+    if rating not in ("up", "down"):
+        raise WebUIError("'rating' must be 'up' or 'down'")
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise WebUIError("'session_id' is required")
+    turn_id = payload.get("turn_id")
+    if not isinstance(turn_id, str) or not turn_id:
+        raise WebUIError("'turn_id' is required")
+    prompt = payload.get("prompt")
+    if prompt is not None and not isinstance(prompt, str):
+        raise WebUIError("'prompt' must be a string")
+
+    project = Project.open(root)
+    record = {
+        "ts": datetime.now(UTC).isoformat(),
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "rating": rating,
+        "prompt": prompt,
+    }
+    with project.thumbs_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, sort_keys=True) + "\n")
+    return {"recorded": True, **record}
 
 
 #: `plan` is a field on the request rather than a separate endpoint, because
 #: it is one flag on one op — giving preview its own URL would invite the two
 #: paths to drift, which is the whole thing `plan=True` exists to prevent.
-#: `/api/agent`, `/api/agent/stop`, `/api/render` and `/api/render/stop` are
-#: handled directly in `do_POST` instead of living here, because they need
-#: `self.server` (the bus, the agent session, the render job) rather than
-#: just the project root a plain `ops` call takes.
+#: `/api/agent`, `/api/agent/stop`, `/api/agent/new-task`, `/api/render` and
+#: `/api/render/stop` are handled directly in `do_POST` instead of living
+#: here, because they need `self.server` (the bus, the agent session, the
+#: render job) rather than just the project root a plain `ops` call takes.
+#: `/api/agent/thumbs` is the one `/api/agent*` route that lives here rather
+#: than in `do_POST`: it only ever needs the project root, the same as every
+#: other route in this table.
 _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/cut": _cut_words,
     "/api/cut-at": _cut_at,
+    "/api/restore": _restore,
     "/api/undo": _undo,
+    "/api/agent/thumbs": _agent_thumb,
 }
 
 

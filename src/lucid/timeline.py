@@ -114,16 +114,32 @@ class Edit:
 
     # -- addressing ------------------------------------------------------
 
-    def timeline_time(self, clip_id: str, source_time: float) -> float | None:
+    def timeline_time(
+        self, clip_id: str, source_time: float, *, closed_end: bool = False
+    ) -> float | None:
         """Where a source instant currently sits on the timeline.
 
         Returns None when that instant has been cut — which is the honest
         answer, and the reason cuts are reported rather than silently skipped.
+
+        Segments are half-open `[start, end)`, which is right for intervals and
+        wrong for exactly one caller: a **zero-width word**. Whisper sometimes
+        emits `start == end`, and when that instant lands on a segment's closing
+        boundary — the last word of a transcript against the end of the last
+        segment is the ordinary case — the half-open test says "cut" about
+        material that is plainly still there. `closed_end=True` accepts
+        `source_time == seg.end` as inside that segment, and is for instants
+        only: passing it for one edge of a range would double-count the join
+        between two segments. The default is unchanged, so every other caller
+        keeps the half-open convention it was written against.
         """
         offset = 0.0
         for seg in self.segments:
-            if seg.clip_id == clip_id and seg.start <= source_time < seg.end:
-                return offset + (source_time - seg.start)
+            if seg.clip_id == clip_id and (
+                seg.start <= source_time < seg.end
+                or (closed_end and source_time == seg.end)
+            ):
+                return offset + min(source_time - seg.start, seg.duration)
             offset += seg.duration
         return None
 
@@ -251,6 +267,30 @@ class Edit:
             offset += seg.duration
         return pieces
 
+    def gaps(self, clip_id: str, duration: float) -> list[tuple[float, float]]:
+        """The source ranges of `clip_id` that are NOT on the timeline.
+
+        `Edit` stores only survivors (see the module docstring), so "what was
+        removed" is derived rather than read: the complement of the union of
+        this clip's segments against `[0, duration)`, where `duration` is the
+        clip's own registered length (an ffprobe value fixed at import,
+        `media.py`, so it is a hard, reliable outer bound). This answers a
+        head/tail drop and an interior cut in one uniform pass — a
+        `keep_only` call that dropped the very start or end of a clip is not
+        a special case, just another region the surviving segments don't
+        cover. `restore` is this method's reason to exist.
+        """
+        present = _merge(sorted((s.start, s.end) for s in self.segments if s.clip_id == clip_id))
+        out: list[tuple[float, float]] = []
+        cursor = 0.0
+        for lo, hi in present:
+            if lo > cursor:
+                out.append((cursor, lo))
+            cursor = max(cursor, hi)
+        if duration > cursor:
+            out.append((cursor, duration))
+        return out
+
     # -- mutation --------------------------------------------------------
 
     def remove(self, clip_id: str, start: float, end: float) -> int:
@@ -290,6 +330,73 @@ class Edit:
                     out.append(replace(seg, start=a, end=b))
         self.segments = out
 
+    def restore(
+        self, clip_id: str, start: float, end: float, *, duration: float
+    ) -> list[tuple[float, float]]:
+        """Bring back whichever part of `[start, end)` is currently a gap.
+
+        The inverse of `remove`, bounded by `gaps()`: only source time this
+        clip's own recording actually has (`duration`, its registered
+        length) and that is not already on the timeline comes back, so the
+        timeline stays a subset of the source throughout — the same
+        invariant `remove`/`keep_only` already uphold, not a new one. This
+        is NOT `vo_extend` (PLAN.md parks that separately), which would
+        splice in material the source never had; restore only ever walks the
+        invariant backward.
+
+        A request that only partially overlaps a gap restores just the
+        overlap; a request spanning two gaps restores both, as separate
+        pieces, each reported. A request already fully present returns `[]`
+        — a no-op, not an error, mirroring `cut_by_transcript`'s
+        `already_cut`.
+
+        Restored pieces are spliced back among `clip_id`'s own segments,
+        merging into a neighbour that now touches it exactly (so a closed
+        gap does not leave two source-adjacent, timeline-adjacent segments
+        of the same clip sitting next to each other — `_seams` would read
+        that as a phantom zero-duration cut). This only knows where to
+        splice when `clip_id`'s segments already form one contiguous run in
+        `self.segments`: every operation this codebase ships today produces
+        exactly that (a single clip_id at a time — `seed_timeline`,
+        `autoeditor.silence_edit`), so this raises rather than guess a
+        placement if that is ever untrue, e.g. because the clip has no
+        surviving segment left to anchor against, or a future interleaved
+        multi-source timeline put another clip's material between two of
+        this clip's segments.
+        """
+        start, end = max(0.0, start), min(duration, end)
+        if end <= start:
+            return []
+
+        own_positions = [i for i, s in enumerate(self.segments) if s.clip_id == clip_id]
+        if not own_positions:
+            raise TimelineError(
+                f"clip {clip_id!r} has no surviving segment in this edit — restore has "
+                "nothing of it left to splice the requested range next to, so there is "
+                "no well-defined place to put it back (undo, or re-seed the clip, instead)"
+            )
+        lo0, hi0 = own_positions[0], own_positions[-1]
+        if own_positions != list(range(lo0, hi0 + 1)):
+            raise TimelineError(
+                f"clip {clip_id!r}'s segments are not contiguous in this edit (another "
+                "clip's material sits between them) — restore does not support an "
+                "interleaved multi-source timeline yet"
+            )
+
+        pieces = [
+            (max(lo, start), min(hi, end))
+            for lo, hi in self.gaps(clip_id, duration)
+            if hi > start and lo < end
+        ]
+        if not pieces:
+            return []
+
+        own = self.segments[lo0 : hi0 + 1]
+        for piece_start, piece_end in pieces:
+            own = _insert_piece(own, clip_id, piece_start, piece_end)
+        self.segments[lo0 : hi0 + 1] = own
+        return pieces
+
 
 def _subtract(seg: Segment, start: float, end: float) -> list[Segment]:
     """Remove `[start, end)` from one segment: 0, 1 or 2 segments come back."""
@@ -312,6 +419,24 @@ def _merge(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
         else:
             merged.append((lo, hi))
     return merged
+
+
+def _insert_piece(own: list[Segment], clip_id: str, start: float, end: float) -> list[Segment]:
+    """Splice one restored `[start, end)` into `own` — one clip's own segments,
+    already sorted by source time (guaranteed by the walk in `restore`) —
+    merging into either neighbour it now touches exactly.
+    """
+    j = 0
+    while j < len(own) and own[j].end <= start + MIN_SEGMENT:
+        j += 1
+    merge_left = j > 0 and abs(own[j - 1].end - start) <= MIN_SEGMENT
+    merge_right = j < len(own) and abs(own[j].start - end) <= MIN_SEGMENT
+    new_start = own[j - 1].start if merge_left else start
+    new_end = own[j].end if merge_right else end
+    new_seg = Segment(clip_id=clip_id, start=new_start, end=new_end)
+    lo = j - 1 if merge_left else j
+    hi = j + 1 if merge_right else j
+    return own[:lo] + [new_seg] + own[hi:]
 
 
 # -- OTIO interchange ----------------------------------------------------

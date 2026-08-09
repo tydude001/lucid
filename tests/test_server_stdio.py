@@ -46,6 +46,7 @@ EXPECTED_TOOLS = {
     "seed_timeline",
     "cut_by_transcript",
     "cut_by_time",
+    "restore",
     "locate",
     "timeline_status",
     "timeline_view",
@@ -159,6 +160,7 @@ TOOL_TO_COMMAND = {
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
     "cut_by_time": "cut-at",
+    "restore": "restore",
     "locate": "locate",
     "timeline_status": "status",
     "timeline_view": "view",
@@ -409,6 +411,186 @@ def test_cut_plan_resolves_without_touching_the_timeline(
     assert out["cut"]["removed"] == pytest.approx(planned["removed"], abs=1e-9)
     assert out["cut"]["segments"] == planned["segments"] == 2
     assert out["after_cut"]["undo_depth"] == 1
+
+
+@needs_ffprobe
+def test_restore_brings_back_a_cut_range_end_to_end(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`restore` is the inverse of `cut_by_transcript`'s `cut=`: cutting a
+    range and then restoring the same range round-trips the timeline back to
+    its pre-cut state, and the words themselves report `present` again.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        cut = await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[3, 4]]
+        )
+        before_restore = await client.call(
+            "timeline_view", path=str(project), clip_id=clip["clip_id"]
+        )
+        restored = await client.call(
+            "restore", path=str(project), clip_id=clip["clip_id"], ranges=[[3, 4]]
+        )
+        after_restore = await client.call(
+            "timeline_view", path=str(project), clip_id=clip["clip_id"]
+        )
+        return {
+            "clip_id": clip["clip_id"],
+            "cut": cut,
+            "before_restore": before_restore,
+            "restored": restored,
+            "after_restore": after_restore,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["cut"]["removed"] > 0.0
+    assert out["before_restore"]["words"][3]["present"] is False
+    assert out["before_restore"]["words"][4]["present"] is False
+
+    assert out["restored"]["restored"] == pytest.approx(out["cut"]["removed"], abs=1e-6)
+    assert out["restored"]["applied"][0]["already_present"] is False
+
+    assert out["after_restore"]["timeline_duration"] == pytest.approx(12.0, abs=0.05)
+    assert out["after_restore"]["words"][3]["present"] is True
+    assert out["after_restore"]["words"][4]["present"] is True
+
+
+@needs_ffprobe
+def test_restore_plan_resolves_without_touching_the_timeline(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[3, 4]]
+        )
+        status_before = await client.call("timeline_status", path=str(project))
+        planned = await client.call(
+            "restore", path=str(project), clip_id=clip["clip_id"], ranges=[[3, 4]], plan=True
+        )
+        status_after_plan = await client.call("timeline_status", path=str(project))
+        real = await client.call(
+            "restore", path=str(project), clip_id=clip["clip_id"], ranges=[[3, 4]]
+        )
+        return {
+            "status_before": status_before,
+            "planned": planned,
+            "status_after_plan": status_after_plan,
+            "real": real,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["plan"] is True
+    # The plan reports the real numbers — same code path, write skipped.
+    assert out["planned"]["restored"] == pytest.approx(out["real"]["restored"], abs=1e-9)
+
+    # Nothing was written: status is unchanged, in particular the undo depth.
+    assert out["status_after_plan"] == out["status_before"]
+
+
+@needs_ffprobe
+def test_restore_echoes_words_plus_three_either_side(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """CLAUDE.md's convention: any op taking a word index echoes the words it
+    resolved to, plus the three either side — same shape as
+    `cut_by_transcript`'s own echo.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip["clip_id"], cut=[[3, 4]]
+        )
+        return await client.call(
+            "restore", path=str(project), clip_id=clip["clip_id"], ranges=[[3, 4]], plan=True
+        )
+
+    out = anyio.run(_with_server, body)
+    applied = out["applied"][0]
+
+    assert applied["text"] == "w11 w20"
+    assert [w["index"] for w in applied["context_before"]] == [0, 1, 2]
+    assert [w["index"] for w in applied["context_after"]] == [5, 6, 7]
+
+
+@needs_ffprobe
+def test_restore_of_a_range_still_fully_present_reports_already_present_without_error(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A range that was never cut is a no-op, not a refusal — mirroring
+    `cut_by_transcript`'s `already_cut`.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call(
+            "restore", path=str(project), clip_id=clip["clip_id"], ranges=[[0, 1]]
+        )
+
+    out = anyio.run(_with_server, body)
+    applied = out["applied"][0]
+
+    assert applied["already_present"] is True
+    assert applied["restored_seconds"] == pytest.approx(0.0)
+    assert out["restored"] == pytest.approx(0.0)
 
 
 @needs_ffprobe
@@ -3132,6 +3314,116 @@ def test_timeline_view_words_carry_a_paragraph_field(
     assert words[2]["paragraph"] == 0
 
 
+@needs_ffprobe
+def test_timeline_view_words_carries_a_pause_after_field_above_threshold(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The read model over the wire: `sources`' 8 words sit two-per-burst,
+    0.1s apart within a burst and 1.1s apart across a burst boundary — so
+    only the second word of each burst (except the last) should carry
+    `pause_after`. ops._gap_after/_word_placements are unit-tested directly
+    in test_ops_pause_markers.py; this only checks the field rides through
+    the real `timeline_view` call unmodified.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await client.call("timeline_view", path=str(project))
+
+    words = {w["index"]: w for w in anyio.run(_with_server, body)["words"]}
+
+    for i in (1, 3, 5):
+        assert words[i]["pause_after"]["duration"] == pytest.approx(1.1)
+        assert words[i]["pause_after"]["present"] is True
+    for i in (0, 2, 4, 6, 7):
+        assert "pause_after" not in words[i]
+
+
+@needs_ffprobe
+def test_cut_by_transcript_through_pause_extends_the_removed_range_to_the_next_word(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Cutting the phrase ending at word 3 (w11, end 4.9s) sits right before
+    the 1.1s gap to word 4 (w20, start 6.0s) — wide enough to have drawn a
+    `[1.1s]` marker. `through_pause=True` should extend the removed range's
+    trailing edge onto that gap; without the flag the pinned boundary
+    (test_cut_plan_resolves_without_touching_the_timeline, `word_end ==
+    4.9`) holds unmodified.
+    """
+    audio, transcript = sources
+
+    async def with_flag(project: Path) -> dict[str, Any]:
+        async def body(session: ClientSession) -> Any:
+            client = Client(session)
+            clip_id = await _seeded(client, project, audio, transcript)
+            return await client.call(
+                "cut_by_transcript",
+                path=str(project),
+                clip_id=clip_id,
+                cut=[[2, 3]],
+                through_pause=True,
+            )
+
+        return await _with_server(body)
+
+    async def without_flag(project: Path) -> dict[str, Any]:
+        async def body(session: ClientSession) -> Any:
+            client = Client(session)
+            clip_id = await _seeded(client, project, audio, transcript)
+            return await client.call(
+                "cut_by_transcript", path=str(project), clip_id=clip_id, cut=[[2, 3]]
+            )
+
+        return await _with_server(body)
+
+    extended = anyio.run(with_flag, tmp_path / "proj-flagged")
+    plain = anyio.run(without_flag, tmp_path / "proj-plain")
+
+    # Regression guard: the no-flag boundary is exactly the last word's own
+    # `end`, matching the pinned assertion elsewhere in this file.
+    assert plain["applied"][0]["source_end"] == pytest.approx(4.9)
+    assert plain["applied"][0]["word_end"] == pytest.approx(4.9)
+
+    # With the flag, the removed range's trailing edge reaches the next
+    # word's own start (6.0s) — the pause between them is gone too — while
+    # the echoed `word_end` (the words themselves) is unaffected, exactly
+    # the way `pad` already diverges `source_end` from `word_end`.
+    assert extended["applied"][0]["source_end"] == pytest.approx(6.0)
+    assert extended["applied"][0]["word_end"] == pytest.approx(4.9)
+    assert extended["removed"] == pytest.approx(plain["removed"] + 1.1, abs=1e-6)
+
+
+@needs_ffprobe
+def test_cut_by_transcript_through_pause_has_no_effect_under_the_marker_threshold(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Word 0 (w00, end 0.9s) sits only 0.1s from word 1 (w01, start 1.0s) —
+    under PAUSE_MARKER_MIN, so no marker would have drawn there. The shared
+    predicate makes `through_pause=True` a safe no-op on that boundary.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "cut_by_transcript",
+            path=str(project),
+            clip_id=clip_id,
+            cut=[[0, 0]],
+            through_pause=True,
+        )
+
+    out = anyio.run(_with_server, body)
+    applied = out["applied"][0]
+    assert applied["source_end"] == pytest.approx(0.9)
+    assert applied["word_end"] == pytest.approx(0.9)
+
+
 # -- the layered timeline over the wire ----------------------------------
 #
 # `export` grew a second writer (PLAN.md § The layered timeline, step 4): a
@@ -3227,3 +3519,262 @@ def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
     # that defect is auto-editor's kdenlive export, and this document is lucid's.
     assert frames["delta"] == 0
     assert frames["agrees"] is True
+
+
+# -- export presets --------------------------------------------------------
+#
+# DAYDREAM.md § Export presets maps YouTube/Web/Custom onto ops.export as
+# named bundles. There is deliberately no TikTok-Reels: 9:16 is only
+# producible here as a pillarbox of the 16:9 frame (verified live against the
+# installed auto-editor binary while surveying this item), never a real
+# reframe — that is DAYDREAM.md § Aspect swap, a separately deferred item.
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_export_preset_youtube_reproduces_todays_default_melt_consumer(
+    visible_tmp: Path,
+) -> None:
+    """Naming today's hardcoded melt consumer as 'youtube' changes nothing
+    about what melt actually does — the encode is byte-identical."""
+    audio, transcript = _make_sources(visible_tmp)
+    film = visible_tmp / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = visible_tmp / "proj"
+    output = visible_tmp / "out.mp4"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        return await client.call(
+            "export",
+            path=str(project),
+            output=str(output),
+            export_format=None,
+            preset="youtube",
+        )
+
+    rendered = anyio.run(_with_server, body)
+
+    assert rendered["preset"] == "youtube"
+    assert rendered["rendered"]["consumer"] == [
+        "vcodec=libx264",
+        "crf=18",
+        "preset=medium",
+        "acodec=aac",
+    ]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_export_preset_web_only_varies_the_four_known_keys(visible_tmp: Path) -> None:
+    """'web' varies values within melt's already-measured-safe {vcodec, crf,
+    preset, acodec} — never a new key (HISTORY.md § 4's `ab`/`width`/`height`
+    growth is exactly what this guards against ever being silently reopened).
+    """
+    audio, transcript = _make_sources(visible_tmp)
+    film = visible_tmp / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = visible_tmp / "proj"
+    output = visible_tmp / "out.mp4"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        return await client.call(
+            "export", path=str(project), output=str(output), export_format=None, preset="web"
+        )
+
+    rendered = anyio.run(_with_server, body)
+
+    consumer = rendered["rendered"]["consumer"]
+    assert "crf=23" in consumer
+    assert "preset=faster" in consumer
+    assert len(consumer) == 4
+    assert not any(entry.startswith(("width=", "height=", "ab=")) for entry in consumer)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_export_resolution_on_a_layered_project_is_refused(tmp_path: Path) -> None:
+    """melt's consumer is deliberately hardcoded shut against width/height —
+    HISTORY.md § 4's growth to 14.6 GB was never isolated to a safe subset —
+    so a layered project refuses `resolution` outright, before any subprocess
+    runs."""
+    audio, transcript = _make_sources(tmp_path)
+    film = tmp_path / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        result = await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.mp4"),
+                "export_format": None,
+                "resolution": [608, 1080],
+            },
+        )
+        return result
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    text = result.content[0].text
+    assert "14.6" in text or "HISTORY" in text
+    assert "single-source" in text
+
+
+def test_unknown_export_preset_lists_available_names_and_names_why_tiktok_reels_is_absent(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.wav"),
+                "export_format": None,
+                "preset": "tiktok-reels",
+            },
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    text = result.content[0].text
+    assert "youtube" in text and "web" in text and "custom" in text
+    assert "tiktok" in text.lower() or "aspect" in text.lower()
+
+
+def test_preset_or_resolution_with_an_nle_export_format_is_refused(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.kdenlive"),
+                "export_format": "kdenlive",
+                "preset": "youtube",
+            },
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    assert "bitrate" in result.content[0].text
+
+
+def test_custom_preset_without_resolution_is_refused(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.wav"),
+                "export_format": None,
+                "preset": "custom",
+            },
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    assert "custom" in result.content[0].text
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_export_resolution_letterboxes_a_single_source_render_and_reports_the_measured_size(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "pic.mp4"
+    _make_video(source, duration=2.0)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(4)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, transcript)
+        return await client.call(
+            "export",
+            path=str(project),
+            output=str(render),
+            export_format=None,
+            preset="custom",
+            resolution=[608, 1080],
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["resolution"] == [608, 1080]
+    assert result["notes"] == []
+    assert Path(result["output"]).is_file()
+    info = media.probe(render)
+    assert (info.width, info.height) == (608, 1080)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_export_resolution_is_a_documented_noop_on_an_audio_only_project(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    render = tmp_path / "out.wav"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "export",
+            path=str(project),
+            output=str(render),
+            export_format=None,
+            preset="custom",
+            resolution=[608, 1080],
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["resolution"] is None
+    assert any("no video stream" in note for note in result["notes"])
+    assert Path(result["output"]).is_file()

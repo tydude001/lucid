@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
@@ -577,6 +578,26 @@ PARAGRAPH_MIN_WORDS = 40
 PARAGRAPH_GAP_MIN_WORDS = 15
 PARAGRAPH_GAP_SILENCE = 0.75
 
+#: Daydream's own threshold (DAYDREAM.md § Transcript document — "theirs
+#: show down to 0.4s"). Below it a gap renders as nothing, which is the
+#: correct reading of an ordinary breath, not a state to hide.
+PAUSE_MARKER_MIN = 0.4
+
+
+def _gap_after(words: Sequence[tx.Word], i: int) -> float | None:
+    """Seconds between `words[i]`'s end and the next word's start; None at the
+    transcript's last word. The one place both `_paragraphs`' opportunistic
+    break and `_word_placements`' pause marker read a gap from — which is
+    what makes the duration-inflation asymmetry true for both without
+    re-arguing it twice: whisper inflates the *duration* of the word after a
+    swallowed retake, which only ever pushes that word's end later, which can
+    only shrink this gap, never widen it. A bad transcript can suppress a
+    paragraph break or a pause marker (cosmetic); it can never invent one.
+    """
+    if i + 1 >= len(words):
+        return None
+    return words[i + 1].start - words[i].end
+
 
 def _paragraphs(words: Sequence[tx.Word]) -> dict[int, int]:
     """Which paragraph each word belongs to, word-order-driven (CLAUDE.md).
@@ -606,8 +627,8 @@ def _paragraphs(words: Sequence[tx.Word]) -> dict[int, int]:
             current += 1
             count = 0
         elif count >= PARAGRAPH_GAP_MIN_WORDS:
-            gap = words[i + 1].start - word.end
-            if gap >= PARAGRAPH_GAP_SILENCE:
+            gap = _gap_after(words, i)
+            if gap is not None and gap >= PARAGRAPH_GAP_SILENCE:
                 current += 1
                 count = 0
     return assigned
@@ -629,18 +650,32 @@ def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list
 
     `paragraph` (see `_paragraphs`) is computed over every word in transcript
     order, cut or not — it is a property of the document, not of the edit.
+
+    `pause_after` (see `_gap_after`, `PAUSE_MARKER_MIN`) is present as a key
+    only when the gap to the next word clears the marker threshold — never a
+    bare boolean, never an always-present number, so the threshold lives in
+    exactly one place (here) and the front end never carries a second copy of
+    it. Its `present` flag answers "does the pause itself still play", via
+    the identical `timeline_span` overlap test used for the word two lines
+    above — so a caller never has to infer a pause's survival from its
+    flanking words' own `present` flags, which can disagree with it (e.g. a
+    `cut_by_time` call that removed only the silence).
     """
     suspect = {item["index"]: item for item in _suspect_durations(parsed)}
     paragraphs = _paragraphs(parsed.words)
     placements = []
-    for word in parsed.words:
+    for i, word in enumerate(parsed.words):
         # A zero-width word is not a range, so `timeline_span`'s `b > a` test
-        # would report it cut wherever it actually sits. Locate the instant.
+        # would report it cut wherever it actually sits. Locate the instant —
+        # with the segment's end boundary counted as inside it, because the
+        # last word of a transcript routinely sits exactly on the end of the
+        # last segment and the half-open test calls that "cut". It is the one
+        # place `closed_end` is correct; `timeline.timeline_time` says why.
         if word.end > word.start:
             span = edit.timeline_span(clip_id, word.start, word.end)
             covered = edit.covers(clip_id, word.start, word.end)
         else:
-            at = edit.timeline_time(clip_id, word.start)
+            at = edit.timeline_time(clip_id, word.start, closed_end=True)
             span = None if at is None else (at, at)
             covered = 0.0
         item: dict[str, Any] = {
@@ -654,6 +689,11 @@ def _word_placements(edit: tl.Edit, clip_id: str, parsed: tx.Transcript) -> list
         }
         if word.index in suspect:
             item["suspect"] = suspect[word.index]
+        gap = _gap_after(parsed.words, i)
+        if gap is not None and gap >= PAUSE_MARKER_MIN:
+            nxt = parsed.words[i + 1]
+            pause_span = edit.timeline_span(clip_id, word.end, nxt.start)
+            item["pause_after"] = {"duration": gap, "present": pause_span is not None}
         placements.append(item)
     return placements
 
@@ -985,6 +1025,7 @@ def cut_by_transcript(
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
     confirm_suspect: bool = False,
+    through_pause: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep word ranges — the operation lucid exists for.
@@ -997,6 +1038,21 @@ def cut_by_transcript(
     Exactly one of `cut` or `keep` is accepted: a call that meant "keep" but
     was read as "cut" would produce the precise inverse of the intended edit,
     so there is no default.
+
+    `through_pause=True` extends each cut range's trailing edge through the
+    pause after its last word, when that gap clears `PAUSE_MARKER_MIN` — the
+    same predicate `_word_placements` uses to decide whether the transcript
+    pane draws a `[N.Ns]` marker there at all, so a range can only ever be
+    extended onto a gap the pane actually showed; a stale flag sent for a gap
+    that no longer qualifies is a safe no-op. `Transcript.span` stops at the
+    last word's own `end`, so without this the trailing pause survives as
+    audible dead air even after the words either side of it are cut — this is
+    what makes "cutting a phrase cuts its trailing pause" (DAYDREAM.md §
+    Transcript document) true rather than merely cosmetic. Only the `cut`
+    branch reads it: `keep` already discards everything outside its ranges,
+    including any trailing pause, so there is nothing separate to swallow.
+    Applies uniformly to every range in one call, matching `pad`'s existing
+    per-call (not per-range) precedent.
 
     A range whose first or last word claims a suspect duration
     (HISTORY.md § Suspect word durations) is refused unless `confirm_suspect=True`: that word's `start`/`end`
@@ -1043,6 +1099,10 @@ def cut_by_transcript(
     applied: list[dict[str, Any]] = []
     if cut:
         for (first, last), (start, end) in zip(cut, _resolve(parsed, cut)):
+            if through_pause:
+                gap = _gap_after(parsed.words, int(last))
+                if gap is not None and gap >= PAUSE_MARKER_MIN:
+                    end = parsed.words[int(last) + 1].start
             lo, hi = max(0.0, start - pad), end + pad
             present = edit.covers(clip_id, lo, hi)
             touched = edit.remove(clip_id, lo, hi)
@@ -1319,6 +1379,101 @@ def cut_by_time(
     if plan:
         result["plan"] = True
         result["suspect_boundaries"] = flagged
+    return result
+
+
+def restore(
+    path: Path | str,
+    clip_id: str,
+    ranges: Sequence[Sequence[int]],
+    *,
+    pad: float = 0.0,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Un-cut whichever part of these inclusive word ranges is not currently present.
+
+    `Edit` stores only surviving segments (`timeline.py`'s module docstring)
+    — there is no removed-ranges log to read back — so what is absent is
+    derived: `Edit.gaps` is the complement of this clip's segments against
+    its own registered duration, and `Edit.restore` splices back whatever
+    part of the requested range falls in a gap. Ranges are word indices,
+    resolved exactly like `cut_by_transcript`'s `cut=`/`keep=`, because the
+    only thing pointing at un-cut material naturally is the transcript a
+    person is reading, the same way a cut is made; there is no time-based
+    form mirroring `cut_by_time`, because that exists to convert a render
+    timestamp a human just watched, and material that is off the timeline
+    has no render timestamp to convert from. `pad` mirrors
+    `cut_by_transcript`'s own `pad`: pass the value used on the original cut
+    to bring its padding sliver back too, not just the words.
+
+    Only the part `Edit.gaps` says is actually absent comes back — material
+    still on the timeline is left alone. A request spanning two separate
+    cuts restores both, as separate pieces; a request only touching part of
+    one cut restores only that part; a request over material that was never
+    cut is reported `already_present: True`, not an error, mirroring
+    `cut_by_transcript`'s `already_cut`.
+
+    Restoring only ever brings back material the source recording already
+    has (bounded by the clip's own registered duration), so the timeline
+    stays a subset of the source throughout — this is not `vo_extend`
+    (PLAN.md parks that separately), which would splice in material the
+    source never had.
+
+    There is no suspect-duration refusal here, unlike a cut: a boundary that
+    looks like it swallowed a retake is exactly the kind of thing restore
+    exists to bring back, not a mistake to guard against.
+
+    Refused (`TimelineError`) if `clip_id` has no surviving segment anywhere
+    in the edit — nothing left of it to splice the range next to — or if its
+    segments are not contiguous in the edit (an interleaved multi-source
+    timeline, which this does not support yet).
+
+    `plan=True` resolves and reports without writing, identically to
+    `cut_by_transcript`.
+    """
+    if not ranges:
+        raise tx.TranscriptError("restore needs at least one word range")
+
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    parsed = _transcript(project, clip_id)
+    edit = _load_edit(project)
+    before = edit.duration
+    duration = float(clip["duration"])
+
+    applied: list[dict[str, Any]] = []
+    for first, last in ranges:
+        first, last = int(first), int(last)
+        word_start, word_end = parsed.span(first, last)
+        lo, hi = max(0.0, word_start - pad), word_end + pad
+        pieces = edit.restore(clip_id, lo, hi, duration=duration)
+        applied.append(
+            {
+                **_echo(parsed, first, last, lo, hi),
+                "source_start": lo,
+                "source_end": hi,
+                "restored": [
+                    {"source_start": p_lo, "source_end": p_hi, "duration": p_hi - p_lo}
+                    for p_lo, p_hi in pieces
+                ],
+                "restored_seconds": round(sum(p_hi - p_lo for p_lo, p_hi in pieces), 6),
+                "already_present": not pieces,
+            }
+        )
+
+    if not plan:
+        _save_edit(project, edit)
+
+    result: dict[str, Any] = {
+        "clip_id": clip_id,
+        "applied": applied,
+        "duration_before": before,
+        "duration_after": edit.duration,
+        "restored": edit.duration - before,
+        "segments": len(edit.segments),
+    }
+    if plan:
+        result["plan"] = True
     return result
 
 
@@ -1970,6 +2125,103 @@ DEFAULT_EXPORT_FPS = 30.0
 MLT_EXPORT_FORMATS = {"kdenlive", "mlt"}
 
 
+#: Named export bundles (DAYDREAM.md § Export presets). Each maps to values
+#: for the same four consumer keys `picture.RENDER_ARGS` already hardcodes —
+#: `vcodec`/`crf`/`preset`/`acodec` — because those four, together, are the
+#: combination HISTORY.md § 4 measured as memory-safe on the melt path;
+#: adding a fifth key (`ab`/`width`/`height`/`progressive`) is what correlated
+#: with the growth to 14.6 GB that froze the machine, and no one has since
+#: isolated which addition caused it. `youtube`'s values are
+#: `picture.RENDER_ARGS` verbatim — naming it changes nothing about what melt
+#: already does. `web` only varies values within the same four keys.
+#:
+#: There is no `tiktok-reels` entry. 9:16 is mechanically producible on the
+#: single-source path (`-res`), but only as a pillarbox of the 16:9 frame,
+#: never a filled/reframed vertical video — that is DAYDREAM.md § Aspect
+#: swap, a separately deferred item that touches the project model, both
+#: render paths, and the preview letterbox. Shipping a preset named after a
+#: platform that quietly pillarboxes would be exactly the kind of
+#: correct-pixels-wrong-video this repo writes rules against, and on the
+#: melt path a resolution override is refused outright below — so a 9:16
+#: preset could not even be offered consistently across both writers.
+EXPORT_PRESETS: dict[str, dict[str, str]] = {
+    "youtube": {"vcodec": "libx264", "crf": "18", "preset": "medium", "acodec": "aac"},
+    "web": {"vcodec": "libx264", "crf": "23", "preset": "faster", "acodec": "aac"},
+}
+
+
+def _resolve_preset(
+    preset: str | None, resolution: tuple[int, int] | None
+) -> dict[str, str] | None:
+    """The consumer/quality bundle a preset name means, or `None` for the
+    behavior-preserving default (`picture.RENDER_ARGS`, no `-res`).
+
+    `"custom"` is not a fixed bundle — it means "apply `resolution` and leave
+    quality at the `youtube`-equivalent default" (DAYDREAM.md's literal
+    "resolution + quality" would mean accepting raw vcodec/crf/preset/acodec
+    values from a caller, which widens the melt consumer to combinations
+    HISTORY.md § 4 never measured; narrowed here on purpose). It requires
+    `resolution` — nothing to customize is a likely caller mistake, not a
+    legitimate no-op.
+    """
+    if preset is None:
+        return None
+    if preset == "custom":
+        if resolution is None:
+            raise ProjectError(
+                "preset='custom' with no resolution customizes nothing — pass "
+                "`resolution=(width, height)`, or drop the preset and use the "
+                "default, 'youtube', or 'web'"
+            )
+        return dict(EXPORT_PRESETS["youtube"])
+    if preset not in EXPORT_PRESETS:
+        raise ProjectError(
+            f"no export preset named {preset!r}. Available: "
+            f"{sorted([*EXPORT_PRESETS, 'custom'])}. There is no 'tiktok-reels' "
+            "preset: 9:16 is only producible here as a pillarbox of the 16:9 "
+            "frame, never a filled/reframed vertical video — the latter is "
+            "DAYDREAM.md § Aspect swap, a separately deferred item."
+        )
+    return dict(EXPORT_PRESETS[preset])
+
+
+#: `bundle`'s keys, in the order auto-editor's own flags read them.
+_AUTOEDITOR_QUALITY_FLAGS = {
+    "vcodec": "-c:v",
+    "crf": "-crf",
+    "preset": "-preset",
+    "acodec": "-c:a",
+}
+
+
+def _autoeditor_render_args(
+    bundle: dict[str, str] | None, resolution: tuple[int, int] | None
+) -> list[str]:
+    """auto-editor argv for a resolved preset bundle plus an explicit resolution.
+
+    Only ever built for the render path (`export_format=None`) — a v3 export
+    writes a project file, which has no bitrate to set (`export()` refuses
+    the combination before this is called).
+    """
+    args: list[str] = []
+    if bundle is not None:
+        for key, flag in _AUTOEDITOR_QUALITY_FLAGS.items():
+            args += [flag, bundle[key]]
+    if resolution is not None:
+        args += ["-res", f"{resolution[0]},{resolution[1]}"]
+    return args
+
+
+def _melt_consumer_args(bundle: dict[str, str] | None) -> tuple[str, ...]:
+    """The melt consumer argv for a resolved preset bundle: `picture.RENDER_ARGS`
+    unchanged for the default, or `key=value` pairs for a named bundle —
+    never a new key, only new values for the four already there.
+    """
+    if bundle is None:
+        return picture.RENDER_ARGS
+    return tuple(f"{key}={value}" for key, value in bundle.items())
+
+
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
     """Does this timeline name more than one source file?
 
@@ -2063,10 +2315,12 @@ def _export_mlt(
     *,
     export_format: str | None,
     fps: float | None,
+    preset: str | None = None,
+    consumer_args: tuple[str, ...] = picture.RENDER_ARGS,
 ) -> dict[str, Any]:
     """Write the multi-source timeline as MLT — step 4 of the layered timeline."""
     if export_format is None:
-        return _render_mlt(project, edit, output, fps=fps)
+        return _render_mlt(project, edit, output, fps=fps, preset=preset, consumer_args=consumer_args)
     if export_format not in MLT_EXPORT_FORMATS:
         raise ProjectError(
             f"this timeline has more than one source, so lucid writes it itself, "
@@ -2077,11 +2331,19 @@ def _export_mlt(
 
     built = _build_mlt(project, edit, fps=fps)
     written = mlt.write(built["document"], output)
-    return _mlt_reply(built, edit, writer="mlt", output=str(written), format=export_format)
+    return _mlt_reply(
+        built, edit, writer="mlt", output=str(written), format=export_format, preset=preset
+    )
 
 
 def _render_mlt(
-    project: Project, edit: tl.Edit, output: Path | str, *, fps: float | None
+    project: Project,
+    edit: tl.Edit,
+    output: Path | str,
+    *,
+    fps: float | None,
+    preset: str | None = None,
+    consumer_args: tuple[str, ...] = picture.RENDER_ARGS,
 ) -> dict[str, Any]:
     """Render the multi-source timeline through `melt` — step 5.
 
@@ -2126,6 +2388,7 @@ def _render_mlt(
         expect_frames=expected,
         expect_resolution=built["resolution"],
         expect_duration=expected / built["rate"],
+        consumer_args=consumer_args,
     )
     shutil.rmtree(work, ignore_errors=True)
     return _mlt_reply(
@@ -2136,7 +2399,69 @@ def _render_mlt(
         format="media",
         melt_frames=declared,
         rendered=rendered,
+        preset=preset,
     )
+
+
+def _render_single(
+    payload: dict[str, Any],
+    output: Path | str,
+    *,
+    export_format: str | None,
+    render_args: list[str],
+    resolution: tuple[int, int] | None,
+) -> tuple[Path, dict[str, Any]]:
+    """Render (or export) a single-source v3 timeline through auto-editor.
+
+    When `resolution` was explicitly requested, this owes the same discipline
+    `picture.render` already applies on the melt path: auto-editor's exit
+    code proves nothing (CLAUDE.md — the 31.x multi-source degrade exits 0 at
+    720x576), so the render is staged, the staged file is probed, and it is
+    copied to `output` only if it agrees — reusing `picture.render_problems`
+    to decide agreement, the same predicate the melt path already trusts.
+    A disagreement raises and leaves the staged file where it landed, for the
+    same reason `picture.render` does: the evidence is the file, not the exit
+    status.
+
+    `resolution=None` (the common case — no preset, or a preset with no
+    resolution) skips staging entirely and writes straight to `output`,
+    unchanged from before this function existed. `render_args` is only
+    forwarded when it is non-empty, for the same reason — a call this makes
+    with nothing new to ask for is byte-identical to the call `export()` made
+    before `render_args` existed.
+    """
+    extra_args: dict[str, Any] = {"render_args": render_args} if render_args else {}
+    if resolution is None:
+        written = autoeditor.run_timeline(payload, output, export=export_format, **extra_args)
+        return written, {}
+
+    work = Path(tempfile.mkdtemp(prefix="lucid-render-"))
+    staged = work / (Path(output).name or "render.mp4")
+    written = autoeditor.run_timeline(payload, staged, export=export_format, **extra_args)
+
+    measured = media.probe(written).as_dict()
+    problems = picture.render_problems(measured, expect_resolution=resolution)
+    if problems:
+        raise ProjectError(
+            f"the render disagrees with the resolution it was asked for, so it "
+            f"has not been copied to {output}. It is at {written}, kept so the "
+            "numbers can be checked against it:\n- " + "\n- ".join(problems)
+        )
+
+    destination = Path(output).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(written, destination)
+    shutil.rmtree(work, ignore_errors=True)
+
+    notes: list[str] = []
+    extra: dict[str, Any] = {}
+    if measured.get("has_video"):
+        extra["resolution"] = [measured["width"], measured["height"]]
+    else:
+        extra["resolution"] = None
+        notes.append("this render has no video stream — the requested resolution did not apply")
+    extra["notes"] = notes
+    return destination, extra
 
 
 def export(
@@ -2145,6 +2470,8 @@ def export(
     *,
     export_format: str | None = "kdenlive",
     fps: float | None = None,
+    preset: str | None = None,
+    resolution: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Map the timeline to auto-editor v3 and render or export it.
 
@@ -2168,7 +2495,37 @@ def export(
     combination of arguments that should route one through the path that
     silently ruins it. The reply says which road was taken: `"writer"` is
     `"auto-editor"`, `"mlt"`, or `"melt"`.
+
+    `preset` names one of `EXPORT_PRESETS` (`"youtube"`, `"web"`) or
+    `"custom"` (which requires `resolution`) — a bundle of the same four
+    consumer keys `picture.RENDER_ARGS` already hardcodes on the melt path,
+    and of auto-editor's own quality flags on the single-source path.
+    `resolution` sets a `WIDTH,HEIGHT` output size on the single-source path
+    only — **it letterboxes the existing 16:9 frame, it does not crop or
+    reframe it**, so it is not a substitute for a vertical/9:16 export. There
+    is deliberately no `"tiktok-reels"` preset: 9:16 needs a real reframe,
+    which is DAYDREAM.md § Aspect swap, a separately deferred item that
+    touches the project model, both render paths, and the preview letterbox.
+    Neither `preset` nor `resolution` may be combined with a non-`None`
+    `export_format` — an NLE project file has no bitrate to set. `resolution`
+    on a layered (multi-source) project is refused outright: widening the
+    melt consumer to accept it was not re-isolated as memory-safe after
+    HISTORY.md § 4's growth to 14.6 GB, so a single-source project is the
+    workaround for now. When `resolution` was honoured, the reply's
+    `"resolution"` is the *measured* size the finished file actually has —
+    checked against the exit code proving nothing, same discipline as the
+    melt path — and is `None` with a `"notes"` entry on an audio-only render,
+    where a requested resolution has nothing to apply to.
     """
+    if (preset is not None or resolution is not None) and export_format is not None:
+        raise ProjectError(
+            "preset/resolution set the encode of rendered media — an NLE "
+            f"handoff ({export_format!r}) writes a project file, which has no "
+            "bitrate or pixel size of its own. Pass export_format=None to "
+            "render, or drop preset/resolution to export the project as-is."
+        )
+    bundle = _resolve_preset(preset, resolution)
+
     project = Project.open(path)
     edit = _load_edit(project)
     if not edit.segments:
@@ -2176,7 +2533,26 @@ def export(
 
     clips = _clips_by_id(project)
     if _is_layered(project, edit):
-        return _export_mlt(project, edit, output, export_format=export_format, fps=fps)
+        if resolution is not None:
+            raise ProjectError(
+                "this timeline has more than one source, so it renders through "
+                "melt, and melt's consumer is deliberately hardcoded to the "
+                "codec and nothing else — adding width/height to it is what "
+                "correlated with unbounded memory growth to 14.6 GB and froze "
+                "the machine (HISTORY.md § 4), and no one has since isolated "
+                "resolution as safe on its own. Render a single-source project "
+                "if you need a specific resolution, or drop `resolution` and "
+                "export at the project's own picture size."
+            )
+        return _export_mlt(
+            project,
+            edit,
+            output,
+            export_format=export_format,
+            fps=fps,
+            preset=preset,
+            consumer_args=_melt_consumer_args(bundle),
+        )
 
     primary = clips[edit.segments[0].clip_id]
     header = autoeditor.template(media.media_path(project, primary))
@@ -2195,7 +2571,25 @@ def export(
     }
     payload = autoeditor.to_v3(edit, resolved_clips, header=header, timebase=timebase)
 
-    written = autoeditor.run_timeline(payload, output, export=export_format)
+    # A preset's flags are all video-encoding flags (`-c:v`/`-crf`/`-preset`)
+    # plus `-c:a` — meaningless, and on some containers (a .wav destination
+    # forcing `-c:a aac`, verified live) outright fatal, on a project with no
+    # picture. Skip them there rather than let auto-editor fail on a
+    # combination nobody asked for; `_render_single` still reports the
+    # documented no-op note when `resolution` was requested.
+    has_picture = bool(payload.get("v"))
+    render_args = (
+        _autoeditor_render_args(bundle, resolution)
+        if export_format is None and has_picture
+        else []
+    )
+    written, extra = _render_single(
+        payload,
+        output,
+        export_format=export_format,
+        render_args=render_args,
+        resolution=resolution if export_format is None else None,
+    )
     return {
         "output": str(written),
         "format": export_format or "media",
@@ -2203,6 +2597,8 @@ def export(
         "timebase": timebase,
         "segments": len(edit.segments),
         "timeline_duration": edit.duration,
+        "preset": preset,
+        **extra,
     }
 
 

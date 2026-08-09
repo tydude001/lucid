@@ -158,6 +158,21 @@ def _write_agent_stub(path: Path, argv_file: Path, canned: dict[str, Any]) -> No
     path.chmod(0o755)
 
 
+def _write_pid_recording_stub(path: Path, pid_file: Path, canned: dict[str, Any]) -> None:
+    """Same shape as `_write_agent_stub`, plus its own PID appended to
+    `pid_file` on every invocation — proves a respawn is a genuinely new
+    process rather than the same one reused.
+    """
+    script = (
+        "#!/usr/bin/env bash\n"
+        f'echo "$$" >> {shlex.quote(str(pid_file))}\n'
+        f"echo {shlex.quote(json.dumps(canned))}\n"
+        "cat > /dev/null\n"
+    )
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
+
+
 # -- the read model -------------------------------------------------------
 
 
@@ -346,6 +361,137 @@ def test_bad_request_shapes_are_refused_before_reaching_ops(server: str) -> None
         status, payload = _post(f"{server}/api/cut", body)
         assert status == 400, body
         assert "error" in payload
+
+
+def test_restore_undoes_a_cut_over_http(server: str) -> None:
+    _, before = _json(f"{server}/api/view")
+
+    status, cut = _post(f"{server}/api/cut", {"clip_id": "vo", "ranges": [[3, 4]], "mode": "cut"})
+    assert status == 200
+    _, cut_view = _json(f"{server}/api/view")
+    assert cut_view["timeline_duration"] < before["timeline_duration"]
+    words = {w["index"]: w for w in cut_view["words"]}
+    assert words[3]["present"] is False
+    assert words[4]["present"] is False
+
+    status, restored = _post(
+        f"{server}/api/restore", {"clip_id": "vo", "ranges": [[3, 4]]}
+    )
+    assert status == 200
+    assert restored["applied"][0]["already_present"] is False
+    assert restored["restored"] == pytest.approx(cut["removed"], abs=1e-6)
+
+    _, view = _json(f"{server}/api/view")
+    assert view["timeline_duration"] == pytest.approx(before["timeline_duration"])
+    words = {w["index"]: w for w in view["words"]}
+    assert words[3]["present"] is True
+    assert words[4]["present"] is True
+
+
+def test_restore_plan_over_http_does_not_touch_the_timeline(server: str) -> None:
+    _post(f"{server}/api/cut", {"clip_id": "vo", "ranges": [[3, 4]], "mode": "cut"})
+    _, before_plan = _json(f"{server}/api/view")
+
+    status, planned = _post(
+        f"{server}/api/restore", {"clip_id": "vo", "ranges": [[3, 4]], "plan": True}
+    )
+    assert status == 200
+    assert planned["plan"] is True
+
+    _, after_plan = _json(f"{server}/api/view")
+    assert after_plan["timeline_duration"] == pytest.approx(before_plan["timeline_duration"])
+    assert after_plan["undo_depth"] == before_plan["undo_depth"]
+
+
+def test_restore_of_a_clip_with_no_material_left_comes_back_as_a_message_not_a_traceback(
+    server: str,
+) -> None:
+    # Cut-at the whole timeline away: no segment of 'vo' survives anywhere.
+    _, before = _json(f"{server}/api/view")
+    status, _ = _post(f"{server}/api/cut-at", {"spans": [[0.0, before["timeline_duration"]]]})
+    assert status == 200
+    _, emptied = _json(f"{server}/api/view")
+    assert emptied["timeline_duration"] == pytest.approx(0.0)
+
+    status, payload = _post(f"{server}/api/restore", {"clip_id": "vo", "ranges": [[0, 1]]})
+    assert status == 400
+    assert "error" in payload
+    assert "vo" in payload["error"]
+
+
+def test_api_cut_through_pause_removes_the_trailing_pause(tmp_path: Path) -> None:
+    """The shared `project` fixture's words are all 0.1s apart — too tight
+    for a marker (CLAUDE.md/DAYDREAM.md's 0.4s threshold) — so this builds
+    its own project with one wide gap: words 3 and 4 sit 2.1s apart instead.
+
+    A baseline cut of words 2-3 leaves that 2.1s of dead air playing before
+    word 4; `through_pause=True` removes it too, which shows up as word 4
+    playing immediately after word 1 instead of 2.1s later.
+    """
+    root = tmp_path / "proj"
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, duration=14.0)
+
+    words = [
+        {"word": f"w{n}", "start": n + (2.0 if n >= 4 else 0.0), "end": n + (2.0 if n >= 4 else 0.0) + 0.9}
+        for n in range(8)
+    ]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    ops.init(root)
+    imported = ops.import_media(root, audio, clip_id="vo")
+    ops.attach_transcript(root, imported["clip_id"], transcript)
+    ops.seed_timeline(root, "vo", remove_silences=False)
+
+    httpd = webui.make_server(root, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        server = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        # Baseline: word 3's own end (3.9s) is where the removed range stops.
+        status, baseline = _post(
+            f"{server}/api/cut",
+            {"clip_id": "vo", "ranges": [[2, 3]], "mode": "cut", "plan": True},
+        )
+        assert status == 200
+        assert baseline["applied"][0]["source_end"] == pytest.approx(3.9)
+
+        # With the flag: the range's trailing edge reaches word 4's own start
+        # (6.0s) instead — the pause between them is swallowed by the cut.
+        status, flagged = _post(
+            f"{server}/api/cut",
+            {
+                "clip_id": "vo",
+                "ranges": [[2, 3]],
+                "mode": "cut",
+                "through_pause": True,
+                "plan": True,
+            },
+        )
+        assert status == 200
+        assert flagged["applied"][0]["source_end"] == pytest.approx(6.0)
+        assert flagged["applied"][0]["word_end"] == pytest.approx(3.9)
+
+        # Apply it for real and confirm the effect on where word 4 now plays:
+        # immediately after word 1's segment (timeline second 2.0), not 2.1s
+        # later the way the un-flagged baseline would have left it.
+        status, _ = _post(
+            f"{server}/api/cut",
+            {"clip_id": "vo", "ranges": [[2, 3]], "mode": "cut", "through_pause": True},
+        )
+        assert status == 200
+
+        _, view = _json(f"{server}/api/view")
+        words_by_index = {w["index"]: w for w in view["words"]}
+        assert words_by_index[4]["present"] is True
+        assert words_by_index[4]["timeline_start"] == pytest.approx(2.0)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)
 
 
 # -- media, and the Range support a browser needs to seek -----------------
@@ -739,6 +885,244 @@ def test_agent_stop_with_no_subprocess_running_is_a_no_op(server: str) -> None:
     assert payload["stopped"] is True
 
 
+# -- per-turn thumbs (agent panel cosmetics, item 2) -------------------------
+
+
+def test_agent_thumbs_rejects_a_bad_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/agent/thumbs",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
+def test_agent_thumbs_requires_json_content_type(server: str) -> None:
+    status, payload = _post(
+        f"{server}/api/agent/thumbs",
+        {"rating": "up", "session_id": "s", "turn_id": "t"},
+        content_type="text/plain",
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_agent_thumbs_rejects_a_bad_rating(server: str) -> None:
+    status, payload = _post(
+        f"{server}/api/agent/thumbs",
+        {"rating": "sideways", "session_id": "s", "turn_id": "t"},
+    )
+    assert status == 400
+    assert "rating" in payload["error"]
+
+
+def test_agent_thumbs_requires_session_and_turn_id(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent/thumbs", {"rating": "up", "turn_id": "t"})
+    assert status == 400
+    assert "session_id" in payload["error"]
+
+    status, payload = _post(f"{server}/api/agent/thumbs", {"rating": "up", "session_id": "s"})
+    assert status == 400
+    assert "turn_id" in payload["error"]
+
+
+def test_agent_thumbs_appends_a_record_without_touching_the_timeline(
+    project: Path, server: str
+) -> None:
+    _, before = _json(f"{server}/api/view")
+
+    host, port = _host_and_port(server)
+    # `getresponse()` on a Connection: close response (this stream has no
+    # Content-Length) hands the socket to the response object and nulls
+    # `conn.sock` — so the read timeout has to be set on the connection
+    # before that happens, not on `conn.sock` afterwards. It applies to the
+    # whole socket lifetime, including the earlier reads, which is fine —
+    # they arrive immediately.
+    conn = http.client.HTTPConnection(host, port, timeout=1.2)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, payload = _post(
+            f"{server}/api/agent/thumbs",
+            {
+                "rating": "up",
+                "session_id": "sess-1",
+                "turn_id": "turn-1",
+                "prompt": "cut the retake",
+            },
+        )
+        assert status == 200
+        assert payload["recorded"] is True
+        assert payload["rating"] == "up"
+        assert payload["session_id"] == "sess-1"
+        assert payload["turn_id"] == "turn-1"
+        assert payload["prompt"] == "cut the retake"
+
+        # The SSE poll loop only writes when `_revision` moves — a thumbs
+        # write touches neither `project.otio`'s mtime nor the snapshot
+        # count, so nothing should arrive here within a couple of poll
+        # cycles (_REVISION_POLL_SECONDS is 0.5).
+        with pytest.raises(TimeoutError):
+            next(events)
+    finally:
+        conn.close()
+
+    lines = Project.open(project).thumbs_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["session_id"] == "sess-1"
+    assert record["turn_id"] == "turn-1"
+    assert record["rating"] == "up"
+    assert record["prompt"] == "cut the retake"
+    assert "ts" in record
+
+    _, after = _json(f"{server}/api/view")
+    assert after["undo_depth"] == before["undo_depth"]
+    assert after["timeline_duration"] == before["timeline_duration"]
+
+
+def test_agent_thumbs_appends_a_second_line_for_a_second_turn(project: Path, server: str) -> None:
+    _post(
+        f"{server}/api/agent/thumbs",
+        {"rating": "up", "session_id": "sess-1", "turn_id": "turn-1"},
+    )
+    status, payload = _post(
+        f"{server}/api/agent/thumbs",
+        {"rating": "down", "session_id": "sess-1", "turn_id": "turn-2"},
+    )
+    assert status == 200
+    assert payload["rating"] == "down"
+
+    lines = Project.open(project).thumbs_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    turn_ids = {json.loads(line)["turn_id"] for line in lines}
+    assert turn_ids == {"turn-1", "turn-2"}
+
+
+# -- Start New Task (agent panel cosmetics, item 4) --------------------------
+
+
+def test_agent_new_task_rejects_a_bad_host_and_bad_content_type(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/agent/new-task",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+    status, payload = _post(f"{server}/api/agent/new-task", {}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_new_task_with_no_subprocess_running_is_a_no_op(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent/new-task", {})
+    assert status == 200
+    assert payload["reset"] is True
+
+
+def test_new_task_kills_the_running_subprocess_and_the_next_prompt_spawns_a_fresh_one(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid_file = tmp_path / "pids.txt"
+    canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+    stub = tmp_path / "agent-stub.sh"
+    _write_pid_recording_stub(stub, pid_file, canned)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "first"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned
+
+        pids_after_first = pid_file.read_text(encoding="utf-8").split()
+        assert len(pids_after_first) == 1
+
+        status, payload = _post(f"{server}/api/agent/new-task", {})
+        assert status == 200
+        assert payload["reset"] is True
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "second"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned
+
+        pids_after_second = pid_file.read_text(encoding="utf-8").split()
+        assert len(pids_after_second) == 2
+        # The second spawn is a genuinely different process, not the killed
+        # one reused.
+        assert pids_after_second[0] != pids_after_second[1]
+    finally:
+        conn.close()
+
+
+def test_new_task_mid_turn_does_not_leak_a_synthetic_error_event(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guards `_suppress_next_exit_report` specifically: a reset kills a live
+    subprocess before it ever emits a `result` event, which is exactly the
+    shape `_pump_stdout`'s silent-exit safety net (written for a genuinely
+    broken subprocess) would otherwise report as `error_no_output` — right
+    after the deliberate reset that a person clicked New Task to get.
+    """
+    argv_file = tmp_path / "argv.txt"
+    canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "working…"}]}}
+    stub = tmp_path / "agent-stub.sh"
+    _write_agent_stub(stub, argv_file, canned)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    # See the comment in test_agent_thumbs_appends_a_record_without_touching_the_timeline
+    # on why the timeout is set on the connection, not on `conn.sock`.
+    conn = http.client.HTTPConnection(host, port, timeout=1.2)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "cut the retake"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned  # the turn is genuinely live and mid-flight
+
+        status, payload = _post(f"{server}/api/agent/new-task", {})
+        assert status == 200
+        assert payload["reset"] is True
+
+        # No error_no_output (or any) result event should follow the kill.
+        with pytest.raises(TimeoutError):
+            next(events)
+    finally:
+        conn.close()
+
+
 # -- render jobs -------------------------------------------------------------
 #
 # `ops.export` is monkeypatched to a stub that writes a tiny real WAV instead
@@ -940,6 +1324,85 @@ def test_render_completion_event_carries_dimensions_and_check_results(
         for name in ("check_frames", "check_black", "spot_frames"):
             assert checks[name]["skipped"] is True
             assert "video" in checks[name]["reason"]
+    finally:
+        conn.close()
+
+
+def _fast_export_stub_with_preset(
+    path: str,
+    output: str,
+    *,
+    export_format: str | None = None,
+    fps: float | None = None,
+    preset: str | None = None,
+    resolution: tuple[int, int] | None = None,
+) -> dict[str, Any]:
+    _make_wav(Path(output), duration=0.3)
+    return {
+        "output": output,
+        "format": "media",
+        "timebase": 1000.0,
+        "segments": 1,
+        "timeline_duration": 0.3,
+        "preset": preset,
+        "resolution": list(resolution) if resolution else None,
+    }
+
+
+def test_render_accepts_preset_and_resolution_and_echoes_them_on_the_running_event(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ops, "export", _fast_export_stub_with_preset)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {"preset": "web", "resolution": [608, 1080]})
+        assert status == 202
+
+        # the FIRST render event is 'running' — the one that carries the echo.
+        for event, data in events:
+            if event == "render" and data.get("job_id") == payload["job_id"]:
+                assert data["status"] == "running"
+                assert data["preset"] == "web"
+                assert data["resolution"] == [608, 1080]
+                break
+        else:
+            raise AssertionError("no render event arrived")
+    finally:
+        conn.close()
+
+
+def test_render_resolution_must_be_a_two_element_int_list(server: str) -> None:
+    for bad in ("1080x1920", [1080], [1080, 1920, 1], [1080.0, 1920.0]):
+        status, payload = _post(f"{server}/api/render", {"resolution": bad})
+        assert status == 400, bad
+        assert "resolution" in payload["error"]
+
+
+def test_render_with_an_invalid_preset_combination_reports_error_not_400(
+    server: str,
+) -> None:
+    """A syntactically valid body ('custom' with no resolution) is a real
+    caller mistake ops.export refuses — but only once the job is running, not
+    at the HTTP layer, since this handler only checks shape."""
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {"preset": "custom"})
+        assert status == 202
+        job_id = payload["job_id"]
+
+        found = _next_render_event(events, job_id)
+        assert found["status"] == "error"
+        assert "custom" in found["error"]
     finally:
         conn.close()
 

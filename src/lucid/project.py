@@ -13,6 +13,7 @@ inspectable with ordinary tools::
         frames/             <render-stem>/*.png — spot-check frames pulled from a render
         attenuated/         <clip_id>.<ext> — derived, gain-reduced copies of clip media
         waveform/           <clip_id>.json — RMS envelope, keyed by media size+mtime
+        agent_thumbs.jsonl  one JSON line per per-turn thumbs-up/down rating
       assets/
         cards/              <name>.png — static picture cards a `card:<name>` cue resolves to
       renders/              preview.mp4, final.mp4, …
@@ -47,6 +48,11 @@ ATTENUATED_DIR = "cache/attenuated"
 WAVEFORM_DIR = "cache/waveform"
 RENDER_DIR = "renders"
 CARDS_DIR = "assets/cards"
+#: Per-turn thumbs-up/down log for the agent panel (DAYDREAM.md § Agent
+#: panel) — one JSON line per rating. Lives under `cache/` because it is
+#: derived telemetry, not part of the edit: nothing here is authoritative for
+#: the timeline or the manifest, and `_revision()` in webui.py never stats it.
+THUMBS_LOG = "cache/agent_thumbs.jsonl"
 
 _SUBDIRS = (
     MEDIA_DIR,
@@ -123,6 +129,10 @@ class Project:
 
     def waveform_path(self, clip_id: str) -> Path:
         return self.waveform_dir / f"{clip_id}.json"
+
+    @property
+    def thumbs_path(self) -> Path:
+        return self.root / THUMBS_LOG
 
     # -- history ---------------------------------------------------------
 

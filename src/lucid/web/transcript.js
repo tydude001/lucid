@@ -17,7 +17,9 @@
  *     raises a floating `.selection-toolbar` anchored under the selection —
  *     Preview / Cut / Keep only, plus a small `.toolbar-popover` for pad
  *     and the suspect-boundary confirmation. Preview is `plan: true` on the
- *     same `/api/cut` call Cut uses, not a separate endpoint.
+ *     same `/api/cut` call Cut uses, not a separate endpoint. Restore (shown
+ *     only when the selection covers struck text) posts to `/api/restore`
+ *     instead — a different op with no suspect-duration guard to confirm.
  *
  * What this file does NOT do: render an op's result. `runOp` below emits
  * 'op-result' on the shared bus and stops — agent.js renders it into the
@@ -113,7 +115,10 @@
  * carries `index`, `text`, `start`/`end` (source seconds), `present`,
  * `covered`, `partial`, `timeline_start`/`timeline_end` (`null` if cut),
  * `paragraph` (0-based, word-order-driven — PLAN.md § Read-model
- * additions), and `suspect` when its duration looks inflated.
+ * additions), `suspect` when its duration looks inflated, and `pause_after`
+ * — `{duration, present}` — only on a word whose gap to the next word
+ * cleared `ops.PAUSE_MARKER_MIN` server-side; there is no client-side
+ * threshold to keep in sync with it.
  */
 
 import { $, el, fmt, secs } from "./dom.js";
@@ -125,7 +130,7 @@ let ctx = null;
  * through a selection and a display toggle, both purely local until an op
  * actually runs.
  */
-let sel = null; // {first, last} inclusive word indices, or null
+let sel = null; // {first, last, throughPause} inclusive word indices, or null
 let showCuts = true; // struck through in place (true) or omitted (false)
 let playingIndex = null; // state.words[i].index currently under the playhead
 let wordIndexMap = new Map(); // word.index -> word, refreshed on every update()
@@ -142,6 +147,7 @@ let infoEl = null;
 let padInput = null;
 let confirmInput = null;
 let optsBtn = null;
+let restoreBtnEl = null;
 
 function wordLabel(word) {
   const where = word.present ? `plays at ${fmt(word.timeline_start)}` : "cut — it is not in the timeline";
@@ -194,6 +200,7 @@ function buildSelectionToolbar() {
   const previewBtn = el("button", null, "Preview");
   const cutBtn = el("button", null, "Cut");
   const keepBtn = el("button", null, "Keep only");
+  const restoreBtn = el("button", null, "Restore");
   const opts = el("button", "toggle", "pad");
 
   const popover = el("div", "toolbar-popover");
@@ -224,8 +231,9 @@ function buildSelectionToolbar() {
   previewBtn.addEventListener("click", () => runOp(true, "cut"));
   cutBtn.addEventListener("click", () => runOp(false, "cut"));
   keepBtn.addEventListener("click", () => runOp(false, "keep"));
+  restoreBtn.addEventListener("click", () => runOp(false, "restore"));
 
-  bar.append(previewBtn, cutBtn, keepBtn, opts, popover);
+  bar.append(previewBtn, cutBtn, keepBtn, restoreBtn, opts, popover);
 
   toolbarEl = bar;
   popoverEl = popover;
@@ -233,6 +241,7 @@ function buildSelectionToolbar() {
   padInput = pad;
   confirmInput = confirm;
   optsBtn = opts;
+  restoreBtnEl = restoreBtn;
 }
 
 /* -- rendering the document ----------------------------------------------- */
@@ -282,7 +291,17 @@ function renderWords(state) {
       if (word.suspect) node.classList.add("suspect");
       node.dataset.i = String(word.index);
       node.title = wordLabel(word);
-      p.append(node, document.createTextNode(" "));
+      p.append(node);
+      if (word.pause_after) {
+        const pa = word.pause_after;
+        if (pa.present || showCuts) {
+          const mark = el("span", "pause", `[${pa.duration.toFixed(1)}s]`);
+          mark.dataset.after = String(word.index);
+          if (!pa.present) mark.classList.add("gone");
+          p.append(mark);
+        }
+      }
+      p.append(document.createTextNode(" "));
     }
     frag.append(p);
   }
@@ -294,6 +313,12 @@ function paintSelection() {
   for (const node of $("transcript").querySelectorAll(".w")) {
     const i = Number(node.dataset.i);
     node.classList.toggle("sel", sel !== null && i >= sel.first && i <= sel.last);
+  }
+  for (const node of $("transcript").querySelectorAll(".pause")) {
+    const after = Number(node.dataset.after);
+    const interior = sel !== null && after >= sel.first && after < sel.last;
+    const trailing = sel !== null && sel.throughPause && after === sel.last;
+    node.classList.toggle("sel", interior || trailing);
   }
 }
 
@@ -350,12 +375,14 @@ function renderPopoverInfo() {
   infoEl.append(quote);
 
   const count = sel.last - sel.first + 1;
-  infoEl.append(
-    rows([
-      ["words", `${count} (#${sel.first}–#${sel.last})`],
-      ["source", `${secs(first.start)} – ${secs(last.end)}`],
-    ]),
-  );
+  const infoRows = [
+    ["words", `${count} (#${sel.first}–#${sel.last})`],
+    ["source", `${secs(first.start)} – ${secs(last.end)}`],
+  ];
+  if (sel.throughPause && last.pause_after) {
+    infoRows.push(["+ trailing pause", secs(last.pause_after.duration)]);
+  }
+  infoEl.append(rows(infoRows));
 
   if (first.suspect || last.suspect) {
     infoEl.append(
@@ -370,6 +397,18 @@ function renderPopoverInfo() {
   }
 }
 
+// Restore only makes sense over a selection that actually covers struck
+// (cut) text — offering it over live words would just be a confusing no-op
+// (`already_present: true`), so it stays hidden until the selection needs it.
+function selectionHasCutWord() {
+  if (!sel) return false;
+  for (let i = sel.first; i <= sel.last; i++) {
+    const w = wordIndexMap.get(i);
+    if (w && !w.present) return true;
+  }
+  return false;
+}
+
 function refreshToolbar() {
   if (!sel) {
     toolbarEl.hidden = true;
@@ -381,6 +420,7 @@ function refreshToolbar() {
   toolbarEl.style.left = anchor ? `${anchor.offsetLeft}px` : "0px";
   toolbarEl.style.top = anchor ? `${anchor.offsetTop + anchor.offsetHeight + 4}px` : "0px";
   toolbarEl.hidden = false;
+  restoreBtnEl.hidden = !selectionHasCutWord();
   renderPopoverInfo();
 }
 
@@ -394,18 +434,26 @@ async function runOp(planned, mode) {
   if (!sel || !ctx) return;
   const view = ctx.getView();
   if (!view) return;
-  const body = {
-    clip_id: view.clip_id,
-    ranges: [[sel.first, sel.last]],
-    mode,
-    pad: Number(padInput.value) || 0,
-    confirm_suspect: Boolean(confirmInput.checked),
-    plan: planned,
-  };
+  const ranges = [[sel.first, sel.last]];
+  const pad = Number(padInput.value) || 0;
   let payload = null;
   let error = null;
   try {
-    payload = await ctx.api("/api/cut", body);
+    // Restore has its own route and its own (smaller) body shape — no
+    // mode/confirm_suspect/through_pause, since there is no suspect-duration
+    // guard on restoring and nothing left to extend through a pause with.
+    payload =
+      mode === "restore"
+        ? await ctx.api("/api/restore", { clip_id: view.clip_id, ranges, pad, plan: planned })
+        : await ctx.api("/api/cut", {
+            clip_id: view.clip_id,
+            ranges,
+            mode,
+            pad,
+            confirm_suspect: Boolean(confirmInput.checked),
+            through_pause: Boolean(sel.throughPause),
+            plan: planned,
+          });
   } catch (err) {
     error = err.message;
     ctx.emit("toast", error);
@@ -430,20 +478,45 @@ function clearSelection() {
   refreshToolbar();
 }
 
+// A `.pause` marker resolves to the word index it trails, never an index of
+// its own — it is not in `wordIndexMap` and never becomes an addressable
+// `sel.first`/`sel.last` value on its own.
+function resolveIndex(node) {
+  return Number(node.classList.contains("pause") ? node.dataset.after : node.dataset.i);
+}
+
+// `throughPause` is a property of the selection's TRAILING edge, so it must be
+// computed from whichever bound ends up at `last` — never from the node that
+// happened to move. Computing it from the moving node alone silently cancelled
+// a chosen trailing pause on the two ordinary gestures that leave `last` where
+// it is: shift-clicking leftward to add context, and dragging backward from the
+// marker. Both bounds are offered here as [index, isPause] and the one sitting
+// at `last` decides.
+function trailingPause(last, ...bounds) {
+  return bounds.some(([index, isPause]) => isPause && index === last);
+}
+
 function handleMouseDown(event) {
   if (toolbarEl.contains(event.target) || toggleRow.contains(event.target)) return;
-  const node = event.target.closest(".w");
+  const node = event.target.closest(".w, .pause");
   if (!node) {
     clearSelection();
     return;
   }
   event.preventDefault();
-  const i = Number(node.dataset.i);
+  const i = resolveIndex(node);
+  const isPause = node.classList.contains("pause");
   if (event.shiftKey && sel) {
-    sel = { first: Math.min(sel.first, i), last: Math.max(sel.last, i) };
+    const first = Math.min(sel.first, i);
+    const last = Math.max(sel.last, i);
+    sel = {
+      first,
+      last,
+      throughPause: trailingPause(last, [i, isPause], [sel.last, sel.throughPause]),
+    };
   } else {
-    dragging = { anchor: i, moved: false };
-    sel = { first: i, last: i };
+    dragging = { anchor: i, anchorPause: isPause, moved: false };
+    sel = { first: i, last: i, throughPause: isPause };
   }
   paintSelection();
   refreshToolbar();
@@ -451,11 +524,18 @@ function handleMouseDown(event) {
 
 function handleMouseOver(event) {
   if (!dragging) return;
-  const node = event.target.closest(".w");
+  const node = event.target.closest(".w, .pause");
   if (!node) return;
-  const i = Number(node.dataset.i);
+  const i = resolveIndex(node);
+  const isPause = node.classList.contains("pause");
   if (i !== dragging.anchor) dragging.moved = true;
-  sel = { first: Math.min(dragging.anchor, i), last: Math.max(dragging.anchor, i) };
+  const first = Math.min(dragging.anchor, i);
+  const last = Math.max(dragging.anchor, i);
+  sel = {
+    first,
+    last,
+    throughPause: trailingPause(last, [i, isPause], [dragging.anchor, dragging.anchorPause]),
+  };
   paintSelection();
   refreshToolbar();
 }

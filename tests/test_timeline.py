@@ -116,6 +116,91 @@ def test_keep_only_needs_an_interval() -> None:
         _edit((0.0, 10.0)).keep_only("vo", [])
 
 
+# -- gaps and restore ------------------------------------------------------
+
+
+def test_gaps_reports_an_interior_hole_and_head_and_tail() -> None:
+    edit = _edit((10.0, 20.0), (25.0, 30.0))
+    assert edit.gaps("vo", 40.0) == [(0.0, 10.0), (20.0, 25.0), (30.0, 40.0)]
+
+
+def test_gaps_of_a_fully_present_clip_is_empty() -> None:
+    edit = _edit((0.0, 10.0))
+    assert edit.gaps("vo", 10.0) == []
+
+
+def test_gaps_of_an_entirely_absent_clip_is_the_whole_duration() -> None:
+    edit = Edit([Segment("cam", 0.0, 10.0)])
+    assert edit.gaps("vo", 10.0) == [(0.0, 10.0)]
+
+
+def test_restore_of_a_full_interior_gap_merges_the_neighbours_into_one_segment() -> None:
+    edit = _edit((0.0, 10.0), (20.0, 30.0))
+    pieces = edit.restore("vo", 10.0, 20.0, duration=30.0)
+    assert pieces == [(10.0, 20.0)]
+    assert _spans(edit) == [(0.0, 30.0)]
+    assert len(edit.segments) == 1
+
+
+def test_restore_partially_overlapping_a_gap_only_restores_the_overlap() -> None:
+    edit = _edit((0.0, 10.0), (20.0, 30.0))
+    pieces = edit.restore("vo", 12.0, 15.0, duration=30.0)
+    assert pieces == [(12.0, 15.0)]
+    assert _spans(edit) == [(0.0, 10.0), (12.0, 15.0), (20.0, 30.0)]
+
+
+def test_restore_spanning_two_gaps_restores_both_as_separate_pieces() -> None:
+    edit = _edit((0.0, 10.0), (20.0, 30.0), (40.0, 50.0))
+    pieces = edit.restore("vo", 5.0, 45.0, duration=50.0)
+    assert pieces == [(10.0, 20.0), (30.0, 40.0)]
+    assert _spans(edit) == [(0.0, 50.0)]
+    assert len(edit.segments) == 1
+
+
+def test_restore_of_a_head_gap_merges_into_the_first_segment() -> None:
+    edit = _edit((10.0, 30.0))
+    pieces = edit.restore("vo", 0.0, 10.0, duration=30.0)
+    assert pieces == [(0.0, 10.0)]
+    assert _spans(edit) == [(0.0, 30.0)]
+
+
+def test_restore_of_a_tail_gap_merges_into_the_last_segment() -> None:
+    edit = _edit((0.0, 20.0))
+    pieces = edit.restore("vo", 20.0, 30.0, duration=30.0)
+    assert pieces == [(20.0, 30.0)]
+    assert _spans(edit) == [(0.0, 30.0)]
+
+
+def test_restore_of_already_present_material_is_a_no_op() -> None:
+    edit = _edit((0.0, 10.0), (20.0, 30.0))
+    pieces = edit.restore("vo", 0.0, 10.0, duration=30.0)
+    assert pieces == []
+    assert _spans(edit) == [(0.0, 10.0), (20.0, 30.0)]
+
+
+def test_restore_leaves_other_clips_alone() -> None:
+    edit = Edit([Segment("vo", 0.0, 10.0), Segment("cam", 0.0, 10.0)])
+    pieces = edit.restore("vo", 10.0, 20.0, duration=20.0)
+    assert pieces == [(10.0, 20.0)]
+    clip_ids = [s.clip_id for s in edit.segments]
+    assert clip_ids.count("cam") == 1
+    assert clip_ids.count("vo") == 1
+
+
+def test_restore_raises_when_the_clip_has_no_surviving_segment() -> None:
+    edit = Edit([Segment("cam", 0.0, 10.0)])
+    with pytest.raises(TimelineError, match="nothing of it left to splice"):
+        edit.restore("vo", 0.0, 5.0, duration=10.0)
+
+
+def test_restore_raises_when_the_clips_segments_are_interleaved() -> None:
+    edit = Edit(
+        [Segment("vo", 0.0, 5.0), Segment("cam", 0.0, 5.0), Segment("vo", 5.0, 10.0)]
+    )
+    with pytest.raises(TimelineError, match="not contiguous"):
+        edit.restore("vo", 4.0, 6.0, duration=10.0)
+
+
 # -- addressing ----------------------------------------------------------
 
 
@@ -129,6 +214,29 @@ def test_timeline_time_accounts_for_earlier_cuts() -> None:
 def test_timeline_time_is_none_for_cut_material() -> None:
     """Reporting the cut honestly beats silently pointing somewhere else."""
     assert _edit((0.0, 4.0), (6.0, 10.0)).timeline_time("vo", 5.0) is None
+
+
+def test_timeline_time_excludes_a_segments_own_end_by_default() -> None:
+    """Segments are half-open, and every range caller depends on that."""
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    # 4.0 is the first segment's exclusive end and has been cut away.
+    assert edit.timeline_time("vo", 4.0) is None
+    # 10.0 is the whole timeline's end — one past the last playable instant.
+    assert edit.timeline_time("vo", 10.0) is None
+
+
+def test_closed_end_locates_an_instant_sitting_on_a_segment_boundary() -> None:
+    """The zero-width-word case: whisper's last word lands on the last
+    segment's end, and the half-open test calls plainly-present material cut.
+    """
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    # The timeline's own end, which is where a final zero-width word sits.
+    assert edit.timeline_time("vo", 10.0, closed_end=True) == pytest.approx(8.0)
+    # An interior seam resolves to the outgoing segment's end, not the
+    # incoming one's start — they are the same timeline instant either way.
+    assert edit.timeline_time("vo", 4.0, closed_end=True) == pytest.approx(4.0)
+    # It does not resurrect material from the middle of a cut.
+    assert edit.timeline_time("vo", 5.0, closed_end=True) is None
 
 
 def test_source_at_returns_the_playing_clip_and_source_time() -> None:

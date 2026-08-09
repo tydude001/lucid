@@ -1974,3 +1974,221 @@ Filmstrip thumbnails and clip *filename* labels are also still open. The
 blocks label by `clip_id`, which is deliberate for now: it is the name every
 other surface in lucid addresses a clip by, and a filename would make the lane
 disagree with the CLI.
+
+## The head of the parity queue, six items — 2026-08-08
+
+The six § The look pass did not include, built as one pass: model label,
+per-turn thumbs, `@`-mentions, inline pause markers, `restore`, export presets.
+DAYDREAM.md § Build order had them as the queue's head "gated on nothing", and
+four of them were exactly that. The two it had already flagged as more than
+cosmetic each cost a design decision, and a third — export presets, filed as
+"cheap, anytime" — turned out to be the one with a wall behind it.
+
+### `restore` — the removed ranges were never stored
+
+DAYDREAM.md specified this as "`Edit` stores its removed ranges, so un-removing
+a *specific* range is a real op". **It does not store them.** `Edit` is an
+ordered list of surviving `Segment`s and nothing else, so the first job was
+deriving what is missing rather than reading it. `Edit.gaps(clip_id, duration)`
+walks that clip's merged segments against its registered length and returns the
+complement — head, interior and tail fall out of one pass, so a `keep_only`
+that dropped the opening needs no special case, which is the half a stored
+range table would have missed anyway.
+
+**It does not touch the subtractive invariant, and the argument matters more
+than the code.** `restore` is bounded by `gaps()`: only source time the
+recording actually has, and does not currently play, can come back. The
+timeline stays a subset of the source at every step, which is the property
+`remove` and `keep_only` already uphold — `restore` walks it backward rather
+than widening it. That is what separates it from `vo_extend` (PLAN.md § Parked),
+which splices in material the source never had and remains parked.
+
+Two things the derivation forced:
+
+- **A closed gap must not leave two segments behind.** Restoring an interior
+  gap in full makes its neighbours source-adjacent *and* timeline-adjacent, and
+  `_seams` reads that pair as a cut with zero material removed — a phantom seam
+  drawn across a join that no longer exists. `_insert_piece` merges into either
+  neighbour it now touches exactly.
+- **It refuses rather than guesses.** A clip with no surviving segment has
+  nowhere well-defined to be spliced back next to, and a clip whose segments are
+  not contiguous in the edit is an interleaved multi-source timeline nothing
+  ships yet. Both raise. Every operation in the codebase today produces one
+  contiguous run per clip; the refusal exists so the day that stops being true
+  is loud.
+
+Word-addressed, with the standard echo and `plan` for free — it resolves ranges
+through `_echo`/`_context`/`_pad_reach` exactly as `cut_by_transcript` does, so
+the three-words-either-side rule (CLAUDE.md) cost nothing. There is no
+suspect-duration gate: restoring across a suspect boundary is the *fix*, not the
+mistake the gate exists to catch. `--pad` mirrors the pad the original cut used,
+so the sliver comes back too.
+
+### Pause markers, and the one gap computation
+
+`[N.Ns]` between word spans, from `ops._gap_after` — which `_paragraphs`'
+opportunistic silence arm now calls too, because DAYDREAM.md asked for both to
+be derived from the same place and two gap computations is how they drift. The
+duration rule (CLAUDE.md) is the whole reason the field is safe: whisper
+inflates the *end* of the word following a swallowed retake, and a later `end`
+can only shrink a gap measured to the next word's `start`. A bad transcript
+suppresses a marker; it cannot invent one.
+
+The marker carries `{duration, present}` and `present` is an overlap test
+against the kept ranges like everything else — a pause can be cut while both
+flanking words survive, which is what `cut_by_time` on a silence does.
+
+Selecting through a marker is the part Daydream's own docs show and the part
+with state in it. A `.pause` node resolves to the index of the word it trails
+and never becomes an addressable bound of its own; when it is the selection's
+*trailing* edge, the cut extends through the pause (`--through-pause`,
+`through_pause`). The bug in the first cut of that, found in review: the flag
+was recomputed from whichever node the gesture moved, so shift-clicking
+leftward to add context — a gesture that does not move `last` at all — silently
+cancelled a trailing pause the user had already chosen. `trailingPause()` now
+asks which *bound* sits at `last` instead of which node moved, which is what
+the flag always meant.
+
+### Export presets, and the preset that is not there
+
+Filed as "an afternoon". The afternoon was real; the costing was not. DAYDREAM.md
+says presets "map onto `ops.export`'s existing arguments as named bundles", and
+`export` had no resolution or quality arguments to bundle — it took `output`,
+`export_format` and `fps`.
+
+`youtube` and `web` ship. Both are bundles over the same four consumer keys
+`picture.RENDER_ARGS` already hardcodes (`vcodec`/`crf`/`preset`/`acodec`), and
+`youtube` reproduces `RENDER_ARGS` byte for byte, so naming it changes nothing
+about what melt already does. That narrowness is not tidiness: § 4 measured a
+melt consumer reaching 14.6 GB and freezing the machine, `width`/`height`/`ab`
+were in the combination, and nobody has since isolated which addition caused it.
+A preset that widens the consumer is a memory-growth experiment wearing a
+feature's clothes. `custom` means "apply this resolution, quality at the
+`youtube` default", and refuses with no resolution, because customising nothing
+is a caller mistake rather than a legitimate no-op.
+
+**There is no `tiktok-reels`, and that is the finding rather than an omission.**
+9:16 is mechanically producible on the single-source path — `-res` was run and
+a real 320x240 clip came back as 608x1080, confirmed with ffprobe — but only as
+the 16:9 frame pillarboxed, never a filled or reframed vertical video. The
+latter is DAYDREAM.md § Aspect swap, deferred on purpose because it touches the
+project model, both render paths and the preview letterbox. On the melt path a
+resolution override is refused outright for the memory reason above, so a 9:16
+preset could not have been offered consistently across the two writers even as a
+pillarbox. Shipping a platform's name over a quiet letterbox is the
+correct-pixels-wrong-video failure this repo keeps writing rules against.
+
+Three refusals guard the rest, all before any subprocess runs: a preset with an
+NLE `export_format` (an MLT handoff has no bitrate), a resolution on a layered
+project, and an unknown name — which answers with the available list *and* the
+aspect reasoning, so the next person to reach for `tiktok-reels` gets told why.
+
+**The exit code still proves nothing**, so a resolution request is staged: the
+single-source path renders into a temp dir, probes the result, and runs it
+through `picture.render_problems` before copying to the destination — the same
+stage/probe/copy-only-if-it-agrees shape `picture.render` already uses on the
+melt side. And one thing only the real plumbing could have said: those four
+flags are fatal, not merely useless, on a project with no picture —
+`Could not open encoder 'aac'` against a `.wav` destination — so an audio-only
+project skips them and says so in `notes`.
+
+### The panel cosmetics, and the one that was not
+
+Model label, thumbs, `@`-mentions, plus `Start New Task`, which DAYDREAM.md said
+"needs only the affordance" and nearly did. None added a tool, widened the
+allowlist, or gave the subprocess a new path to the project — PLAN.md § The
+agent panel, in mechanism did not move.
+
+- **The model label rides the stream that was already there.** `stream-json`'s
+  `init` message carries the model; the panel was dropping it. No endpoint.
+- **Thumbs append one JSON line** to `cache/agent_thumbs.jsonl`, carrying the
+  session and turn ids so a later reader can tell *which* turn was rated. It is
+  a mutation and obeys the `Host` and content-type guards like every other POST,
+  but it must not bump the revision or fire `project-changed` — it does not
+  touch `project.otio`, and a test asserts the SSE stream stays silent by
+  waiting for an event that never comes.
+- **`@`-mentions read `view.clips`**, which the view already ships. No endpoint,
+  no capability: the agent already reaches media through the tools.
+- **`Start New Task` was the one with a real edge.** Killing the subprocess mid
+  turn trips the stdout pump's silent-exit branch, which publishes a synthetic
+  `error_no_output` result — so a deliberate reset announced itself as a crash.
+  A suppress-once flag, set only when a live process is actually being killed,
+  keeps a genuine later crash reportable.
+
+### What the review found, and where
+
+Three reviewers over the finished tree — correctness, conventions, and a real
+browser. Two blockers, two real, two nits; the conventions pass also caught a
+builder having run a non-plan `restore` against `~/lucid-scream-v2/proj` itself
+rather than the scratch copy its own report described, which is why that project
+briefly read 74 segments. Reverted; it is back at 73 and md5
+`705540da92323bee24ef6565740b6a24`.
+
+The two that were defects in the shipped code, both invisible to every test:
+
+- **The preview pane disappeared at 800px, and 800px is half a 1600px display.**
+  `#workspace` was `26rem 1fr 24rem` — 416 + 384 is exactly 800 — and a bare
+  `1fr` between two fixed tracks resolves to **zero** rather than squeezing
+  either neighbour. So the player, transport and clock vanished with no
+  scrollbar, no collapsed affordance and nothing in the console, and stayed gone
+  below that width. This is the second time a grid track has silently eaten this
+  page (§ The look pass found `body`'s `auto` column pushing Export off the
+  right edge) and the same thing hid it both times: `overflow: hidden` on `body`
+  means the page never grows a scrollbar to give itself away. Three `minmax()`es
+  now, with the side panes giving way first — the picture is the last thing to
+  shrink, which is the priority § Layout is arguing for at every other width.
+
+  Measured over CDP after the fix, transcript / preview / agent:
+
+  | window | 1600 | 1400 | 1100 | 900 | 800 | 700 |
+  |---|---|---|---|---|---|---|
+  | transcript | 416 | 416 | 412 | 298 | 248 | 208 |
+  | **preview** | **800** | **600** | **304** | **304** | **304** | **304** |
+  | agent | 384 | 384 | 384 | 298 | 248 | 208 |
+
+  1600 and 1400 are byte-identical to what shipped, which was the constraint —
+  the fix is not allowed to restyle the widths anyone actually uses. At 700 the
+  floors are reached and the page scrolls by 32px, which is at least visible.
+
+- **A zero-width word on a segment's closing boundary read as cut.** Whisper
+  emits `start == end` often enough, and the last word of a transcript lands on
+  the last segment's end, where the half-open `[start, end)` test says "gone"
+  about material plainly still there. Pre-existing, and `restore` is what made
+  it legible: restoring words 1148–1149 of the real VO reported the full 1.4s
+  back and `lucid status` agreed, while the transcript kept drawing 1149 struck.
+  `Edit.timeline_time` gained `closed_end=`, default off so every range caller
+  keeps the convention it was written against, and `_word_placements`' zero-width
+  branch is its one caller — for an *instant* the boundary belongs to the
+  material ending there; for a range it would double-count the join.
+
+### Verified
+
+`uv run ruff check src tests` clean, and the full suite at **463 passed**, up
+from 406 — 57 new tests, and `git diff --numstat tests/` reports **zero deleted
+lines** across all four modified files, which is the number that matters
+(CLAUDE.md: a test rewritten to agree with the code guards nothing).
+
+Against the real projects rather than fixtures: `~/lucid-scream-v2/proj`, the
+seeded VO2 project — 1150 words, 73 segments — carries 101 pause markers, and
+`lucid cut vo 15:17 --plan` versus `--plan --through-pause` moves `source_end`
+from 11.08 to 13.62, exactly the 2.54s pause after word 17, while `word_end`
+does not move at all. Restore round-trips on a copy: 73 → 74 segments, +1.4s,
+words 1148 *and* 1149 both present afterwards.
+
+In a real browser over CDP (wiki `tooling.md` § Headless browser): the pause
+markers read in both themes, the Restore affordance appears over struck text and
+the change survives a shell-side `lucid status`, the model label degrades
+honestly before any turn and shows a real id after one, `@` completes over the
+project's own clips, thumbs persist to disk, the preset dropdown reveals its
+resolution field for `custom`, and playback ran ~212s across dozens of cut seams
+with no console errors. The trailing-pause fix was re-checked the same way, as a
+real gesture: click the `[2.5s]` marker after word 17, shift-click word 14, and
+the marker keeps its selection with four words selected.
+
+### What this leaves
+
+The parity queue's head is clear. `tiktok-reels` is the one named thing that did
+not ship and it is blocked on DAYDREAM.md § Aspect swap, not on effort.
+Filmstrip thumbnails, clip filename labels, and snap/link/lock toggles are still
+open on their own gates (§ The look pass). The next ranked item is caption
+styling.

@@ -183,6 +183,7 @@ def cut_by_transcript(
     keep: Sequence[Sequence[int]] | None = None,
     pad: float = 0.0,
     confirm_suspect: bool = False,
+    through_pause: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
     """Cut or keep inclusive word ranges, e.g. cut=[[30, 45], [120, 131]].
@@ -196,6 +197,12 @@ def cut_by_transcript(
     and is only visibly wrong next to its neighbours. `pad_reach` names any
     neighbour the padding eats, since padding is in seconds and the echoed text
     is not.
+
+    `through_pause=True` (cut only) extends each range's trailing edge through
+    the pause after its last word, whenever that gap is wide enough to have
+    drawn a `[N.Ns]` marker in the transcript pane — so cutting a phrase also
+    removes the dead air after it instead of leaving it playing. A no-op when
+    the trailing gap is too short to have drawn a marker.
 
     `plan=True` returns that whole payload — including what the timeline would
     become — without writing anything. Prefer it over cutting and undoing.
@@ -214,6 +221,7 @@ def cut_by_transcript(
         keep=keep,
         pad=pad,
         confirm_suspect=confirm_suspect,
+        through_pause=through_pause,
         plan=plan,
     )
 
@@ -252,6 +260,44 @@ def cut_by_time(
     suspect duration; `confirm_suspect=True` or `plan=True` behave the same.
     """
     return ops.cut_by_time(path, spans=spans, pad=pad, confirm_suspect=confirm_suspect, plan=plan)
+
+
+@mcp.tool()
+def restore(
+    path: str,
+    clip_id: str,
+    ranges: Sequence[Sequence[int]],
+    pad: float = 0.0,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Un-cut whichever part of these inclusive word ranges is not currently in the timeline.
+
+    Same range shape as cut_by_transcript's cut=/keep=. Each range resolves to
+    source time exactly like a cut does; only the part Edit.gaps says is
+    actually absent comes back — material still present in the request is left
+    alone, a request spanning two separate cuts restores both as separate
+    pieces, a request only touching part of one cut restores only that part.
+    Restoring only ever brings back material the source recording already has
+    (bounded by the clip's own registered duration), so the timeline stays a
+    subset of the source throughout — this is not vo_extend (PLAN.md parks that
+    separately), which would add material the source never had.
+
+    pad matches cut_by_transcript's own pad: pass the same value used on the
+    original cut to bring back its padding sliver, not just the words.
+
+    Unlike a cut, there is no suspect-duration refusal — a boundary that looks
+    like it swallowed a retake is exactly the kind of thing restore exists to
+    bring back, not a mistake to guard against.
+
+    Refused if clip_id has no surviving segment anywhere in the edit (nothing
+    left of it to splice the range next to — undo or re-seed instead), or if
+    its segments are not contiguous in the edit (an interleaved multi-source
+    timeline, which restore does not support yet).
+
+    plan=True resolves and reports without writing, identically to
+    cut_by_transcript.
+    """
+    return ops.restore(path, clip_id, ranges, pad=pad, plan=plan)
 
 
 @mcp.tool()
@@ -335,7 +381,12 @@ def undo(path: str) -> dict[str, Any]:
 
 @mcp.tool()
 def export(
-    path: str, output: str, export_format: str | None = "kdenlive", fps: float | None = None
+    path: str,
+    output: str,
+    export_format: str | None = "kdenlive",
+    fps: float | None = None,
+    preset: str | None = None,
+    resolution: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """Export the timeline, or render it.
 
@@ -355,8 +406,25 @@ def export(
     or 30 for an audio-only project. It sets the render's frame rate too on the
     multi-source path, where lucid owns the profile; it is ignored when
     auto-editor renders a single-source timeline.
+
+    `preset` is one of "youtube", "web", or "custom" (which requires
+    `resolution`) — a named quality bundle, only meaningful together with
+    `export_format=null` (an NLE project file has no bitrate). `resolution`
+    is `[width, height]`; it **letterboxes** the existing frame on the
+    single-source render path — it does not crop or reframe it — and is
+    refused outright on a multi-source (melt) project, where widening the
+    hardcoded consumer to accept it has not been re-proven memory-safe
+    (HISTORY.md § 4). There is deliberately no "tiktok-reels" preset: a real
+    9:16 reframe is DAYDREAM.md § Aspect swap, a separately deferred item.
     """
-    return ops.export(path, output, export_format=export_format, fps=fps)
+    return ops.export(
+        path,
+        output,
+        export_format=export_format,
+        fps=fps,
+        preset=preset,
+        resolution=tuple(resolution) if resolution is not None else None,
+    )
 
 
 @mcp.tool()

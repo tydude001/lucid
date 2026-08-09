@@ -30,6 +30,25 @@
       <button id="undo" title="roll back the last timeline mutation">
         Undo <span id="depth" class="depth"></span>
       </button>
+      <!-- Default = ops.export's own default (picture.RENDER_ARGS, no -res).
+           'custom' reveals #export-resolution; app.js reads both only when
+           the user actually chose them (CLAUDE.md: draws and plays, never
+           decides — an invalid combination still surfaces only through the
+           render 'error' event ops.export raises). -->
+      <select id="export-preset" title="export quality preset">
+        <option value="">Default</option>
+        <option value="youtube">YouTube</option>
+        <option value="web">Web</option>
+        <option value="custom">Custom…</option>
+      </select>
+      <input
+        id="export-resolution"
+        type="text"
+        inputmode="numeric"
+        placeholder="1920x1080"
+        title="output resolution, WIDTHxHEIGHT — letterboxes the existing frame, does not reframe it"
+        hidden
+      />
       <!-- The one filled button on the page, and it sits at the right end
            (DAYDREAM.md § Workspace shell). -->
       <button id="export" class="primary" title="render a watermark-free MP4 in the window">
@@ -69,16 +88,22 @@
       </section>
 
       <aside id="agent-pane" class="pane">
-        <div class="pane-head">agent</div>
+        <div class="pane-head">
+          agent
+          <span class="spacer"></span>
+          <button id="agent-new-task" type="button" title="kill the running conversation and start fresh">
+            New Task
+          </button>
+        </div>
         <div id="agent-feed" class="agent-feed"></div>
         <form id="agent-composer" class="agent-composer">
           <textarea
             id="agent-prompt"
             rows="2"
-            placeholder="Ask the agent to edit this project…"
+            placeholder="Ask the agent to edit this project… (@ to mention a clip)"
           ></textarea>
           <div class="agent-composer-row">
-            <span class="hint">Enter sends · Shift-Enter newline</span>
+            <span class="hint">Enter sends · Shift-Enter newline<span id="agent-model"></span></span>
             <button id="agent-stop" type="button" hidden>Stop</button>
             <button id="agent-send" type="submit" class="primary">Send</button>
           </div>

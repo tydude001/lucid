@@ -43,6 +43,22 @@ import { $, el, fmt } from "./dom.js";
 let ctx = null;
 let busy = false;
 
+// The model chip in the composer hint (item 1, DAYDREAM.md § Agent panel).
+// Set once per subprocess lifetime from the stream-json `system`/`init`
+// event's own `model` field — never guessed, and never regressed by a
+// malformed event. `AgentSession.send()` reuses the live subprocess across
+// turns and only `_spawn()` emits a fresh `init`, so this reads as "the
+// model the *current* subprocess is running", which is right even across a
+// New Task reset (the next init overwrites it).
+let currentModel = null;
+
+function setModel(model) {
+  if (typeof model !== "string" || !model) return;
+  currentModel = model;
+  const chip = $("agent-model");
+  if (chip) chip.textContent = ` · ${model}`;
+}
+
 // -- feed plumbing ---------------------------------------------------------
 
 function feedEl() {
@@ -216,11 +232,58 @@ function handleAssistantOrUser(data) {
   }
 }
 
+// -- per-turn thumbs (item 2) -----------------------------------------------
+//
+// DAYDREAM.md: "useful only if something reads it; build the log, defer any
+// use." So this only appends a rating to Project.thumbs_path via
+// /api/agent/thumbs — nothing here reads it back. One standalone feed row per
+// successful turn rather than trying to locate "the" bubble for that turn: a
+// prose-only turn never opens a .agent-progress list, so there is no single
+// reliable anchor to attach a rating to.
+
+let lastPrompt = "";
+
+function buildThumbsRow(sessionId, turnId, prompt) {
+  const wrap = el("div", "agent-entry agent-entry--tool agent-thumbs");
+  const label = el("span", null, "Rate this turn:");
+  const up = el("button", null, "Helpful");
+  const down = el("button", null, "Not helpful");
+  up.type = "button";
+  down.type = "button";
+
+  const rate = async (rating, btn) => {
+    up.disabled = true;
+    down.disabled = true;
+    try {
+      await ctx.api("/api/agent/thumbs", {
+        rating,
+        session_id: sessionId,
+        turn_id: turnId,
+        prompt,
+      });
+      wrap.textContent = "";
+      wrap.append(el("span", null, rating === "up" ? "Marked helpful." : "Marked not helpful."));
+    } catch (err) {
+      ctx.emit("toast", err.message);
+      up.disabled = false;
+      down.disabled = false;
+    }
+  };
+  up.addEventListener("click", () => rate("up", up));
+  down.addEventListener("click", () => rate("down", down));
+
+  wrap.append(label, up, down);
+  return wrap;
+}
+
 function handleResult(data) {
   closeProgress("Done!");
-  if (data.subtype && data.subtype !== "success") {
+  const ok = !data.subtype || data.subtype === "success";
+  if (!ok) {
     const detail = typeof data.result === "string" ? data.result : JSON.stringify(data.result ?? {});
     append(entry("agent-entry--system bad", `Agent turn ended — ${data.subtype}${detail ? `: ${detail}` : ""}`));
+  } else if (typeof data.session_id === "string" && typeof data.uuid === "string") {
+    append(buildThumbsRow(data.session_id, data.uuid, lastPrompt));
   }
   setBusy(false);
 }
@@ -237,7 +300,10 @@ function handleAgentEvent(data) {
       return;
     case "system":
       // Session/init bookkeeping from the harness — not part of the
-      // Daydream-style progress story, and noisy every turn if shown.
+      // Daydream-style progress story, and noisy every turn if shown. The
+      // one field worth keeping is `init`'s `model` (item 1) — every other
+      // subtype (e.g. a future compaction notice) stays a no-op.
+      if (data.subtype === "init") setModel(data.model);
       return;
     default: {
       // An event shape this pane does not recognise — degrade to a compact
@@ -441,6 +507,100 @@ function describeOp(payload) {
   return `Applied — ${bits.join(" · ")}`;
 }
 
+// -- @-mentions of assets (item 3) -------------------------------------------
+//
+// Pure composer sugar: the agent already reaches media through its own MCP
+// tools, so this adds no capability and no endpoint — it only inserts text.
+// Completion is over `ctx.getView().clips` (already shipped by
+// `ops.timeline_view`, read fresh on every keystroke rather than cached,
+// matching player.js/transcript.js's own "read the view through
+// `ctx.getView()`" convention), scoped to "the project's registered
+// clips/media" per the task's own wording — not the separate, unlisted
+// card-asset registry (`cue_ls` only enumerates *placed* cues, never
+// unplaced cards; completing over them would need a new endpoint).
+//
+// Not caret-precise: the popover anchors to the composer box
+// (`.agent-composer { position: relative }`), not the exact caret pixel — a
+// mirror-div measurement this "pure sugar" scope deliberately skips.
+
+let mentionState = null; // { start, query, matches, activeIndex } | null
+
+/** The active `@token` ending at `caret`, or null if the caret is not inside
+ * one. A `@` must start a token (preceded by whitespace or the start of the
+ * text) and the token may not itself contain whitespace. */
+function activeMentionAt(text, caret) {
+  const upto = text.slice(0, caret);
+  const at = upto.lastIndexOf("@");
+  if (at === -1) return null;
+  if (at > 0 && !/\s/.test(upto[at - 1])) return null;
+  const query = upto.slice(at + 1);
+  if (/\s/.test(query)) return null;
+  return { start: at, query };
+}
+
+function closeMention() {
+  mentionState = null;
+  $("agent-mentions")?.remove();
+}
+
+function updateMentionState() {
+  const promptBox = $("agent-prompt");
+  const active = activeMentionAt(promptBox.value, promptBox.selectionStart);
+  if (!active) {
+    closeMention();
+    return;
+  }
+  const clips = ctx.getView()?.clips || [];
+  const q = active.query.toLowerCase();
+  const matches = clips.filter((c) => c.clip_id.toLowerCase().startsWith(q)).slice(0, 8);
+  if (matches.length === 0) {
+    // Nothing to complete — degrade to plain text, per this feature's own
+    // contract: no popover, Enter still sends, "@text" goes to the agent
+    // as-is.
+    closeMention();
+    return;
+  }
+  mentionState = { ...active, matches, activeIndex: 0 };
+  renderMentionPopover();
+}
+
+function insertMention(clipId) {
+  const promptBox = $("agent-prompt");
+  const { start, query } = mentionState;
+  const end = start + 1 + query.length;
+  const before = promptBox.value.slice(0, start);
+  const after = promptBox.value.slice(end);
+  promptBox.value = `${before}@${clipId} ${after}`;
+  const caret = before.length + clipId.length + 2;
+  promptBox.focus();
+  promptBox.setSelectionRange(caret, caret);
+  closeMention();
+}
+
+function renderMentionPopover() {
+  let box = $("agent-mentions");
+  if (!box) {
+    box = el("div", "mention-popover");
+    box.id = "agent-mentions";
+    $("agent-composer").append(box);
+  }
+  box.textContent = "";
+  mentionState.matches.forEach((clip, i) => {
+    const item = el(
+      "div",
+      `mention-item${i === mentionState.activeIndex ? " active" : ""}`,
+      clip.clip_id + (clip.has_transcript ? "" : " (no transcript)"),
+    );
+    // mousedown + preventDefault, not click: stops the textarea blurring
+    // (and closeMention() firing on that blur) before the insert runs.
+    item.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      insertMention(clip.clip_id);
+    });
+    box.append(item);
+  });
+}
+
 // -- wiring -------------------------------------------------------------
 
 export function init(passedCtx) {
@@ -465,6 +625,8 @@ export function init(passedCtx) {
     append(entry("agent-entry--user", prompt));
     promptBox.value = "";
     closeProgress(null); // a fresh prompt starts a fresh checklist, not a continuation
+    lastPrompt = prompt;
+    closeMention();
     setBusy(true);
     try {
       await ctx.api("/api/agent", { prompt });
@@ -475,13 +637,46 @@ export function init(passedCtx) {
   });
 
   // Enter sends (matches every chat composer this panel is imitating);
-  // shift-Enter still inserts a newline for a multi-line prompt.
+  // shift-Enter still inserts a newline for a multi-line prompt. When a
+  // mention popover is open, arrow/Enter/Tab/Escape drive it instead —
+  // folded into this one listener rather than a second one on the same key.
   promptBox.addEventListener("keydown", (event) => {
+    if (mentionState) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        mentionState.activeIndex = (mentionState.activeIndex + 1) % mentionState.matches.length;
+        renderMentionPopover();
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        mentionState.activeIndex =
+          (mentionState.activeIndex - 1 + mentionState.matches.length) % mentionState.matches.length;
+        renderMentionPopover();
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        insertMention(mentionState.matches[mentionState.activeIndex].clip_id);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMention();
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       composer.requestSubmit();
     }
   });
+  promptBox.addEventListener("input", updateMentionState);
+  promptBox.addEventListener("keyup", (event) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateMentionState();
+  });
+  promptBox.addEventListener("click", updateMentionState);
+  promptBox.addEventListener("blur", closeMention);
 
   $("agent-stop").addEventListener("click", async () => {
     try {
@@ -490,6 +685,38 @@ export function init(passedCtx) {
       ctx.emit("toast", err.message);
     }
     setBusy(false);
+  });
+
+  // Item 4: "Start New Task" — kill the live subprocess so the next prompt
+  // spawns fresh with no conversation history. The server suppresses the
+  // synthetic error_no_output result this kill would otherwise trigger (see
+  // webui.py's `_suppress_next_exit_report`), so nothing arrives on
+  // /api/events to clear `busy` or in-flight progress state — this handler
+  // does that directly rather than waiting on a stream event that will not
+  // come.
+  $("agent-new-task").addEventListener("click", async () => {
+    try {
+      await ctx.api("/api/agent/new-task", {});
+    } catch (err) {
+      ctx.emit("toast", err.message);
+      return;
+    }
+    currentProgress = null;
+    pendingSteps.clear();
+    renderSlots.clear();
+    currentModel = null;
+    const chip = $("agent-model");
+    if (chip) chip.textContent = "";
+    setBusy(false);
+    closeMention();
+    feedEl().textContent = "";
+    append(
+      el(
+        "p",
+        "pane-placeholder",
+        "New task — the previous conversation was cleared. The next prompt starts a fresh agent process.",
+      ),
+    );
   });
 
   ctx.on("agent", (data) => {

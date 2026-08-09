@@ -122,9 +122,29 @@ $("undo").addEventListener("click", async () => {
   if (!error) await load(view.clip_id);
 });
 
+// 'custom' is the only preset with anything to type in — everything else
+// leaves #export-resolution hidden and unread.
+$("export-preset").addEventListener("change", (event) => {
+  $("export-resolution").hidden = event.target.value !== "custom";
+});
+
+// Parses "WIDTHxHEIGHT" into [width, height], or null for anything else —
+// this widget only assembles what the user typed, it does not validate a
+// combination (ops.export does that, and a bad one surfaces as the render
+// job's own 'error' event).
+function parseResolution(text) {
+  const match = /^(\d+)x(\d+)$/.exec(text.trim());
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
 $("export").addEventListener("click", async () => {
+  const body = {};
+  const preset = $("export-preset").value;
+  if (preset) body.preset = preset;
+  const resolution = parseResolution($("export-resolution").value);
+  if (resolution) body.resolution = resolution;
   try {
-    const result = await api("/api/render", {});
+    const result = await api("/api/render", body);
     toast(`Render started · job ${result.job_id}`);
   } catch (err) {
     toast(err.message);

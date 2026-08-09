@@ -100,6 +100,15 @@
  *                           say)
  *     .w.sel                 inside the current selection
  *     .w.playing             the word under the playhead right now
+ *   .pause                   an inline `[N.Ns]` pause marker, drawn only when
+ *                          `word.pause_after` is present (DAYDREAM.md §
+ *                          Transcript document); resolves to the word index
+ *                          it trails, never an index of its own
+ *     .pause.gone             its pause no longer plays — struck through,
+ *                           hidden entirely with cuts hidden, same two-state
+ *                           rule as .w.gone
+ *     .pause.sel              selected together with its flanking words, or
+ *                           as the explicit trailing edge of a range
  *   .selection-toolbar       floating, positioned to the selection's screen
  *                          rect (PLAN.md § Where the cut controls go) —
  *                          Preview / Cut / Keep only live here
@@ -154,7 +163,19 @@
  *                                duration, and the four checks
  *   .check-row / .check-badge       one check's name and its badge; badge
  *                                modifiers: .ok .warn .fail .skip
- *   .agent-composer                the input row: textarea + Send/Stop
+ *   .agent-composer                the input row: textarea + Send/Stop;
+ *                                 `position: relative` anchors .mention-popover
+ *   #agent-model                    the model chip in the composer hint —
+ *                                 empty until the first `system`/`init` event
+ *   #agent-new-task                 kills the live subprocess, next prompt
+ *                                 spawns fresh (pane-head, top right)
+ *   .agent-thumbs                   the Helpful/Not-helpful row after a
+ *                                 successful turn — telemetry only, nothing
+ *                                 reads it back yet (DAYDREAM.md § Agent panel)
+ *   .mention-popover / .mention-item / .mention-item.active
+ *                                    the @-mention completion list, anchored
+ *                                 to .agent-composer (not caret-precise —
+ *                                 pure composer sugar)
  *
  * Shared, reused wherever an op's result is echoed — op results render into
  * the agent feed (PLAN.md § Where the cut controls go), but the transcript's
@@ -300,6 +321,11 @@
 
   --pane-transcript-w: 26rem;
   --pane-agent-w: 24rem;
+  /* Floors for the three workspace tracks. They exist because the two side
+     widths above sum to exactly 800px — see #workspace. */
+  --pane-transcript-min: 13rem;
+  --pane-preview-min: 19rem;
+  --pane-agent-min: 13rem;
   --timeline-h: 22vh;
   --timeline-h-min: 180px;
   --track-header-w: 84px;
@@ -402,6 +428,7 @@ button.primary:hover:not(:disabled) {
 
 input[type="number"],
 input[type="range"],
+input[type="text"],
 select,
 textarea {
   padding: 3px 6px;
@@ -414,6 +441,13 @@ textarea {
 
 input[type="number"] {
   width: 62px;
+  font-family: var(--font-mono);
+}
+
+/* Export flow's WIDTHxHEIGHT box (index.html #export-resolution) — same
+   idiom as input[type="number"] above, sized for "1920x1080". */
+#export-resolution {
+  width: 88px;
   font-family: var(--font-mono);
 }
 
@@ -492,10 +526,24 @@ textarea {
 
 /* -- workspace: transcript | preview | agent ----------------------------- */
 
+/* Three `minmax()`es, not the two fixed side widths plus a bare `1fr` this
+   shipped with — and the reason is a measured disappearance, not tidiness.
+   26rem + 24rem is exactly 800px, an entirely ordinary window (half of a
+   1600px display). At that width the `1fr` between them resolved to ZERO
+   rather than squeezing either neighbour, so the preview pane — player,
+   transport, clock, the thing § Layout exists to make the largest element on
+   screen — vanished with no scrollbar, no collapsed affordance, and nothing in
+   the console. Below 800px it stayed gone. The floors make the side panes give
+   way first and keep the picture the last thing to shrink, which is the same
+   priority the layout is arguing for at every other width. Measured in a real
+   browser at 700/800/900/1400, the way the `auto` track above was. */
 #workspace {
   grid-row: 2;
   display: grid;
-  grid-template-columns: var(--pane-transcript-w) 1fr var(--pane-agent-w);
+  grid-template-columns:
+    minmax(var(--pane-transcript-min), var(--pane-transcript-w))
+    minmax(var(--pane-preview-min), 1fr)
+    minmax(var(--pane-agent-min), var(--pane-agent-w));
   min-height: 0;
 }
 
@@ -672,6 +720,35 @@ textarea {
   color: light-dark(hsl(48 27% 98%), hsl(48 14% 7%));
 }
 
+/* An inline pause marker — the mono voice, since it is reading as a number,
+   not a word (DAYDREAM.md § Typography). */
+.pause {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--dim);
+  vertical-align: 1px;
+}
+
+.pause:hover {
+  background: var(--wash-dim);
+}
+
+.pause.gone {
+  text-decoration: line-through;
+  text-decoration-color: var(--cut);
+}
+
+.pause.sel {
+  background: var(--sel);
+  color: #fff;
+}
+
 .selection-toolbar {
   position: absolute;
   display: flex;
@@ -815,12 +892,56 @@ textarea {
 }
 
 .agent-composer {
+  position: relative; /* anchors .mention-popover; the flex layout of its
+                          two children (textarea, .agent-composer-row) is
+                          otherwise untouched */
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 14px;
   border-top: 1px solid var(--line);
   background: var(--panel);
+}
+
+/* item 3: @-mention completion, popped above the composer. Same shadow idiom
+   as .toolbar-popover (transcript.js's selection toolbar). */
+.mention-popover {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 100%;
+  margin-bottom: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: light-dark(0 8px 24px hsl(42 14% 40% / 0.22), 0 8px 24px hsl(0 0% 0% / 0.5));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+  z-index: 6;
+}
+
+.mention-item {
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mention-item.active {
+  background: var(--sel);
+  color: #fff; /* matches transcript.js's .w.sel literal — same token, same override */
+}
+
+/* item 2: the per-turn rating row. Reuses .agent-entry's own bordered-bubble
+   look (no new wrapper styling needed) and just lays its children out. */
+.agent-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .agent-composer textarea {

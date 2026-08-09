@@ -89,6 +89,7 @@ uv run lucid -C myproject transcript vo --search "here's the thing"
 uv run lucid -C myproject cut vo 111:114 --plan          # what do those indices say?
 uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
 uv run lucid -C myproject cut-at 40.4+4.4                # or cut by what an export played
+uv run lucid -C myproject restore vo 111:114             # changed your mind about one cut
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
 uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
 ```
@@ -101,10 +102,11 @@ uv run lucid -C myproject web --open      # localhost; select words, preview, cu
 uv run lucid -C myproject view            # the same read model as JSON
 ```
 
-`--render` exports media instead of an NLE project, and `undo` rolls back the
-last mutation. A timeline with a cue table or a second clip on it is written
-as MLT by lucid and rendered by `melt` — auto-editor never sees one, because
-it degrades a two-source render to 720x576 and exits 0.
+`--render` exports media instead of an NLE project, `--preset youtube|web|custom`
+picks a quality bundle for it, and `undo` rolls back the last mutation while
+`restore` un-cuts one specific range. A timeline with a cue table or a second
+clip on it is written as MLT by lucid and rendered by `melt` — auto-editor never
+sees one, because it degrades a two-source render to 720x576 and exits 0.
 
 Every subcommand is also an MCP tool — that parity is enforced by the test
 suite — so an agent drives the same operations:
