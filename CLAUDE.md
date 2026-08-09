@@ -88,23 +88,19 @@ installed package or the upstream repo, not your memory.
     raw projection would draw one `export` rejects. A refusal from either
     arrives as `shots_error` for the lane to draw, never as an exception.
     HISTORY.md § The picture lane.
-    - The **preview** picture layer reads the same array for the same reason,
-      and it needs one more field off it: `src_start` is where inside its asset
-      the shot reads, so a clip used three times previews from three places. A
-      layer reloading each asset from its head looks right and is a different
-      film. `player.js` § the picture layer.
+    - The **preview** layer reads the same array, and one more field off it:
+      `src_start` is where inside its asset the shot reads, so a clip used
+      three times previews from three places. Reloading each asset from its
+      head looks right and is a different film. `player.js` § the picture layer.
   - **Verify the picture layer by canvas readback, never by screenshot** —
     headless Chrome does not composite `<video>` into a capture (wiki
-    `tooling.md` § Headless browser). `drawImage` the element into a canvas,
-    reduce, and compare against ffmpeg's frame at the source timestamp the page
-    claims. HISTORY.md § The preview picture layer has the grids.
-  - **A `<video>` that cannot decode its source fires one contentless `error`
-    and shows black** — indistinguishable from a black frame the edit meant.
-    So the reason is worked out on the box, by `media.playability()` behind
-    `/api/preview/<asset>`, and drawn. Three of its four refusal classes pass a
-    naive codec-name check: 10-bit H.264 *is* `codec_name: h264`, a `.mkv` can
-    hold perfectly good H.264, and an undecodable audio track refuses a file
-    whose video is fine.
+    `tooling.md` § Headless browser). Compare against ffmpeg's frame at the
+    source timestamp the page claims. HISTORY.md § The preview picture layer.
+  - **A `<video>` that cannot decode fires one contentless `error` and shows
+    black**, which is exactly what a black frame the edit meant looks like.
+    Never infer the reason in JS — `media.playability()` behind
+    `/api/preview/<asset>` has it, and three of its four refusal classes pass a
+    naive codec-name check.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a

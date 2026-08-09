@@ -95,11 +95,14 @@ uv run lucid -C myproject verify final.mp4               # did the render say wh
 ```
 
 Or watch it instead of reading it — the page plays the source through the
-edit, so there is nothing to render first:
+edit, so there is nothing to render first. On a project with a cue table it
+also shows the shot under the playhead, read from the same place the export
+will read it:
 
 ```sh
 uv run lucid -C myproject web --open      # localhost; select words, preview, cut, undo
 uv run lucid -C myproject view            # the same read model as JSON
+uv run lucid -C myproject preview vo      # will a browser play this asset, and if not why
 ```
 
 `--render` exports media instead of an NLE project, `--preset youtube|web|custom`
@@ -108,8 +111,10 @@ picks a quality bundle for it, and `undo` rolls back the last mutation while
 clip on it is written as MLT by lucid and rendered by `melt` — auto-editor never
 sees one, because it degrades a two-source render to 720x576 and exits 0.
 
-Every subcommand is also an MCP tool — that parity is enforced by the test
-suite — so an agent drives the same operations:
+Every MCP tool has a matching subcommand, enforced by the test suite — so an
+agent drives the same operations. It runs the other way too, minus a short
+allowlist of commands there is nothing for an agent to do with (`web`,
+`waveform`, `preview`, `info`, `mcp`):
 
 ```sh
 uv run lucid mcp                                          # serve MCP over stdio
