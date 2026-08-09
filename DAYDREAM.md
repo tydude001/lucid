@@ -358,18 +358,25 @@ coming (cues) and one primitive (`spot_frames` samples frames); it has **no
 indexing and no search**, and Daydream's own metering suggests theirs is
 cloud inference — the one part that must not be copied blind.
 
-The local design space, to be costed in its own note before any build:
-frame-sample each imported clip (the `spot_frames` machinery generalises) →
-describe or embed frames **on this box** → store per-clip descriptions in
-the project → search is either embedding similarity or, simpler and very
-lucid-shaped, *the agent reads the descriptions* — they are text, and the
-agent is already in the window. The second option needs no model runtime at
-all beyond whatever wrote the descriptions (which could itself be the agent,
-once, at import — "watching" as a tool call rather than a subsystem).
-Options, costs, and the pick belong in that design note; the wiki's homebase
-encoder service (port 8765) is on the checklist as possibly-relevant compute.
-Strictly after the picture lane — placing b-roll the export can't render is
-the standing trap.
+**The design is costed, in lucid `PLAN.md` § B-roll by description**
+(2026-08-09), and nothing is built. It picks the agent-reads-the-descriptions
+option — measured sufficient at project scale, ~10k tokens for this project's
+footage — over embeddings, and it describes on this box in about six minutes
+for a whole project. Two corrections it makes to *this* row, both measured:
+
+- **"lucid has the placement substrate coming (cues)" is true only for
+  whole-clip b-roll.** A cue names an asset, never a moment inside one —
+  `mlt.plan_picture` assigns that from a consumption cursor. Since search's
+  entire output is a moment, the item's real build is an in-point on a cue,
+  which must refuse rather than rewind when it would overrun.
+- **The homebase encoder service (port 8765) is struck from the checklist.**
+  It is an ffmpeg transcoder with no inference in it. It is relevant to the
+  preview proxy transcode instead.
+
+Also settled: "watching at import" is refused (it would make every import a
+six-minute job over footage nobody uses), and describing is a *job* on
+`/api/render`'s pattern rather than a request. Still strictly after the picture
+lane — placing b-roll the export can't render is the standing trap.
 
 ### Motion graphics + templates — after the picture lane, design first
 

@@ -366,8 +366,14 @@ carries a length, a shot's length is derived from the edit, and a cue carrying
 a length is the failure § The property everything below defends exists to
 prevent. It gets its own note, after a watch of a card-heavy cut.
 
-**Next in the queue is b-roll by description**, which still wants its costed
-note first and must not copy Daydream blind.
+**Next in the queue is b-roll by description, and its costed note is written —
+2026-08-09, nothing built** (§ B-roll by description). The note inverts the
+item's own framing: the indexing half everyone assumed was the cloud-shaped
+risk is local, resident and ~6 minutes for a whole project's footage, while the
+*placement* half DAYDREAM.md counted as already-coming does not exist — a cue
+cannot name a moment inside its asset, because `mlt.plan_picture` picks that by
+a consumption cursor. What search returns is a moment, so the build is an
+in-point on a cue, pinned and refusing rather than rewinding.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
@@ -401,9 +407,10 @@ timeline being the enabler and the look pass being gated on nothing:
    What it left is per-word *animation*, which shares a construction question
    with a single-word highlight and is an export cost, not a styling one.
    Then 3. **motion graphics + templates**, then
-4. **b-roll by description** — both get costed design notes before
-   any build; b-roll must not copy Daydream blind, whose hour-metering
-   implies cloud inference where lucid is local-only.
+4. **b-roll by description** — its costed note is written and nothing is built
+   (§ B-roll by description, 2026-08-09). The hour-metering worry resolved
+   against Daydream rather than for it: describing locally is minutes, and the
+   part that actually needs building is a cue that can name a moment.
 5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
    is no longer only a parity nicety** — it is what a `tiktok-reels` export
@@ -1164,3 +1171,171 @@ deliberately unanswered — whether the existing Scream cards get regenerated at
 1920x816 (Tyler's call on a watch, and the wiki row already carries it), and
 per-word caption animation, which shares "one Dialogue event per word" with
 nothing here and neither blocks this nor is blocked by it.
+
+## B-roll by description — the design note — 2026-08-09
+
+The costed note DAYDREAM.md § B-roll by description and § Next ask for before
+any build. **The finding that shapes it inverts the item's own framing.**
+DAYDREAM.md says lucid "has the placement substrate coming (cues) and one
+primitive (`spot_frames`)" and lacks indexing and search, with the indexing
+half being the part that must not be copied blind because Daydream's metering
+implies cloud inference.
+
+Measured, both halves come out the other way round. **The indexing half is
+nearly free and entirely local** — the model is already on this box, the
+pipeline that drives it is already written in a sibling repo, and a project's
+whole footage library describes in about six minutes. **The placement
+substrate is the part that does not exist.** A cue addresses
+`(clip_id, word_index, asset)`; where inside the asset a shot reads is decided
+by `mlt.plan_picture`'s per-asset cursor, in consumption order. Search's whole
+output is *a moment* — "cold-open at 312s" — and there is no way to say it.
+The missing piece is not an index. It is an in-point on a cue, and it is small.
+
+### Measured on this box, 2026-08-09
+
+Six measurements, on the real Scream footage (`~/lucid-scream-v2/proj/media`,
+nine clips, 14s to 730s), because the last two notes both found the toolchain
+was not what it was assumed to be.
+
+1. **The describe model is resident and the loader is already written.**
+   `Qwen2.5-VL-7B-Instruct` is 31 GB in the HF cache; `vaultmedia`'s
+   `tagger_core.load_qwen` loads it 4-bit (nf4, bf16 compute) in **14.9s**, and
+   `run_vlm` is a generic frames+prompt pass. Nothing needs downloading and no
+   inference code needs writing. What lucid must **not** reuse is that repo's
+   prompt and vocabulary — both are specific to that repo's own library — only the loader
+   and the generation pass. That the model is cached and that the tagging venv
+   exists are box/cross-repo facts and belong in the wiki, not here; this note
+   cites them.
+
+2. **Cost is per window, not per second of footage.** Sampling plus one
+   description is **~2.6–3.3s per window**, near enough constant regardless of
+   how much footage the window spans:
+
+   | clip | span | windows | total | per minute of footage |
+   |---|---|---|---|---|
+   | `s1996-billy-stu` | 30s | 3 × 10s | 7.9s | 15.7s |
+   | `s3-reveal` | 55s | 5 × 10s | 16.5s | 18.0s |
+   | `s2022-reveal` | 160s | 8 × 20s | 22.9s | 8.6s |
+
+   So window *length* is the only cost knob, and the Scream project's ~1300s of
+   video is **~6 minutes at 10s windows, ~3 at 20s**. That makes `describe` a
+   *job*, not a request — the same shape as the still-open preview transcode,
+   and it should reuse `/api/render`'s background pattern rather than invent a
+   second one.
+
+3. **VRAM is the ceiling, and this box's always-on MoE server sets it.** The
+   RTX 5070 has 11.5 GiB usable and `llama-server` holds **3.5 GiB
+   permanently**. Six frames at 420x360 peaks at **6024 MiB and fits**; twelve
+   frames **OOMs** — which is what vaultmedia's own `num_frames_for` rule asks
+   for on a 730s clip, so the 730s cold open is exactly the clip that failed.
+   lucid therefore **cannot scale frames with clip length**; it holds
+   frames-per-call fixed and scales window *count*. Finding 2 reaches the same
+   place from the cost side.
+
+4. **A whole-clip description is not merely vague, it is wrong — and windows
+   fix it.** One 6-frame pass over the 30s Billy/Stu clip described **six men**
+   where there are two: it read six frames as six people, in fluent prose, with
+   no signal that anything was off. The same clip in 10s windows of 3 frames
+   reads correctly and concretely — kitchen, white cabinets, blood, a knife.
+   The whole-clip pass on `s3-reveal` did the softer version of the same thing,
+   collapsing three distinct locations into "a person… another person… a third
+   person" and discarding *when* each was. Windowed output is specific enough to
+   search on: "a kitchen with blue tiled walls and a white range hood featuring
+   circular vents".
+   - **Two residual error classes, recorded so they are not rediscovered as
+     bugs.** The model still narrates *across* a cut inside a window as though
+     it were one take ("the camera remains stationary as the figure turns to
+     face away"), so a window is not evidence of a continuous shot. And at
+     `max_new_tokens=120` two windows **truncated mid-sentence** — an index
+     entry that ends mid-fact, which reads as a complete description. Whatever
+     limit ships has to be checked against, not assumed.
+
+5. **Scene detection cannot choose the windows, and it fails by producing
+   output.** `select='gt(scene,T)'` is cheap — 730s scanned in 11.1s, ~66×
+   realtime — but `T` is not portable across footage. At the *same* threshold
+   0.3, the 160s clip yields **23** cuts and the 730s cold open yields **5**.
+   Five windows over 730s is a 2.4-minute window described from three frames:
+   precisely the blur finding 4 rejects, arrived at silently and looking like
+   success. Sweeping the cold open confirms the knob is a cliff rather than a
+   dial — **0.1 → 118 cuts, 0.2 → 50, 0.3 → 5**. So **fixed windows are the
+   default**, and scene detection is only ever allowed to *subdivide* one.
+
+6. **The homebase encoder service is not relevant compute.** DAYDREAM.md put
+   port 8765 on the checklist as possibly-relevant. It is vaultmedia's ffmpeg
+   transcoder — zero inference, no model of any kind. Struck from this item;
+   it is, however, relevant to a *different* open one, the preview proxy
+   transcode.
+
+### The design
+
+**A description indexes the source, which is why an edit cannot invalidate
+it.** The unit is `(clip_id, src_start, src_end, text)` in **source** seconds.
+The b-roll asset is not the thing being cut, so its own times never renumber —
+the same reason word indices are safe, and not in tension with § The property
+everything below defends, which is about cues carrying *timeline* lengths.
+
+**They live in the manifest, and that is a schema bump.** v2 → v3, with a
+`_MIGRATIONS[2]` entry keyed by the version it migrates *from*, exactly as the
+caption/cue work established — the migration mechanism exists so a bump is a
+step rather than a widening of `Project.open`. Rejected alternatives: a sidecar
+directory on the `assets/cards/` precedent (a card is a file a cue names by
+convention; a description has no natural filename and is per-clip metadata
+`info` should report), and `cache/` (disposable, and these cost GPU minutes).
+
+**The runtime is a subprocess, resolved the way whisper is.** `asr.transcribe()`
+shells the binary via `LUCID_WHISPER` → PATH → a sibling venv specifically so
+lucid never imports a heavy model runtime; `describe.py` gets the same shape —
+`LUCID_VLM` → the sibling tagging venv → a refusal that names what is missing.
+lucid's own venv gains no torch. It also keeps the sibling repo's prompts out of
+lucid: lucid passes its own.
+
+**Search is the agent reading the descriptions, and that is right up to a
+measured ceiling.** ~130 windows for this project at ~60 words each is roughly
+**10k tokens** — the agent is already in the window and can simply read them.
+No embedding runtime, no vector store, no similarity threshold to tune. The
+ceiling is real and worth writing down: at ~1000 windows (≈5.5 hours of footage
+at 20s) it is ~80k tokens and stops being reasonable. Embeddings become the
+right answer only when a **cross-project** library exists, which lucid does not
+have — multi-project is late and small in § Next. So `describe_ls` returns the
+table, optionally filtered by clip, and the agent picks. Keyword filtering is a
+convenience on top, not a subsystem.
+
+**The one thing that must be built rather than reused: a cue that can name a
+moment.** `cue_add` gains an optional `src_start`, and four constraints come
+with it:
+
+- **In-point only.** The out-point stays derived from the next cue, through the
+  edit. A cue carrying both ends is the music-bed failure § The property
+  everything below defends records.
+- **A pinned cue refuses rather than rewinds.** `plan_picture` today rewinds a
+  cursor that would overrun its asset, which is right for an unpinned re-use —
+  clamping would read as a frozen frame, a render bug. For a *pinned* cue,
+  rewinding silently shows footage the search did not find: correct pixels,
+  wrong video. It refuses, and the refusal arrives as `shots_error` for the
+  lane to draw, never as an exception — the picture lane's existing contract.
+- **Same schema bump as the descriptions**, one migration for both.
+- **No new plumbing for the window.** `timeline_view`'s shots already carry
+  `src_start` (`ops.py:632`), and both `player.js` and `timeline.js` already
+  read it, because the preview picture layer needed exactly this field.
+
+### What this note refuses to build
+
+- **No embeddings, no vector store, no CLIP.** Measured unnecessary at project
+  scale; the trigger to revisit is a cross-project library, not a hunch.
+- **No "watch on import".** It would make every import a six-minute job and
+  describe footage nobody uses. `describe` is explicit, like `transcribe`.
+- **No automatic placement.** The agent places, through `cue_add`, after a human
+  or the agent has read the description. A pass that picks *and* places puts a
+  wrong shot into a finished film with nothing on screen saying so.
+- **No re-describe hook on edit.** Descriptions index the source; cutting the VO
+  cannot invalidate them. Stated explicitly so nobody adds the invalidation.
+
+### Build order — nothing is built yet
+
+1. `describe` — the subprocess, fixed windows, manifest storage, the schema
+   bump, and skip-if-already-described.
+2. `describe_ls` — the table, with the CLI/MCP/web parity every tool here gets.
+3. `cue_add --src-start`, `plan_picture`'s pinned-entry refusal, and the stdio
+   and HTTP suites that prove both are reachable rather than merely written.
+4. **Stop.** Watch a cut that actually uses b-roll before adding ranking of any
+   kind — the same discipline the layered timeline and the card note used.
