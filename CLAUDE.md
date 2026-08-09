@@ -88,6 +88,25 @@ installed package or the upstream repo, not your memory.
     raw projection would draw one `export` rejects. A refusal from either
     arrives as `shots_error` for the lane to draw, never as an exception.
     HISTORY.md § The picture lane.
+    - The **preview** picture layer reads the same array for the same reason,
+      and it needs one more field off it: `src_start` is where inside its asset
+      the shot reads, so a clip used three times previews from three places. A
+      layer reloading each asset from its head looks right and is a different
+      film. `player.js` § the picture layer.
+  - **A black `<video>` in a headless-browser screenshot is not evidence.**
+    Headless Chrome decodes video and does not composite it into
+    `Page.captureScreenshot` — neither the shell nor the flatpak at
+    `--headless=new`, both measured. To check what a video element is showing,
+    `drawImage` it into a canvas and read the pixels back; compare against
+    ffmpeg's frame at the same source timestamp. HISTORY.md § The preview
+    picture layer.
+  - **A `<video>` that cannot decode its source fires one contentless `error`
+    and shows black** — indistinguishable from a black frame the edit meant.
+    So the reason is worked out on the box, by `media.playability()` behind
+    `/api/preview/<asset>`, and drawn. Three of its four refusal classes pass a
+    naive codec-name check: 10-bit H.264 *is* `codec_name: h264`, a `.mkv` can
+    hold perfectly good H.264, and an undecodable audio track refuses a file
+    whose video is fine.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a

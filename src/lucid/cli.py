@@ -297,6 +297,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--clip-id", help="which clip's media to measure (default: the one the timeline opens with)"
     )
 
+    p_preview = sub.add_parser(
+        "preview", help="resolve one preview asset and say whether a browser will play it"
+    )
+    p_preview.add_argument("asset", help="a cue's asset key: card:<name>, or a clip_id")
+
     p_web = sub.add_parser("web", help="serve the preview/timeline UI on localhost")
     p_web.add_argument("--host", default=webui.DEFAULT_HOST, help=f"bind address ({webui.DEFAULT_HOST})")
     p_web.add_argument(
@@ -683,6 +688,10 @@ def _cmd_waveform(args: argparse.Namespace) -> int:
     return _emit(ops.waveform(args.project, clip_id=args.clip_id))
 
 
+def _cmd_preview(args: argparse.Namespace) -> int:
+    return _emit(ops.preview_source(args.project, args.asset))
+
+
 def _cmd_web(args: argparse.Namespace) -> int:
     # Blocks until Ctrl-C. Unlike every other subcommand this one prints no
     # JSON — its output is the page.
@@ -830,6 +839,7 @@ _COMMANDS = {
     "status": _cmd_status,
     "view": _cmd_view,
     "waveform": _cmd_waveform,
+    "preview": _cmd_preview,
     "web": _cmd_web,
     "undo": _cmd_undo,
     "captions": _cmd_captions,

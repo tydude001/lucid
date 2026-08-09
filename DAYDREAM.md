@@ -329,7 +329,10 @@ clip *filename* labels, held back on purpose because a block labelled by
 * **Filmstrip thumbnails** on V1 clips: ffmpeg frame-samples per clip,
   cached like waveforms (`cache/thumbs/`, keyed media size+mtime); drawn
   through the edit the same way the waveform maps timeline→source slices.
-  Waits on a project with real footage — same gate as the preview proxy.
+  The gate it shared with the preview proxy turned out to be already met —
+  `~/lucid-scream-v2/proj` is real footage, and the picture layer shipped
+  against it 2026-08-09 (HISTORY.md § The preview picture layer). What is left
+  here is the work itself, unblocked.
 * **Snap and link toggles, lock/visibility per lane**: deferred until there
   is more than one *real* track to lock or link — meaningful post-layered
   timeline, decorative before it.

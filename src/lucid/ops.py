@@ -940,6 +940,61 @@ def waveform(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
     return result
 
 
+#: Cards are written as PNG by every path that makes one, but a person can
+#: drop any still into `assets/cards/`, and the preview shows it as an <img>.
+_PREVIEW_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"})
+
+
+def preview_source(path: Path | str, asset: str) -> dict[str, Any]:
+    """Resolve one preview asset to a file, and say whether it will play.
+
+    The picture lane draws shots; this is what lets the *viewer* show the shot
+    under the playhead, which is what makes V2 a picture rather than a plan of
+    one (PLAN.md § Next). One asset key in — a `card:name` or a clip_id, the
+    same opaque string a cue carries — a resolved path and a verdict out.
+
+    **Deliberately wider than `_resolve_asset`**, which refuses a clip with no
+    video because a picture *cue* pointing at a VO is a mistake. The viewer has
+    a second caller with the opposite need: the transport plays the timeline's
+    own clip, and on a VO project that clip is exactly the audio-only one. The
+    two resolvers agree on where a card lives and on what `media_path` means;
+    they disagree only about what a valid answer is, and each is right for its
+    own question.
+
+    `kind` is what the front end draws with — an `<img>` holds a still, a
+    `<video>` seeks — and it comes from the resolved file rather than from the
+    cue, because `is_image` in a shot is a statement about the *cue key* and
+    this is a statement about the bytes.
+
+    `playable` is `media.playability`'s verdict, and it is reported rather than
+    enforced: an unplayable file is still streamed if asked for, because the
+    browser is the only real authority and this list is a prediction. What the
+    verdict buys is the *reason*, which a `<video>`'s error event does not carry
+    — without it, a codec refusal and a black frame in the edit look identical.
+    """
+    project = Project.open(path)
+    if asset.startswith("card:"):
+        name = asset.removeprefix("card:")
+        # The one place an asset key arrives from outside the project (the web
+        # route), so the traversal check is here rather than in the resolver
+        # shared with the cue table.
+        if not name or "/" in name or "\\" in name or name.startswith("."):
+            raise ProjectError(f"asset {asset!r} does not name a card")
+        source = project.cards_dir / f"{name}.png"
+    else:
+        source = media.media_path(project, media.get_clip(project, asset))
+    if not source.is_file():
+        raise ProjectError(f"asset {asset!r} resolves to {source}, which does not exist")
+
+    result: dict[str, Any] = {"asset": asset, "path": str(source)}
+    if source.suffix.lower() in _PREVIEW_IMAGE_SUFFIXES:
+        return {**result, "kind": "image", "playable": True, "reason": None}
+
+    verdict = media.playability(source)
+    kind = "video" if verdict.get("video_codec") else "audio"
+    return {**result, "kind": kind, **verdict}
+
+
 def _resolve(parsed: tx.Transcript, ranges: Iterable[Sequence[int]]) -> list[tuple[float, float]]:
     resolved = []
     for item in ranges:

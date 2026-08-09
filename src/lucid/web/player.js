@@ -8,7 +8,10 @@
  * the view now lives in app.js and every pane reads the same copy of it.
  *
  * New in tier 3, and not a logic change to the loop itself: the audio-only
- * level display (PLAN.md § Layout — #viewer is never `display:none`).
+ * level display (PLAN.md § Layout — #viewer is never `display:none`), and the
+ * picture layer, which shows the V2 shot under the playhead over whatever the
+ * transport is playing. Both hang off the same tick; neither touches the seam
+ * logic, which still owns `media` alone.
  *
  * Exports:
  *   init(ctx)      call once, after `$("media")` etc. exist. Wires the
@@ -24,8 +27,9 @@
  *                    playing()     bool
  *                    seekWord(w)   seek to a word's timeline_start, if present
  *
- * player.js owns #viewer, #media, #visualizer, #transport, #play, #clock,
- * #playhint and touches no other pane's DOM. Every animation frame it emits
+ * player.js owns #viewer, #media, #visualizer, #picture (with #picture-video,
+ * #picture-still, #picture-note), #transport, #play, #clock, #playhint and
+ * touches no other pane's DOM. Every animation frame it emits
  * a 'playhead' event `{now, total}` on the shared bus, and a 'playing-word'
  * event `{index}` whenever the playing word changes — transcript.js and
  * timeline.js paint their own playheads/highlights from those rather than
@@ -46,10 +50,29 @@ let vizCtx = null;
 let audioCtx = null;
 let analyser = null;
 
+/* The picture layer's drift budget. The transport and the picture are two
+ * media elements playing from two files, so they cannot be frame-locked —
+ * `now()` is the only clock, and the picture is corrected back to it whenever
+ * it wanders this far. Small enough that nobody sees the correction, large
+ * enough that a decoder's ordinary jitter does not cause one every frame. */
+const PICTURE_DRIFT = 0.15;
+/* Paused is a different problem: nothing is jittering, so the picture is
+ * seeked to the exact frame and only a real disagreement moves it. */
+const PICTURE_EPS = 0.04;
+
 let mediaClip = null; // which clip <video> currently has loaded
 let segIndex = -1; // which timeline segment is playing
 let pendingSeek = null; // a seek waiting on loadedmetadata
 let wordCursor = 0; // cache for the playing-word scan
+
+let picture = null; // the V2 layer, or null before init
+let pictureVideo = null;
+let pictureStill = null;
+let pictureNote = null;
+let pictureAsset = null; // which asset the picture layer currently holds
+let pendingPictureSeek = null; // as pendingSeek, for the picture element
+let shotCursor = 0; // cache for the shot-under-the-playhead scan
+const pictureRefused = new Set(); // assets the browser would not decode
 
 function view() {
   return ctx.getView();
@@ -149,6 +172,7 @@ function tick() {
   const t = now();
   paintPlayhead(t);
   paintWord(t);
+  paintPicture(t);
   drawVisualizer();
 }
 
@@ -180,6 +204,113 @@ function paintWord(t) {
   if (paintWord.last === index) return;
   paintWord.last = index;
   ctx.emit("playing-word", { index });
+}
+
+/* -- the picture layer: the shot under the playhead ----------------------
+ *
+ * What makes V2 a picture rather than a plan of one. timeline.js draws the
+ * shots as blocks; this shows the one the playhead is inside.
+ *
+ * It reads `view().shots` and nothing else — the same array the lane draws,
+ * which is `timeline_view`'s projection *already through `mlt.plan_picture`*
+ * (CLAUDE.md). That is the whole reason this is honest: `src_start` is where
+ * the MLT writer decided this shot reads from inside its asset, so a clip used
+ * three times previews from three different places, exactly as it will render.
+ * Reading `build_shots` here instead would preview a shot `export` refuses.
+ *
+ * The audio is never this element's. The transport owns playback and `now()`
+ * is the only clock in the window; the picture is a follower muted at the
+ * source, so a shot whose asset has a soundtrack cannot talk over the VO.
+ */
+
+function shotAt(t) {
+  const shots = view().shots;
+  if (!shots || !shots.length) return null;
+  // Same wrap-around walk as paintWord, and for the same reason: playback is
+  // monotonic except on a seek, and a seek costs one lap.
+  for (let n = 0; n < shots.length; n++) {
+    const i = (shotCursor + n) % shots.length;
+    const shot = shots[i];
+    if (shot.start <= t && t < shot.start + shot.duration) {
+      shotCursor = i;
+      return shot;
+    }
+  }
+  return null;
+}
+
+function assetURL(asset) {
+  return `/api/asset/${encodeURIComponent(asset)}`;
+}
+
+function showPictureNote(text) {
+  pictureNote.textContent = text;
+  pictureNote.hidden = !text;
+}
+
+/* A refused asset is diagnosed on the box rather than guessed at in here: the
+ * `error` event carries nothing, so the reason comes from `/api/preview`,
+ * which probed the actual file. Asked once per asset — a failure is a property
+ * of the file, and re-asking every time the playhead re-enters the shot would
+ * put one fetch per frame on a codec problem. */
+function diagnose(asset) {
+  if (pictureRefused.has(asset)) return;
+  pictureRefused.add(asset);
+  showPictureNote(`${asset} — the browser refused this file`);
+  fetch(`/api/preview/${encodeURIComponent(asset)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((info) => {
+      if (info && info.reason && pictureAsset === asset) showPictureNote(`${asset} — ${info.reason}`);
+    })
+    .catch(() => {});
+}
+
+function loadShot(shot) {
+  pictureAsset = shot.asset;
+  showPictureNote(pictureRefused.has(shot.asset) ? `${shot.asset} — the browser refused this file` : "");
+  if (shot.is_image) {
+    pictureVideo.hidden = true;
+    pictureVideo.pause();
+    pictureStill.hidden = false;
+    pictureStill.src = assetURL(shot.asset);
+  } else {
+    pictureStill.hidden = true;
+    pictureStill.removeAttribute("src");
+    pictureVideo.hidden = false;
+    pictureVideo.src = assetURL(shot.asset);
+    pendingPictureSeek = shot.src_start;
+  }
+}
+
+function paintPicture(t) {
+  if (!picture) return;
+  const shot = shotAt(t);
+  if (!shot) {
+    // No shot here is not a failure: the picture track has a hole, and what
+    // shows through it is the edit's own track — which is what `export`
+    // renders too. Hiding the layer *is* drawing that.
+    if (picture.hidden) return;
+    picture.hidden = true;
+    pictureVideo.pause();
+    pictureAsset = null;
+    return;
+  }
+  picture.hidden = false;
+  if (pictureAsset !== shot.asset) loadShot(shot);
+  if (shot.is_image) return;
+
+  const target = shot.src_start + Math.max(0, t - shot.start);
+  if (pictureVideo.readyState === 0) {
+    pendingPictureSeek = target;
+    return;
+  }
+  if (media.paused) {
+    if (!pictureVideo.paused) pictureVideo.pause();
+    if (Math.abs(pictureVideo.currentTime - target) > PICTURE_EPS) pictureVideo.currentTime = target;
+    return;
+  }
+  if (Math.abs(pictureVideo.currentTime - target) > PICTURE_DRIFT) pictureVideo.currentTime = target;
+  if (pictureVideo.paused) pictureVideo.play().catch(() => {});
 }
 
 /* -- the audio-only level display ----------------------------------------
@@ -227,6 +358,9 @@ function vizBarColour() {
 function drawVisualizer() {
   if (!analyser || !vizCtx) return;
   if (!$("viewer").classList.contains("audio")) return;
+  // The picture layer is opaque and covers this; drawing under it is work
+  // nobody can see.
+  if (picture && !picture.hidden) return;
   const data = new Uint8Array(analyser.frequencyBinCount);
   analyser.getByteFrequencyData(data);
   const w = visualizer.width;
@@ -243,6 +377,12 @@ function drawVisualizer() {
 export function update(state) {
   if (!state) return;
   $("viewer").classList.toggle("audio", !currentClip().has_video);
+  // A cue changed, or the plan started refusing: drop what the layer holds so
+  // the next frame reloads against the new projection rather than keeping a
+  // shot that no longer exists on screen.
+  shotCursor = 0;
+  pictureAsset = null;
+  if (picture && !state.shots) picture.hidden = true;
   if (!state.segments.length) return;
   const wanted = state.segments[0].clip_id;
   if (mediaClip === null) setClip(wanted);
@@ -253,12 +393,31 @@ export function init(passedCtx) {
   media = $("media");
   visualizer = $("visualizer");
   vizCtx = visualizer.getContext("2d");
+  picture = $("picture");
+  pictureVideo = $("picture-video");
+  pictureStill = $("picture-still");
+  pictureNote = $("picture-note");
 
   media.addEventListener("loadedmetadata", () => {
     if (pendingSeek !== null) {
       media.currentTime = pendingSeek;
       pendingSeek = null;
     }
+  });
+
+  pictureVideo.addEventListener("loadedmetadata", () => {
+    if (pendingPictureSeek !== null) {
+      pictureVideo.currentTime = pendingPictureSeek;
+      pendingPictureSeek = null;
+    }
+  });
+
+  pictureVideo.addEventListener("error", () => {
+    if (pictureVideo.src && pictureAsset) diagnose(pictureAsset);
+  });
+
+  pictureStill.addEventListener("error", () => {
+    if (pictureStill.src && pictureAsset) diagnose(pictureAsset);
   });
 
   media.addEventListener("error", () => {

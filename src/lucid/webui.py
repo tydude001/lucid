@@ -856,6 +856,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(ops.waveform(str(self.project_root), clip_id))
             elif path.startswith("/api/media/"):
                 self._send_media(unquote(path[len("/api/media/") :]), head_only=head_only)
+            elif path.startswith("/api/asset/"):
+                self._send_asset(unquote(path[len("/api/asset/") :]), head_only=head_only)
+            elif path.startswith("/api/preview/"):
+                asset = unquote(path[len("/api/preview/") :])
+                if not asset:
+                    raise WebUIError("asset key is required")
+                self._send_json(ops.preview_source(str(self.project_root), asset))
             else:
                 self._fail(HTTPStatus.NOT_FOUND, f"no such endpoint: {path}")
         except WebUIError as exc:
@@ -890,7 +897,28 @@ class Handler(BaseHTTPRequestHandler):
         source = media.media_path(project, clip)
         if not source.is_file():
             raise WebUIError(f"{clip_id}'s media is missing from disk: {source}")
+        self._stream_file(source, head_only=head_only)
 
+    def _send_asset(self, asset: str, *, head_only: bool) -> None:
+        """Stream one picture asset — a cue's `card:name` or clip_id — to the viewer.
+
+        Separate from `_send_media` because the two resolve differently and only
+        one of them is addressed by clip_id: a card is not a clip and never will
+        be. Both end in the same `_stream_file`, so Range behaves identically —
+        which matters more here than for the transport, since the picture layer
+        seeks constantly and every seek aborts an in-flight range.
+
+        Resolution and the traversal check are `ops.preview_source`'s, not a
+        second copy: the untrusted-string case is exactly the one that must have
+        one implementation.
+        """
+        if not asset:
+            raise WebUIError("asset key is required")
+        resolved = ops.preview_source(str(self.project_root), asset)
+        self._stream_file(Path(resolved["path"]), head_only=head_only)
+
+    def _stream_file(self, source: Path, *, head_only: bool) -> None:
+        """Byte-range streaming, shared by every route that hands over a file."""
         size = source.stat().st_size
         ctype = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
         header = self.headers.get("Range")

@@ -324,8 +324,13 @@ through `Edit.timeline_span`.
 
 The tier-3 workspace shipped 2026-08-08 (§ Tier 3 is the goal); its two
 remainders are wiki rows (binding the agent's MCP server to its `-C` project,
-and the video preview proxy). The verified bar for any UI item: run against
-the real Scream VO, in a real browser (wiki `tooling.md` § Headless browser).
+and the video preview proxy, whose showing-the-shot half shipped 2026-08-09 —
+HISTORY.md § The preview picture layer — leaving the transcode). The verified
+bar for any UI item: run against the real Scream VO, in a real browser (wiki
+`tooling.md` § Headless browser) — and for anything showing *video*, not by
+screenshot: headless Chrome decodes it and does not composite it into
+`Page.captureScreenshot`, so a black capture there means nothing. Read the
+element's pixels off a canvas instead.
 
 The look/feel pass — the parity queue's head — shipped 2026-08-08 too
 (HISTORY.md § The look pass), and the six small items it left behind shipped
@@ -372,12 +377,20 @@ timeline being the enabler and the look pass being gated on nothing:
    for a vertical export will ask for. It still costs what it always did:
    the project model, both render paths, and the preview letterbox.
 
-**What step 6 left, and the look pass did not take:** the picture lane is
-drawn but not previewed — clicking a shot seeks the transport and the viewer
-stays black, because the preview pane still plays one clip's media. That is
-the video preview proxy (a wiki row), and it is what makes V2 a picture
-rather than a plan of one. It is a data problem, not a look one, which is
-why the retheme went past it.
+**What step 6 left is closed, and it was two items rather than one.** The
+picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
+position inside its asset `mlt.plan_picture` assigned, so a clip used three
+times previews from three different places (HISTORY.md § The preview picture
+layer). What that needed was a second element in `#viewer`, not a transcode —
+every piece of the Scream footage is already `avc1`/`yuv420p`.
+
+The wiki row's other half, **a playable proxy for footage a browser cannot
+decode**, is still open and is now the smaller thing: an unplayable asset
+explains itself in the viewer (`hev1`, 10-bit, an unopenable container, an
+undecodable audio track — each named), it just does not play. Building the
+transcode wants a design note first for the same reason everything else here
+does: it is a *job*, not a request — `cold-open` is 730s — so it needs the
+`/api/render` background pattern, a cache key, and an eviction rule.
 
 ### Parked — deliberately, with the reasoning
 
@@ -746,10 +759,14 @@ guesses:
 
 * **Multi-project.** `lucid web` serves one project per process. Daydream's
   breadcrumb implies a project list; nothing here builds one.
-* **Video, and the codec wall under it.** Every claim above about the picture
-  is unverified against real footage, because the only project in the repo is
-  an audio-only VO. Frame stepping and letterboxing get checked against a real
-  clip before they are believed.
+* **Video, and the codec wall under it.** *Answered in part, 2026-08-09 — the
+  picture is verified against real footage now (HISTORY.md § The preview
+  picture layer), and the wall turned out not to stand in front of this
+  project.* All ten Scream clips are H.264 High / `avc1` / `yuv420p`, so the
+  browser plays them from `/api/asset/` byte-for-byte and the letterbox is
+  `object-fit: contain`. What survives of this bullet is everything below it:
+  the wall is real for *other* footage, and lucid now names which wall it hit
+  rather than showing black.
 
   The wall found while planning, and it is a *container and profile* problem
   rather than a Linux one. ffprobe on a representative NAS source reports

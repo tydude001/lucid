@@ -183,6 +183,8 @@ CLI_ONLY = {
     "web",  # serves the UI until Ctrl-C; an agent cannot watch a page
     "waveform",  # 19,000 floats is a picture, not something an agent reasons
     # over — PLAN.md § Read-model additions
+    "preview",  # answers "will a *browser* play this", and an agent has no
+    # <video> element; no render path consults the verdict either
 }
 
 

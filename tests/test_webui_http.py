@@ -15,6 +15,7 @@ import re
 import shlex
 import shutil
 import struct
+import subprocess
 import threading
 import time
 import urllib.error
@@ -567,6 +568,115 @@ def test_waveform_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> No
     status, payload = _json(f"{server}/api/waveform/nope")
     assert status == 400
     assert "nope" in payload["error"]
+
+
+# -- the picture layer's assets -------------------------------------------
+#
+# What the viewer loads to show the shot under the playhead. A card is not a
+# clip and is not reachable through `/api/media/`, so these are the routes that
+# make V2 a picture rather than a plan of one.
+
+
+def test_an_asset_route_serves_a_card_the_media_route_cannot_reach(
+    project: Path, server: str
+) -> None:
+    """The reason there are two routes at all: `card:outro` is an asset key, not
+    a clip_id, and `/api/media/` resolves clip_ids only."""
+    card = Project.open(project).cards_dir / "outro.png"
+    card.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    status, headers, body = _get(f"{server}/api/asset/card:outro")
+
+    assert status == 200
+    assert body == card.read_bytes()
+    assert headers["Accept-Ranges"] == "bytes"
+    assert _json(f"{server}/api/media/card:outro")[0] == 400
+
+
+def test_an_asset_route_also_serves_a_clip(project: Path, server: str) -> None:
+    """A picture cue's asset is a clip_id as often as it is a card, so the one
+    route answers for both — and answers with the same bytes `/api/media/` does,
+    because both go through `media.media_path` rather than guessing at a path."""
+    status, _, body = _get(f"{server}/api/asset/vo")
+
+    assert status == 200
+    assert body == (project / "media" / "vo.wav").read_bytes()
+
+
+def test_an_asset_honours_range_the_way_media_does(project: Path, server: str) -> None:
+    """The picture layer seeks on every shot change, so Range is load-bearing
+    here rather than incidental — and it is the same `_stream_file` either way."""
+    whole = (project / "media" / "vo.wav").read_bytes()
+
+    status, headers, body = _get(f"{server}/api/asset/vo", headers={"Range": "bytes=64-127"})
+
+    assert status == 206
+    assert headers["Content-Range"] == f"bytes 64-127/{len(whole)}"
+    assert body == whole[64:128]
+
+
+def test_a_card_name_cannot_climb_out_of_the_cards_directory(server: str) -> None:
+    """The one place an asset key arrives from outside the project. A traversal
+    is refused with a message rather than served, and the check lives in
+    `ops.preview_source` so the route cannot have a second, weaker copy of it."""
+    assert _get(f"{server}/api/asset/card:..%2F..%2F..%2Fetc%2Fpasswd")[0] == 400
+
+    status, payload = _json(f"{server}/api/preview/card:..%2F..%2F..%2Fetc%2Fpasswd")
+    assert status == 400
+    assert "does not name a card" in payload["error"]
+
+
+def test_an_unknown_asset_is_a_message_not_a_crash(server: str) -> None:
+    status, payload = _json(f"{server}/api/asset/nope")
+    assert status == 400
+    assert "nope" in payload["error"]
+
+
+def test_preview_names_the_kind_the_front_end_has_to_draw_with(
+    project: Path, server: str
+) -> None:
+    """`kind` decides <img> versus <video>, and it is read off the resolved file
+    rather than off the cue: `is_image` in a shot is a statement about the key."""
+    Project.open(project).cards_dir.joinpath("outro.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    _, card = _json(f"{server}/api/preview/card:outro")
+    assert card["kind"] == "image"
+    assert card["playable"] is True
+    assert card["path"].endswith("assets/cards/outro.png")
+
+    _, clip = _json(f"{server}/api/preview/vo")
+    assert clip["kind"] == "audio"
+    assert clip["playable"] is True
+    assert clip["reason"] is None
+    assert clip["audio_codec"] == "pcm_s16le"
+
+
+def test_preview_is_what_turns_a_contentless_media_error_into_a_reason(
+    project: Path, server: str
+) -> None:
+    """The point of the endpoint. A `<video>` that cannot decode its source fires
+    one empty `error` event, so the front end asks here and gets words — and the
+    file is still served on `/api/asset/`, because the browser is the authority
+    and this list is a prediction."""
+    # A .mkv registered as a clip: playable streams, container browsers refuse.
+    mkv = project.parent / "clip.mkv"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=160x120:rate=24:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(mkv),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    ops.import_media(project, mkv, clip_id="broll")
+
+    status, payload = _json(f"{server}/api/preview/broll")
+
+    assert status == 200
+    assert payload["playable"] is False
+    assert ".mkv" in payload["reason"]
+    assert _get(f"{server}/api/asset/broll")[0] == 200
 
 
 # -- the guards -----------------------------------------------------------

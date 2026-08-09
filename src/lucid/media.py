@@ -169,6 +169,86 @@ def count_frames(path: Path | str) -> dict[str, Any]:
     }
 
 
+# -- what a browser will actually play ------------------------------------
+#
+# The preview pane is a <video> element, so "can this be edited" and "can this
+# be *watched in the window*" are different questions and only ffprobe can tell
+# them apart. Every set below is the intersection that holds for the browsers
+# `lucid web` is used from on this box (Chromium and Firefox on Linux), which
+# is narrower than the spec and narrower than Safari — an `hvc1`-tagged HEVC
+# plays on iOS and not here (wiki `home.md`).
+_PLAYABLE_VIDEO = frozenset({"h264", "vp8", "vp9", "av1", "theora"})
+_PLAYABLE_AUDIO = frozenset({"aac", "mp3", "opus", "vorbis", "flac", "pcm_s16le", "pcm_u8"})
+#: 10-bit and 4:2:2 decode in ffmpeg and not in a browser's H.264 decoder, so
+#: the pixel format is a separate gate from the codec name and not implied by it.
+_PLAYABLE_PIX = frozenset({"yuv420p", "yuvj420p"})
+_PLAYABLE_CONTAINER = frozenset(
+    {".mp4", ".m4v", ".mov", ".webm", ".ogg", ".ogv", ".oga", ".mp3", ".m4a", ".wav", ".flac"}
+)
+
+
+def playability(path: Path | str) -> dict[str, Any]:
+    """Can a browser play this file, and if not, name the reason.
+
+    Answers the question the preview pane fails at silently: a `<video>` whose
+    source it cannot decode fires one contentless `error` event and shows black,
+    which is indistinguishable from a correct black frame in the edit. So the
+    reason is worked out here, on the box that has ffprobe, and reported as
+    words a person can act on rather than inferred in JS from an empty event.
+
+    Only ever consulted *about* the preview — no render path reads it, because
+    ffmpeg and melt decode everything in this list and a good deal more. A file
+    this call refuses still exports correctly.
+
+    `{"playable": bool, "reason": str | None, ...}` plus the four fields the
+    verdict was reached on, so a surprising answer can be checked against what
+    was actually measured rather than re-probed by hand.
+    """
+    media = Path(path).expanduser()
+    if not media.exists():
+        raise MediaError(f"no such media file: {media}")
+
+    payload = _ffprobe(
+        media,
+        "-show_entries",
+        "stream=codec_type,codec_name,codec_tag_string,profile,pix_fmt",
+        "-show_streams",
+    )
+    streams = payload.get("streams", [])
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+
+    measured: dict[str, Any] = {
+        "container": media.suffix.lower(),
+        "video_codec": video.get("codec_name") if video else None,
+        "video_tag": video.get("codec_tag_string") if video else None,
+        "profile": video.get("profile") if video else None,
+        "pix_fmt": video.get("pix_fmt") if video else None,
+        "audio_codec": audio.get("codec_name") if audio else None,
+    }
+
+    def verdict(reason: str | None) -> dict[str, Any]:
+        return {"playable": reason is None, "reason": reason, **measured}
+
+    if media.suffix.lower() not in _PLAYABLE_CONTAINER:
+        return verdict(f"{media.suffix or 'this'} is not a container browsers open")
+    if video is None and audio is None:
+        return verdict("this file has neither a video nor an audio stream")
+    if video is not None:
+        codec = video.get("codec_name")
+        if codec not in _PLAYABLE_VIDEO:
+            tag = video.get("codec_tag_string")
+            tagged = f" (tagged {tag})" if tag else ""
+            return verdict(f"video codec {codec}{tagged} is not decodable in a browser here")
+        pix = video.get("pix_fmt")
+        if pix not in _PLAYABLE_PIX:
+            profile = video.get("profile") or codec
+            return verdict(f"{profile} at {pix} is beyond a browser's 8-bit 4:2:0 decoder")
+    if audio is not None and audio.get("codec_name") not in _PLAYABLE_AUDIO:
+        return verdict(f"audio codec {audio.get('codec_name')} is not decodable in a browser here")
+    return verdict(None)
+
+
 def slugify(name: str) -> str:
     """Turn a filename into a clip_id candidate: lowercase, dashes, no cruft."""
     stem = Path(name).stem.lower()

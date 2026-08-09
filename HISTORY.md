@@ -2195,3 +2195,141 @@ not ship and it is blocked on DAYDREAM.md § Aspect swap, not on effort.
 Filmstrip thumbnails, clip filename labels, and snap/link/lock toggles are still
 open on their own gates (§ The look pass). The next ranked item is caption
 styling.
+
+## The preview picture layer — V2 stops being a plan of one — 2026-08-09
+
+Step 6 drew the picture lane and said so plainly in its own § What this does not
+cover: "clicking a shot seeks the transport, which plays the VO through the
+edit; the preview pane stays black, because it still plays one clip's media."
+That sentence is now false. The viewer shows the shot under the playhead.
+
+### The wiki row was two items, and only one of them was blocked
+
+The open row read "the video preview proxy (`hev1`/Main 10 is browser-unplayable
+…), which waits on a project with real footage", and the two halves of that turn
+out to be independent:
+
+- **Showing the shot** needed no transcode at all. Every piece of the Scream
+  footage is H.264 High, `avc1`, `yuv420p` — measured, all ten clips — so the
+  browser plays the assets as they sit on the NAS. What was missing was a second
+  element in `#viewer` and something to drive it.
+- **Making an unplayable asset playable** is a transcode, and it is deferred
+  with its reasons written down below rather than built blind.
+
+So the row's gate — "waits on a project with real footage" — was satisfied all
+along by `~/lucid-scream-v2/proj`, and what it was actually waiting on was
+somebody separating the two.
+
+### The layer reads `shots`, and that is the whole honesty argument
+
+`#picture` holds a `<video>` and an `<img>`, stacked over `#media` because that
+is the order `melt` composites V2 over the edit's own track. Every frame,
+`paintPicture(t)` finds the shot containing `now()` and shows it: an `<img>` for
+a card, a `<video>` seeked to `src_start + (t - shot.start)` for a clip.
+
+`src_start` is the field that makes this more than a slideshow. It is
+`mlt.plan_picture`'s per-asset cursor, already in `timeline_view`'s projection
+(CLAUDE.md: the lane draws the plan, never `build_shots`), so **a clip used three
+times previews from three different places inside it** — exactly where the writer
+will read on export. A layer that reloaded each asset from its head would look
+fine and be a different film.
+
+The audio is never this element's. `muted` at the source and the transport is
+the only clock: `now()` derives from `#media`'s `currentTime` through the edit,
+and the picture is corrected back to it whenever it drifts past 0.15s (0.04s when
+paused, where nothing is jittering). Two media elements cannot be frame-locked;
+one of them being authoritative is what keeps that from mattering.
+
+### A contentless error, turned into a sentence
+
+A `<video>` that cannot decode its source fires one `error` event carrying
+nothing, and shows black — **indistinguishable from a black frame the edit
+meant.** That is the failure mode the codec half of the row was really about, and
+it is closed even though the transcode is not: `media.playability()` probes the
+file and `GET /api/preview/<asset>` reports the reason, which the layer draws
+over the viewer. The front end asks only after an error, once per asset.
+
+Verified by encoding each case rather than by reasoning about codec strings:
+
+| file | verdict |
+|---|---|
+| H.264 High / `avc1` / `yuv420p` in `.mp4` | playable |
+| PCM `.wav` (the VO case) | playable |
+| HEVC tagged `hev1` | `video codec hevc (tagged hev1) is not decodable in a browser here` |
+| H.264 **High 10** / `yuv420p10le` | `High 10 at yuv420p10le is beyond a browser's 8-bit 4:2:0 decoder` |
+| H.264 in `.mkv` | `.mkv is not a container browsers open` |
+| `ac3` audio in `.mp4` | `audio codec ac3 is not decodable in a browser here` |
+
+Three of those pass a naive check. `High 10` is `codec_name: h264`, so the pixel
+format has to be a separate gate; the `.mkv` has a perfectly good H.264 stream
+and the container refuses it anyway; the `ac3` file's video is fine and the
+browser still plays nothing, because there is no partial state where the picture
+shows and the sound is missing. The verdict is **reported, not enforced** —
+`/api/asset/` streams a refused file anyway, since the browser is the authority
+and this list is a prediction.
+
+`preview_source` is deliberately wider than `_resolve_asset`, which refuses a
+clip with no video because a picture *cue* pointing at a VO is a mistake. The
+viewer's other caller is the transport, and on a VO project the clip it needs is
+exactly the audio-only one. Same resolution, opposite idea of a valid answer.
+
+### Verified
+
+`ruff check src tests` clean; suite **477 passed**, up from 463 — 14 new tests,
+seven in the new `test_media_playability.py` and seven in `test_webui_http.py`,
+with `git diff --numstat tests/` reporting `110 0` and `2 0`: **zero deleted
+lines** (CLAUDE.md — a test rewritten to agree with the code guards nothing).
+The two added lines are `preview` joining the `CLI_ONLY` allowlist with its
+reason, which is what that allowlist is for: the verdict is about a *browser*,
+and the agent panel has no `<video>` element to spend it on.
+
+**The screenshot is not the evidence, and that is worth recording.** Headless
+Chrome decodes video and does not composite it into `Page.captureScreenshot` —
+neither `chrome-headless-shell` nor the `com.google.Chrome` flatpak at
+`--headless=new`. Both produced a black viewer while the element reported
+`readyState 4`, `videoWidth 1920`, no error, and `canPlayType` "probably", and
+ffmpeg put the frame at `YAVG 78.6`. **A screenshot proves nothing about video
+either way here**; anyone checking this pane again should skip it.
+
+What was measured instead: `drawImage` the element into a canvas, reduce to an
+8x4 mean-RGB grid, and compare against the same grid off the frame ffmpeg
+extracts at the source timestamp the page claims. Seven shots across five
+assets, clicked in the V2 lane:
+
+| shot | reads at | distance / 255 |
+|---|---|---|
+| `cold-open` 0:00.0–0:28.9 | 14.50s | 3.9 |
+| `cold-open` 0:41.3–0:48.0 | 32.28s | 3.9 |
+| `vi-richie` 1:08.3–1:18.7 | 5.22s | 4.3 |
+| `s4-reveal` 1:18.7–1:22.5 | 1.75s | 6.9 |
+| `vi-richie` 1:22.5–1:38.0 | 18.26s | 2.8 |
+| `s2022-reveal` 1:38.0–1:49.2 | 5.74s | 3.7 |
+| `s1996-billy-stu` 1:49.2–2:06.2 | 8.52s | 4.2 |
+
+The two `cold-open` rows are the point: the second one reads at **32.28s**, not
+from the head — `plan_picture`'s cursor, confirmed from the browser. `vi-richie`
+does the same, 5.22s then 18.26s. Playback held the lock too: 3.9s of transport
+advanced the picture 3.91s.
+
+Cards were checked as an `<img>` — `receipt-scream-1996` drew at its natural
+1920x1080 against the film's 1920x816 canvas, letterboxed by `object-fit:
+contain`, which is the pillarbox the wiki row predicted and the reason `cover`
+is not used: a preview that crops to fill hides the framing problem it was
+opened to show. And the refusal note was driven end to end on a scratch project
+carrying a real `hev1` clip — the viewer draws *"broll — video codec hevc (tagged
+hev1) is not decodable in a browser here"* where it used to draw black.
+
+### What this does not cover
+
+- **No transcode.** An unplayable asset now explains itself; it still does not
+  play. Building the proxy needs three answers this change did not need: where it
+  goes and how it is keyed (the waveform cache is the obvious model), what
+  happens while it runs — `cold-open` is 730s, so it is a job with progress, not
+  a request that blocks — and when it is evicted. The `/api/render` background-job
+  pattern is the shape to copy. Deferring it is the same call every other
+  subsystem here got: no design note, no build.
+- **The transport still plays one clip.** V2 previews over V1; V1 itself is
+  whatever `#media` holds, and on a VO project that is silence-and-black under
+  the picture. Multi-clip V1 playback is not this change.
+- **Nothing here authors a cue**, same as step 6. The layer draws what the
+  projection says.

@@ -75,6 +75,14 @@
                instead when there is no picture to show. -->
           <video id="media" preload="metadata"></video>
           <canvas id="visualizer" width="960" height="240"></canvas>
+          <!-- V2 over V1, stacked the way melt composites the picture track
+               over the edit's own track. player.js shows the shot under the
+               playhead in here, muted: the audio is always the transport's. -->
+          <div id="picture" hidden>
+            <video id="picture-video" preload="metadata" muted playsinline></video>
+            <img id="picture-still" alt="">
+            <p id="picture-note" class="picture-note" hidden></p>
+          </div>
         </div>
         <div id="transport">
           <button id="play" title="play the timeline (space)">▶</button>

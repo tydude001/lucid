@@ -84,6 +84,9 @@
  *                          audio-only clip, a level display instead. Black in
  *                          both themes: it is a letterbox, not a surface.
  *   #viewer.audio            the audio-only state: video hidden, canvas shown
+ *   #picture                 the V2 layer over both: the shot under the
+ *                          playhead, `contain` so nothing is cropped
+ *   .picture-note             why a shot is not showing, in words
  *
  * Transcript pane (#transcript, filled by transcript.js):
  *   .transcript-toolbar     top-of-pane controls (e.g. the show-cuts toggle)
@@ -613,6 +616,54 @@ textarea {
 
 #viewer.audio #visualizer {
   display: block;
+}
+
+/* The picture layer — the shot under the playhead, over whatever the
+   transport is showing, because that is the order melt composites in. Its own
+   black ground rather than a transparent overlay: a shot that is letterboxed
+   against the canvas must not show the level display through the bars. */
+#picture {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+/* `hidden` has to beat the `display: flex` above, and does not on its own. */
+#picture[hidden],
+#picture-video[hidden],
+#picture-still[hidden] {
+  display: none;
+}
+
+/* `contain`, never `cover`: a shot cropped to fill the box is the
+   correct-pixels-wrong-video failure in miniature — the preview would hide
+   exactly the framing problem a person opened it to see. */
+#viewer #picture video,
+#viewer #picture img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Why a shot is not showing, in words — a <video> that cannot decode its
+   source fires one contentless error and shows black, which is otherwise
+   indistinguishable from a black frame the edit meant. */
+.picture-note {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  max-width: 80%;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: var(--radius-xs);
+  background: rgb(0 0 0 / 0.72);
+  color: #f4ede2;
+  font-size: 12px;
+  text-align: center;
 }
 
 #transport {
