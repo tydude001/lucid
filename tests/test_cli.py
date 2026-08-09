@@ -24,7 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid.cli import _parse_timecode, _time_span, main
+from lucid.cli import _parse_timecode, _slot_assignments, _time_span, main
+from lucid.project import ProjectError
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -297,3 +298,26 @@ def test_export_preset_and_resolution_flags_reach_ops(
     )
     err = capsys.readouterr().err
     assert "bitrate" in err
+
+
+def test_slot_assignments_parses_pairs_and_the_newline_escape() -> None:
+    """CLI-only plumbing: `--set` pairs, and `\\n` standing in for a line break.
+
+    The escape lives here rather than in `graphics` because it is a shell
+    problem — the op and the MCP tool both take a string with real newlines
+    already in it.
+    """
+    assert _slot_assignments(["title=Scream", "year=1996"]) == {
+        "title": "Scream",
+        "year": "1996",
+    }
+    assert _slot_assignments([r"quote=one\ntwo"]) == {"quote": "one\ntwo"}
+    # A value containing `=` keeps it; only the first one separates.
+    assert _slot_assignments(["date_line=watched 2021 — a=b"]) == {
+        "date_line": "watched 2021 — a=b"
+    }
+
+
+def test_slot_assignments_refuses_a_pair_with_no_equals() -> None:
+    with pytest.raises(ProjectError, match="SLOT=VALUE"):
+        _slot_assignments(["title"])

@@ -246,19 +246,27 @@ lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
 Clips and cards lay over the VO from the same word-indexed address space:
 
 ```sh
-lucid -C myproject card render reveal-scream2       # assets/cards/<name>.svg -> .png
+lucid -C myproject card templates                   # what each one takes
+lucid -C myproject card new reveal-scream2 --template reveal \
+  --set 'title=Scream 2' --set "note=Billy's mother" --set year=1997
+lucid -C myproject card render reveal-scream2       # re-render after an edit
 lucid -C myproject cue add vo 318 s1996-billy-stu   # from this word on, show this
 lucid -C myproject cue add vo 503 card:reveal-scream2
 lucid -C myproject shots --fps 30                   # what that projects to, in frames
 lucid -C myproject export assembly.kdenlive         # both lanes, written as MLT
 ```
 
-A card is authored as SVG under `assets/cards/` and rasterised by `card
-render` into the PNG `card:<name>` resolves to; both files are kept, so a card
-is re-edited rather than redrawn. Every render reports the fonts the document
-names and what fontconfig will actually draw — **a card naming a font this
-machine lacks renders pixel-identically to one naming a font it has**, so
-`font_warnings` is the only place that substitution is visible.
+A card is an SVG under `assets/cards/` and the PNG `card:<name>` resolves to;
+both are kept, so a card is re-edited rather than redrawn. `card new` fills one
+of three templates — `receipt`, `reveal`, `rerate` — and `card render`
+re-rasterises after a hand edit. **Cards generate at the project's own canvas**,
+so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with a
+quarter of its width in black bar.
+
+Every render reports the fonts the document names and what fontconfig will
+actually draw — **a card naming a font this machine lacks renders
+pixel-identically to one naming a font it has**, so `font_warnings` is the only
+place that substitution is visible.
 
 A cue names a *word*, so a later recut recomputes every shot position rather
 than invalidating it — and a cue whose word the recut removed is refused

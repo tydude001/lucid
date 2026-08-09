@@ -161,6 +161,31 @@ def _build_parser() -> argparse.ArgumentParser:
     p_card = sub.add_parser("card", help="generate the card assets a picture cue points at")
     card_sub = p_card.add_subparsers(dest="card_command", required=True)
 
+    card_sub.add_parser("templates", help="the card templates lucid ships, and their slots")
+
+    p_card_new = card_sub.add_parser(
+        "new", help="fill a template's slots and land both the SVG and its PNG"
+    )
+    p_card_new.add_argument("name", help="the <name> in card:<name>, without an extension")
+    p_card_new.add_argument("--template", required=True, help="see `lucid card templates`")
+    p_card_new.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="SLOT=VALUE",
+        dest="slots",
+        help="fill one slot; repeat for each. A literal \\n in VALUE is a line break",
+    )
+    p_card_new.add_argument(
+        "--width", type=int, help="canvas width (default: the project's own)"
+    )
+    p_card_new.add_argument(
+        "--height", type=int, help="canvas height (with --width)"
+    )
+    p_card_new.add_argument(
+        "--overwrite", action="store_true", help="replace a card of this name if one exists"
+    )
+
     p_card_render = card_sub.add_parser(
         "render", help="rasterise assets/cards/<name>.svg to the PNG card:<name> resolves to"
     )
@@ -679,10 +704,39 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
     )
 
 
+def _slot_assignments(pairs: list[str]) -> dict[str, str]:
+    """`SLOT=VALUE` pairs into a slot dict, `\\n` in VALUE meaning a line break.
+
+    The escape is here rather than in `graphics` because it is a shell
+    problem: a real newline inside `--set quote=...` is awkward to type and
+    trivial to lose to word splitting, while the op and the MCP tool both
+    take the string with its newlines already in it.
+    """
+    slots: dict[str, str] = {}
+    for pair in pairs:
+        slot, sep, value = pair.partition("=")
+        if not sep or not slot.strip():
+            raise ProjectError(f"--set takes SLOT=VALUE, not {pair!r}")
+        slots[slot.strip()] = value.replace("\\n", "\n")
+    return slots
+
+
 def _cmd_card(args: argparse.Namespace) -> int:
-    return _emit(
-        ops.card_render(args.project, args.name, width=args.width, height=args.height)
-    )
+    if args.card_command == "templates":
+        return _emit(ops.card_templates())
+    if args.card_command == "new":
+        return _emit(
+            ops.card_new(
+                args.project,
+                args.name,
+                args.template,
+                _slot_assignments(args.slots),
+                width=args.width,
+                height=args.height,
+                overwrite=args.overwrite,
+            )
+        )
+    return _emit(ops.card_render(args.project, args.name, width=args.width, height=args.height))
 
 
 def _cmd_cue(args: argparse.Namespace) -> int:

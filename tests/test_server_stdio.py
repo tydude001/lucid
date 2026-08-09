@@ -41,6 +41,8 @@ EXPECTED_TOOLS = {
     "attach_transcript",
     "transcribe",
     "get_transcript",
+    "card_templates",
+    "card_new",
     "card_render",
     "cue_add",
     "cue_rm",
@@ -159,6 +161,8 @@ TOOL_TO_COMMAND = {
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
+    "card_templates": "card",
+    "card_new": "card",
     "card_render": "card",
     "cue_add": "cue",
     "cue_rm": "cue",
@@ -297,6 +301,42 @@ def test_card_render_over_the_wire(tmp_path: Path) -> None:
     assert (out["width"], out["height"]) == (1920, 1080)
     assert Path(out["output"]) == Project.open(project).cards_dir / "receipt.png"
     assert Path(out["output"]).is_file()
+
+
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
+    """A card an agent could actually make: list templates, then fill one."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        listed = await client.call("card_templates")
+        made = await client.call(
+            "card_new",
+            path=str(project),
+            name="receipt-scream-1996",
+            template="receipt",
+            slots={
+                "title": "Scream",
+                "year": "1996",
+                "rating": 4.5,
+                "date_line": "watched 20 May 2021",
+            },
+        )
+        return {"listed": listed, "made": made}
+
+    out = anyio.run(_with_server, body)
+
+    assert {t["template"] for t in out["listed"]["templates"]} == {"receipt", "reveal", "rerate"}
+    assert out["made"]["asset"] == "card:receipt-scream-1996"
+    # No video clip in this project, so the canvas falls back to 1080p.
+    assert out["made"]["canvas_from"] == "project"
+    assert (out["made"]["width"], out["made"]["height"]) == (1920, 1080)
+
+    cards = Project.open(project).cards_dir
+    assert (cards / "receipt-scream-1996.svg").is_file()
+    assert (cards / "receipt-scream-1996.png").is_file()
 
 
 def test_cue_table_add_ls_rm_end_to_end(tmp_path: Path, sources: tuple[Path, Path]) -> None:

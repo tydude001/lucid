@@ -41,6 +41,7 @@ Four things measured on this box, 2026-08-09, that the code below depends on:
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import shlex
@@ -49,6 +50,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 from lucid.captions import font_match
 
@@ -309,3 +311,388 @@ def identify(image: Path | str) -> tuple[int, int]:
     except ValueError as exc:
         raise GraphicsError(f"magick reported no size for {path}: {done.stdout!r}") from exc
     return width, height
+
+
+# -- templates -------------------------------------------------------------
+#
+# Step 2 of PLAN.md § Motion graphics and templates. Templates are SVG files
+# with `{{slot}}` placeholders filled by string substitution — deliberately
+# not a template engine, because the whole vocabulary is "put this text
+# there" and a dependency that can branch and loop is a dependency that can
+# put logic in a card.
+#
+# The starter set is the three the Scream assembly actually used, not a
+# speculative library, and they reproduce those cards' own design: the
+# palette below is sampled from `receipt-scream-1996.png` and its siblings
+# rather than invented.
+
+#: Sampled off the real cards, not chosen: paper `(250,245,236)`, ink
+#: `(26,23,20)`, amber `(232,161,60)`, muted `(110,99,87)`, faint
+#: `(156,152,145)`. Every one is an ordinary slot with this as its default,
+#: so a project restyles a card by passing a different value.
+PALETTE = {
+    "paper": "#faf5ec",
+    "ink": "#1a1714",
+    "amber": "#e8a13c",
+    "muted": "#6e6357",
+    "faint": "#9c9891",
+}
+
+#: Fallback *stacks* ending in a generic, never a single face. A stack whose
+#: first entry is installed is not a substitution, and `font_report` scores it
+#: that way — which is the whole reason the report is per declaration. The
+#: named faces are ones this box has (wiki `tooling.md` § Fonts); the generic
+#: tail is what keeps a card legible on a machine that has neither.
+FONTS = {
+    "title_font": "'Noto Serif', 'Liberation Serif', serif",
+    "body_font": "'Lato', 'Noto Sans', sans-serif",
+    "quote_font": "'Noto Serif', 'Liberation Serif', serif",
+}
+
+#: The card a template is authored against. Geometry inside a template is in
+#: these units — 1920 wide, whatever the canvas aspect makes it tall — so a
+#: template renders at any canvas size without rewriting its coordinates.
+TEMPLATE_WIDTH = 1920
+
+#: Star geometry, in template units. The ratio is the standard five-point
+#: star's; the size is what matches the real cards' rows.
+STAR_RADIUS = 42.0
+STAR_INNER_RATIO = 0.382
+STAR_GAP = 22.0
+
+_PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
+
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+
+def _escape(value: str) -> str:
+    """Escape user text for either an attribute or element content.
+
+    `"` is escaped as well as `&<>` because a slot can land inside a
+    double-quoted attribute — `font-family="{{title_font}}"` does — and a
+    value that closed the attribute early would rewrite the document rather
+    than fail. `'` is left alone: nothing here emits single-quoted
+    attributes, and CSS font stacks read better with it.
+    """
+    return escape(value, {'"': "&quot;"})
+
+
+def _star_points(cx: float, cy: float) -> str:
+    """One five-point star as an SVG polygon point list."""
+    inner = STAR_RADIUS * STAR_INNER_RATIO
+    points = []
+    for step in range(10):
+        radius = STAR_RADIUS if step % 2 == 0 else inner
+        angle = math.radians(-90 + step * 36)
+        points.append(f"{cx + radius * math.cos(angle):.2f},{cy + radius * math.sin(angle):.2f}")
+    return " ".join(points)
+
+
+def stars_markup(rating: float, fill: str, *, prefix: str) -> tuple[str, float]:
+    """A row of stars for `rating`, anchored at (0, 0), plus its width.
+
+    Rounded to the nearest half, and drawn as filled stars only — no empty
+    outlines behind them, which is what the real cards do. A half is the same
+    star under a clip rectangle rather than a second hand-drawn path, so the
+    two halves cannot drift apart; the clip needs an id, and `prefix` is what
+    keeps two rows in one document from sharing one.
+
+    The width comes back because the caller may need to lay something out
+    after the row, and a row's width depends on the rating — `comparison`
+    below places its arrow that way rather than at a guessed offset.
+    """
+    halves = max(0, round(float(rating) * 2))
+    full, half = divmod(halves, 2)
+    step = STAR_RADIUS * 2 + STAR_GAP
+
+    parts = []
+    for index in range(full):
+        parts.append(
+            f'<polygon points="{_star_points(STAR_RADIUS + index * step, 0)}" fill="{fill}"/>'
+        )
+    if half:
+        cx = STAR_RADIUS + full * step
+        clip = f"{prefix}-half"
+        parts.append(
+            f'<clipPath id="{clip}">'
+            f'<rect x="{cx - STAR_RADIUS:.2f}" y="{-STAR_RADIUS:.2f}" '
+            f'width="{STAR_RADIUS:.2f}" height="{STAR_RADIUS * 2:.2f}"/>'
+            f"</clipPath>"
+            f'<polygon points="{_star_points(cx, 0)}" fill="{fill}" clip-path="url(#{clip})"/>'
+        )
+
+    count = full + half
+    width = 0.0 if count == 0 else count * step - STAR_GAP
+    return "".join(parts), width
+
+
+def comparison_markup(before: float, after: float, muted: str, amber: str) -> str:
+    """`before` stars, an arrow, then `after` stars — the re-rate row.
+
+    Laid out left to right off the measured width of the first row, because
+    the two ratings are what decide where the arrow goes. A fixed offset
+    would collide the moment someone re-rates from four stars rather than
+    from two.
+    """
+    gap = 78.0
+    arrow_length = 118.0
+
+    left, left_width = stars_markup(before, muted, prefix="before")
+    arrow_x = left_width + gap
+    right, _ = stars_markup(after, amber, prefix="after")
+    right_x = arrow_x + arrow_length + gap
+
+    head = arrow_x + arrow_length
+    arrow = (
+        f'<g fill="none" stroke="{amber}" stroke-width="11" stroke-linecap="round" '
+        f'stroke-linejoin="round">'
+        f'<path d="M {arrow_x:.2f} 0 L {head:.2f} 0"/>'
+        f'<path d="M {head - 34:.2f} -26 L {head:.2f} 0 L {head - 34:.2f} 26"/>'
+        f"</g>"
+    )
+    return f"{left}{arrow}<g transform=\"translate({right_x:.2f}, 0)\">{right}</g>"
+
+
+def _lines_markup(value: str, *, x: float, line_height: float) -> str:
+    """A multi-line slot as one `<tspan>` per line.
+
+    **Lines are the caller's, never guessed.** SVG has no automatic wrapping,
+    and a wrap computed from a character count is a wrap that overflows the
+    frame silently on the first line of wide glyphs — the shape of failure
+    this repo keeps finding. So a newline in the value is a line break and
+    nothing else breaks.
+    """
+    lines = value.split("\n")
+    return "".join(
+        f'<tspan x="{x:g}" dy="{0 if i == 0 else line_height:g}">{_escape(line)}</tspan>'
+        for i, line in enumerate(lines)
+    )
+
+
+#: What each template asks for. `placed` slots appear in the SVG as
+#: `{{name}}`; the rest feed a `derived` entry, which is markup lucid
+#: generates and the template positions. Descriptions are the tool surface an
+#: agent reads, so they say what the field *is*, not what type it has.
+TEMPLATES: dict[str, dict[str, Any]] = {
+    "receipt": {
+        "description": "A film, its rating out of five, when it was watched, and the note written then.",
+        "slots": {
+            "title": {"description": "the film's title"},
+            "year": {"description": "its release year, drawn in brackets after the title"},
+            "rating": {
+                "kind": "rating",
+                "placed": False,
+                "description": "stars out of five, to the nearest half (e.g. 4.5)",
+            },
+            "date_line": {"default": "", "description": "the line under the stars, e.g. 'watched 20 May 2021'"},
+            "quote": {
+                "kind": "lines",
+                "x": 140,
+                "line_height": 58,
+                "default": "",
+                "description": "the note itself; a newline is a line break, and nothing else wraps",
+            },
+            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+        },
+        "derived": {"stars": ("stars", "rating", "amber")},
+    },
+    "reveal": {
+        "description": "A title card on ink, with a footnote — the shape used for each sequel's reveal.",
+        "slots": {
+            "title": {"description": "the title, set large and centred"},
+            "note": {"default": "", "description": "the footnote under it, after an amber asterisk"},
+            "year": {"default": "", "description": "the year, drawn small in the bottom left"},
+            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+        },
+        "derived": {},
+    },
+    "rerate": {
+        "description": "A rating that changed: the old stars, an arrow, the new ones.",
+        "slots": {
+            "title": {"description": "the film's title"},
+            "year": {"description": "its release year, drawn in brackets after the title"},
+            "before": {
+                "kind": "rating",
+                "placed": False,
+                "description": "the old rating out of five, to the nearest half",
+            },
+            "after": {
+                "kind": "rating",
+                "placed": False,
+                "description": "the new rating out of five, to the nearest half",
+            },
+            "date_line": {"default": "", "description": "the line under the row, e.g. 're-rated 28 Feb 2026'"},
+            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+        },
+        "derived": {"comparison": ("comparison", "before", "after")},
+    },
+}
+
+#: Slots every template gets: the palette, the font stacks, and the geometry
+#: lucid computes from the canvas. Style slots are overridable; the geometry
+#: ones are not, because they are the canvas the caller already chose.
+STYLE_SLOTS = {**PALETTE, **FONTS}
+RESERVED_SLOTS = frozenset({"width", "height", "view_height", "mid_y", "note_y", "foot_y"})
+
+
+def template_path(name: str) -> Path:
+    path = _TEMPLATE_DIR / f"{name}.svg"
+    if name not in TEMPLATES or not path.is_file():
+        known = ", ".join(sorted(TEMPLATES)) or "none"
+        raise GraphicsError(f"no template named {name!r} (there are: {known})")
+    return path
+
+
+def template_slots(name: str) -> dict[str, dict[str, Any]]:
+    """Every slot `name` accepts, its default, and what it is for.
+
+    Read against the template on disk rather than from the manifest alone:
+    the placeholders in the file are the truth about what gets filled, and a
+    manifest that has drifted from them is how a card ends up shipping with
+    `{{year}}` printed on its face.
+    """
+    path = template_path(name)
+    spec = TEMPLATES[name]
+    found = set(_PLACEHOLDER.findall(path.read_text(encoding="utf-8")))
+
+    placed = {n for n, s in spec["slots"].items() if s.get("placed", True)}
+    expected = placed | set(spec["derived"]) | set(STYLE_SLOTS) | RESERVED_SLOTS
+    if found - expected:
+        raise GraphicsError(
+            f"template {name!r} has placeholders nothing fills: "
+            f"{sorted(found - expected)} — the manifest and the SVG disagree"
+        )
+    unplaced = (placed | set(spec["derived"])) - found
+    if unplaced:
+        raise GraphicsError(
+            f"template {name!r} declares slots its SVG never places: "
+            f"{sorted(unplaced)} — the manifest and the SVG disagree"
+        )
+
+    slots = {}
+    for slot, meta in spec["slots"].items():
+        slots[slot] = {
+            "description": meta["description"],
+            "kind": meta.get("kind", "text"),
+            "required": "default" not in meta,
+            "default": meta.get("default"),
+        }
+    for slot, value in STYLE_SLOTS.items():
+        slots[slot] = {
+            "description": "style; overridable",
+            "kind": "text",
+            "required": False,
+            "default": value,
+        }
+    return slots
+
+
+def templates() -> list[dict[str, Any]]:
+    """Every template lucid ships, with its slots.
+
+    Content and style are reported separately even though `fill_template`
+    takes them in one dict. Both front ends sort their JSON, so a single map
+    puts `amber` and `body_font` above `title` — burying the three fields a
+    caller has to supply under twelve it can ignore.
+    """
+    listing = []
+    for name in sorted(TEMPLATES):
+        slots = template_slots(name)
+        listing.append(
+            {
+                "template": name,
+                "description": TEMPLATES[name]["description"],
+                "slots": {s: v for s, v in slots.items() if s not in STYLE_SLOTS},
+                "style": {s: v for s, v in slots.items() if s in STYLE_SLOTS},
+            }
+        )
+    return listing
+
+
+def _rating(slot: str, value: Any) -> float:
+    try:
+        rating = float(value)
+    except (TypeError, ValueError):
+        raise GraphicsError(f"slot {slot!r} is a rating out of five, not {value!r}") from None
+    if not 0 <= rating <= 5:
+        raise GraphicsError(f"slot {slot!r} is a rating out of five, and {rating} is outside it")
+    return rating
+
+
+def fill_template(
+    name: str, values: dict[str, Any], *, width: int = 1920, height: int = 1080
+) -> str:
+    """Fill `name`'s slots with `values`, returning the SVG to write.
+
+    Every user value is escaped; the only unescaped markup is what lucid
+    generates itself for a `derived` slot. That split is the whole security
+    story of a string-substitution template, and it is why a rating is parsed
+    as a number here rather than pasted through as text.
+
+    A missing required slot and an unknown slot are both refused. A card
+    silently missing its year is the failure this exists to make loud — the
+    render would still succeed and still be wrong.
+
+    `width`/`height` are the canvas. Geometry inside a template is in
+    1920-wide units and the viewBox is written to match the canvas aspect, so
+    the same template renders at any size without pillarboxing.
+    """
+    path = template_path(name)
+    spec = TEMPLATES[name]
+    slots = template_slots(name)
+
+    unknown = set(values) - set(slots)
+    if unknown:
+        raise GraphicsError(
+            f"template {name!r} has no slot {sorted(unknown)} (it takes: {sorted(slots)})"
+        )
+    missing = [s for s, meta in slots.items() if meta["required"] and s not in values]
+    if missing:
+        raise GraphicsError(f"template {name!r} needs {sorted(missing)}, which nothing supplied")
+    if width <= 0 or height <= 0:
+        raise GraphicsError(f"canvas must be positive, got {width}x{height}")
+
+    resolved = {s: values.get(s, meta["default"]) for s, meta in slots.items()}
+
+    view_height = round(TEMPLATE_WIDTH * height / width)
+    filled: dict[str, str] = {
+        "width": str(width),
+        "height": str(height),
+        "view_height": str(view_height),
+        "mid_y": str(round(view_height * 0.44)),
+        "note_y": str(round(view_height * 0.44) + 130),
+        "foot_y": str(view_height - 110),
+    }
+    for slot, meta in slots.items():
+        if meta["kind"] == "rating" or not spec["slots"].get(slot, {}).get("placed", True):
+            continue
+        if meta["kind"] == "lines":
+            declared = spec["slots"][slot]
+            filled[slot] = _lines_markup(
+                str(resolved[slot]), x=declared["x"], line_height=declared["line_height"]
+            )
+        else:
+            filled[slot] = _escape(str(resolved[slot]))
+
+    for slot, (builder, *sources) in spec["derived"].items():
+        if builder == "stars":
+            source, colour = sources
+            markup, _ = stars_markup(
+                _rating(source, resolved[source]), resolved[colour], prefix=slot
+            )
+            filled[slot] = markup
+        elif builder == "comparison":
+            before, after = sources
+            filled[slot] = comparison_markup(
+                _rating(before, resolved[before]),
+                _rating(after, resolved[after]),
+                resolved["muted"],
+                resolved["amber"],
+            )
+        else:  # pragma: no cover - a builder name only this module writes
+            raise GraphicsError(f"template {name!r} names an unknown builder {builder!r}")
+
+    def substitute(match: re.Match[str]) -> str:
+        return filled[match.group(1)]
+
+    return _PLACEHOLDER.sub(substitute, path.read_text(encoding="utf-8"))

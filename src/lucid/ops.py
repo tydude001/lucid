@@ -225,6 +225,87 @@ def get_transcript(
 # directory, not a manifest field.
 
 
+def card_templates() -> dict[str, Any]:
+    """Every card template lucid ships, with the slots each one takes.
+
+    Takes no project: a template is package data, the same for every one.
+    """
+    return {"templates": graphics.templates()}
+
+
+def card_new(
+    path: Path | str,
+    name: str,
+    template: str,
+    slots: dict[str, Any],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Fill `template`'s slots and land both files under `assets/cards/`.
+
+    The SVG is written first and then rendered *from disk* by the same
+    `card_render` an edit-and-re-render would use — not from the string in
+    memory. One path, so a card made here and a card re-rendered later
+    cannot diverge.
+
+    **The canvas defaults to the project's own** — `_mlt_resolution`, the
+    same number the MLT profile declares — which is step 3 of PLAN.md
+    § Motion graphics and templates and what closes its finding 4. That
+    finding measured a 1920x1080 card in the Scream cut's 1920x816 frame
+    losing 465 px of width, 24%, to black bar. The fix is not to resize on
+    the way in: `-size` fits rather than distorts, so a card authored at the
+    wrong aspect pillarboxes whatever it is scaled to. It is to *author* at
+    the canvas, which a template can do because its geometry is in
+    1920-wide units and its viewBox is written to the aspect it is asked for.
+
+    Refused if the card already exists, unless `overwrite`. A card is
+    referenced by cues, and silently replacing the asset under one is the
+    kind of edit nobody can see happen.
+    """
+    project = Project.open(path)
+    _card_name(name)
+    if (width is None) != (height is None):
+        raise ProjectError(
+            "card_new takes both width and height or neither — one alone "
+            "would have to guess the other, and the guess would be a card "
+            "that pillarboxes in the frame it was made for"
+        )
+    canvas_from = "project"
+    if width is None or height is None:
+        width, height = _mlt_resolution(project)
+        canvas_from = "project"
+    else:
+        canvas_from = "requested"
+    source = project.cards_dir / f"{name}.svg"
+    if source.exists() and not overwrite:
+        raise ProjectError(
+            f"a card named {name!r} already exists at {source} — pass overwrite "
+            "to replace it, remembering that any cue pointing at card:"
+            f"{name} will show the new one"
+        )
+
+    svg = graphics.fill_template(template, dict(slots), width=width, height=height)
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(svg, encoding="utf-8")
+    return {
+        "template": template,
+        "canvas": f"{width}x{height}",
+        "canvas_from": canvas_from,
+        **card_render(path, name),
+    }
+
+
+def _card_name(name: str) -> str:
+    if not name or "/" in name or name.startswith("."):
+        raise ProjectError(
+            f"card name {name!r} is not a card name — it is the `<name>` in "
+            "`card:<name>`, so it names one file in assets/cards/, not a path"
+        )
+    return name
+
+
 def card_render(
     path: Path | str,
     name: str,
@@ -245,11 +326,7 @@ def card_render(
     reports and does not prevent, the same call `captions.font_match` made.
     """
     project = Project.open(path)
-    if not name or "/" in name or name.startswith("."):
-        raise ProjectError(
-            f"card name {name!r} is not a card name — it is the `<name>` in "
-            "`card:<name>`, so it names one file in assets/cards/, not a path"
-        )
+    _card_name(name)
     source = project.cards_dir / f"{name}.svg"
     if not source.is_file():
         existing = sorted(p.name for p in project.cards_dir.glob("*.svg"))

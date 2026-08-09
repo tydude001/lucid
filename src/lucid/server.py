@@ -189,6 +189,55 @@ def get_transcript(
 
 
 @_tool()
+def card_templates() -> dict[str, Any]:
+    """The card templates lucid ships, and the slots each one takes.
+
+    Read this before card_new: each slot says what it is for, whether it is
+    required, and what it defaults to. The palette and font stacks are slots
+    too, so a card can be restyled without authoring an SVG by hand.
+    """
+    return ops.card_templates()
+
+
+@_tool()
+def card_new(
+    path: str,
+    name: str,
+    template: str,
+    slots: dict[str, Any],
+    width: int | None = None,
+    height: int | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Make a card from a template: fill its slots, write the SVG, render it.
+
+    `name` is the `<name>` in `card:<name>` — the key a cue points at. Both
+    the SVG source and the PNG are written under the project's
+    `assets/cards/`, so the card can be re-edited later and re-rendered with
+    card_render rather than redrawn.
+
+    A slot value is text. A newline inside one is a line break wherever the
+    template accepts multiple lines; nothing wraps automatically, because a
+    guessed wrap overflows the frame without saying so. Ratings are numbers
+    out of five, to the nearest half.
+
+    **Leave `width`/`height` unset unless you mean something other than this
+    film.** They default to the project's own canvas, which is what stops a
+    card from pillarboxing inside the frame it was made for; naming a size
+    that is not the project's is how a card loses a quarter of its width to
+    black bar. Given at all, both must be.
+
+    Refused if a card of this name exists, unless `overwrite` — a cue may
+    already point at it. Read `font_warnings` in the result: a template
+    naming a face this machine lacks still renders, in a substitute, with
+    nothing else to say so.
+    """
+    return ops.card_new(
+        path, name, template, slots, width=width, height=height, overwrite=overwrite
+    )
+
+
+@_tool()
 def card_render(
     path: str, name: str, width: int | None = None, height: int | None = None
 ) -> dict[str, Any]:

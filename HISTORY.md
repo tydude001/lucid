@@ -2734,3 +2734,94 @@ It also caught the live thing: the card named `DejaVu Sans` and came back
 styling hit, which means **the open call about lucid's default font is no
 longer only about captions** — a template shipping a face this box lacks would
 put every generated card in a typeface nobody picked, invisibly.
+
+## Card templates, steps 2 and 3 of motion graphics — 2026-08-09
+
+`card new` fills a template's slots, writes the SVG, and renders it — and
+takes its canvas from the project rather than from a constant, which is what
+closes § Motion graphics and templates' finding 4. With step 1's renderer
+under them, the item's build order is done to where the note said stop.
+
+### The templates reproduce the real cards rather than inventing a look
+
+The starter set is the three the Scream assembly used — `receipt`, `reveal`,
+`rerate` — and their design was read off `receipt-scream-1996.png` and its
+siblings, not designed fresh. The palette is **sampled**: paper `(250,245,236)`,
+ink `(26,23,20)`, amber `(232,161,60)`, muted `(110,99,87)`, faint
+`(156,152,145)`. Every one is an ordinary slot with that as its default, so a
+project restyles a card without authoring SVG.
+
+Two things the shipped templates deliberately do not carry. There is no brand
+mark baked in — `mark` is an empty slot — because lucid is not the channel
+that happens to be dogfooding it. And **no template names a single font**: each
+declares a fallback stack ending in a generic (`'Noto Serif', 'Liberation
+Serif', serif`). That is the shape step 1's per-declaration font report was
+built for, and it scores correctly on this box: `Noto Serif` and `Lato` are
+present, so a real render reports `available: true` with no warning, rather
+than the false alarm a per-face check would raise about the tail of the stack.
+
+### Escaping is the whole security story of a string template
+
+Slots are filled by substitution, not by a template engine — the vocabulary is
+"put this text there", and a dependency that can branch and loop is one that
+can put logic in a card. What that leaves is escaping, and it is split by
+origin: **every user value is escaped, and the only raw markup is what lucid
+generates itself** for a derived slot. `"` escapes along with `&<>`, because a
+slot lands inside a double-quoted attribute — `font-family="{{title_font}}"`
+does — and a value that closed the attribute early would rewrite the document
+rather than fail. Both directions are asserted: a title of
+`</text><script>…` comes out escaped and still parses, and a font stack of
+`x" onload="boom` cannot reach the tag.
+
+### Stars are generated, and a half is the same star clipped
+
+A rating is parsed as a number and drawn, never pasted through as text. Halves
+are the full star polygon under a clip rectangle rather than a second
+hand-drawn path, so the two halves cannot drift apart — and each row's clip id
+is prefixed, because `rerate` puts two rows in one document and a shared id
+would collapse them into one. The re-rate row lays its arrow out from the
+*measured* width of the first row: a fixed offset collides the moment someone
+re-rates from four stars rather than from two.
+
+**Nothing wraps.** SVG has no automatic wrapping, and a wrap computed from a
+character count overflows the frame silently on the first line of wide glyphs
+— the failure shape this repo keeps finding. So a newline in a slot is a line
+break and nothing else breaks it, and the caller owns the lines. A test feeds
+200 words and asserts that not one line break appears.
+
+### The manifest and the SVG are checked against each other
+
+What a template accepts is read from the placeholders in the file, not from
+the manifest alone, and the two are compared in both directions: a placeholder
+nothing fills and a declared slot the SVG never places are each an error. The
+failure that guards against is a card shipping with `{{year}}` printed on its
+face, which renders perfectly and is unmistakably wrong. It runs per template
+in the suite.
+
+### Canvas defaulting, and what the stdio test caught
+
+Step 3 is one decision: `card_new`'s canvas defaults to `_mlt_resolution` —
+the same number the MLT profile declares. Templates can honour it because
+their geometry is in 1920-wide units and the viewBox is written to the aspect
+asked for, so a 1920x816 project gets a card rendered at exactly 1920x816
+rather than the 1450x816 that fitting a 16:9 document into that frame gives.
+Finding 4's 465 px of black bar is gone for new cards, and it could only ever
+have been closed here: step 1 measured that `-size` *fits*, so no resize on
+the way in would have done it.
+
+**The MCP tool did not get this until a test over the wire said so.** Its
+signature still read `width: int = 1920, height: int = 1080`, so every call
+through the server passed an explicit canvas and `canvas_from` came back
+`requested` — step 3 present in the op, bypassed by one of the two front ends.
+Nothing in the unit tests could see it, which is the argument for
+`test_server_stdio.py` restated: the tool function was right and the tool was
+not.
+
+### Verified on a real project
+
+`lucid -C proj card new` against a manifest whose only video clip is 1920x816:
+`canvas: 1920x816`, `canvas_from: project`, and the PNG reads back 1920x816
+with the layout adapted — full-bleed background, footer still off the bottom
+edge, no pillarbox. Rendered at 1920x1080 against the real cards, all three
+templates are recognisably the same design as the originals they were read
+from.

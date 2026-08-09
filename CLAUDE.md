@@ -172,9 +172,15 @@ installed package or the upstream repo, not your memory.
   distorts** — 1920x816 asked of a 16:9 document gives 1450x816. `-resize`
   after the input rasterises at native size and resamples the pixels, which is
   what wrecks text; `graphics.render_svg` has no resize path, so a card that
-  should fill the frame is *authored* at the canvas size. Never hand melt the
-  SVG — it rasterises through Qt, not librsvg, and the two disagree with no
-  error on either side. HISTORY.md § The card renderer.
+  should fill the frame is *authored* at the canvas size — which is why
+  `card_new` defaults its canvas to `_mlt_resolution`, not to 1080p. Never
+  hand melt the SVG — it rasterises through Qt, not librsvg, and the two
+  disagree with no error on either side. HISTORY.md § The card renderer.
+  - **A template's user values are escaped and only lucid's own derived
+    markup goes in raw**, `"` included — a slot lands inside a double-quoted
+    attribute. And **nothing wraps**: a newline in a slot is a line break,
+    because a wrap guessed from a character count overflows the frame
+    silently. HISTORY.md § Card templates.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

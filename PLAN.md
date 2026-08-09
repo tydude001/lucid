@@ -359,14 +359,23 @@ an animated card carries a length, a shot's length is derived from the edit,
 and a cue carrying a length is the failure § The property everything below
 defends exists to prevent.
 
-**Step 1 of that build shipped 2026-08-09** — the renderer, `lucid card
-render`, and the font report (HISTORY.md § The card renderer). Its second
-measurement carries forward into step 3: `-size` *fits*, so a card authored at
-a different aspect from its film pillarboxes and no resize could ever close
-it — authoring at the canvas size is the only fix, which is what step 3 does.
-Its fourth is the one that carries past this item: **a card naming a font this
-box lacks renders pixel-identically to one naming a font it has, at exit 0**,
-so the open call on lucid's default font is no longer only about captions.
+**That build shipped 2026-08-09 — all three steps, stopping where the note
+said stop.** Step 1 is the renderer, `lucid card render`, and the font report
+(HISTORY.md § The card renderer); steps 2 and 3 are `card new`, the three
+templates, and the canvas defaulting (HISTORY.md § Card templates). Finding 4
+is closed for new cards: a 1920x816 project gets a card rendered at exactly
+1920x816, and it could only have been closed there, because step 1 measured
+that `-size` *fits* and so no resize on the way in would have done it.
+
+What carries past this item is step 1's other measurement: **a card naming a
+font this box lacks renders pixel-identically to one naming a font it has, at
+exit 0**, so the open call on lucid's default font is no longer only about
+captions. The shipped templates route around it rather than answering it —
+each names a fallback *stack* ending in a generic, never a single face.
+
+**Next in the queue is b-roll by description**, which still wants its costed
+note first and must not copy Daydream blind. Animation stays where the note
+put it: after a watch of a real card-heavy cut, with its own note.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
@@ -1146,8 +1155,14 @@ So the ordering is forced, and it is not a preference:
    rather than distorts, so step 3 below is the only thing that can close
    finding 4.
 2. Templates and card creation: fill a template's slots, rasterise, land both
-   files. CLI and MCP parity again.
-3. Canvas-size defaulting, closing finding 4 for new cards.
+   files. CLI and MCP parity again. **Shipped 2026-08-09** — `lucid card new`
+   and `card templates`, the three templates read off the real Scream cards,
+   and the escaping split that a string template lives or dies on.
+   HISTORY.md § Card templates.
+3. Canvas-size defaulting, closing finding 4 for new cards. **Shipped
+   2026-08-09**, in the same change — and the stdio suite is what caught the
+   MCP tool still defaulting to 1920x1080 while the op defaulted to the
+   project.
 4. **Stop.** Animation gets its own note, after a watch of a real card-heavy
    cut — the same discipline the layered timeline used.
 

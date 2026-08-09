@@ -233,3 +233,221 @@ def test_card_render_names_the_cards_that_do_have_a_source(project: Project) -> 
     (project.cards_dir / "receipt.svg").write_text(_card(), encoding="utf-8")
     with pytest.raises(ProjectError, match="receipt.svg"):
         ops.card_render(project.root, "reveal")
+
+
+# -- templates -------------------------------------------------------------
+
+
+def _required(name: str) -> dict[str, object]:
+    """Minimal slots for `name`: a value for everything it insists on."""
+    return {
+        slot: (3.5 if meta["kind"] == "rating" else f"{slot}-value")
+        for slot, meta in graphics.template_slots(name).items()
+        if meta["required"]
+    }
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_every_shipped_template_agrees_with_its_manifest(name: str) -> None:
+    """The drift guard, run against each SVG lucid actually ships.
+
+    `template_slots` raises when the placeholders in the file and the slots in
+    the manifest disagree either way. A template with a placeholder nothing
+    fills would otherwise ship a card with `{{year}}` printed on its face.
+    """
+    slots = graphics.template_slots(name)
+    assert slots, f"{name} declares no slots"
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_every_shipped_template_fills_and_parses(name: str) -> None:
+    filled = graphics.fill_template(name, _required(name))
+    assert "{{" not in filled, "a placeholder survived the fill"
+    graphics.declared_fonts(filled)  # raises unless the result is well-formed
+
+
+def test_fill_template_refuses_a_missing_required_slot() -> None:
+    with pytest.raises(GraphicsError, match="which nothing supplied"):
+        graphics.fill_template("receipt", {"title": "Scream"})
+
+
+def test_fill_template_refuses_a_slot_that_does_not_exist() -> None:
+    with pytest.raises(GraphicsError, match="no slot"):
+        graphics.fill_template("receipt", {**_required("receipt"), "subtitle": "no such thing"})
+
+
+def test_fill_template_refuses_an_unknown_template() -> None:
+    with pytest.raises(GraphicsError, match="no template named"):
+        graphics.fill_template("nonexistent", {})
+
+
+def test_user_text_is_escaped_and_cannot_rewrite_the_document() -> None:
+    """String substitution's one real hazard, closed and asserted."""
+    hostile = '</text><script>alert("x")</script><text>'
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "title": hostile})
+    assert "<script>" not in filled
+    assert "&lt;/text&gt;" in filled
+    graphics.declared_fonts(filled)  # still well-formed
+
+
+def test_a_slot_landing_in_an_attribute_cannot_close_it() -> None:
+    """`font-family="{{title_font}}"` is an attribute, so `"` has to escape."""
+    filled = graphics.fill_template(
+        "receipt", {**_required("receipt"), "title_font": 'x" onload="boom'}
+    )
+    assert 'onload="boom' not in filled
+    graphics.declared_fonts(filled)
+
+
+def test_lucid_generated_markup_is_not_escaped() -> None:
+    """Derived slots are the only unescaped insertion, and they must render."""
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3})
+    assert filled.count("<polygon") == 3
+    assert "&lt;polygon" not in filled
+
+
+def test_a_half_rating_draws_a_clipped_star_rather_than_a_second_path() -> None:
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 4.5})
+    assert filled.count("<polygon") == 5
+    assert filled.count("<clipPath") == 1
+
+
+def test_a_whole_rating_draws_no_clip() -> None:
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3})
+    assert "<clipPath" not in filled
+
+
+def test_the_two_rows_of_a_comparison_do_not_share_a_clip_id() -> None:
+    """Two halves in one document, which a single id would collapse into one."""
+    filled = graphics.fill_template(
+        "rerate", {**_required("rerate"), "before": 2.5, "after": 3.5}
+    )
+    assert 'id="before-half"' in filled
+    assert 'id="after-half"' in filled
+
+
+def test_a_rating_must_be_a_number_out_of_five() -> None:
+    with pytest.raises(GraphicsError, match="rating out of five"):
+        graphics.fill_template("receipt", {**_required("receipt"), "rating": "four and a half"})
+    with pytest.raises(GraphicsError, match="outside it"):
+        graphics.fill_template("receipt", {**_required("receipt"), "rating": 7})
+
+
+def test_a_newline_in_a_lines_slot_is_a_line_break_and_nothing_else_wraps() -> None:
+    filled = graphics.fill_template(
+        "receipt", {**_required("receipt"), "quote": "first line\nsecond line"}
+    )
+    assert filled.count("<tspan") >= 2
+    assert "first line" in filled and "second line" in filled
+
+    long = "word " * 200
+    once = graphics.fill_template("receipt", {**_required("receipt"), "quote": long})
+    assert once.count('dy="58"') == 0, "nothing may wrap on its own"
+
+
+def test_the_viewbox_follows_the_canvas_aspect() -> None:
+    """Why a template can be authored once and rendered at any canvas."""
+    name = min(graphics.TEMPLATES)
+    wide = graphics.fill_template(name, _required(name), width=1920, height=816)
+    assert 'viewBox="0 0 1920 816"' in wide
+    tall = graphics.fill_template(name, _required(name), width=1080, height=1920)
+    assert 'viewBox="0 0 1920 3413"' in tall
+
+
+@needs_magick
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_a_template_renders_at_exactly_the_canvas_it_was_filled_for(
+    name: str, tmp_path: Path
+) -> None:
+    """Step 3's claim, at the level that can prove it.
+
+    The card comes back 1920x816 — not 1450x816, which is what fitting a
+    16:9 document into that frame gives (see the fit test above). No
+    pillarbox, because the document was authored at the aspect.
+    """
+    source = tmp_path / f"{name}.svg"
+    source.write_text(graphics.fill_template(name, _required(name), width=1920, height=816))
+    result = graphics.render_svg(source, tmp_path / f"{name}.png")
+    assert (result["width"], result["height"]) == (1920, 816)
+
+
+# -- card_new --------------------------------------------------------------
+
+
+@pytest.fixture
+def wide_project(tmp_path: Path) -> Project:
+    """A project whose footage is the Scream cut's 1920x816 crop."""
+    project = Project.create(tmp_path / "wide")
+    manifest = project.read_manifest()
+    manifest["clips"] = [
+        {
+            "clip_id": "film",
+            "source": "/nonexistent/film.mp4",
+            "duration": 10.0,
+            "has_video": True,
+            "has_audio": True,
+            "width": 1920,
+            "height": 816,
+        }
+    ]
+    project.write_manifest(manifest)
+    return project
+
+
+@needs_magick
+def test_card_new_defaults_to_the_projects_own_canvas(wide_project: Project) -> None:
+    """Finding 4 closed: no 1920x1080 card in a 1920x816 frame."""
+    out = ops.card_new(wide_project.root, "reveal-two", "reveal", {"title": "Scream 2"})
+    assert out["canvas"] == "1920x816"
+    assert out["canvas_from"] == "project"
+    assert (out["width"], out["height"]) == (1920, 816)
+
+
+@needs_magick
+def test_card_new_takes_an_explicit_canvas_when_told(wide_project: Project) -> None:
+    out = ops.card_new(
+        wide_project.root, "reveal-two", "reveal", {"title": "Scream 2"}, width=1080, height=1920
+    )
+    assert out["canvas_from"] == "requested"
+    assert (out["width"], out["height"]) == (1080, 1920)
+
+
+def test_card_new_refuses_half_a_canvas(wide_project: Project) -> None:
+    with pytest.raises(ProjectError, match="both width and height"):
+        ops.card_new(wide_project.root, "reveal-two", "reveal", {"title": "S"}, width=1080)
+
+
+@needs_magick
+def test_card_new_lands_both_files_where_the_cue_looks(wide_project: Project) -> None:
+    out = ops.card_new(wide_project.root, "reveal-two", "reveal", {"title": "Scream 2"})
+    assert out["asset"] == "card:reveal-two"
+    assert (wide_project.cards_dir / "reveal-two.svg").is_file()
+    assert (wide_project.cards_dir / "reveal-two.png").is_file()
+    resolved = ops._resolve_asset(wide_project, "card:reveal-two")
+    assert Path(resolved["asset_path"]) == wide_project.cards_dir / "reveal-two.png"
+
+
+@needs_magick
+def test_card_new_refuses_to_replace_a_card_a_cue_may_point_at(wide_project: Project) -> None:
+    ops.card_new(wide_project.root, "reveal-two", "reveal", {"title": "Scream 2"})
+    with pytest.raises(ProjectError, match="already exists"):
+        ops.card_new(wide_project.root, "reveal-two", "reveal", {"title": "Scream 3"})
+
+    replaced = ops.card_new(
+        wide_project.root, "reveal-two", "reveal", {"title": "Scream 3"}, overwrite=True
+    )
+    assert "Scream 3" in (wide_project.cards_dir / "reveal-two.svg").read_text()
+    assert replaced["card"] == "reveal-two"
+
+
+def test_card_templates_lists_every_template_with_its_slots() -> None:
+    listed = ops.card_templates()["templates"]
+    assert {t["template"] for t in listed} == set(graphics.TEMPLATES)
+    for entry in listed:
+        assert entry["description"]
+        assert entry["slots"]
+        # Style is reported apart from content, so the required fields are not
+        # buried under the palette once the front ends sort their JSON.
+        assert set(entry["style"]) == set(graphics.STYLE_SLOTS)
+        assert not set(entry["slots"]) & set(graphics.STYLE_SLOTS)
+        assert all(not meta["required"] for meta in entry["style"].values())
