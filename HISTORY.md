@@ -1970,6 +1970,9 @@ markers have the duration-inflation rule to respect (a gap computed from word
 boundaries under-reports, never over-reports, so a suppressed marker is
 cosmetic and an invented one would be a lie).
 
+They shipped later the same day, which is why this paragraph needs a pointer
+rather than a correction: § The head of the parity queue.
+
 Filmstrip thumbnails and clip *filename* labels are also still open. The
 blocks label by `clip_id`, which is deliberate for now: it is the name every
 other surface in lucid addresses a clip by, and a filename would make the lane
