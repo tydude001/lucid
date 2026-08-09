@@ -2283,13 +2283,13 @@ The two added lines are `preview` joining the `CLI_ONLY` allowlist with its
 reason, which is what that allowlist is for: the verdict is about a *browser*,
 and the agent panel has no `<video>` element to spend it on.
 
-**The screenshot is not the evidence, and that is worth recording.** Headless
-Chrome decodes video and does not composite it into `Page.captureScreenshot` —
-neither `chrome-headless-shell` nor the `com.google.Chrome` flatpak at
-`--headless=new`. Both produced a black viewer while the element reported
-`readyState 4`, `videoWidth 1920`, no error, and `canPlayType` "probably", and
-ffmpeg put the frame at `YAVG 78.6`. **A screenshot proves nothing about video
-either way here**; anyone checking this pane again should skip it.
+**The screenshot is not the evidence, and finding that out cost an hour.** Both
+headless routes drew a black viewer while the element reported `readyState 4`,
+`videoWidth 1920`, no error and `canPlayType` "probably", against a frame ffmpeg
+put at `YAVG 78.6` — the browser is not compositing `<video>` into the capture at
+all. The measurement and the rule it produced are filed where the recipe lives,
+wiki `tooling.md` § Headless browser, since it is a fact about the tool rather
+than about this pane.
 
 What was measured instead: `drawImage` the element into a canvas, reduce to an
 8x4 mean-RGB grid, and compare against the same grid off the frame ffmpeg

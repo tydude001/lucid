@@ -328,9 +328,7 @@ and the video preview proxy, whose showing-the-shot half shipped 2026-08-09 —
 HISTORY.md § The preview picture layer — leaving the transcode). The verified
 bar for any UI item: run against the real Scream VO, in a real browser (wiki
 `tooling.md` § Headless browser) — and for anything showing *video*, not by
-screenshot: headless Chrome decodes it and does not composite it into
-`Page.captureScreenshot`, so a black capture there means nothing. Read the
-element's pixels off a canvas instead.
+screenshot, for the reason that page now records.
 
 The look/feel pass — the parity queue's head — shipped 2026-08-08 too
 (HISTORY.md § The look pass), and the six small items it left behind shipped

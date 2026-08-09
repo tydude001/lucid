@@ -93,13 +93,11 @@ installed package or the upstream repo, not your memory.
       the shot reads, so a clip used three times previews from three places. A
       layer reloading each asset from its head looks right and is a different
       film. `player.js` § the picture layer.
-  - **A black `<video>` in a headless-browser screenshot is not evidence.**
-    Headless Chrome decodes video and does not composite it into
-    `Page.captureScreenshot` — neither the shell nor the flatpak at
-    `--headless=new`, both measured. To check what a video element is showing,
-    `drawImage` it into a canvas and read the pixels back; compare against
-    ffmpeg's frame at the same source timestamp. HISTORY.md § The preview
-    picture layer.
+  - **Verify the picture layer by canvas readback, never by screenshot** —
+    headless Chrome does not composite `<video>` into a capture (wiki
+    `tooling.md` § Headless browser). `drawImage` the element into a canvas,
+    reduce, and compare against ffmpeg's frame at the source timestamp the page
+    claims. HISTORY.md § The preview picture layer has the grids.
   - **A `<video>` that cannot decode its source fires one contentless `error`
     and shows black** — indistinguishable from a black frame the edit meant.
     So the reason is worked out on the box, by `media.playability()` behind
