@@ -5,16 +5,34 @@
  * canvas from `/api/waveform/<clip_id>`, click-to-seek, and a
  * playhead driven by player.js (PLAN.md § The timeline).
  *
- * Lanes are projections of one single-track `Edit`, never independent
- * tracks. V1 only when the displayed clip `has_video`, A1 always (the
+ * Lanes are projections of one `Edit`, never independent tracks, and no
+ * lane is drawn that `export` cannot produce — auto-editor 31.x degrades a
+ * multi-*source* render to 720x576 with a warning and exit 0 rather than
+ * failing, so a lane this view drew ahead of the model would look right
+ * and export wrong (CLAUDE.md; PLAN.md § The trap this section exists to
+ * write down). V1 only when the displayed clip `has_video`, A1 always (the
  * recording has audio even for a picture clip), CC only when a transcript
- * exists to caption from. **No V2, no A2, no lane `export` cannot
- * produce** — auto-editor 31.x degrades a multi-*source* render to
- * 720x576 with a warning and exit 0 rather than failing, so a lane this
- * view draws ahead of the model would look right and export wrong
- * (CLAUDE.md; PLAN.md § The trap this section exists to write down). All
- * three lanes below are built from `state.segments` — the same single
- * track `export` reads — never from anything wider.
+ * exists to caption from — all three built from `state.segments`, the same
+ * single track `export` reads.
+ *
+ * **V2 is the picture lane, and it became legal at step 5 and not before**
+ * (PLAN.md § The layered timeline, build order step 6): `export` renders a
+ * layered timeline through MLT and `melt` now, so there is finally a lane
+ * the file will agree with. It is drawn from `state.shots` and nothing
+ * else — `ops._picture_plan`'s answer, which is `build_shots` *already put
+ * through the MLT writer's planner*, so a shot the writer would refuse is
+ * never drawn as though it would render. When the plan refuses, the view
+ * sends `shots_error` instead of shots and this lane draws the message:
+ * a stale cue is exactly the thing a person opens this window to find, so
+ * the lane says so rather than quietly disappearing.
+ *
+ * One honest asymmetry to expect: V2 runs on `export`'s frame grid
+ * (`state.shots_rate`) while the ruler runs on the edit's own seconds, so
+ * the last shot can end a fraction of a frame past the ruler — 411.077s of
+ * picture against 410.963s of edit on the Scream assembly. That is
+ * `frame_total` versus a summed duration (CLAUDE.md), not a drawing bug,
+ * and the lane is sized to whichever is longer rather than clipped to hide
+ * it.
  *
  * The waveform is drawn THROUGH the edit (PLAN.md § Read-model additions):
  * `drawWaveformLane` slices the *cached source* RMS array by each
@@ -49,8 +67,22 @@ const NICE_INTERVALS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 9
 // kind that exists today, per the decision gate) fetches this exactly once.
 const waveformCache = new Map();
 
-function header(label) {
-  return el("div", "track-header", label);
+function header(label, title) {
+  const node = el("div", "track-header", label);
+  if (title) node.title = title;
+  return node;
+}
+
+/** Click anywhere in a lane — including on a child block — seeks the player.
+ * Event bubbling plus the row's own bounding rect, so it works regardless of
+ * scroll or which child was hit. Shared by every lane so the picture lane
+ * cannot drift into being the one that does not seek. */
+function seekOnClick(row, pxPerSec) {
+  row.addEventListener("click", (event) => {
+    if (!ctx) return;
+    const rect = row.getBoundingClientRect();
+    ctx.player.seek((event.clientX - rect.left) / pxPerSec);
+  });
 }
 
 function laneHeightPx() {
@@ -139,13 +171,71 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state) {
     row.append(tick);
   }
 
-  row.addEventListener("click", (event) => {
-    if (!ctx) return;
-    const rect = row.getBoundingClientRect();
-    const t = (event.clientX - rect.left) / pxPerSec;
-    ctx.player.seek(t);
+  seekOnClick(row, pxPerSec);
+  return row;
+}
+
+/** What a shot shows, said the way a person names it: a card by its own name,
+ * a film clip by its clip_id. `card:` is the cue table's own prefix and it is
+ * noise once the block is tinted as a still. */
+function shotLabel(shot) {
+  return shot.asset.startsWith("card:") ? shot.asset.slice("card:".length) : shot.asset;
+}
+
+/** Everything a shot is, on hover — and the two facts that are only visible
+ * here. **Where inside the asset it reads**, because a clip used three times
+ * shows three different stretches of itself and a lane of identical blocks
+ * cannot say which; and **the cue that put it there**, by word index and text,
+ * because that is the thing a person edits to move the shot (the word index
+ * addresses the source and never renumbers — PLAN.md § The property everything
+ * below defends). The first shot says out loud that it does not start at its
+ * own cue: the picture track is contiguous by construction, so whichever cue
+ * resolves first covers from the open regardless of where its word lands. */
+function shotTitle(shot, state, index) {
+  const rate = state.shots_rate;
+  const lines = [
+    `${shotLabel(shot)} · ${fmt(shot.start)}–${fmt(shot.start + shot.duration)} · ${shot.frames} frames${rate ? ` @ ${rate.toFixed(3)}fps` : ""}`,
+    shot.is_image ? "a card, held for the shot" : `reads the asset from ${fmt(shot.src_start)}`,
+    `cue: ${shot.clip_id} word ${shot.word_index} — ${shot.text}`,
+  ];
+  if (index === 0) lines.push("(the first shot covers from the open, not from its own cue's word)");
+  return lines.join("\n");
+}
+
+/** V2 — the picture lane, drawn from `state.shots` and nothing else.
+ *
+ * `state.shots` is the projection *already put through the MLT writer's
+ * planner* (`ops._picture_plan`), so every block here is a shot `export` will
+ * actually produce. When the plan refuses instead, the view sends
+ * `shots_error` and this draws the message across the lane: a cue that was
+ * cut, or a shot longer than the clip it points at, is the thing a person
+ * opened this window to find, and a lane that silently vanished would hide it.
+ */
+function buildPictureRow(state, pxPerSec, duration) {
+  const row = el("div", "lane lane-v2");
+  const shots = state.shots || [];
+  // The picture runs on export's frame grid and the ruler on the edit's
+  // seconds, so the last shot can end a hair past the ruler — size to the
+  // longer of the two rather than clip the difference out of sight.
+  const last = shots.length ? shots[shots.length - 1] : null;
+  const end = last ? last.start + last.duration : duration;
+  row.style.width = `${Math.max(1, Math.max(duration, end) * pxPerSec)}px`;
+
+  if (state.shots_error) {
+    row.append(el("div", "lane-refusal", `picture refused — ${state.shots_error}`));
+    return row;
+  }
+
+  shots.forEach((shot, index) => {
+    const block = el("div", `clip-block shot-block${shot.is_image ? " shot-card" : ""}`);
+    block.style.left = `${(shot.start * pxPerSec).toFixed(1)}px`;
+    block.style.width = `${Math.max(1, shot.duration * pxPerSec).toFixed(1)}px`;
+    block.textContent = shotLabel(shot);
+    block.title = shotTitle(shot, state, index);
+    row.append(block);
   });
 
+  seekOnClick(row, pxPerSec);
   return row;
 }
 
@@ -250,19 +340,24 @@ function render() {
 
   const clip = state.clips.find((c) => c.clip_id === state.clip_id) || {};
 
-  // Lanes are projections of one single-track `Edit`, drawn from
-  // `state.segments` only — the same segments `export` renders. No V2, no
-  // A2, no lane `export` cannot produce (CLAUDE.md; PLAN.md § The trap
-  // this section exists to write down).
+  // Which lanes exist is a data question, answered by the view. V1/A1/CC are
+  // projections of the one `Edit`, drawn from `state.segments` — the same
+  // segments `export` renders. V2 is the cue table's picture, drawn from
+  // `state.shots` — which `export` renders through MLT and `melt`, and could
+  // not before step 5 (CLAUDE.md; PLAN.md § The layered timeline).
   const kinds = [];
+  if (state.shots || state.shots_error) kinds.push("V2"); // topmost: the picture sits over the edit's own track
   if (clip.has_video) kinds.push("V1");
   kinds.push("A1"); // always — the recording has audio even for a picture clip
   if (state.words && state.words.length) kinds.push("CC"); // captions come out of the timeline (CLAUDE.md) — any transcript is enough to try
 
   const waveformDraws = [];
   for (const kind of kinds) {
-    headers.append(header(kind));
-    const row = buildLaneRow(kind, state.segments, pxPerSec, duration, state);
+    headers.append(header(kind, kind === "V2" ? "the cue table's picture, over the edit" : undefined));
+    const row =
+      kind === "V2"
+        ? buildPictureRow(state, pxPerSec, duration)
+        : buildLaneRow(kind, state.segments, pxPerSec, duration, state);
     if (kind === "A1") {
       const canvas = el("canvas", "waveform-canvas");
       // The blocks underneath still carry hover/title/hit-testing; letting

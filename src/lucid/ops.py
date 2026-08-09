@@ -453,6 +453,51 @@ def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
     return {"shots": shots, "count": len(shots), "rate": rate, "total_frames": total_frames}
 
 
+#: Every way the picture plan refuses. All of them are deliberate — a cue that
+#: was cut, two cues resolving to one instant, a shot longer than the asset it
+#: points at, an asset that does not resolve — so a caller that wants to
+#: *report* a refusal rather than raise it catches exactly these.
+_PICTURE_REFUSALS = (
+    tl.TimelineError,
+    mlt.MLTError,
+    ProjectError,
+    tx.TranscriptError,
+    media.MediaError,
+)
+
+
+def _picture_plan(project: Project, rate: float) -> tuple[list[dict[str, Any]], list[mlt.Entry]]:
+    """The picture track, projected and planned, on one frame grid.
+
+    Two steps that have to travel together: `build_shots` (step 2) says when
+    each shot starts and how long it runs, and `mlt.plan_picture` (step 4)
+    decides what it actually shows and from where inside its asset. Either can
+    refuse, and **a refusal from either is a shot `export` will not produce** —
+    which is why the web UI's picture lane comes through here rather than off
+    `build_shots` alone. A lane drawn from the projection only would draw the
+    shot whose 34.6s runs past its 30.1s clip and the writer rejects (HISTORY.md
+    § Rendering through `melt`), and that is the same class of lie as drawing a
+    track the renderer silently degrades (CLAUDE.md).
+
+    Shots come back annotated with where inside the asset each one reads —
+    `plan_picture`'s per-asset cursor, which nothing downstream of it can see —
+    so a clip used three times can be told from a clip replayed from its head
+    three times.
+
+    `([], [])` for a project with no cues, which is not a refusal: the edit's
+    own track is the whole picture then.
+    """
+    if not project.read_manifest().get("cues"):
+        return [], []
+    shots = build_shots(project.root, fps=rate)["shots"]
+    entries = mlt.plan_picture(shots, rate)
+    annotated = [
+        {**shot, "src_in": entry.src_in, "src_out": entry.src_out, "src_start": entry.src_in / rate}
+        for shot, entry in zip(shots, entries)
+    ]
+    return annotated, entries
+
+
 # -- timeline ------------------------------------------------------------
 
 
@@ -680,6 +725,22 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     rather than recomputed by a front end for the usual reason: the answer is
     what routes around a silent failure, and a second implementation of it
     would be a second chance to get it wrong.
+
+    `shots` is the picture lane — step 6 of the layered timeline, and the field
+    the web UI's V2 lane is drawn from. It is `_picture_plan`'s answer, not
+    `build_shots`'s: the lane may not draw a shot `export` would refuse, so the
+    projection goes through the MLT writer's planner before it is reported. Two
+    consequences a reader should expect:
+
+    * `shots` is null for a project with no cues — there is no picture lane
+      then, only the edit's own track — and null with a `shots_error` when the
+      plan refused. **A refusal is reported, not raised**: a stale cue must not
+      take the whole view down with it, because the view is how a person finds
+      the cue to fix. It is the one thing here that answers with a message
+      instead of an answer, and the front end is expected to draw the message.
+    * `shots_rate` is the frame grid the shots were quantised on, which is
+      `export`'s rate (`_export_fps`) and **not** `timebase` — an audio-only
+      project's timebase is milliseconds, and the picture is not.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -697,6 +758,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         parsed = None
 
     placements = [] if parsed is None else _word_placements(edit, clip_id, parsed)
+
+    shots_rate = _export_fps(clips)
+    shots_error: str | None = None
+    try:
+        shots, _ = _picture_plan(project, shots_rate)
+    except _PICTURE_REFUSALS as exc:
+        shots, shots_error = [], str(exc)
 
     result: dict[str, Any] = {
         "project": str(project.root),
@@ -716,9 +784,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "timebase": _rate(project),
         "undo_depth": len(project.snapshots()),
         "layered": _is_layered(project, edit),
+        "shots": shots or None,
+        "shots_rate": shots_rate,
         "segments": _placed_segments(edit),
         "seams": _seams(edit, clip_id, placements),
     }
+    if shots_error is not None:
+        result["shots_error"] = shots_error
     if parsed is None:
         result["words"] = None
         result["transcript_missing"] = True
@@ -1950,11 +2022,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             )
         )
 
-    shots: list[dict[str, Any]] = []
-    lane: list[mlt.Entry] = []
-    if project.read_manifest().get("cues"):
-        shots = build_shots(project.root, fps=rate)["shots"]
-        lane = mlt.plan_picture(shots, rate)
+    shots, lane = _picture_plan(project, rate)
 
     resolution = _mlt_resolution(project)
     document = mlt.document(

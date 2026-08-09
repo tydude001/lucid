@@ -73,9 +73,16 @@ installed package or the upstream repo, not your memory.
     lane `export` cannot produce** — the multi-source render degrades silently
     (see auto-editor above), so the window would look right and the file would
     be wrong. The view widens when the model does, never ahead of it.
-    PLAN.md § Tier 3 is the goal. The picture lane is **legal now and not yet
-    drawn** — `export` renders a layered timeline as of step 5, which is what
-    the rule was waiting on.
+    PLAN.md § Tier 3 is the goal. The picture lane (V2) is **drawn as of step
+    6**, and only because step 5 made `export` able to render it.
+  - **The picture lane is drawn from `timeline_view`'s `shots`, which is the
+    projection *already put through the MLT writer's planner*** — never from
+    `build_shots` directly. `plan_picture` refuses shots `build_shots` is
+    happy with (one longer than the asset it points at), and drawing those
+    would be the same lie as drawing a track the renderer degrades. A refusal
+    from either comes back as `shots_error` and the lane draws the message,
+    because a stale cue is what the window is being opened to find.
+    HISTORY.md § The picture lane.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a

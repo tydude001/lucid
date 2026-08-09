@@ -1,10 +1,16 @@
-"""`build_shots` — step 2 of the layered timeline.
+"""`build_shots` — step 2 of the layered timeline — and the lane it feeds.
 
 Maps the cue table (step 1, `test_ops_cues.py`) through the edit's surviving
 ranges to contiguous shots. Builds a project by hand — clips, a transcript,
 and a hand-written `Edit` with a real cut gap in it — the same pattern
 `test_ops_speech_overlap.py` uses, so the fixture can name a cut range on
 purpose rather than relying on `seed_timeline`'s auto-editor pass.
+
+The second half of the file is step 6: what `timeline_view` reports for the
+web UI's picture lane. It shares this fixture because the lane is this
+projection's one consumer, and because the property worth testing is exactly
+that the two do **not** agree — the lane is `build_shots` put through the MLT
+writer's planner, so it refuses shots `build_shots` alone is happy with.
 """
 
 from __future__ import annotations
@@ -188,3 +194,104 @@ def test_build_shots_refuses_two_cues_resolving_to_the_same_instant(project: Pro
 
     with pytest.raises(tl.TimelineError, match="resolved to the same instant"):
         ops.build_shots(project.root)
+
+
+# -- the picture lane in the view (step 6) --------------------------------
+#
+# `timeline_view.shots` is what the web UI's V2 lane is drawn from. Its whole
+# contract is two things the lane depends on and nothing else provides: it is
+# planned, not merely projected, so nothing is drawn that `export` would
+# refuse; and a refusal comes back as a *message* rather than an exception,
+# because the view is how a person finds the cue that needs fixing.
+
+
+def test_the_view_reports_no_picture_lane_when_there_are_no_cues(project: Project) -> None:
+    view = ops.timeline_view(project.root)
+
+    assert view["shots"] is None
+    assert "shots_error" not in view
+    assert view["layered"] is False
+
+
+def test_the_view_draws_the_lane_from_planned_shots_not_the_raw_projection(
+    project: Project,
+) -> None:
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    ops.cue_add(project.root, "vo", 3, "card:outro")
+
+    view = ops.timeline_view(project.root)
+
+    assert view["layered"] is True
+    assert view["shots_rate"] == 30.0  # export's grid, not `timebase` (1000.0 here)
+    assert view["timebase"] == 1000.0
+    shots = view["shots"]
+    assert [s["word_index"] for s in shots] == [1, 3]
+    # `src_in`/`src_start` come from `mlt.plan_picture` and from nowhere else —
+    # they are the whole reason the lane goes through the planner rather than
+    # reading `build_shots` directly, since a raw projection cannot say where
+    # inside an asset a shot reads.
+    assert [s["src_in"] for s in shots] == [0, 0]
+    assert shots[0]["src_start"] == 0.0
+    assert shots[1]["is_image"] is True
+
+
+def test_the_lane_shows_a_reused_clip_reading_on_from_where_it_left_off(
+    project: Project,
+) -> None:
+    """The re-use fact, which only the planner knows: a clip cued twice shows
+    two different stretches of itself, and the lane is the one place a person
+    can see that it does."""
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    ops.cue_add(project.root, "vo", 3, "clipa")
+
+    shots = ops.timeline_view(project.root)["shots"]
+
+    assert shots[0]["src_in"] == 0
+    assert shots[1]["src_in"] == shots[0]["frames"]
+    assert shots[1]["src_start"] == pytest.approx(shots[0]["frames"] / 30.0)
+
+
+def test_the_view_reports_a_cut_cue_instead_of_dying_on_it(project: Project) -> None:
+    """The refusal a stale cue produces is reported, not raised. A view that
+    raised would take down the very window a person opens to find the cue —
+    and this fired twice for real on the Scream recut (PLAN.md § Build order,
+    step 3)."""
+    ops.cue_add(project.root, "vo", 2, "clipa")  # "cut1" sits inside the removed gap
+
+    view = ops.timeline_view(project.root)
+
+    assert view["shots"] is None
+    assert "was cut from the edit" in view["shots_error"]
+    # And the rest of the view is untouched — segments, seams and words still
+    # answer, which is what makes the window usable while the cue is wrong.
+    assert len(view["segments"]) == 2
+    assert view["words"] is not None
+
+
+def test_the_view_reports_the_writers_refusal_too_not_just_the_projections(
+    project: Project,
+) -> None:
+    """The property that makes this a *planned* lane: `build_shots` is happy
+    with a shot longer than the clip it points at, and `plan_picture` is not.
+    Drawing the projection's answer would put a block on screen that `export`
+    refuses to render — the same class of lie as drawing a track the renderer
+    degrades. This is the real refusal from the Scream assembly (word 318's
+    34.6s shot against a 30.1s clip), shrunk to fit the fixture.
+    """
+    manifest = project.read_manifest()
+    tiny_media = project.root / "tiny.mp4"
+    tiny_media.write_bytes(b"short")
+    manifest["clips"].append(
+        {"clip_id": "tiny", "source": str(tiny_media), "duration": 0.2, "has_video": True}
+    )
+    project.write_manifest(manifest)
+    ops.cue_add(project.root, "vo", 1, "tiny")  # one shot, the whole 2.5s timeline
+
+    # The projection alone is perfectly happy with it.
+    assert ops.build_shots(project.root, fps=30.0)["count"] == 1
+
+    view = ops.timeline_view(project.root)
+
+    assert view["shots"] is None
+    assert "is only" in view["shots_error"]
+    assert "tiny" in view["shots_error"]

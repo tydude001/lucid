@@ -54,11 +54,11 @@ and caption the rest" becomes a chat message instead of an afternoon.
    2026-08-08: lucid edits your video.** Clips and cards lay over the VO from a
    cue table addressed by *word index*, so a recut recomputes shot positions
    instead of invalidating them. The cue table, the shot projection, the MLT
-   writer and the `melt` render are built — `export` writes a real two-lane
-   project **and renders it**, measuring the finished file rather than
-   trusting a renderer that exits 0 on failure. What is left is drawing the
-   lane in the window. [PLAN.md](PLAN.md) § The layered timeline has the
-   build order.
+   writer, the `melt` render and the picture lane in the window are all built —
+   `export` writes a real two-lane project **and renders it**, measuring the
+   finished file rather than trusting a renderer that exits 0 on failure, and
+   the timeline draws the shots that render will contain.
+   [PLAN.md](PLAN.md) § The layered timeline has the build order.
 
    **And "the same workflow" became "the same product", decided 2026-08-08:**
    lucid copies Daydream's full feature set and warm-paper look. The whole
@@ -237,11 +237,13 @@ second clip on the timeline) `export` writes the MLT itself instead of going
 through auto-editor, which refuses a second source on export and quietly
 renders one at 720x576.
 
-Multi-track editing is **decided and partway built** — the cue table, the shot
-projection and the MLT writer ship; **rendering that project is still `melt`'s
-job to do by hand**, and the picture lane is not in the window yet —
-[PLAN.md](PLAN.md) § The layered timeline has the design and the six-step
-build order.
+Multi-track editing is **decided and built** — all six steps, 2026-08-08: the
+cue table, the shot projection, the refusal that guards it, the MLT writer, the
+`melt` render, and the picture lane in the window. `export --render` produces
+the file; the timeline's V2 lane draws the shots that file will contain, and
+draws them from the *planned* projection, so the window can never show a shot
+`export` would refuse. [PLAN.md](PLAN.md) § The layered timeline has the design
+and the build order.
 
 ## Development
 

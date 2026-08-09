@@ -316,6 +316,13 @@ def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
     This is locate asked once for the whole clip instead of once per range,
     and it is what the `lucid web` view draws. Read-only.
+
+    `shots` is the picture lane the cue table projects — null when there are no
+    cues, and null with a `shots_error` message when the plan refuses (a cue
+    that was cut, or a shot longer than the asset it points at). The refusal is
+    reported here rather than raised, because this is the view a person uses to
+    find the cue to fix. `shots_rate` is the frame grid it was quantised on,
+    which is export's rate and not `timebase`.
     """
     return ops.timeline_view(path, clip_id=clip_id)
 

@@ -16,6 +16,7 @@ from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
 from lucid.media import MediaError
+from lucid.mlt import MLTError
 from lucid.picture import PictureError
 from lucid.project import ProjectError
 from lucid.timeline import TimelineError
@@ -781,6 +782,10 @@ _EXPECTED = (
     VerifyError,
     PictureError,
     EnergyError,
+    # `plan_picture` refuses a shot longer than the asset it points at, and
+    # that refusal fired for real on the Scream assembly (HISTORY.md
+    # § Rendering through `melt`) — it is a message to read, not a traceback.
+    MLTError,
 )
 
 

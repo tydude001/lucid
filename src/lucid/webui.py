@@ -53,6 +53,7 @@ from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
 from lucid.media import MediaError
+from lucid.mlt import MLTError
 from lucid.picture import PictureError
 from lucid.project import Project, ProjectError
 from lucid.timeline import TimelineError
@@ -72,6 +73,10 @@ EXPECTED = (
     VerifyError,
     PictureError,
     EnergyError,
+    # `plan_picture`'s refusals — a shot longer than its asset. `timeline_view`
+    # reports that one rather than raising it (the picture lane draws the
+    # message), but `export` still raises it, and it is a 400 like the rest.
+    MLTError,
 )
 
 STATIC_DIR = Path(__file__).parent / "web"

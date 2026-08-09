@@ -69,13 +69,17 @@
  *                             are two columns of one flex row, not two
  *                             independent scrollers
  *   .ruler / .ruler-tick / .ruler-label
- *   .lane                     one lane's row; modifiers .lane-v1 .lane-a1
- *                             .lane-cc are cosmetic only — *which* lanes
- *                             exist is a data question answered by the view,
- *                             never a lane `export` cannot produce (CLAUDE.md
- *                             / PLAN.md § The trap this section exists to
- *                             write down)
+ *   .lane                     one lane's row; modifiers .lane-v2 .lane-v1
+ *                             .lane-a1 .lane-cc are cosmetic only — *which*
+ *                             lanes exist is a data question answered by the
+ *                             view, never a lane `export` cannot produce
+ *                             (CLAUDE.md / PLAN.md § The trap this section
+ *                             exists to write down)
  *   .clip-block                one DOM block per timeline segment
+ *   .clip-block.shot-block      one shot on V2, the cue table's picture lane
+ *   .clip-block.shot-card        …that shot is a held still, not footage
+ *   .lane-refusal               why V2 has no shots to draw — the picture
+ *                             plan refused, and the message is the point
  *   .waveform-canvas            the <canvas> an A1 lane draws its envelope
  *                             into (from `/api/waveform/<clip_id>`)
  *   .seam-tick                  a cut boundary, drawn as a 1px line
@@ -686,6 +690,41 @@ textarea {
   border-bottom: 1px solid var(--line);
   cursor: crosshair;
   user-select: none;
+}
+
+/* V2 — the cue table's picture, over the edit. Legal since step 5 of the
+   layered timeline made `export` able to render it. */
+.lane-v2 {
+  background: #12141a;
+}
+
+.lane-v2 .clip-block {
+  background: var(--sel);
+}
+
+/* A card is a still held for the length of the shot, not footage played
+   through — worth telling apart at a glance, since a card that ran long
+   looks identical to a clip that did. */
+.lane-v2 .clip-block.shot-card {
+  background: var(--agent);
+}
+
+/* The picture plan refused, so there is no lane to draw and the reason is
+   the thing worth showing. Not a toast: it is a property of the timeline
+   and it stays until the cue is fixed. */
+.lane-refusal {
+  position: absolute;
+  inset: 3px 0;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: rgba(180, 69, 63, 0.18);
+  border: 1px solid var(--cut);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lane-v1 {

@@ -1791,3 +1791,88 @@ not "a missing shot" — the check cannot tell them apart and does not pretend t
   than answered by a renderer.
 - **The picture lane in the web UI (step 6)** is what this makes legal. It was
   illegal until `export` could render what the lane would draw, and now it can.
+
+## The picture lane, step 6 of the layered timeline — 2026-08-08
+
+PLAN.md § The layered timeline, build order step 6, and the last of the six.
+The web UI draws **V2**, the cue table's picture, over the edit's own lanes.
+It was illegal until step 5 — the timeline may not draw a lane `export` cannot
+produce — and became legal the moment `export` started rendering a layered
+timeline through MLT and `melt`. New: `ops._picture_plan`, `timeline_view`'s
+`shots`/`shots_rate`/`shots_error`, and `buildPictureRow` in `timeline.js`.
+
+- **The lane is drawn from the *planned* shots, not the projection, and that
+  turned out to be what the rule actually demanded.** `build_shots` (step 2)
+  is perfectly happy with a shot longer than the asset it points at;
+  `mlt.plan_picture` (step 4) refuses it. A lane drawn from `build_shots`
+  would therefore have put a block on screen for a shot `export` refuses to
+  render — the same class of lie as drawing a track the renderer degrades,
+  arrived at from the opposite direction. So `_picture_plan` runs both steps
+  at `export`'s own rate and `timeline_view` reports its answer, which also
+  makes `_build_mlt` and the view share one construction rather than two.
+  This is not hypothetical: the real refusal on the Scream assembly was
+  `plan_picture`'s, at word 318 (§ Rendering through `melt`).
+- **A refusal is reported, not raised.** `timeline_view` catches the picture
+  plan's five deliberate failures and answers `shots: null` plus a
+  `shots_error` string; the lane draws the message across itself in red and
+  every other lane keeps working. The reasoning is that the window is *how a
+  person finds the cue to fix* — a view that raised would take down the one
+  tool for repairing the thing that broke it. Verified live: cutting word 83
+  out from under its cue drew `picture refused — cue at 'vo' word 83
+  ('might') was cut from the edit — remove or move the cue (cue_rm/cue_add)
+  before projecting shots`, with the transcript, waveform and captions intact
+  beside it.
+- **`MLTError` was in neither `_EXPECTED` tuple**, so `lucid export` on that
+  real word-318 refusal printed a traceback rather than the sentence it had
+  gone to the trouble of writing. Added to the CLI's and the web UI's, found
+  only because the view now catches the same family.
+- **The tooltip carries the two facts only the planner knows**: where inside
+  an asset the shot reads from, and which cue put it there. The first is the
+  re-use fact — a clip cued three times shows three different stretches of
+  itself, and a row of identical blocks cannot say so. The second is the word
+  index, which is the thing a person edits to move the shot, and which never
+  renumbers. The first shot also says out loud that it does not start at its
+  own cue: the picture track is contiguous by construction, so whichever cue
+  resolves first covers from the open.
+- **The picture runs on `export`'s frame grid and the ruler on the edit's
+  seconds, so V2 is legitimately a hair longer than every other lane** —
+  411.077s against 410.963s on the Scream assembly, which is `frame_total`
+  versus a summed duration (CLAUDE.md). The lane is sized to whichever is
+  longer rather than clipped to hide it. At zoom 4 that is a visible 1.7px of
+  overhang and it is telling the truth.
+
+### Verified in a real browser, against the real 38-cue project
+
+`~/lucid-scream-v2/proj` — the VO2 project step 5 seeded — driven over CDP
+(wiki `tooling.md` § Headless browser; the one-shot `--screenshot` route still
+hangs on the page's open `EventSource`).
+
+| | result |
+|---|---|
+| lanes drawn | **V2, A1, CC** — no V1, because the VO clip is audio-only |
+| V2 blocks | **38**, contiguous, **13** tinted as held cards and 25 as film |
+| tooltip, shot 1 | `cold-open · 0:00.0–0:28.9 · 692 frames @ 23.976fps` / `reads the asset from 0:00.0` / `cue: vo word 18 — The` |
+| tooltip, shot 3 | `reads the asset from 0:28.9` — the re-use cursor, visible |
+| click-to-seek on V2 | seeks the transport like every other lane (246.601s) |
+| zoom to 4× | 38 blocks preserved, lane 6065.7px against A1's 6064.0px |
+| the refusal path | full-width red strip naming cue, word, text and the fix |
+
+**Two measurements that look like defects and are not, both checked against
+the lanes that predate this one.** A 10px minimum block width makes one pair
+of V2 blocks overlap by 2px — but `.clip-block`'s padding has always floored
+the width there, and A1's own segment blocks overlap in 13 places for the same
+reason. And the body scrolls 128px horizontally at 1600px wide — identical
+with V2 removed from the DOM, and the overflowing nodes are the top bar's.
+Neither is step 6's, and both are recorded here so the next person measuring
+them does not attribute them to it.
+
+### What this does not cover
+
+- **The lane is a map, not a viewer.** Clicking a shot seeks the transport,
+  which plays the VO through the edit; the preview pane stays black, because
+  it still plays one clip's media. Showing the shot under the playhead is the
+  video preview proxy (a wiki row), and it is what would make V2 a picture
+  rather than a plan of one.
+- **Nothing here authors a cue.** The page draws the lane; cues are still
+  added by CLI, MCP or the agent panel. Cue editing in the window belongs to
+  the parity queue's assets pane, not to this step.

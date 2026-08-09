@@ -226,6 +226,53 @@ def test_view_of_a_clip_without_a_transcript_still_draws_the_edit(
     assert payload["segments"]  # the timeline is still there to look at
 
 
+def test_the_picture_lane_reaches_the_page_over_http(project: Path, server: str) -> None:
+    """Step 6: what the V2 lane is drawn from has to survive the trip, and it
+    is a planned shot list rather than a raw projection — `src_in` is the
+    field only `mlt.plan_picture` can produce, and the lane's tooltip is the
+    one place a re-used clip's cursor is visible."""
+    _, before = _json(f"{server}/api/view")
+    assert before["shots"] is None  # no cues, so no picture lane exists to draw
+
+    # Cues are added by the CLI, MCP or the agent panel — the page draws the
+    # lane, it does not author it — so this arrives from outside the server,
+    # the same way the untranscribed clip above does.
+    Project.open(project).cards_dir.joinpath("outro.png").write_bytes(b"\x89PNG")
+    ops.cue_add(project, "vo", 2, "card:outro")
+
+    _, payload = _json(f"{server}/api/view")
+    assert payload["layered"] is True
+    assert payload["shots_rate"] == 30.0
+    assert len(payload["shots"]) == 1
+    shot = payload["shots"][0]
+    assert shot["asset"] == "card:outro"
+    assert shot["is_image"] is True
+    assert shot["src_in"] == 0
+    # The first shot covers from the open, whatever word its cue names.
+    assert shot["start"] == pytest.approx(0.0)
+    assert shot["word_index"] == 2
+
+
+def test_a_cue_the_edit_cuts_away_is_drawn_as_a_refusal_not_a_500(
+    project: Path, server: str
+) -> None:
+    """The safety property, over the wire. A stale cue must not take the view
+    down — the window is how a person finds the cue to move, so the picture
+    lane comes back empty with the reason attached and every other lane still
+    answers."""
+    Project.open(project).cards_dir.joinpath("outro.png").write_bytes(b"\x89PNG")
+    ops.cue_add(project, "vo", 5, "card:outro")
+    _post(f"{server}/api/cut", {"clip_id": "vo", "ranges": [[5, 5]], "mode": "cut"})
+
+    status, payload = _json(f"{server}/api/view")
+
+    assert status == 200
+    assert payload["shots"] is None
+    assert "was cut from the edit" in payload["shots_error"]
+    assert payload["words"] is not None
+    assert payload["seams"]
+
+
 # -- plan, apply, undo ----------------------------------------------------
 
 
