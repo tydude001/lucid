@@ -11,12 +11,16 @@ no `mcp.server.fastmcp` module, whatever your priors say.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+import functools
+import inspect
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any, TypeVar
 
 from mcp.server import MCPServer
 
 from lucid import __version__, asr, energy, ops
+from lucid.project import ProjectError
 
 mcp: MCPServer = MCPServer(
     name="lucid",
@@ -35,19 +39,87 @@ mcp: MCPServer = MCPServer(
 )
 
 
-@mcp.tool()
+#: The project this server is bound to, or None when it is unbound. Set once
+#: by `serve(root=...)`, which `lucid mcp` calls with its `-C` directory — and
+#: only when `-C` was actually typed, because a globally-configured
+#: `lucid mcp` has no project and must keep reaching any of them.
+_BOUND_ROOT: Path | None = None
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _confine(path: str) -> str:
+    """Resolve a tool's `path` argument against the bound project, or refuse it.
+
+    **Only `path` is confined, and that is a deliberate boundary**: `path` is
+    the *project selector*, so leaving it free is what lets an agent panel
+    opened on one project mutate another. The file arguments are not
+    selectors and are left alone — `import_media`'s `source` reads footage
+    that lives on the NAS, and `export`/`add_captions` write where the user
+    asked. Confining either would break the ordinary workflow while buying
+    nothing, since neither can touch a second project's state.
+
+    A relative path resolves against the bound root rather than the process
+    cwd. For the agent panel the two are the same directory (`webui.py` sets
+    `cwd` on the Popen), but a bound server means "this project", and that
+    reading should not depend on where the client happened to be standing.
+    Both sides are `resolve()`d, so `..` and a symlink out are refused rather
+    than followed.
+    """
+    root = _BOUND_ROOT
+    if root is None:
+        return path
+    candidate = Path(path)
+    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ProjectError(
+            f"this server is bound to {root} and {path!r} resolves outside it "
+            f"({resolved}). It was started as `lucid -C {root} mcp`, so every "
+            "tool addresses that project; pass a path at or under it."
+        )
+    return str(resolved)
+
+
+def _tool() -> Callable[[F], F]:
+    """Register a tool, routing its `path` argument through `_confine` first.
+
+    A decorator rather than a line in each body because the confinement has
+    to hold for *every* tool — one body that forgot it would be the whole
+    hole again — and because tool bodies stay trivial (see this module's
+    docstring). `functools.wraps` sets `__wrapped__`, which the SDK's
+    `inspect.signature(fn, eval_str=True)` follows, so the advertised schema
+    is the undecorated function's and nothing about the tool surface changes.
+    """
+
+    def decorator(fn: F) -> F:
+        signature = inspect.signature(fn)
+        if "path" not in signature.parameters:
+            return mcp.tool()(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            bound = signature.bind(*args, **kwargs)
+            bound.arguments["path"] = _confine(bound.arguments["path"])
+            return fn(*bound.args, **bound.kwargs)
+
+        return mcp.tool()(wrapper)
+
+    return decorator
+
+
+@_tool()
 def ping() -> dict[str, str]:
     """Check that the lucid MCP server is alive, and report its version."""
     return {"status": "ok", "server": "lucid", "version": __version__}
 
 
-@mcp.tool()
+@_tool()
 def init(path: str, name: str | None = None) -> dict[str, Any]:
     """Create a lucid project directory at `path`."""
     return ops.init(path, name=name)
 
 
-@mcp.tool()
+@_tool()
 def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
     """Bring an older project manifest forward to the current schema version.
 
@@ -60,7 +132,7 @@ def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
     return ops.migrate(path, plan=plan)
 
 
-@mcp.tool()
+@_tool()
 def import_media(
     path: str, source: str, clip_id: str | None = None, copy: bool = False
 ) -> dict[str, Any]:
@@ -72,7 +144,7 @@ def import_media(
     return ops.import_media(path, source, clip_id=clip_id, copy=copy)
 
 
-@mcp.tool()
+@_tool()
 def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str, Any]:
     """Ingest an existing word-timed whisper JSON as this clip's transcript.
 
@@ -85,7 +157,7 @@ def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str
     return ops.attach_transcript(path, clip_id, transcript_path)
 
 
-@mcp.tool()
+@_tool()
 def transcribe(
     path: str, clip_id: str, model: str = "turbo", language: str | None = None
 ) -> dict[str, Any]:
@@ -99,7 +171,7 @@ def transcribe(
     return ops.transcribe(path, clip_id, model=model, language=language)
 
 
-@mcp.tool()
+@_tool()
 def get_transcript(
     path: str,
     clip_id: str,
@@ -116,7 +188,7 @@ def get_transcript(
     return ops.get_transcript(path, clip_id, first=first, last=last, search=search)
 
 
-@mcp.tool()
+@_tool()
 def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
     """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
 
@@ -130,13 +202,13 @@ def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, A
     return ops.cue_add(path, clip_id, word_index, asset)
 
 
-@mcp.tool()
+@_tool()
 def cue_rm(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
     """Remove the cue at `clip_id` word `word_index`."""
     return ops.cue_rm(path, clip_id, word_index)
 
 
-@mcp.tool()
+@_tool()
 def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
     """List the picture cue table, each entry echoed with its resolved word.
 
@@ -147,7 +219,7 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
     return ops.cue_ls(path, clip_id=clip_id)
 
 
-@mcp.tool()
+@_tool()
 def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 
@@ -164,7 +236,7 @@ def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
     return ops.build_shots(path, fps=fps)
 
 
-@mcp.tool()
+@_tool()
 def seed_timeline(
     path: str,
     clip_id: str,
@@ -188,7 +260,7 @@ def seed_timeline(
     )
 
 
-@mcp.tool()
+@_tool()
 def cut_by_transcript(
     path: str,
     clip_id: str,
@@ -239,7 +311,7 @@ def cut_by_transcript(
     )
 
 
-@mcp.tool()
+@_tool()
 def cut_by_time(
     path: str,
     spans: Sequence[Sequence[float]],
@@ -275,7 +347,7 @@ def cut_by_time(
     return ops.cut_by_time(path, spans=spans, pad=pad, confirm_suspect=confirm_suspect, plan=plan)
 
 
-@mcp.tool()
+@_tool()
 def restore(
     path: str,
     clip_id: str,
@@ -313,7 +385,7 @@ def restore(
     return ops.restore(path, clip_id, ranges, pad=pad, plan=plan)
 
 
-@mcp.tool()
+@_tool()
 def locate(
     path: str,
     clip_id: str,
@@ -353,13 +425,13 @@ def locate(
     )
 
 
-@mcp.tool()
+@_tool()
 def timeline_status(path: str) -> dict[str, Any]:
     """Report the current timeline: duration, segment count, undo depth."""
     return ops.status(path)
 
 
-@mcp.tool()
+@_tool()
 def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     """The whole edit at once: segments, cut seams, and every word's fate.
 
@@ -386,13 +458,13 @@ def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     return ops.timeline_view(path, clip_id=clip_id)
 
 
-@mcp.tool()
+@_tool()
 def undo(path: str) -> dict[str, Any]:
     """Roll the timeline back to the state before the last mutation."""
     return ops.undo(path)
 
 
-@mcp.tool()
+@_tool()
 def export(
     path: str,
     output: str,
@@ -440,7 +512,7 @@ def export(
     )
 
 
-@mcp.tool()
+@_tool()
 def add_captions(
     path: str,
     output: str,
@@ -482,7 +554,7 @@ def add_captions(
     )
 
 
-@mcp.tool()
+@_tool()
 def caption_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     """The captions this timeline would produce, and the style in force.
 
@@ -498,7 +570,7 @@ def caption_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     return ops.caption_view(path, clip_id=clip_id)
 
 
-@mcp.tool()
+@_tool()
 def caption_style(
     path: str,
     preset: str | None = None,
@@ -568,7 +640,7 @@ def caption_style(
     )
 
 
-@mcp.tool()
+@_tool()
 def verify(
     path: str,
     render: str,
@@ -629,7 +701,7 @@ def verify(
     )
 
 
-@mcp.tool()
+@_tool()
 def check_frames(path: str, target: str | None = None, fps: float | None = None) -> dict[str, Any]:
     """Check an export's frame count against what the timeline says it should be.
 
@@ -654,7 +726,7 @@ def check_frames(path: str, target: str | None = None, fps: float | None = None)
     return ops.check_frames(path, target, fps=fps)
 
 
-@mcp.tool()
+@_tool()
 def check_black(
     path: str,
     target: str,
@@ -674,7 +746,7 @@ def check_black(
     return ops.check_black(path, target, fps=fps, pix_th=pix_th, min_duration=min_duration)
 
 
-@mcp.tool()
+@_tool()
 def spot_frames(
     path: str,
     target: str,
@@ -693,7 +765,7 @@ def spot_frames(
     return ops.spot_frames(path, target, count=count, times=times, fps=fps)
 
 
-@mcp.tool()
+@_tool()
 def speech_overlap(
     path: str,
     clip_id: str,
@@ -738,7 +810,7 @@ def speech_overlap(
     )
 
 
-@mcp.tool()
+@_tool()
 def attenuate_noises(
     path: str,
     clip_id: str,
@@ -782,6 +854,20 @@ def attenuate_noises(
     )
 
 
-def serve() -> None:
-    """Run the server on stdio. Blocks until the client disconnects."""
+def serve(root: str | Path | None = None) -> None:
+    """Run the server on stdio. Blocks until the client disconnects.
+
+    `root` binds every tool's `path` to one project (`_confine`). It is
+    checked here rather than on first use because a bad root would otherwise
+    surface as a refusal on every call, blaming the argument the client sent
+    instead of the directory the server was started with. Existence is all
+    that is checked: `init` under a bound root is legitimate, so requiring
+    the root to already be a lucid project would refuse a real workflow.
+    """
+    global _BOUND_ROOT
+    if root is not None:
+        resolved = Path(root).resolve()
+        if not resolved.is_dir():
+            raise ProjectError(f"cannot bind the MCP server to {root!r}: not a directory")
+        _BOUND_ROOT = resolved
     mcp.run(transport="stdio")

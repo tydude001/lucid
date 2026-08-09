@@ -322,10 +322,12 @@ through `Edit.timeline_span`.
 
 ### Now — nothing in flight
 
-The tier-3 workspace shipped 2026-08-08 (§ Tier 3 is the goal); its two
-remainders are wiki rows (binding the agent's MCP server to its `-C` project,
-and the video preview proxy, whose showing-the-shot half shipped 2026-08-09 —
-HISTORY.md § The preview picture layer — leaving the transcode). The verified
+The tier-3 workspace shipped 2026-08-08 (§ Tier 3 is the goal). Of its two
+remainders one is closed — the agent's MCP server binds to its `-C` project
+as of 2026-08-09 (HISTORY.md § Binding the agent's MCP server to its
+project) — leaving the video preview proxy, whose showing-the-shot half
+shipped the same day (HISTORY.md § The preview picture layer), so what is
+open there is the transcode. The verified
 bar for any UI item: run against the real Scream VO, in a real browser (wiki
 `tooling.md` § Headless browser) — and for anything showing *video*, not by
 screenshot, for the reason that page now records.
@@ -699,13 +701,15 @@ audits later. The flag confines it to the one generated config.
 
 The subprocess runs with the project as its working directory and its MCP
 server is spawned as `lucid -C <project> mcp` (`-C` is a global flag and
-must precede the subcommand — `lucid mcp -C` does not parse). **But the
-project binding is weaker than this section originally claimed**, found
-while building: `_cmd_mcp` ignores `-C` entirely, and every MCP tool takes
-its own explicit `path` argument — so nothing yet stops the agent pointing
-a tool it *is* allowed at a different project directory. Confinement to
-lucid's ops holds; confinement to *this project's* ops does not. The fix is
-binding `path` server-side to the `-C` value; open item in the wiki.
+must precede the subcommand — `lucid mcp -C` does not parse), **and as of
+2026-08-09 that binding is real.** It was not for a day: `_cmd_mcp` ignored
+`-C` entirely while every tool took its own explicit `path`, so confinement
+to lucid's ops held and confinement to *this project's* ops did not.
+`serve(root=)` now pins the server, and each tool's `path` resolves against
+that root or is refused. The account, and the boundary the fix deliberately
+stops at — `path` is confined because it is the project *selector*, while
+`import_media`'s `source` and `export`'s `output` are not — is HISTORY.md
+§ Binding the agent's MCP server to its project.
 
 **Prompt injection is in scope and is bounded the same way.** The transcript is
 attacker-influenced content whenever the footage is not yours, and the agent

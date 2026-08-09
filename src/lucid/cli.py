@@ -915,10 +915,17 @@ def _cmd_ping(_args: argparse.Namespace) -> int:
     return _emit(ping())
 
 
-def _cmd_mcp(_args: argparse.Namespace) -> int:
+def _cmd_mcp(args: argparse.Namespace) -> int:
     from lucid.server import serve
 
-    serve()
+    # `-C` binds the server to one project, and is honoured only when it was
+    # actually typed: `main()` defaults it to ".", so binding unconditionally
+    # would pin a globally-configured `lucid mcp` to whatever directory its
+    # client happened to launch from. Unbound is the general-client default;
+    # bound is what the web UI's agent panel spawns (`webui.py`'s generated
+    # MCP config), and what confines that agent to the project it was opened
+    # on rather than to lucid's ops in general.
+    serve(root=args.project if args.project_given else None)
     return 0
 
 

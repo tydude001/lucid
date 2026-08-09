@@ -57,6 +57,11 @@ installed package or the upstream repo, not your memory.
 - Every MCP tool gets a matching `lucid` CLI subcommand. The CLI is how the
   same operation gets scripted and debugged without an agent in the loop, so
   parity is a feature, not overhead.
+  - **Register tools with `@_tool()`, never `@mcp.tool()`** — it is what
+    routes `path` through the `-C` binding. A tool registered the way every
+    prior expects works, advertises an identical schema, and is silently
+    unconfined; a test asserts against it. HISTORY.md § Binding the agent's
+    MCP server to its project.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
   whether it is registered or reachable. Same discipline for the web UI:

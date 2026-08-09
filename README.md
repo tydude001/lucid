@@ -70,8 +70,9 @@ and caption the rest" becomes a chat message instead of an afternoon.
    the window, and a native shell buys chrome at the price of a second stack
    — deferred as cheap and reversible, not rejected. And the agent panel is a
    local `claude` subprocess speaking to lucid's own MCP server, restricted to
-   lucid's tools and nothing else, so it reaches the timeline only through the
-   tools the CLI calls, on your existing auth, with nothing uploaded. The
+   lucid's tools and to the one project it was opened on, so it reaches the
+   timeline only through the tools the CLI calls, on your existing auth, with
+   nothing uploaded. The
    non-goals — cloud, accounts, metering — stay dead.
 
 ## Try it
@@ -121,6 +122,7 @@ allowlist of commands there is nothing for an agent to do with (`web`,
 
 ```sh
 uv run lucid mcp                                          # serve MCP over stdio
+uv run lucid -C myproject mcp                             # ...bound to one project
 claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
 ```
 

@@ -2565,3 +2565,90 @@ warns about, checked rather than assumed.
 
 `melt-spike` in the same directory is not a project and has no manifest; it
 was left alone.
+
+## Binding the agent's MCP server to its project — 2026-08-09
+
+PLAN.md § The agent panel, in mechanism had been carrying its own correction
+since 2026-08-08: the panel spawns `lucid -C <project> mcp`, and `_cmd_mcp`
+took its `argparse.Namespace` as `_args` and dropped it. `serve()` took no
+arguments. So the generated MCP config spelled out `["-C", str(project_root),
+"mcp"]`, the server read none of it, and every tool took its own explicit
+`path`. The two confinements the panel's flags buy are separable, and only
+one of them held: `--strict-mcp-config` and `--tools ''` kept the agent
+inside lucid's ops, and nothing kept it inside *this project's*. An agent
+panel opened on `scream-vo` could cut `scream-picture`.
+
+Worth being precise about the size of it, because the flags around it are
+load-bearing and this was not a hole in them. Nothing here escalated beyond
+lucid's own operations — every one of them is snapshotted and `undo` reverses
+it. What it defeated was the assumption a user makes from the window they are
+looking at: that the panel in *this* project edits *this* project.
+
+### The binding is on `path`, and that is a boundary, not an oversight
+
+`path` is confined because it is the **project selector** — the argument that
+decides which project's state a call reads and writes. The file arguments are
+left alone, and the reasoning is worth writing down so nobody later "finishes
+the job" and breaks the workflow:
+
+- `import_media`'s `source` reads footage that lives on the NAS, outside every
+  project by design (CLAUDE.md: a `media/` entry is optional because the NAS
+  rejects symlinks).
+- `export` and `add_captions` write their `output` where the user asked, which
+  is routinely `~/Videos/…`.
+
+Neither can touch a second project's state, so confining either would cost the
+ordinary workflow and buy nothing. The selector is the whole of the leak.
+
+### Where the check lives, and why it is a decorator
+
+One decorator, `_tool()`, wraps `mcp.tool()` and routes `path` through
+`_confine` before the body runs. Not a line in each of the 28 bodies that take
+one: a body that forgot it would be the entire hole again, and tool bodies
+stay trivial by this repo's own convention. The wrapper is transparent to the
+tool surface — `functools.wraps` sets `__wrapped__`, and the SDK's
+`func_metadata` builds its schema from `inspect.signature(fn, eval_str=True)`,
+which follows it. Checked in the installed package before relying on it, and
+then asserted over the wire: the bound server's advertised schemas are
+compared to the unbound server's for equality, so a future wrapper that
+reshaped them fails the suite rather than changing what clients see.
+
+Three properties the tests pin, each because the obvious implementation gets
+it wrong:
+
+- **A relative path resolves against the bound root, not the process cwd.**
+  For the panel these are the same directory — `webui.py` sets `cwd` on the
+  Popen — but "bound to this project" should not depend on where the client
+  happened to be standing. The test proves it the cheap way: it runs from the
+  repo, which is not a lucid project, so `path="."` succeeding at all can only
+  mean it resolved against the root.
+- **Both sides `resolve()`, so `..` and a symlink out are refused rather than
+  followed.** A containment check on unresolved paths is string-deep and a
+  symlink planted inside the project walks straight through it. It also cuts
+  the other way on this box, which the live check ran into: `/home` is a
+  symlink to `/var/home`, so a root given as `/home/<user>/lucid-dogfood/…`
+  and a `path` spelled the same way both normalise to `/var/home/…` and
+  match. A string-prefix check would have refused a project **its own path**.
+- **`-C` binds only when it was typed.** `main()` defaults `args.project` to
+  `"."`, so binding on the value rather than on `args.project_given` would pin
+  a globally-configured `lucid mcp` to whatever directory its client launched
+  from — breaking every general MCP client to fix the panel. `lucid mcp` with
+  no `-C` stays unconfined, and that too is asserted.
+
+A root that is not a directory fails at **startup** (`lucid: cannot bind the
+MCP server to '/nonexistent-project': not a directory`, exit 1) rather than
+per call, because a per-call refusal blames the argument the client sent for
+the directory the server was started with. Existence is all that is checked —
+`init` under a bound root is legitimate, so demanding the root already be a
+lucid project would refuse a real workflow.
+
+### Verified on the real projects, not only on `tmp_path`
+
+The suite builds empty projects; the check that matters is a bound server
+against one with state. `lucid -C ~/lucid-dogfood/scream-vo mcp`, driven over
+stdio from a working directory that is neither project: `timeline_status`
+returns the same project by absolute path and by `"."` (335.901 s, 62
+segments, undo depth 0 — the figures § The schema migration recorded), and
+the same call against `~/lucid-dogfood/scream-picture` is refused naming both
+directories. `lucid -C /nonexistent-project mcp` exits 1 with the one-line
+message and no traceback.

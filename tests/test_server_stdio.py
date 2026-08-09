@@ -8,6 +8,7 @@ transport, and the tool registry is exactly what a unit test would miss
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import shutil
@@ -24,7 +25,7 @@ import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-from lucid import energy, media, picture
+from lucid import energy, media, ops, picture
 from lucid.project import Project
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
@@ -3901,3 +3902,150 @@ def test_export_resolution_is_a_documented_noop_on_an_audio_only_project(
     assert result["resolution"] is None
     assert any("no video stream" in note for note in result["notes"])
     assert Path(result["output"]).is_file()
+
+
+# -- the bound server ---------------------------------------------------------
+#
+# `lucid -C <project> mcp` binds the server to one project. The web UI's agent
+# panel spawns exactly this (`webui.py`'s generated MCP config), and it is the
+# half of that panel's confinement that `--strict-mcp-config` and `--tools ""`
+# do not cover: those keep the agent inside lucid's ops, this keeps it inside
+# *this project's*. Every check below goes over the wire for the usual reason
+# — the binding lives in the CLI-to-server wiring, which is exactly what a
+# direct call to a tool function cannot see.
+
+
+def _bound(root: Path) -> StdioServerParameters:
+    return StdioServerParameters(
+        command=sys.executable, args=["-m", "lucid.cli", "-C", str(root), "mcp"]
+    )
+
+
+async def _refused(session: ClientSession, tool: str, **arguments: Any) -> str:
+    """Call a tool expecting a refusal, and return the message it refused with."""
+    result = await session.call_tool(tool, arguments)
+    text = result.content[0].text
+    assert result.is_error, f"{tool} was expected to be refused, but returned: {text}"
+    return text
+
+
+def _two_projects(tmp_path: Path) -> tuple[Path, Path]:
+    project, other = tmp_path / "proj", tmp_path / "other"
+    ops.init(str(project))
+    ops.init(str(other))
+    return project, other
+
+
+def test_a_bound_server_serves_its_own_project(tmp_path: Path) -> None:
+    project, _ = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("cue_ls", path=str(project))
+
+    assert anyio.run(_with_server, body, _bound(project))["count"] == 0
+
+
+def test_a_bound_server_refuses_another_project(tmp_path: Path) -> None:
+    """The hole this binding closes: every tool takes an explicit `path`."""
+    project, other = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(session, "cue_ls", path=str(other))
+
+    message = anyio.run(_with_server, body, _bound(project))
+    assert str(project) in message and str(other) in message
+
+
+def test_a_bound_server_resolves_a_relative_path_against_its_project(tmp_path: Path) -> None:
+    """A bound server means "this project", not "wherever the client stands".
+
+    The proof is that this succeeds at all: the test process runs from the
+    repo, which is not a lucid project, so a "." resolved against the cwd
+    could only fail.
+    """
+    project, _ = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("cue_ls", path=".")
+
+    assert anyio.run(_with_server, body, _bound(project))["count"] == 0
+
+
+def test_a_bound_server_refuses_an_escape_by_parent_or_symlink(tmp_path: Path) -> None:
+    """Both sides resolve, so `..` and a symlink out are refused, not followed."""
+    project, other = _two_projects(tmp_path)
+    (project / "elsewhere").symlink_to(other, target_is_directory=True)
+
+    async def body(session: ClientSession) -> Any:
+        return [
+            await _refused(session, "cue_ls", path="../other"),
+            await _refused(session, "cue_ls", path=str(project / "elsewhere")),
+        ]
+
+    for message in anyio.run(_with_server, body, _bound(project)):
+        assert str(other) in message
+
+
+def test_an_unbound_server_still_reaches_any_project(tmp_path: Path) -> None:
+    """`lucid mcp` with no `-C` is the general-client case and is unconfined.
+
+    `main()` defaults `-C` to ".", so this is what would break if the binding
+    were applied whenever the default was present rather than when the flag
+    was typed.
+    """
+    _, other = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("cue_ls", path=str(other))
+
+    assert anyio.run(_with_server, body)["count"] == 0
+
+
+def test_binding_does_not_change_the_advertised_tool_schema(tmp_path: Path) -> None:
+    """The confinement is a wrapper, and a wrapper that reshaped the schema
+    would change the tool surface for every client. `functools.wraps` sets
+    `__wrapped__` and the SDK's `inspect.signature(fn, eval_str=True)`
+    follows it; this is that claim, asserted rather than trusted."""
+    project, _ = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await session.list_tools()
+
+    unbound = {t.name: t.input_schema for t in anyio.run(_with_server, body).tools}
+    bound = {t.name: t.input_schema for t in anyio.run(_with_server, body, _bound(project)).tools}
+
+    assert set(bound) == EXPECTED_TOOLS
+    assert bound == unbound
+
+
+def test_binding_to_a_directory_that_is_not_there_fails_at_startup() -> None:
+    """A bad root is caught when the server starts rather than on every call,
+    which would blame the client's argument for the server's own start-up."""
+    result = subprocess.run(
+        [sys.executable, "-m", "lucid.cli", "-C", "/nonexistent-project", "mcp"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "not a directory" in result.stderr
+
+
+def test_every_tool_taking_a_path_goes_through_the_binding() -> None:
+    """A tool registered with `@mcp.tool()` instead of `@_tool()` would work,
+    advertise an identical schema, and quietly not be confined — so the
+    invariant is asserted rather than left to review. `@_tool()` returns the
+    wrapper for anything taking a `path`, and `functools.wraps` is what puts
+    `__wrapped__` on it; `mcp.tool()` returns the function untouched.
+    """
+    import lucid.server as server_module
+
+    for name in sorted(EXPECTED_TOOLS):
+        fn = getattr(server_module, name)
+        takes_path = "path" in inspect.signature(fn).parameters
+        confined = hasattr(fn, "__wrapped__")
+        assert takes_path == confined, (
+            f"{name} takes path={takes_path} but is confined={confined} — "
+            "a tool with a `path` argument must be registered with `@_tool()`, "
+            "not `@mcp.tool()`, or it escapes the -C binding"
+        )
