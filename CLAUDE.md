@@ -168,19 +168,14 @@ installed package or the upstream repo, not your memory.
     `captions.font_match` reports both; nothing prevents either. Which fonts
     this box has: wiki `tooling.md` § Fonts.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
-  input.** `-size WxH` is a vector render at that size and **fits, never
-  distorts** — 1920x816 asked of a 16:9 document gives 1450x816. `-resize`
-  after the input rasterises at native size and resamples the pixels, which is
-  what wrecks text; `graphics.render_svg` has no resize path, so a card that
-  should fill the frame is *authored* at the canvas size — which is why
-  `card_new` defaults its canvas to `_mlt_resolution`, not to 1080p. Never
-  hand melt the SVG — it rasterises through Qt, not librsvg, and the two
-  disagree with no error on either side. HISTORY.md § The card renderer.
-  - **A template's user values are escaped and only lucid's own derived
-    markup goes in raw**, `"` included — a slot lands inside a double-quoted
-    attribute. And **nothing wraps**: a newline in a slot is a line break,
-    because a wrap guessed from a character count overflows the frame
-    silently. HISTORY.md § Card templates.
+  input.** `-size` is a vector render and **fits, never distorts**; `-resize`
+  after the input resamples the pixels and wrecks text, so `render_svg` has no
+  resize path and a card is *authored* at the canvas — which is why `card_new`
+  defaults its canvas to `_mlt_resolution`. Never hand melt the SVG: it goes
+  through Qt, not librsvg, and the two disagree with no error on either side.
+  Templates escape every user value and insert only lucid's own markup raw,
+  and **nothing wraps** — a newline is a line break, because a guessed wrap
+  overflows in silence. HISTORY.md § The card renderer, § Card templates.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

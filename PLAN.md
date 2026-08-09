@@ -348,34 +348,26 @@ substitute, silently, and the preset comment claiming otherwise was wrong.
 The substitution is now reported on every call; **whether lucid's default
 should name a font this machine actually has is an open call**, deliberately
 not taken, because changing the table would silently restyle every existing
-project.
+project. It is not only a caption question: librsvg substitutes as silently as
+libass and at exit 0, so a card template names a fallback *stack* ending in a
+generic rather than a face — routing around the call rather than taking it.
 
-The next ranked item is motion graphics + templates, and **its costed design
-note is written** — § Motion graphics and templates, 2026-08-09. Its finding
-is that the item needs no new timeline mechanism: the Scream cards already are
-motion graphics minus the motion, so what is missing is a generator for the
-asset. What the note does cost, and where it stops the build, is *animation* —
-an animated card carries a length, a shot's length is derived from the edit,
-and a cue carrying a length is the failure § The property everything below
-defends exists to prevent.
+**Motion graphics + templates shipped 2026-08-09 — all three steps, stopping
+where its costed note said stop** (§ Motion graphics and templates; HISTORY.md
+§ The card renderer, § Card templates). The note's finding was that the item
+needed no new timeline mechanism — the Scream cards already are motion graphics
+minus the motion — so what shipped is the generator it was missing: a renderer,
+`card new` over three templates, and a canvas that defaults to the project's
+own. That last closes the note's finding 4 for new cards, and only it could
+have: `-size` *fits*, so no resize on the way in would have done it.
 
-**That build shipped 2026-08-09 — all three steps, stopping where the note
-said stop.** Step 1 is the renderer, `lucid card render`, and the font report
-(HISTORY.md § The card renderer); steps 2 and 3 are `card new`, the three
-templates, and the canvas defaulting (HISTORY.md § Card templates). Finding 4
-is closed for new cards: a 1920x816 project gets a card rendered at exactly
-1920x816, and it could only have been closed there, because step 1 measured
-that `-size` *fits* and so no resize on the way in would have done it.
-
-What carries past this item is step 1's other measurement: **a card naming a
-font this box lacks renders pixel-identically to one naming a font it has, at
-exit 0**, so the open call on lucid's default font is no longer only about
-captions. The shipped templates route around it rather than answering it —
-each names a fallback *stack* ending in a generic, never a single face.
+What the note costed and refused to build is *animation* — an animated card
+carries a length, a shot's length is derived from the edit, and a cue carrying
+a length is the failure § The property everything below defends exists to
+prevent. It gets its own note, after a watch of a card-heavy cut.
 
 **Next in the queue is b-roll by description**, which still wants its costed
-note first and must not copy Daydream blind. Animation stays where the note
-put it: after a watch of a real card-heavy cut, with its own note.
+note first and must not copy Daydream blind.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
