@@ -115,6 +115,12 @@ installed package or the upstream repo, not your memory.
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
   changed.
+- **`Project.open` refuses an old manifest and must never migrate one** —
+  opening is a read, and `open` backs `info` and `status`, so migrating there
+  would rewrite a project someone only looked at. Migration is explicit
+  (`lucid migrate` / `migrate_project`), and a schema bump means adding a step
+  to `_MIGRATIONS` — keyed by the version it migrates *from* — not widening
+  the check in `open`. HISTORY.md § The schema migration.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

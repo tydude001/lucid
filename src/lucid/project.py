@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,60 @@ _SUBDIRS = (
 
 class ProjectError(Exception):
     """Raised when a path is not a usable lucid project."""
+
+
+# -- schema migration --------------------------------------------------------
+
+
+def _v1_to_v2(manifest: dict[str, Any]) -> dict[str, Any]:
+    """v2 added the cue table (PLAN.md § The layered timeline).
+
+    Additive: every v1 key means in v2 exactly what it meant in v1, so the
+    step is the one missing list. `cue_add` would `setdefault` it anyway —
+    writing it here is what makes the version number true rather than
+    incidentally survivable.
+    """
+    manifest.setdefault("cues", [])
+    return manifest
+
+
+#: Keyed by the version each step migrates *from*; a step returns the manifest
+#: at version key+1, and `migrate` stamps the number. Stepwise rather than
+#: one function per (from, to) pair, so the next bump is a single entry and
+#: every older project reaches the present through the same path the one
+#: before it took.
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {1: _v1_to_v2}
+
+
+def _migratable(found: Any) -> bool:
+    """Whether `Project.migrate` has a path from `found` to the current version.
+
+    `bool` is excluded explicitly because it is an `int` subclass, so a
+    manifest reading `"schema_version": true` would otherwise be treated as
+    version 1 and migrated.
+    """
+    return (
+        isinstance(found, int)
+        and not isinstance(found, bool)
+        and found < SCHEMA_VERSION
+        and all(v in _MIGRATIONS for v in range(found, SCHEMA_VERSION))
+    )
+
+
+def _migration_steps(found: Any, manifest_path: Path) -> list[int]:
+    """The versions to step through, or a refusal naming why there is no path."""
+    if found == SCHEMA_VERSION:
+        return []
+    if not _migratable(found):
+        if isinstance(found, int) and not isinstance(found, bool) and found > SCHEMA_VERSION:
+            why = "it was written by a newer lucid, and migration is forward-only"
+        else:
+            why = f"no migration step is registered for schema_version {found!r}"
+        raise ProjectError(
+            f"cannot migrate {manifest_path}: {why} "
+            f"(this lucid understands {SCHEMA_VERSION})"
+        )
+    return list(range(found, SCHEMA_VERSION))
 
 
 @dataclass(frozen=True)
@@ -202,11 +257,74 @@ class Project:
         manifest = project.read_manifest()
         found = manifest.get("schema_version")
         if found != SCHEMA_VERSION:
+            way_out = (
+                "run `lucid migrate` to bring it forward"
+                if _migratable(found)
+                else "there is no migration path from it"
+            )
             raise ProjectError(
                 f"{project.manifest_path} has schema_version {found!r}, "
-                f"but this lucid understands {SCHEMA_VERSION}"
+                f"but this lucid understands {SCHEMA_VERSION} — {way_out}"
             )
         return project
+
+    @classmethod
+    def migrate(cls, root: Path | str, *, plan: bool = False) -> dict[str, Any]:
+        """Bring an older manifest forward to `SCHEMA_VERSION`.
+
+        Deliberately *not* folded into `Project.open`. Opening is a read, and a
+        read that rewrites the file it just validated would migrate a project
+        on `lucid info` — including one the reader only meant to look at, and
+        one an older lucid elsewhere can still open until the moment it is
+        touched. So `open` refuses and names this, and this does the writing.
+
+        `plan=True` resolves the steps and writes nothing (CLAUDE.md), which is
+        also the only way to ask "what version is this, and can it come
+        forward?" without committing to the answer.
+        """
+        project = cls(Path(root).expanduser().resolve())
+        if not project.manifest_path.exists():
+            raise ProjectError(f"no lucid project at {project.root} (no {MANIFEST_NAME})")
+
+        manifest = project.read_manifest()
+        found = manifest.get("schema_version")
+        steps = _migration_steps(found, project.manifest_path)
+
+        report: dict[str, Any] = {
+            "project": str(project.root),
+            "schema_version": found,
+            "target": SCHEMA_VERSION,
+            "steps": [f"{v} -> {v + 1}" for v in steps],
+            "migrated": False,
+            "backup": None,
+        }
+        if plan:
+            report["plan"] = True
+            return report
+        if not steps:
+            return report
+
+        report["backup"] = str(project._backup_manifest(found))
+        for version in steps:
+            manifest = _MIGRATIONS[version](manifest)
+            manifest["schema_version"] = version + 1
+        project.write_manifest(manifest)
+        report["schema_version"] = SCHEMA_VERSION
+        report["migrated"] = True
+        return report
+
+    def _backup_manifest(self, version: Any) -> Path:
+        """Copy the manifest aside before a migration rewrites it.
+
+        It sits beside the timeline snapshots because it is the same kind of
+        thing: the state before a mutation. `snapshots()` globs `*.otio`, so a
+        `.json` here is invisible to `undo` — which is right, since rolling the
+        timeline back one edit must not roll the schema back with it.
+        """
+        self.history_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.history_dir / f"{Path(MANIFEST_NAME).stem}-v{version}.json"
+        shutil.copy2(self.manifest_path, dest)
+        return dest
 
     # -- manifest --------------------------------------------------------
 

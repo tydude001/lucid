@@ -126,6 +126,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("info", help="show a project's manifest")
 
+    p_migrate = sub.add_parser(
+        "migrate", help="bring an older project manifest forward to the current schema"
+    )
+    p_migrate.add_argument(
+        "--plan", action="store_true", help="report the steps and the version, writing nothing"
+    )
+
     p_import = sub.add_parser("import", help="register a media file with the project")
     p_import.add_argument("source", help="path to the media file")
     p_import.add_argument("--clip-id", help="override the generated clip id")
@@ -629,6 +636,10 @@ def _cmd_info(args: argparse.Namespace) -> int:
     return _emit(Project.open(args.project).read_manifest())
 
 
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    return _emit(ops.migrate(args.project, plan=args.plan))
+
+
 def _cmd_import(args: argparse.Namespace) -> int:
     return _emit(
         ops.import_media(args.project, args.source, clip_id=args.clip_id, copy=args.copy)
@@ -914,6 +925,7 @@ def _cmd_mcp(_args: argparse.Namespace) -> int:
 _COMMANDS = {
     "init": _cmd_init,
     "info": _cmd_info,
+    "migrate": _cmd_migrate,
     "import": _cmd_import,
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,

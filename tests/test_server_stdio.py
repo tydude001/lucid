@@ -35,6 +35,7 @@ SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", 
 EXPECTED_TOOLS = {
     "ping",
     "init",
+    "migrate_project",
     "import_media",
     "attach_transcript",
     "transcribe",
@@ -151,6 +152,7 @@ def test_every_tool_is_registered() -> None:
 #: tool added to only one front end fails the suite either way.
 TOOL_TO_COMMAND = {
     "init": "init",
+    "migrate_project": "migrate",
     "import_media": "import",
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",

@@ -48,6 +48,19 @@ def init(path: str, name: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
+    """Bring an older project manifest forward to the current schema version.
+
+    Every other tool refuses a project written by an older lucid rather than
+    guessing at a layout it does not recognise; this is what clears that. It
+    is forward-only, and it copies the manifest into `cache/history/` before
+    writing. `plan=True` reports the version and the steps without writing,
+    which is how to ask what a project is before deciding to change it.
+    """
+    return ops.migrate(path, plan=plan)
+
+
+@mcp.tool()
 def import_media(
     path: str, source: str, clip_id: str | None = None, copy: bool = False
 ) -> dict[str, Any]:

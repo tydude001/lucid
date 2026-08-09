@@ -107,7 +107,10 @@ uv run lucid -C myproject preview vo      # will a browser play this asset, and 
 
 `--render` exports media instead of an NLE project, `--preset youtube|web|custom`
 picks a quality bundle for it, and `undo` rolls back the last mutation while
-`restore` un-cuts one specific range. A timeline with a cue table or a second
+`restore` un-cuts one specific range. A project written by an older lucid is
+refused rather than guessed at; `lucid migrate` brings it forward (`--plan`
+says what it would do first, and the old manifest is kept under
+`cache/history/`). A timeline with a cue table or a second
 clip on it is written as MLT by lucid and rendered by `melt` — auto-editor never
 sees one, because it degrades a two-source render to 720x576 and exits 0.
 

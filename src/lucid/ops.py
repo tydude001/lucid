@@ -69,6 +69,17 @@ def init(path: Path | str, *, name: str | None = None) -> dict[str, Any]:
     return {"project": str(project.root), "manifest": project.read_manifest()}
 
 
+def migrate(path: Path | str, *, plan: bool = False) -> dict[str, Any]:
+    """Bring an older project manifest forward to the current schema version.
+
+    Every other op goes through `Project.open`, which refuses a manifest it
+    does not recognise rather than guessing at its shape; this is what clears
+    that refusal. Forward-only, and the pre-migration manifest is copied into
+    `cache/history/` before anything is written.
+    """
+    return Project.migrate(path, plan=plan)
+
+
 def import_media(
     path: Path | str, source: Path | str, *, clip_id: str | None = None, copy: bool = False
 ) -> dict[str, Any]:

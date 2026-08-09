@@ -2486,3 +2486,79 @@ invalidation, fixed here by accident of needing the same thing.
 - **Burn-in is still opt-in on `add_captions`.** `export` does not take a
   captions flag, and the sidecar `.ass` remains the default exit because
   Kdenlive loads it and it stays restylable.
+
+## The schema migration, and why `open` still refuses — 2026-08-09
+
+`SCHEMA_VERSION` went 1 → 2 on 2026-08-08 for the cue table, and § The cue
+table, step 1 recorded that nothing needed migrating: "there are none in this
+repo, only `tmp_path` fixtures". That was true of the repo and false of the
+box. The three `~/lucid-dogfood` projects — `scream-vo`, `scream-picture`,
+`scream-reveal` — were all `schema_version 1`, so `Project.open` refused every
+one of them, and the fixture that every UI-verification instruction in this
+repo names had been unusable since the bump. `~/lucid-scream-v2/proj` stood in
+on 2026-08-08 without anyone writing down why.
+
+**The delta was one key.** v2 is v1 plus `cues`, and `cue_add` already
+`setdefault`s it — so a v1 manifest would have *worked* had anything been
+allowed to open it. The refusal was the whole of the breakage, which is worth
+stating plainly: the exact-match check in `open` is not a safety net that
+happened to fire, it is the only thing that fired.
+
+### Migration is explicit, because opening is a read
+
+The obvious shape — migrate inside `Project.open` — is the one deliberately
+not built. `open` is called by every op including `info` and `status`, so
+folding the migration in means `lucid info` rewrites the manifest of a
+project the reader only meant to look at, and silently retires a directory
+that an older lucid installed elsewhere could still open until the moment it
+was inspected. A read that rewrites what it validated is the same class of
+failure as the silent degradations this repo keeps cataloguing, so:
+
+- `Project.open` still refuses, and the refusal now **names the way out** —
+  `run \`lucid migrate\` to bring it forward` when a path exists, `there is no
+  migration path from it` when one does not. The old message stated the two
+  version numbers and stopped, which is a dead end dressed as an error.
+- `Project.migrate` does the writing, as `ops.migrate` → `lucid migrate` →
+  the `migrate_project` tool, per the parity convention. It takes `--plan`
+  (CLAUDE.md: mutating tools resolve without writing), which doubles as the
+  only way to ask "what version is this, and can it come forward?" without
+  committing to the answer.
+
+### Stepwise, forward-only, and it keeps the old manifest
+
+`_MIGRATIONS` is keyed by the version each step migrates *from* and returns
+the manifest at key+1; `migrate` stamps the number itself, so a step cannot
+disagree with the version it claims to have produced. Stepwise rather than one
+function per (from, to) pair means the next bump is one entry and every older
+project reaches the present along the path the one before it took.
+
+Two guards that look like pedantry and are not:
+
+- **`bool` is excluded explicitly.** It is an `int` subclass, so a manifest
+  reading `"schema_version": true` passes `found < SCHEMA_VERSION` and would
+  have been migrated as v1 — writing a v2 header onto a file whose shape
+  nobody has established. It is refused instead.
+- **The pre-migration manifest is copied to `cache/history/lucid-v<n>.json`**
+  before anything is written. This step is additive and loses nothing; the
+  next one may not be, and the backup is cheaper to build once than to add
+  after the migration that needed it. It lands beside the timeline snapshots
+  because it is the same kind of thing — state before a mutation — and
+  `snapshots()` globs `*.otio`, so it is invisible to `undo`. That matters in
+  the right direction: rolling the timeline back one edit must not roll the
+  schema back with it. Asserted, because the glob also `int()`s the stem and a
+  stray `.json` in there would be a crash rather than a wrong answer.
+
+### Verified on the projects it was built for
+
+All three migrated, and were then checked as *fixtures* rather than as files:
+`status` opens each (scream-vo: 62 segments, 5:35.9, undo depth still 0 —
+the backup is not an undo step), all four clips resolve through
+`media.media_path`, and `lucid web` on scream-vo serves `/api/view` (929
+words, 61 seams) and `/api/captions`, draws in headless Chrome with no console
+errors, and its `<video>` reaches `readyState: 4` on `/api/media/vo`. The one
+`net::ERR_ABORTED` in the network log is the media element cancelling a
+speculative range fetch, not a decode failure — the distinction CLAUDE.md
+warns about, checked rather than assumed.
+
+`melt-spike` in the same directory is not a project and has no manifest; it
+was left alone.
