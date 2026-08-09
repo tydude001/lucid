@@ -1500,6 +1500,9 @@ usual way in `test_server_stdio.py`'s tool-registry and CLI-mapping checks.
   newer lucid is refused rather than silently misread") means this is a hard
   break for any project directory created before today — there are none in
   this repo, only `tmp_path` fixtures, so nothing needed migrating.
+  **Correction, 2026-08-09:** true of the repo, false of the box — the three
+  `~/lucid-dogfood` projects were v1 and had been unopenable since. § The
+  schema migration.
 - **`cue_add` reuses the word-index machinery `cut_by_transcript` already
   has** — `Transcript.span` for bounds-checking, `_context` for the "three
   words either side" echo (CLAUDE.md) — rather than growing a second
