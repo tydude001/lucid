@@ -350,8 +350,14 @@ should name a font this machine actually has is an open call**, deliberately
 not taken, because changing the table would silently restyle every existing
 project.
 
-The next ranked item is motion graphics + templates, which wants a costed
-design note before any build.
+The next ranked item is motion graphics + templates, and **its costed design
+note is written** — § Motion graphics and templates, 2026-08-09. Its finding
+is that the item needs no new timeline mechanism: the Scream cards already are
+motion graphics minus the motion, so what is missing is a generator for the
+asset. What the note does cost, and where it stops the build, is *animation* —
+an animated card carries a length, a shot's length is derived from the edit,
+and a cue carrying a length is the failure § The property everything below
+defends exists to prevent.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
@@ -1003,3 +1009,138 @@ document: [DAYDREAM.md](DAYDREAM.md). The constraints that bind every parity
 item are lucid's own and live where they always did: § Non-goals, the web-UI
 conventions (no lane `export` cannot produce — CLAUDE.md), and § The
 property everything below defends.
+
+## Motion graphics and templates — the design note — 2026-08-09
+
+The costed note DAYDREAM.md § Motion graphics + templates and § Next ask for
+before any build. **The finding that shapes it: motion graphics need no new
+timeline mechanism at all.** The Scream assembly's 13 cards already are motion
+graphics minus the motion — PNGs in `assets/cards/`, cued by `(clip_id,
+word_index, asset)`, resolved by `ops._resolve_asset`, projected by
+`build_shots`, held by `mlt.plan_picture` as an `is_image` `Entry`, composited
+by melt as a `qimage` producer. What is missing is a *generator* for the
+asset, and one decision about animation that turns out to be about § The
+property everything below defends rather than about rendering.
+
+### Measured on this box, 2026-08-09
+
+Five measurements, because a design note that guesses at the toolchain is how
+the caption default came to name a font this machine does not have.
+
+1. **There is a real SVG rasteriser here, and the obvious probes miss it** —
+   `magick` links librsvg, so `magick in.svg out.png` renders text faithfully.
+   Which binaries are absent, which delegate row to look for, and the numbers
+   behind "faithfully" are a box fact, not a lucid one: wiki `tooling.md`
+   § Rasterising SVG. **What it means for this note is only that the generator
+   has a renderer to shell out to and needs no new dependency.**
+
+2. **That renderer substitutes a missing font silently — the caption trap, on a
+   second renderer.** Same card, one naming an installed font and one naming a
+   missing one: pixel-identical output, both exit 0 (measurement in the wiki
+   section above). The consequence here is that `captions.font_match` is
+   already the right answer and gets reused rather than reinvented — report the
+   substitution, do not prevent it. Without that, cards join captions in being
+   drawn in a typeface nobody picked.
+
+3. **The production render preserves a card's colour, and the alarm that says
+   otherwise is a testing artifact.** A one-frame `melt … -consumer avformat`
+   probe with default args lifted blacks — `(16,20,24)` → `(30,34,37)`, the
+   signature of a limited/full-range mismatch — and that is the probe's fault,
+   not melt's. Against the real render: `receipt-scream-1996.png`'s paper is
+   `(250,245,236)` in the source and `(250,243,236)` in `~/lucid-scream-v2/out.mp4`.
+   Two levels on one channel is h.264 chroma rounding. **No colour management
+   is needed**; the false alarm is recorded because a one-frame probe is the
+   obvious way to check and it will be rediscovered.
+
+4. **Cards pillarbox, and it costs a quarter of the frame.** Now a measurement
+   rather than the wiki row's prediction. `ops._mlt_resolution` takes the
+   canvas from the first video clip — the film's **1920x816** crop — and the
+   1920x1080 cards fit to it by height. In `out.mp4` the card occupies
+   x ∈ [232, 1686]: **465 px of 1920, 24% of the width, is black bar.**
+
+5. **melt will read an SVG directly, and taking that shortcut would split the
+   rasteriser in two** — it goes through Qt, not librsvg (wiki `tooling.md`
+   § Rasterising SVG). A card previewed through one renderer and rendered
+   through another can disagree with no error on either side, which is this
+   repo's recurring failure shape. So lucid rasterises to PNG itself and never
+   hands melt an SVG — which the current code already does by accident, since
+   `_resolve_asset` and `preview_source` both hardcode `<name>.png`.
+
+### The design
+
+**Asset format: SVG in, PNG out, both kept.** `assets/cards/<name>.svg` is the
+source the agent authors and re-edits; `assets/cards/<name>.png` is the
+rasterisation the cue resolves to. Both, because the cue table and the
+preview `<img>` want a raster (and finding 5 says keep it that way), while a
+card you cannot re-edit is a card you have to redraw from scratch to change a
+year. No schema bump — `assets/cards/` is a directory, not a manifest field,
+the precedent `CARDS_DIR` set at step 2 of the layered timeline.
+
+**The generator is a new `graphics.py`**, shelling `magick` the way `asr`
+shells whisper and `picture` shells melt — same reasoning, an external
+renderer with a resolution order and no Python API worth binding. It returns
+the font-substitution report for every `font-family` in the document, reusing
+`captions.font_match` rather than growing a second one.
+
+**Templates are SVG files with `{{slot}}` placeholders and a slot manifest**,
+filled by XML-escaped string substitution — not a template engine. The starter
+set is the three the Scream assembly actually used, not a speculative library:
+`receipt` (title/year/stars/date/quote), `reveal` (title/year), `rerate`
+(before/after). Their docs' "iterate one graphic at a time" is prompt guidance
+and free to adopt.
+
+**Cards generate at the project's canvas size, not at 1920x1080.** This is
+what finding 4 actually says: the question was never "should cards
+pillarbox", it is that a card was authored at a different aspect from the film
+it sits in. `_mlt_resolution` already computes the canvas; `graphics` takes it
+and the templates are authored in relative units. Existing cards keep working
+— they still scale to fit — and new ones stop discarding 24% of the frame.
+
+### Animation is a length problem, not a rendering one
+
+This is the part that costs, and the cost is not where it looks.
+
+`mlt.plan_picture` refuses a shot longer than its asset. A still has no length
+to run out of: `IMAGE_LENGTH_SECONDS` claims four hours and `eof=continue`
+holds the last frame, so a card fits any shot. **An animated card is a video
+clip, and a video clip has a length.** But a shot's length is *derived* — it
+runs from its cue to the next cue, through the current edit. An animated asset
+baked to N seconds is a cue carrying an explicit length, which is precisely the
+music-bed failure § The property everything below defends records as the
+converse proof: cues carrying lengths tuned to the old runtime were
+invalidated wholesale by a ~12 s append, while the 37-shot plan recomputed for
+free from two `lucid cut` commands.
+
+So the ordering is forced, and it is not a preference:
+
+- **Static cards are the whole of the first build.** They inherit the property.
+- **Animation, when costed, must be length-agnostic.** Intro-then-hold
+  (animate in, then hold the last frame indefinitely) and loop are the two
+  shapes that are; `eof=continue` already gives the hold for free on a
+  `qimage` producer and would need it stated explicitly on an `avformat` one.
+  **A fixed-length animation is the one to refuse**, and the refusal belongs at
+  *authoring* time — `plan_picture`'s existing refusal fires at export, which
+  is far too late to be told the graphic is the wrong length.
+- Two mechanisms, when it comes: a melt `<filter>` on the entry (affine
+  keyframes), which **`mlt.py` cannot express at all today** — `_playlist`
+  writes bare entries and there is no filter support anywhere in the module —
+  or an ffmpeg-rendered clip from an SVG frame sequence, which needs **zero**
+  `mlt.py` change and reuses the existing non-image path. The second is
+  cheaper and gets tried first.
+
+### Build order, and where it stops
+
+1. `graphics.py` — `render_svg`, with the font-substitution report. CLI
+   `lucid card render`, MCP parity, per CLAUDE.md § Conventions.
+2. Templates and card creation: fill a template's slots, rasterise, land both
+   files. CLI and MCP parity again.
+3. Canvas-size defaulting, closing finding 4 for new cards.
+4. **Stop.** Animation gets its own note, after a watch of a real card-heavy
+   cut — the same discipline the layered timeline used.
+
+No properties pane and no styling UI: the agent authors and the window
+renders, which is the parity target DAYDREAM.md states. Two things stay
+deliberately unanswered — whether the existing Scream cards get regenerated at
+1920x816 (Tyler's call on a watch, and the wiki row already carries it), and
+per-word caption animation, which shares "one Dialogue event per word" with
+nothing here and neither blocks this nor is blocked by it.

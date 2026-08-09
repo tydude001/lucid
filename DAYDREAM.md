@@ -381,9 +381,21 @@ picture track, `melt` composites it** — full-frame or overlay. Templates are
 a starter library of those assets with editable text/colour slots, which is
 also what makes a Properties pane meaningful later. Their docs' advice
 ("iterate one graphic at a time") is a prompt-guidance line, free to adopt.
-Needs a short design note (asset format, where generated assets live in the
-project, animation — static cards first; animated later via melt affine/
-kdenlivetitle or ffmpeg-rendered clips).
+**The design note is written: lucid `PLAN.md` § Motion graphics and templates,
+2026-08-09.** It settles asset format (SVG source plus PNG rasterisation, both
+in `assets/cards/`, no schema bump), the generator (`graphics.py` shelling
+ImageMagick, which links **librsvg** here — and which substitutes a missing
+font pixel-identically and silently, the caption trap on a second renderer),
+and the canvas (cards generate at the project's size; the Scream cards are
+1920x1080 in an 1920x816 film, so 24% of the frame is black bar).
+
+Its one real cost is **animation, which is a length problem rather than a
+rendering one**: a still has no length to run out of, an animated card is a
+video clip that does, and a shot's length is derived from the edit — so a
+baked-length graphic is a cue carrying a length, the failure lucid `PLAN.md`
+§ The property everything below defends is built to prevent. Static cards
+first is therefore forced, not preferred; animation must be intro-then-hold or
+loop, and gets its own note.
 
 ### Captions — generation and styling built; per-word animation is the gap
 
