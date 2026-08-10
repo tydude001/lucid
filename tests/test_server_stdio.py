@@ -41,6 +41,7 @@ EXPECTED_TOOLS = {
     "attach_transcript",
     "transcribe",
     "get_transcript",
+    "describe",
     "card_templates",
     "card_new",
     "card_render",
@@ -161,6 +162,7 @@ TOOL_TO_COMMAND = {
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
+    "describe": "describe",
     "card_templates": "card",
     "card_new": "card",
     "card_render": "card",
@@ -337,6 +339,67 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
     cards = Project.open(project).cards_dir
     assert (cards / "receipt-scream-1996.svg").is_file()
     assert (cards / "receipt-scream-1996.png").is_file()
+
+
+@needs_ffprobe
+def test_describe_plans_over_the_wire_without_loading_a_model(tmp_path: Path) -> None:
+    """`describe` reachable over stdio, in the mode an agent should reach for
+    first: `plan=True` resolves the whole work list, the estimate, and whether
+    this box can run the model at all, without 31 GB of weights being what
+    answers the question. The describing half needs a GPU and is exercised in
+    `test_ops_describe.py` against a stub.
+    """
+    project = tmp_path / "proj"
+    media = tmp_path / "silent.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=320x240:r=24:d=25",
+            str(media),
+        ],
+        check=True,
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        await client.call("import_media", path=str(project), source=str(media))
+        return await client.call("describe", path=str(project), plan=True)
+
+    out = anyio.run(_with_server, body)
+
+    assert out["plan"] is True
+    # 25s at 10s windows is three windows, never two of 12.5 — a window is
+    # never longer than the one asked for.
+    assert out["windows"] == 3
+    assert out["clips"] == [{"clip_id": "silent", "windows": 3}]
+    assert out["estimated_seconds"] == 26
+    assert set(out["runtime"]) == {"available", "python", "tagger", "why"}
+    # Nothing was described, so nothing was stored.
+    assert Project.open(project).read_manifest()["descriptions"] == []
+
+
+@needs_ffprobe
+def test_describe_refuses_an_audio_only_clip_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The Scream project's VO is exactly this clip, and skipping it quietly
+    reads the same as describing it and finding nothing to say."""
+    audio, _ = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        return await session.call_tool(
+            "describe", {"path": str(project), "clip_id": clip["clip_id"], "plan": True}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "no video track" in result.content[0].text
 
 
 def test_cue_table_add_ls_rm_end_to_end(tmp_path: Path, sources: tuple[Path, Path]) -> None:

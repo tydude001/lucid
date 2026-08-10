@@ -4,7 +4,8 @@ A project is a directory on disk. Nothing is uploaded, and every artifact is
 inspectable with ordinary tools::
 
     myproject/
-      lucid.json            manifest — schema version, clip registry, cue table, settings
+      lucid.json            manifest — schema version, clip registry, cue table,
+                            footage descriptions, settings
       media/                imported source media (copies or symlinks)
       project.otio          the timeline; the source of truth tools mutate
       cache/
@@ -34,7 +35,9 @@ from typing import Any
 
 #: Bumped when the on-disk layout changes incompatibly.
 #: 2 added the cue table (`cues`, PLAN.md § The layered timeline).
-SCHEMA_VERSION = 2
+#: 3 added footage descriptions (`descriptions`, PLAN.md § B-roll by
+#: description), and covers the optional in-point a cue gains with them.
+SCHEMA_VERSION = 3
 
 MANIFEST_NAME = "lucid.json"
 TIMELINE_NAME = "project.otio"
@@ -88,12 +91,27 @@ def _v1_to_v2(manifest: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
+def _v2_to_v3(manifest: dict[str, Any]) -> dict[str, Any]:
+    """v3 added footage descriptions (PLAN.md § B-roll by description).
+
+    Additive, like v2 before it. It also covers the optional `src_start` a
+    picture cue gains — one bump for both, because a v2 cue without one means
+    in v3 exactly what it meant in v2 (take the asset from wherever the
+    consumption cursor is), so no cue needs rewriting.
+    """
+    manifest.setdefault("descriptions", [])
+    return manifest
+
+
 #: Keyed by the version each step migrates *from*; a step returns the manifest
 #: at version key+1, and `migrate` stamps the number. Stepwise rather than
 #: one function per (from, to) pair, so the next bump is a single entry and
 #: every older project reaches the present through the same path the one
 #: before it took.
-_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {1: _v1_to_v2}
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    1: _v1_to_v2,
+    2: _v2_to_v3,
+}
 
 
 def _migratable(found: Any) -> bool:
@@ -243,6 +261,7 @@ class Project:
                 "name": name or project.root.name,
                 "clips": [],
                 "cues": [],
+                "descriptions": [],
             }
         )
         return project

@@ -89,13 +89,16 @@ def test_migrate_brings_a_v1_project_forward(tmp_path: Path) -> None:
     report = Project.migrate(project.root)
 
     assert report["schema_version"] == SCHEMA_VERSION
-    assert report["steps"] == ["1 -> 2"]
+    # Stepwise, so a v1 project reaches the present through every step in
+    # turn rather than through a v1 -> current shortcut nobody else takes.
+    assert report["steps"] == ["1 -> 2", "2 -> 3"]
     assert report["migrated"] is True
 
     manifest = Project.open(project.root).read_manifest()
     assert manifest["schema_version"] == SCHEMA_VERSION
     assert manifest["cues"] == []
-    # v1's keys mean in v2 what they meant in v1; the step is additive only.
+    assert manifest["descriptions"] == []
+    # v1's keys mean in v3 what they meant in v1; every step is additive only.
     assert manifest["name"] == "old"
     assert manifest["timebase"] == 24.0
     assert manifest["clips"] == [{"clip_id": "a", "media": "media/a.wav"}]
@@ -126,11 +129,12 @@ def test_migrate_plans_without_writing(tmp_path: Path) -> None:
 
     assert report["plan"] is True
     assert report["schema_version"] == 1
-    assert report["steps"] == ["1 -> 2"]
+    assert report["steps"] == ["1 -> 2", "2 -> 3"]
     assert report["migrated"] is False
     assert report["backup"] is None
     assert project.read_manifest()["schema_version"] == 1
     assert "cues" not in project.read_manifest()
+    assert "descriptions" not in project.read_manifest()
 
 
 def test_migrate_is_a_no_op_on_a_current_project(tmp_path: Path) -> None:

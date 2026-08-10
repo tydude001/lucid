@@ -11,9 +11,10 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, asr, captions, energy, ops, webui
+from lucid import __version__, asr, captions, describe, energy, ops, webui
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
+from lucid.describe import DescribeError
 from lucid.energy import EnergyError
 from lucid.graphics import GraphicsError
 from lucid.media import MediaError
@@ -157,6 +158,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tx.add_argument("--first", type=int, help="first word index (inclusive)")
     p_tx.add_argument("--last", type=int, help="last word index (inclusive)")
     p_tx.add_argument("--search", help="locate a phrase; returns word ranges")
+
+    p_describe = sub.add_parser(
+        "describe", help="describe a clip's footage in windows, for b-roll search"
+    )
+    p_describe.add_argument(
+        "clip_id", nargs="?", help="one clip; omitted, every video clip not yet described"
+    )
+    p_describe.add_argument(
+        "--window",
+        type=float,
+        default=describe.WINDOW,
+        help=f"seconds of footage per description ({describe.WINDOW:g})",
+    )
+    p_describe.add_argument(
+        "--force", action="store_true", help="describe again, replacing what is stored"
+    )
+    p_describe.add_argument(
+        "--plan",
+        action="store_true",
+        help="resolve the work list and the estimate without loading a model",
+    )
 
     p_card = sub.add_parser("card", help="generate the card assets a picture cue points at")
     card_sub = p_card.add_subparsers(dest="card_command", required=True)
@@ -704,6 +726,18 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_describe(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.describe(
+            args.project,
+            args.clip_id,
+            window=args.window,
+            force=args.force,
+            plan=args.plan,
+        )
+    )
+
+
 def _slot_assignments(pairs: list[str]) -> dict[str, str]:
     """`SLOT=VALUE` pairs into a slot dict, `\\n` in VALUE meaning a line break.
 
@@ -1012,6 +1046,7 @@ _COMMANDS = {
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
+    "describe": _cmd_describe,
     "card": _cmd_card,
     "cue": _cmd_cue,
     "shots": _cmd_shots,
@@ -1050,6 +1085,9 @@ _EXPECTED = (
     AutoEditorError,
     captions.CaptionError,
     ASRError,
+    # The vision model is missing, or failed on a clip — a message naming
+    # which interpreter was looked for, not a traceback.
+    DescribeError,
     VerifyError,
     PictureError,
     EnergyError,

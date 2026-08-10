@@ -189,6 +189,40 @@ def get_transcript(
 
 
 @_tool()
+def describe(
+    path: str,
+    clip_id: str | None = None,
+    window: float = 10.0,
+    force: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Describe footage in fixed windows, so b-roll can be found by what is in it.
+
+    A description is `(clip_id, src_start, src_end, text)` in **source**
+    seconds, which is why cutting the edit can never invalidate one. Omit
+    `clip_id` to describe every video clip that has not been described yet;
+    name one to do just that clip. Audio-only clips are refused — their words
+    are what `transcribe` indexes.
+
+    **This is a job, not a request.** Cost is about three seconds per window
+    regardless of how much footage the window spans, so a project's footage
+    is minutes of GPU time. Run it with `plan=True` first: that resolves the
+    whole work list and the estimate, and reports whether this machine can
+    run the model at all, without loading anything.
+
+    Already-described clips are skipped unless `force`. Do not widen `window`
+    to save time without a reason — a single pass over a whole clip describes
+    six frames as six people, fluently and with nothing saying it is wrong.
+
+    Read `errors` and `truncated` in the result. A truncated description
+    stops mid-fact and reads exactly like a complete one, and a window is
+    never evidence of a *continuous shot*: the model narrates across a cut
+    inside one as though it were a single take.
+    """
+    return ops.describe(path, clip_id, window=window, force=force, plan=plan)
+
+
+@_tool()
 def card_templates() -> dict[str, Any]:
     """The card templates lucid ships, and the slots each one takes.
 

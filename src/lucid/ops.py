@@ -14,12 +14,17 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import time
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 from lucid import asr, autoeditor, captions, energy, graphics, media, mlt, picture
+
+# `describe` is also the name of the op below — the same collision `verify`
+# has, and the same fix.
+from lucid import describe as dsc
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -213,6 +218,175 @@ def get_transcript(
         "text": " ".join(w.text for w in words),
         "words": [w.as_dict() for w in words],
     }
+
+
+# -- footage descriptions ---------------------------------------------------
+#
+# Step 1 of PLAN.md § B-roll by description. **A description indexes the
+# source, which is why an edit cannot invalidate it**: the unit is
+# `(clip_id, src_start, src_end, text)` in *source* seconds, and the b-roll
+# asset is not the thing being cut, so its own times never renumber. That is
+# the same property word indices have, and the reason nothing here needs a
+# re-describe hook on edit.
+#
+# They live in the manifest rather than a sidecar directory or `cache/`: they
+# are per-clip metadata `info` should report, they have no natural filename,
+# and they cost GPU minutes, which is not what `cache/` is for.
+
+
+def _descriptions(project: Project) -> list[dict[str, Any]]:
+    return list(project.read_manifest().get("descriptions", []))
+
+
+def _describable(project: Project, clip_id: str | None) -> list[dict[str, Any]]:
+    """The clips `describe` can look at, refusing an audio-only one by name.
+
+    Naming it matters: the Scream project's VO is a `.wav`, and "describe the
+    project" quietly skipping it reads the same as describing it and finding
+    nothing worth saying.
+    """
+    if clip_id is not None:
+        clip = media.get_clip(project, clip_id)
+        if not clip.get("has_video"):
+            raise ProjectError(
+                f"clip {clip_id!r} has no video track, so there is nothing to "
+                "describe — descriptions index pictures, not dialogue. Its "
+                "words are what `transcribe` indexes."
+            )
+        return [clip]
+    clips = project.read_manifest().get("clips", [])
+    return [c for c in clips if c.get("has_video")]
+
+
+def describe(
+    path: Path | str,
+    clip_id: str | None = None,
+    *,
+    window: float = dsc.WINDOW,
+    force: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Describe a clip's footage — or every video clip's — in fixed windows.
+
+    This is a **job, not a request**: cost is per window at roughly three
+    seconds each, so a project's footage is minutes of GPU time. `plan=True`
+    resolves the whole work list and the estimate without loading a model,
+    which is the only way to ask "what would this cost" without paying it.
+
+    Already-described clips are skipped unless `force`, so re-running after
+    importing one new clip describes one clip. `force` re-describes and
+    replaces, since a description is derived and there is nothing in it to
+    lose.
+
+    The windows are fixed and are never widened to save time — a whole-clip
+    pass invents people (`describe`'s module docstring). The two error
+    classes the measurement left standing ride along on every result rather
+    than being smoothed over: `errors` names windows the model could not
+    describe, and `truncated` names ones whose text stops mid-sentence.
+    """
+    project = Project.open(path)
+    clips = _describable(project, clip_id)
+    existing = _descriptions(project)
+    already = {d["clip_id"] for d in existing}
+
+    todo: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    windows: list[dict[str, Any]] = []
+    for clip in clips:
+        if clip["clip_id"] in already and not force:
+            skipped.append(
+                {
+                    "clip_id": clip["clip_id"],
+                    "why": "already described — pass force to describe it again",
+                    "windows": sum(1 for d in existing if d["clip_id"] == clip["clip_id"]),
+                }
+            )
+            continue
+        source = media.media_path(project, clip)
+        spans = dsc.plan_windows(float(clip["duration"]), window=window)
+        for start, end in spans:
+            windows.append(
+                {
+                    "index": len(windows),
+                    "clip_id": clip["clip_id"],
+                    "media": str(source),
+                    "src_start": start,
+                    "src_end": end,
+                    "timestamps": dsc.frame_times(start, end),
+                }
+            )
+        todo.append({"clip_id": clip["clip_id"], "windows": len(spans)})
+
+    report: dict[str, Any] = {
+        "project": str(project.root),
+        "window": window,
+        "clips": todo,
+        "skipped": skipped,
+        "windows": len(windows),
+        # 3.5s per window, near enough constant regardless of how much footage
+        # the window spans, plus the model load the run pays once. Measured on
+        # the whole Scream project at 1920x816 rather than taken from the
+        # note's per-clip spike, which saw 2.6-3.3s on smaller frames.
+        #
+        # The load is in here because leaving it out makes the estimate wrong
+        # by 3x on exactly the small runs someone checks it against: three
+        # windows is 10s of describing and 25s of waiting.
+        "estimated_seconds": round(len(windows) * 3.5 + 15) if windows else 0,
+    }
+    if plan:
+        report["plan"] = True
+        report["runtime"] = dsc.available()
+        return report
+    if not windows:
+        report["described"] = 0
+        report["errors"] = []
+        report["truncated"] = []
+        return report
+
+    started = time.monotonic()
+    # The worker takes the whole list at once and loads the model once for
+    # it — ~15s of loading against ~3s per window, so a process per clip
+    # would spend most of the run loading the same weights again.
+    results = dsc.describe_windows(
+        [{"index": w["index"], "media": w["media"], "timestamps": w["timestamps"]} for w in windows]
+    )
+
+    stored: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    truncations: list[dict[str, Any]] = []
+    for spec, result in zip(windows, results, strict=True):
+        where = {
+            "clip_id": spec["clip_id"],
+            "src_start": round(spec["src_start"], 3),
+            "src_end": round(spec["src_end"], 3),
+        }
+        if "error" in result:
+            errors.append({**where, "error": result["error"]})
+            continue
+        text = result["text"].strip()
+        entry = {
+            **where,
+            "text": text,
+            "truncated": dsc.truncated(text),
+            "origin": f"qwen2.5-vl:{window:g}s/{dsc.FRAMES_PER_WINDOW}f",
+        }
+        stored.append(entry)
+        if entry["truncated"]:
+            truncations.append(where)
+
+    redescribed = {w["clip_id"] for w in windows}
+    manifest = project.read_manifest()
+    kept = [d for d in manifest.get("descriptions", []) if d["clip_id"] not in redescribed]
+    manifest["descriptions"] = sorted(
+        kept + stored, key=lambda d: (d["clip_id"], d["src_start"])
+    )
+    project.write_manifest(manifest)
+
+    report["described"] = len(stored)
+    report["errors"] = errors
+    report["truncated"] = truncations
+    report["seconds"] = round(time.monotonic() - started, 1)
+    return report
 
 
 # -- cards -----------------------------------------------------------------
