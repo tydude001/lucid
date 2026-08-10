@@ -479,7 +479,7 @@ existed to ask, now answered by measurement rather than assumed.
 
 **The fix this row then recorded — "nine editorial choices and a watch, not a
 build" — is false, and the audit that disproves it is cheap: draw the 9:16
-window on all 25 footage shots.** ~10 fail, and the failures are not
+window on all 25 footage shots.** Most fail, and the failures are not
 per-*clip*: `s2022-reveal` wants a left crop at 92s (Amber frame-left) and a
 right one at 180s (Richie centre-right), from one clip. **5 of 9 clips
 contradict themselves this way**, so no single rect per clip can frame the
@@ -488,10 +488,22 @@ framing is a real build, and the natural home is the cue — a cue already pins
 `src_start`, and framing is the same kind of per-placement fact.
 
 Scope makes it unavoidable rather than unlucky: the sources are 1920x816, so a
-9:16 crop **keeps 23.9% of the picture width**. Close-ups survive that (~15 of
-25) and two-handers cannot, which is why the answer is a per-shot *mode* —
-crop the close-ups, place the two-handers whole on a ground — not a better
-default rect. HISTORY.md § The vertical cut, refused on a watch.
+9:16 crop **keeps 23.9% of the picture width**. Measured over all 25 footage
+placements — **64 camera shots, 245.6s** — the shipped centre crop leaves a
+subject *outside the frame entirely* in **59.8% of the seconds that hold one**,
+and clips one at the edge in a further 23.2%.
+
+**Letterboxing is ruled out, by Tyler on a watch 2026-08-10: a landscape
+picture parked in a tall frame reads as repurposed however the ground is
+painted.** So the answer is full-bleed and it is two mechanisms, not one mode:
+**per-shot tracked framing** covers 62.2% of the footage, and where the
+subjects' spread exceeds one 9:16 window — 24.8% — the frame **splits into two
+stacked panes**, each cropping 918 source pixels against the solo window's 459.
+Above three subjects a split frames nobody and it reverts to one window. 11.6%
+has no detectable face and stays a guess. A working spike measured all of this
+outside lucid; the build it implies is a detector subprocess (the
+`describe`/`LUCID_VLM` shape), framing on the cue, and a stacked path in
+`mlt.py`. HISTORY.md § The vertical cut, made native.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing

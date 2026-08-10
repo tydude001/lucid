@@ -4258,3 +4258,81 @@ platform UI covers it.** Its palette and faces are what the cards already use.
 Worth weighing against `analytics.md` § 2 before building: Shorts convert ~6x
 worse than essays there, and `pipeline.md` already files a vertical cut as a
 reach play.
+
+## The vertical cut, made native: tracked framing — 2026-08-10
+
+The three treatments above were served and **all three were refused, on the
+axis rather than on the pick**: "B looks like a better version of C… I don't
+even understand the purpose of C", and then the point that matters — landscape
+parked inside a tall frame "isn't very enticing to people who regularly consume
+vertical content." Tyler's own counter-proposal was the fix: crop to fill, but
+"track the stuff in frame that is primary focus."
+
+**C was right and pointless at once.** It reserved `branding.md`'s top-third
+title zone by pushing the picture down — but with no title built to put in the
+zone, it is B with a flat backdrop instead of a blurred one, so it could only
+ever measure worse. A treatment that exists to hold a slot for absent content
+does not belong in an A/B; it reads as a design when it is a placeholder.
+
+**The option set was the error, not the option.** Three treatments spanned
+crop-vs-letterbox and none of them spanned *does a framing decision get made at
+all*. The answer sat outside the set, so no amount of picking within it could
+reach it — and the previous note's own recommendation ("crop the close-ups,
+brand-ground the two-handers") was a compromise between two options that were
+both wrong.
+
+**Auto-reframe, built to check.** Face detection per sampled frame, cuts found
+first so the decision is per *shot*, detections chained into per-person tracks,
+and the framing panned only when the tracked subject actually moves. The
+measurements against the shipped centre crop, over all 25 footage placements —
+**64 distinct camera shots, 245.6s**:
+
+| What the shot needs | shots | seconds | share |
+|---|---|---|---|
+| one tracked window | 40 | 152.7 | 62.2% |
+| a stacked two-pane split | 14 | 61.0 | 24.8% |
+| crowd — one window, rest lost | 2 | 3.4 | 1.4% |
+| no detectable face | 8 | 28.5 | 11.6% |
+
+And of the 217.1s that hold a detectable subject, the centre crop leaves a
+subject **outside the frame entirely in 59.8%** (129.9s) and clips one at the
+edge in a further 23.2%. **The prior estimate of "~10 of 25 shots fail" was too
+kind by a wide margin** — it counted clips where the unit is the shot, the same
+granularity error one layer down.
+
+**A single 9:16 window cannot hold a two-hander at all, so tracking alone tops
+out.** Where the subjects' spread exceeds the window, the frame splits into two
+stacked 1080x960 panes, one per cluster; each pane crops 918 source pixels
+against the solo window's 459, so both faces survive at 2x the width and the
+result still fills the phone. A **crowd is not a wide two-hander**: above three
+subjects the split frames nobody, so it reverts to one window on the primary.
+
+Five traps, all of which produce output rather than an error:
+
+1. **`cv2.CascadeClassifier` is gone in OpenCV 5** and `cv2.data.haarcascades`
+   points at an empty directory — the training prior is 4.x. YuNet
+   (`cv2.FaceDetectorYN`) replaces it and is far better on film footage, but
+   its ONNX ships via git-lfs: `raw.githubusercontent.com` returns a **131-byte
+   pointer file**, and only `media.githubusercontent.com/media/…` returns the
+   model.
+2. **The largest face flips between people mid-shot.** An extra passing camera
+   outranks the subject for a frame and the crop lurches. Score *tracks*, not
+   detections — area summed over persistence — and a background walker lands at
+   0.019 of the primary where a real second subject lands at 0.295.
+3. **`blend`'s expression evaluator has neither `between()` nor `t`**, so
+   switching treatments per shot inside `blend` fails with `Undefined constant`
+   pointing at the middle of the call. `overlay`'s `enable=` takes the timeline
+   eval, which has both.
+4. **`color=` is an infinite source, and overlaying onto it emits the first
+   frame before the pane arrives** — a single-frame render comes out flat ink
+   at exit 0. Build the frame by `pad`ding the top pane down to full height
+   instead; no infinite source, works for stills and video alike.
+5. **A lone face can fail a "does everyone fit" span test**, because a span of
+   zero plus a 420px face plus margin exceeds the 459px window. One subject
+   always fits — the window is placed on it — so the span test needs two.
+
+Nothing here entered lucid: the spike is `autoframe.py` under the job's tmp
+dir, and the samples are throwaways. What a build would need is a detector
+(subprocess with its own interpreter, the `describe`/`LUCID_VLM` shape — lucid's
+venv has no opencv), per-shot framing on the cue, and a stacked render path in
+`mlt.py`. Served for the decision at `/vertical-native.html`.
