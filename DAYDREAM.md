@@ -412,8 +412,19 @@ author, zero refusals** — the frame got taller and the long reviews fit
 is a *composition* gap the wrap measurement could not see: the `receipt`
 template stacks from the top, so at 1080x1920 its content sits in the top
 quarter and two-thirds is empty. **A template that fits is not a template that
-composes**, and only the fit was ever measured. The five `reveal` cards
-compose tall without change.
+composes**, and only the fit was ever measured.
+
+**Refused on a watch 2026-08-10, and the cause is one line of `graphics.py`:
+`view_height = round(TEMPLATE_WIDTH * height / width)` keeps the design grid
+1920 wide always, so a 1080-wide canvas renders every template at 0.5625 while
+the frame grows 1.78x taller.** Type is therefore ~3.2x smaller against the
+frame at 9:16 than at 16:9 — a receipt title falls 11.3% → 3.6% of frame
+height and its body 4.3% → **1.35%, or 26px in a 1920 frame**, which is why
+the cards read as small rather than merely top-heavy. `reveal` is affected too
+(18.2% → 5.7%) and does *not* compose tall unchanged, as this file previously
+claimed. A vertical layout is a per-aspect template variant, not a scale
+factor, and `goodsometimes/branding.md`'s Shorts row is the only spec for it:
+1080x1920, title in the top third, bottom clear for platform UI.
 
 ### Captions — built, and per-word animation declined on a watch
 
@@ -464,9 +475,23 @@ back 2026-08-10** (HISTORY.md § Step 6 of the aspect swap, watched): 1080x1920,
 **What it found is that the centre-crop default is not usable** — of six
 frames sampled across the film one is composed correctly, the title card's
 "SCREAM" crops to "REA", and two faces are cut. That is the question the step
-existed to ask, now answered by measurement rather than assumed. `reframe`
-already exists per clip, so what is left is nine editorial choices and a
-watch, not a build.
+existed to ask, now answered by measurement rather than assumed.
+
+**The fix this row then recorded — "nine editorial choices and a watch, not a
+build" — is false, and the audit that disproves it is cheap: draw the 9:16
+window on all 25 footage shots.** ~10 fail, and the failures are not
+per-*clip*: `s2022-reveal` wants a left crop at 92s (Amber frame-left) and a
+right one at 180s (Richie centre-right), from one clip. **5 of 9 clips
+contradict themselves this way**, so no single rect per clip can frame the
+film and `reframe`'s existing shape cannot express the answer. Per-*shot*
+framing is a real build, and the natural home is the cue — a cue already pins
+`src_start`, and framing is the same kind of per-placement fact.
+
+Scope makes it unavoidable rather than unlucky: the sources are 1920x816, so a
+9:16 crop **keeps 23.9% of the picture width**. Close-ups survive that (~15 of
+25) and two-handers cannot, which is why the answer is a per-shot *mode* —
+crop the close-ups, place the two-handers whole on a ground — not a better
+default rect. HISTORY.md § The vertical cut, refused on a watch.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing

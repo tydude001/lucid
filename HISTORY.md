@@ -4204,3 +4204,57 @@ The film confirms it end to end: `render-nocaps.mp4` and `out-karaoke.mp4`
 both count exactly **8064 frames**, `agrees: true, delta: 0`, with no luma
 drop on the tail — because that project is layered and never touched the
 affected path. There is no action item; the row should stop carrying one.
+
+## The vertical cut, refused on a watch — 2026-08-10
+
+The 9:16 render was served and rejected on look: the cards "really small and
+awkward", the footage "not formatted in a way that makes them easy to watch".
+Both are real, both were measurable, and they are two unrelated faults. The
+watch also settled captions outright — **not burned in, this cut or any**, so
+the caption-contrast A/B closes undecided-by-choice rather than unanswered.
+
+**The cards are drawn at 0.5625 and nothing said so.** `fill_template` sets
+`view_height = round(TEMPLATE_WIDTH * height / width)` with `TEMPLATE_WIDTH`
+pinned at 1920, so every template is authored on a 1920-wide grid and a
+1080-wide canvas simply scales it down while the frame grows 1.78x taller.
+Against the frame, type shrinks ~3.2x:
+
+| Text | 16:9 | 9:16 |
+|------|------|------|
+| receipt title (122u) | 11.30% of height | 3.57% |
+| receipt body (46u) | 4.26% | **1.35% — 26px in a 1920 frame** |
+| reveal title (196u) | 18.15% | 5.74% |
+
+Every earlier check passed because none of them looks at this: the cards
+rasterise at the right pixel dimensions, `card_reauthor` reports twelve
+successes, and the fit measurement (§ The emphasis-capable quote slot) asks
+whether a quote *overruns*, which a too-small quote never does. **A card that
+fits and a card that reads are different questions, and only fit was ever
+instrumented.** The palette and both faces are correct and installed — Zilla
+Slab and Outfit both resolve, checked because a missing face substitutes
+silently — so the cards are on-brand and mis-scaled, not off-brand.
+
+**The recorded footage fix was wrong.** The row said the centre crop needed
+"nine per-clip `reframe` picks". Drawing the 9:16 window on all 25 footage
+shots kills that in one image: `s2022-reveal` wants frame-left at 92s and
+centre-right at 180s, and **5 of the 9 clips contradict themselves** across
+their own shots. `reframe` stores one rect per clip, so the fix as recorded
+cannot express the answer — this is a build, not an editorial afternoon. Note
+the shape of the error: the blocker was named at the right layer and the wrong
+*granularity*, which reads as a settings question right up until two shots of
+one clip are put side by side.
+
+The scope source is what forces it. At 1920x816 a 9:16 crop **keeps 23.9% of
+the width**, so ~15 of 25 shots (the close-ups) survive and ~10 (two-handers,
+the party scene, most reveals) cannot — no rect fits two people at a quarter
+width. Three treatments were built and served: crop-to-fill, blurred backdrop,
+and the whole picture on brand near-black. **Neither pole wins outright** — the
+crop is the *best* option on a close-up and deletes an actor on a two-hander —
+so the answer is a per-shot mode rather than a global one.
+
+`goodsometimes/branding.md` turns out to specify the target and nothing had
+been built to it: **1080x1920, title in the top third, bottom clear because
+platform UI covers it.** Its palette and faces are what the cards already use.
+Worth weighing against `analytics.md` § 2 before building: Shorts convert ~6x
+worse than essays there, and `pipeline.md` already files a vertical cut as a
+reach play.
