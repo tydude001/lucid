@@ -3792,3 +3792,147 @@ by building rather than by reasoning. A vertical cut of real footage is what
 says whether centre-crop defaults are usable, whether a 64pt caption in a
 608-wide reference reads, and whether the twelve unrecorded cards make the
 whole thing moot until they can be re-authored.
+
+## The emphasis-capable quote slot — 2026-08-10
+
+Steps 1–3 of PLAN.md § The emphasis-capable quote slot, built in one pass
+with the remainder finding 5 filed ahead of them. What the note costed is
+what landed; what it did not cost is three traps, each of which produces a
+wrong card at exit 0, and one refusal that ends the item short of closing
+the wiki's card row.
+
+### The remainder first: the font report could not see a weight
+
+Finding 5 filed this as owed *before* step 1, and it was right for a reason
+the finding only half states. `em` is not a colour — `make_scream_cards.py`'s
+own `STYLES` is `key: (zb600, INK, None)`, `dim: (zb600, INK, 0.42)`,
+`em: (zb700, AMBER, None)` — so emphasis is a **weight** change, and a
+reporter blind to weight would have gone on being wrong about the exact
+thing this item added.
+
+Three faults, each in the unsafe direction:
+
+1. **`font_report` answered per family.** `receipt.svg`'s title is
+   `font-weight="700"` wrapped around a `<tspan font-weight="400">`, which is
+   two faces of one family — and the tspan names no family at all, because
+   both properties inherit. One entry described neither. The fix is a tree
+   walk carrying `(family, weight)` rather than a collection pass, which is
+   also what makes the report right about the `<tspan>`s step 1 then went on
+   to emit.
+2. **CSS weights are not fontconfig weights.** fontconfig's Bold is 200, so
+   every CSS value is above every real one. Measured here: unmapped, CSS
+   **400 and 700 both answer Lato Black** — not merely wrong, identical, so
+   the report could not have distinguished any two weights of anything.
+3. **A family name went into a fontconfig pattern unescaped.** A pattern is
+   `family-size:key=value`, so `fc-match 'Zilla Slab-24'` reads the tail as a
+   point size and answers about `Zilla Slab` — reporting a face nobody has as
+   installed.
+
+Settled the way CLAUDE.md requires — **by measuring a render, never by
+`fc-match`**. Ink widths through `render_svg`'s own coder, across Lato, Noto
+Serif and Zilla Slab: the mapped query names the same face the render draws
+on every row where a distinct face exists, and the ladder is monotonic
+(Lato 400/500/600/700/900 → 1235/1238/1244/1251/1266 units). The test
+renders two weights and compares; without the mapping both report one style
+while the renders differ, so it is not vacuous.
+
+Captions are untouched on purpose. libass takes a bold *flag*, not a CSS
+weight, and how that resolves through fontconfig has not been measured here
+— so `font_match` gained an optional weight rather than a guessed 700.
+
+### Step 1 — the `runs` slot, and the whitespace trap
+
+The vocabulary is read off the real cards rather than invented, which is
+what makes step 1 checkable: rendered and sampled back off the raster, all
+three levels land on finding 1's measured values **exactly**, L1 distance 0.
+`dim` is ink at 0.42 rather than a flat grey, so it stays right when the
+paper is not cream.
+
+Markers rather than JSON runs, per the note — `[em]…[/em]`, `[dim]…[/dim]`,
+unmarked text is `key`, and `[[` is the escape a marker syntax owes. A `[`
+that begins no known marker is left alone, so `[sic]` is prose. Runs nest
+innermost-wins and span line breaks. A close with nothing open and a run
+left open are both refused, because either draws and looks deliberate.
+
+**The trap is that splitting a line into per-run `<tspan>`s silently eats
+the spaces between them.** SVG collapses whitespace at every chunk boundary,
+so `the [em]perfect[/em] horror` renders as `theperfecthorror` — 25px
+narrower at 48px, at exit 0, reading as a deliberate ligature rather than a
+bug. `xml:space="preserve"` restores it to the byte and *inherits*, so it is
+set once per line rather than per run. Its test uses `[key]` as the control:
+same weight, fill and opacity as unmarked text, so the tspan split is the
+only variable.
+
+### Step 2 — the flow, and the two things the note did not specify
+
+Greedy wrap over candidate lines, rendered rather than summed, against a
+body width the template declares. `fill_template` grew `flow`, defaulting
+on: the failure it closes is silent, because the script throws away
+`wrap_runs`'s final baseline and a long enough quote overran its own footer
+with nothing saying so.
+
+**The control is a test rather than a claim.** A character count is built
+alongside and run on finding 2's own adversary: `WWW MMM` wraps to **2694
+units in a 1640 box — over by 1054** — where the measured wrap fits at 1491.
+On the real Scream review lines the two agree, which is exactly why the
+adversary is the row that decides anything.
+
+Two decisions the note left open and the build had to make:
+
+- **The scratch canvas is the entire cost of a measurement, and clipping it
+  is silent.** The same line measures 1622 units on a 20000x400 scratch and
+  1622 on 3000x120 — at 413ms and 38ms, because a measurement is
+  rasterisation, not layout. But a canvas that is too small does not error:
+  it **clips**, and a clipped line measures *narrower*, which ends the greedy
+  wrap early and overflows the card. So the canvas is sized from the box and
+  grows when the ink reaches its edge. A real quote went 11s → 1.5s.
+  Batching many candidates into one `magick` call was tried first and is
+  worth nothing (6.39s vs 6.5s) — the cost is per-image, not per-process.
+- **The box is derived from the canvas, not declared.** It is the space
+  between the slot's first baseline and the template's own bottom margin,
+  and that margin moves with the aspect. Hard-coding it would refuse at 9:16
+  a quote that plainly fits there; the same quote is tested both ways.
+
+The refusal names the flow, the width and the overflow, and does **not**
+grow the card. A template that got taller to fit its text would be a slot
+value deciding the frame, which is the failure § The property everything
+below defends exists to prevent.
+
+### Step 3 — ten of twelve, and the two refusals are the finding
+
+The twelve were re-authored on a **copy** of the Scream project
+(`~/lucid-cards-reauthor/proj`), values transcribed from the script's own
+`CARDS` table, with the Zilla Slab and Outfit stacks passed per finding 6.
+The real project was not touched: `card_new` needs `overwrite` to replace a
+card, and spending the twelve originals to see whether the replacements
+were any good is not a trade worth making before anyone has looked.
+
+**Ten came through at 1920x816, filling the frame, with emphasis and a
+measured wrap. Two are refused, and the refusal is correct.** The receipt's
+header is fixed in template units — title at 232, stars at 330, date at 452,
+quote's first baseline at 572 — while the canvas is 264 units shorter than
+the one it was drawn for. So the quote box is **3 lines at 2.35:1 where it
+is 7 at 16:9**, and the two longest Letterboxd reviews flow to 4 and 6.
+
+That is not a bug in the flow; it is the aspect swap surfacing a template
+that does not adapt. Before step 2 the same two cards would have overrun the
+bottom of the card in silence. **The item does not close here**, and the
+choice between shortening verbatim reviews, splitting them across two cards,
+scaling the receipt's header with the canvas, or keeping those two at 16:9
+and accepting the pillarbox is editorial, not mechanical.
+
+One real bug fell out of the attempt: the gap that keeps a quote clear of
+the wordmark was being reserved whether or not a wordmark was drawn, costing
+a line exactly where lines are scarcest (2 lines at 2.35:1 rather than 3).
+Nothing at 16:9 could have noticed — the box is 7 either way.
+
+### What this does not cover
+
+- **Nobody has watched these in a cut.** Step 4 of the note is Stop, and it
+  still is. The ten are on a copy, and a served comparison page is the only
+  place they have been looked at.
+- **Paragraph gaps.** The script draws paragraphs with 26 units of extra
+  lead; a `runs` slot's blank line is one line height. Two of the receipts
+  have more than one paragraph.
+- **`card_reauthor` re-flows but has not been run at a second canvas** on
+  real cards, because the twelve had no records to re-author from until now.

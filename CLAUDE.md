@@ -210,25 +210,42 @@ installed package or the upstream repo, not your memory.
     it rasterises pixel-identically whether the face exists or not.
     `captions.font_match` reports both; nothing prevents either. Which fonts
     this box has: wiki `tooling.md` § Fonts.
-    - **Both reporters answer per *family* and never read `font-weight`, and
-      fontconfig's weight scale is not CSS's** — so `font_report`'s `drawn` is
-      already wrong about `receipt.svg`'s `700` title wherever a family has two
-      weights. librsvg resolves the CSS weight correctly: the *report* is wrong,
-      not the render. Settle which face draws by measuring a render, never by
-      `fc-match`. PLAN.md § The emphasis-capable quote slot, finding 5.
+    - **`font_report` reads `font-weight` and maps it; `captions.font_match`
+      asked bare still does not.** Two faces of one family report the *same*
+      family name, so `drawn` alone never said which one — `drawn_style` does.
+      **CSS weights are not fontconfig weights** (fontconfig's Bold is 200), so
+      a CSS value passed through unmapped is above every real one and every
+      query answers the heaviest face installed: measured, CSS 400 *and* 700
+      both returned Lato Black. `CSS_TO_FC_WEIGHT` is the translation, and a
+      family name goes into a pattern **escaped** — `fc-match 'Foo-24'` reads
+      the tail as a point size and calls a missing face installed. libass takes
+      a bold *flag* rather than a CSS weight and that resolution is unmeasured
+      here, so captions ask by family on purpose. **Settle which face draws by
+      measuring a render, never by `fc-match`.** HISTORY.md § The
+      emphasis-capable quote slot.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
   input.** `-size` is a vector render and **fits, never distorts**; `-resize`
   after the input resamples the pixels and wrecks text, so `render_svg` has no
   resize path and a card is *authored* at the canvas — which is why `card_new`
   defaults its canvas to `_mlt_resolution`. Never hand melt the SVG: it goes
   through Qt, not librsvg, and the two disagree with no error on either side.
-  Templates escape every user value and insert only lucid's own markup raw,
-  and **nothing wraps** — a newline is a line break, because a guessed wrap
-  overflows in silence. HISTORY.md § The card renderer, § Card templates. The
-  rule indicts *guessed* wraps and only those: a wrap measured through
-  `render_svg`'s own coder lands within 0.8% where a character count is out by
-  a third in the unsafe direction, and one is costed in PLAN.md § The
-  emphasis-capable quote slot.
+  Templates escape every user value and insert only lucid's own markup raw.
+  HISTORY.md § The card renderer, § Card templates.
+  - **A wrap is measured or there is no wrap.** `fill_template(flow=True)`
+    renders each candidate line through `render_svg`'s own coder; `flow=False`
+    is the older contract where a newline is the only line break. A character
+    count is not merely imprecise, it is unsafe in the one direction that
+    overflows: on `WWW MMM` it lands 1054 units outside a 1640 box. Two traps
+    live in the measuring, not the wrapping — **the scratch canvas is the
+    entire cost** (413ms at 20000 wide, 38ms at 3000, same answer) **and it
+    clips rather than errors when too small**, and a clipped line measures
+    *narrower*, which ends the wrap early. A slot that overflows its box is
+    **refused; the card never grows to fit it.** HISTORY.md § The
+    emphasis-capable quote slot.
+  - **Per-run `<tspan>`s eat the whitespace between them** — SVG collapses it
+    at every chunk boundary, so `the [em]perfect[/em] horror` draws as
+    `theperfecthorror`, 25px narrower at exit 0. `xml:space="preserve"`, set
+    once per line because it inherits.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas)` and `card_reauthor` fills the template again
     at the project canvas. A card with files but no record cannot be

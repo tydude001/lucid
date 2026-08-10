@@ -1779,20 +1779,37 @@ script's own body size.
 
 ### Build order
 
-1. **The `runs` slot kind** — the markup shape, the three-level vocabulary,
-   the escape, and per-run `<tspan>` emission. No wrapping yet: caller's line
-   breaks, exactly `lines`' contract, plus emphasis. This step is measurable
-   on its own against finding 1's three sampled ink values.
-2. **Measured flow** — greedy wrap over candidate lines through
-   `render_svg`'s own coder, a declared body width on the template, and the
-   refusal from § The two decisions. Verified against finding 2's table, the
-   `WWW MMM` adversary included, because it is the row that decides whether
-   the wrap is safe or merely usually right.
-3. **Re-author the twelve** — through `card_new` at the project canvas, with
-   the Zilla Slab stack passed per finding 6, and compare against the PNGs on
-   disk. This is the step that closes the wiki's card item, and the comparison
-   is the point: it is also the first evidence that a 1920x1080 card in a
-   1920x816 frame was the defect HISTORY.md § The card record says it is.
+0. **The font report's weight** — finding 5's remainder, **shipped
+   2026-08-10** ahead of step 1 as it asked to be. It was owed for a
+   stronger reason than the finding states: `em` is a *weight* change, not
+   only a colour, so emphasis is exactly what a family-only reporter cannot
+   see. Three faults, all unsafe-direction, and the mapping is validated
+   against renders rather than against `fc-match`. HISTORY.md § The
+   emphasis-capable quote slot.
+1. **The `runs` slot kind** — **shipped 2026-08-10.** Markers, three levels,
+   the `[[` escape, per-run `<tspan>`s; all three inks reproduce finding 1's
+   sampled values at L1 0. **The note under-specified one thing and it was a
+   silent one**: per-run `<tspan>`s collapse the whitespace between them, so
+   `the [em]perfect[/em] horror` draws as `theperfecthorror` at exit 0.
+   `xml:space="preserve"`, once per line.
+2. **Measured flow** — **shipped 2026-08-10**, with the character-count
+   control built and run rather than cited: `WWW MMM` overflows a 1640 box
+   by 1054 units where the measurement fits. Two decisions the note left
+   open: the scratch canvas is the whole cost of a measurement *and* clips
+   silently when it is too small (a clipped line measures narrower, which
+   overflows the card), and the box is derived from the canvas rather than
+   declared, because the bottom margin moves with the aspect.
+3. **Re-author the twelve** — **ten of twelve, 2026-08-10, and the two
+   refusals are the finding.** The receipt's header is fixed in template
+   units while the canvas is 264 units shorter, so the quote box is 3 lines
+   at 2.35:1 against 7 at 16:9, and the two longest reviews flow to 4 and 6.
+   Correct rather than broken — before step 2 they overran the card in
+   silence — but **it does not close the wiki's card row**, and what to do
+   instead is editorial: shorten the verbatim reviews, split them across two
+   cards, scale the receipt's header with the canvas, or keep those two at
+   16:9 and accept the pillarbox. Done on a copy; the real project's twelve
+   are untouched.
 4. **Stop.** The cards exist so that the aspect swap's own step 6 — the watch
    of a vertical cut — has graphics in it. Card *animation* is still parked
-   behind that watch and this note does not touch it.
+   behind that watch and this note does not touch it. **This is where the
+   item now sits**, alongside the editorial call step 3 raised.
