@@ -570,20 +570,145 @@ def comparison_markup(before: float, after: float, muted: str, amber: str) -> st
     return f"{left}{arrow}<g transform=\"translate({right_x:.2f}, 0)\">{right}</g>"
 
 
-def _lines_markup(value: str, *, x: float, line_height: float) -> str:
-    """A multi-line slot as one `<tspan>` per line.
+#: The three ink levels one quote carries, as `(weight, palette slot,
+#: fill-opacity)`. **Read off the real cards rather than invented** —
+#: `make_scream_cards.py`'s own `STYLES` is `key: (zb600, INK, None)`,
+#: `dim: (zb600, INK, 0.42)`, `em: (zb700, AMBER, None)`, and each of the
+#: three was sampled back off a raster to confirm librsvg reproduces it
+#: (PLAN.md § The emphasis-capable quote slot, finding 1).
+#:
+#: Note what `em` does: it is a *weight* change as well as a colour, which is
+#: the whole reason the font report had to learn to read `font-weight` before
+#: this landed. And `dim` is ink at 0.42 rather than a flat grey, so it stays
+#: right when the paper is not cream.
+RUN_STYLES: dict[str, tuple[int, str, float | None]] = {
+    "key": (600, "ink", None),
+    "dim": (600, "ink", 0.42),
+    "em": (700, "amber", None),
+}
+
+#: Unmarked text. `key` rather than `dim` because plain prose is the primary
+#: reading and de-emphasis is the marked case, whichever happens to be more
+#: frequent in one film's receipts.
+RUN_DEFAULT = "key"
+
+_RUN_MARKER = re.compile(r"\[(/?)(" + "|".join(RUN_STYLES) + r")\]")
+
+
+def parse_runs(value: str) -> list[list[tuple[str, str]]]:
+    """Split a marked-up slot value into lines of `(text, level)` runs.
+
+    The vocabulary is `[em]…[/em]`, `[dim]…[/dim]`, `[key]…[/key]`, and
+    unmarked text is `RUN_DEFAULT`. **Markers rather than JSON runs** because
+    the value arrives from a CLI argument and an MCP string, where JSON is
+    hostile to type and hostile to quote.
+
+    `[[` is the escape and yields a literal `[`, which a marker syntax owes
+    the moment it claims a character prose already uses. A `[` that does not
+    begin a known marker is left alone — `[sic]` is not markup — so the
+    escape is only needed to write a literal `[em]`.
+
+    Runs nest, and the innermost wins: `[dim]a [em]b[/em] c[/dim]` is a dim
+    run, an em run, and a dim run. They also span line breaks, so a marked
+    paragraph does not have to be re-marked on every line.
+
+    Refused rather than guessed: a close with no matching open, and a run
+    still open at the end of the value. Both are cases where the drawn card
+    would look deliberate and be wrong.
+    """
+    lines: list[list[tuple[str, str]]] = [[]]
+    stack: list[str] = []
+    buf: list[str] = []
+    text = str(value)
+
+    def flush() -> None:
+        if buf:
+            lines[-1].append(("".join(buf), stack[-1] if stack else RUN_DEFAULT))
+            buf.clear()
+
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\n":
+            flush()
+            lines.append([])
+            index += 1
+            continue
+        if char == "[":
+            if text.startswith("[[", index):
+                buf.append("[")
+                index += 2
+                continue
+            marker = _RUN_MARKER.match(text, index)
+            if marker:
+                closing, level = marker.group(1), marker.group(2)
+                flush()
+                if closing:
+                    if not stack or stack[-1] != level:
+                        open_now = f"{stack[-1]!r} is open" if stack else "nothing is open"
+                        raise GraphicsError(
+                            f"[/{level}] at character {index} closes a run that is not "
+                            f"open — {open_now}. Write [[ for a literal '['."
+                        )
+                    stack.pop()
+                else:
+                    stack.append(level)
+                index = marker.end()
+                continue
+        buf.append(char)
+        index += 1
+    flush()
+
+    if stack:
+        raise GraphicsError(
+            f"{stack[-1]!r} is still open at the end of the value — a run that "
+            f"never closes would draw the rest of the card in it. Close it with "
+            f"[/{stack[-1]}], or write [[ for a literal '['."
+        )
+    return lines
+
+
+def _runs_markup(
+    value: str, *, x: float, line_height: float, colours: dict[str, str]
+) -> str:
+    """A multi-line, multi-ink slot as one `<tspan>` per line per run.
 
     **Lines are the caller's, never guessed.** SVG has no automatic wrapping,
     and a wrap computed from a character count is a wrap that overflows the
     frame silently on the first line of wide glyphs — the shape of failure
     this repo keeps finding. So a newline in the value is a line break and
-    nothing else breaks.
+    nothing else breaks. (A wrap *measured* through this module's own coder
+    is a different thing and lands in its own step.)
+
+    `xml:space="preserve"` is not decoration, and it is measured: splitting
+    one line into per-run `<tspan>`s collapses the whitespace at every chunk
+    boundary, so "the [em]perfect[/em] horror" renders as "theperfecthorror"
+    — 19px narrower at 48px, at exit 0, looking like a deliberate ligature
+    rather than a bug. It is set once per line because `xml:space` inherits.
     """
-    lines = value.split("\n")
-    return "".join(
-        f'<tspan x="{x:g}" dy="{0 if i == 0 else line_height:g}">{_escape(line)}</tspan>'
-        for i, line in enumerate(lines)
-    )
+    markup = []
+    for index, runs in enumerate(parse_runs(value)):
+        inner = "".join(
+            f"<tspan{_run_attrs(level, colours)}>{_escape(text)}</tspan>"
+            for text, level in runs
+        )
+        dy = 0 if index == 0 else line_height
+        markup.append(f'<tspan x="{x:g}" dy="{dy:g}" xml:space="preserve">{inner}</tspan>')
+    return "".join(markup)
+
+
+def _run_attrs(level: str, colours: dict[str, str]) -> str:
+    """One run's ink, stated in full rather than inherited.
+
+    Every run names its own weight and fill even when they match the
+    element's, so a run's look does not depend on what the template happens
+    to set around it — and so the font report can see the weight.
+    """
+    weight, slot, opacity = RUN_STYLES[level]
+    attrs = f' font-weight="{weight}" fill="{_escape(str(colours[slot]))}"'
+    if opacity is not None:
+        attrs += f' fill-opacity="{opacity:g}"'
+    return attrs
 
 
 #: What each template asks for. `placed` slots appear in the SVG as
@@ -603,11 +728,16 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             },
             "date_line": {"default": "", "description": "the line under the stars, e.g. 'watched 20 May 2021'"},
             "quote": {
-                "kind": "lines",
+                "kind": "runs",
                 "x": 140,
                 "line_height": 58,
                 "default": "",
-                "description": "the note itself; a newline is a line break, and nothing else wraps",
+                "description": (
+                    "the note itself. A newline is a line break and nothing else wraps. "
+                    "Mark a fragment with [em]…[/em] for the amber emphasis or "
+                    "[dim]…[/dim] for the dimmed ink; unmarked text is full ink. "
+                    "Write [[ for a literal '['."
+                ),
             },
             "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
         },
@@ -783,10 +913,13 @@ def fill_template(
     for slot, meta in slots.items():
         if meta["kind"] == "rating" or not spec["slots"].get(slot, {}).get("placed", True):
             continue
-        if meta["kind"] == "lines":
+        if meta["kind"] == "runs":
             declared = spec["slots"][slot]
-            filled[slot] = _lines_markup(
-                str(resolved[slot]), x=declared["x"], line_height=declared["line_height"]
+            filled[slot] = _runs_markup(
+                str(resolved[slot]),
+                x=declared["x"],
+                line_height=declared["line_height"],
+                colours={name: str(resolved[name]) for name in PALETTE},
             )
         else:
             filled[slot] = _escape(str(resolved[slot]))

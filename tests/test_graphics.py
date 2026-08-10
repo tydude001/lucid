@@ -101,6 +101,37 @@ def _ink_width(family: str, weight: int, tmp_path: Path) -> int:
     return int(trimmed.stdout.strip())
 
 
+def _quote_ink_width(quote: str, tmp_path: Path, tag: str) -> int:
+    """The ink width of `quote` alone, rendered through the real coder.
+
+    The quote is drawn on its own rather than inside a filled card, because
+    trimming a whole receipt measures its title and stars too — and those do
+    not move, so they would mask exactly the difference being looked for.
+    """
+    markup = graphics._runs_markup(
+        quote, x=20, line_height=58, colours=dict(graphics.PALETTE)
+    )
+    source = tmp_path / f"quote-{tag}.svg"
+    source.write_text(
+        _svg(
+            f'<text x="20" y="120" font-family="serif" font-size="48" '
+            f'font-weight="600">{markup}</text>',
+            width=2200,
+            height=200,
+        ),
+        encoding="utf-8",
+    )
+    rendered = tmp_path / f"quote-{tag}.png"
+    graphics.render_svg(source, rendered)
+    trimmed = subprocess.run(
+        [*graphics.magick_command(), str(rendered), "-trim", "-format", "%w", "info:"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return int(trimmed.stdout.strip())
+
+
 def _svg(body: str, *, width: int = 1920, height: int = 1080) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
@@ -554,7 +585,7 @@ def test_a_rating_must_be_a_number_out_of_five() -> None:
         graphics.fill_template("receipt", {**_required("receipt"), "rating": 7})
 
 
-def test_a_newline_in_a_lines_slot_is_a_line_break_and_nothing_else_wraps() -> None:
+def test_a_newline_in_a_runs_slot_is_a_line_break_and_nothing_else_wraps() -> None:
     filled = graphics.fill_template(
         "receipt", {**_required("receipt"), "quote": "first line\nsecond line"}
     )
@@ -564,6 +595,139 @@ def test_a_newline_in_a_lines_slot_is_a_line_break_and_nothing_else_wraps() -> N
     long = "word " * 200
     once = graphics.fill_template("receipt", {**_required("receipt"), "quote": long})
     assert once.count('dy="58"') == 0, "nothing may wrap on its own"
+
+
+# -- the runs a quote is made of -------------------------------------------
+
+
+def test_parse_runs_reads_the_three_levels_and_defaults_the_rest() -> None:
+    parsed = graphics.parse_runs("might be the [em]perfect[/em] horror [dim]slasher[/dim].")
+    assert parsed == [
+        [
+            ("might be the ", "key"),
+            ("perfect", "em"),
+            (" horror ", "key"),
+            ("slasher", "dim"),
+            (".", "key"),
+        ]
+    ]
+
+
+def test_parse_runs_nests_innermost_first() -> None:
+    parsed = graphics.parse_runs("[dim]a [em]b[/em] c[/dim]")
+    assert parsed == [[("a ", "dim"), ("b", "em"), (" c", "dim")]]
+
+
+def test_a_run_spans_a_line_break_so_a_paragraph_is_marked_once() -> None:
+    parsed = graphics.parse_runs("[dim]first\nsecond[/dim]")
+    assert parsed == [[("first", "dim")], [("second", "dim")]]
+
+
+def test_a_doubled_bracket_is_the_escape_and_a_lone_one_is_just_prose() -> None:
+    """`[sic]` is not markup, so the escape is only owed for a real marker."""
+    assert graphics.parse_runs("[sic] and [nonsense]") == [
+        [("[sic] and [nonsense]", "key")]
+    ]
+    assert graphics.parse_runs("[[em]not emphasis[[/em]") == [
+        [("[em]not emphasis[/em]", "key")]
+    ]
+
+
+def test_parse_runs_refuses_a_close_with_nothing_open() -> None:
+    with pytest.raises(GraphicsError, match="closes a run that is not open"):
+        graphics.parse_runs("plain text[/em]")
+    with pytest.raises(GraphicsError, match="closes a run that is not open"):
+        graphics.parse_runs("[dim]crossed [em]over[/dim][/em]")
+
+
+def test_parse_runs_refuses_a_run_left_open() -> None:
+    """It would draw the rest of the card in that ink and look deliberate."""
+    with pytest.raises(GraphicsError, match="still open at the end"):
+        graphics.parse_runs("the [em]rest of the card")
+
+
+def test_a_run_value_cannot_smuggle_markup_into_the_card() -> None:
+    filled = graphics.fill_template(
+        "receipt", {**_required("receipt"), "quote": '</text><script>x</script>'}
+    )
+    assert "<script>" not in filled
+    assert "&lt;script&gt;" in filled
+
+
+@needs_magick
+@needs_fontconfig
+def test_the_three_run_levels_render_the_inks_they_were_measured_from(
+    tmp_path: Path,
+) -> None:
+    """Step 1's own success criterion: the levels are not a new look, they
+    are `make_scream_cards.py`'s `STYLES` reproduced.
+
+    Sampled back off the raster rather than eyeballed, because a fill that
+    renders at the wrong opacity still renders — this is the one check that
+    would notice.
+    """
+    source = tmp_path / "inks.svg"
+    source.write_text(
+        graphics.fill_template(
+            "receipt",
+            {
+                **_required("receipt"),
+                "quote": "[dim]dimmed[/dim]\nplain key ink\n[em]amber emphasis[/em]",
+            },
+        ),
+        encoding="utf-8",
+    )
+    graphics.render_svg(source, tmp_path / "inks.png")
+
+    histogram = subprocess.run(
+        [*graphics.magick_command(), str(tmp_path / "inks.png"), "-format", "%c", "histogram:info:"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    present = set()
+    for line in histogram.splitlines():
+        if "(" not in line or ")" not in line:
+            continue
+        channels = line[line.find("(") + 1 : line.find(")")].split(",")
+        try:
+            present.add(tuple(int(float(c)) for c in channels[:3]))
+        except ValueError:
+            continue
+
+    # PLAN.md § The emphasis-capable quote slot, finding 1.
+    for level, expected in (
+        ("key", (26, 23, 20)),
+        ("em", (232, 161, 60)),
+        ("dim", (155, 151, 145)),
+    ):
+        assert expected in present, (
+            f"{level} should render {expected}; nearest in the raster is "
+            f"{min(present, key=lambda p: sum(abs(a - b) for a, b in zip(p, expected)))}"
+        )
+
+
+@needs_magick
+@needs_fontconfig
+def test_splitting_a_line_into_runs_does_not_eat_the_spaces_between_them(
+    tmp_path: Path,
+) -> None:
+    """The measured trap `xml:space="preserve"` exists for.
+
+    Per-run `<tspan>`s collapse the whitespace at every chunk boundary, so
+    "the [em]perfect[/em] horror" renders as "theperfecthorror" — narrower,
+    at exit 0, looking like a deliberate ligature. `[key]` is the control
+    that isolates it: same weight, same fill, same opacity as unmarked text,
+    so the *only* difference between the two renders is the tspan split.
+    """
+    plain = _quote_ink_width("might be the perfect horror slasher.", tmp_path, "plain")
+    split = _quote_ink_width(
+        "might be the [key]perfect[/key] horror slasher.", tmp_path, "split"
+    )
+    assert split == plain, (
+        f"the same words render {plain}px whole and {split}px split into runs — "
+        "the space at a run boundary is being collapsed"
+    )
 
 
 def test_the_viewbox_follows_the_canvas_aspect() -> None:
