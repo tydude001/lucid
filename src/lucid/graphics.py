@@ -132,51 +132,149 @@ def _families(declaration: str) -> list[str]:
     return families
 
 
-def _declarations(style: str) -> list[str]:
-    """Every `font-family` value in a CSS declaration block."""
+def _declarations(style: str, prop_name: str = "font-family") -> list[str]:
+    """Every value for `prop_name` in a CSS declaration block."""
     found = []
     for chunk in style.split(";"):
         prop, sep, value = chunk.partition(":")
-        if sep and prop.strip().casefold() == "font-family" and value.strip():
+        if sep and prop.strip().casefold() == prop_name and value.strip():
             found.append(value.strip())
     return found
 
 
-def declared_fonts(svg: str) -> list[str]:
-    """Every distinct `font-family` declaration in an SVG, in document order.
+#: CSS's own `bolder`/`lighter` table (CSS Fonts 4 § relative weights). Kept
+#: because the alternative — treating them as "inherit" — is wrong in
+#: silence, and this is nine lines rather than a measurement.
+#: Read as "inherited at or below `above` becomes `to`".
+_RELATIVE_WEIGHT = {
+    "bolder": ((300, 400), (500, 700), (1000, 900)),
+    "lighter": ((500, 100), (700, 400), (1000, 700)),
+}
+
+#: The CSS default. An element that names a family and no weight is drawn at
+#: `normal`, and saying so beats reporting the weight as unknown — unknown is
+#: reserved for the case below where it genuinely is.
+DEFAULT_WEIGHT = 400
+
+
+def _weight(value: str | None, inherited: int) -> int:
+    """One `font-weight` value resolved against the weight it inherits."""
+    if value is None:
+        return inherited
+    text = value.strip().casefold()
+    if not text or text == "inherit":
+        return inherited
+    if text == "normal":
+        return 400
+    if text == "bold":
+        return 700
+    if text in _RELATIVE_WEIGHT:
+        return next(to for above, to in _RELATIVE_WEIGHT[text] if inherited <= above)
+    try:
+        return max(1, min(1000, int(float(text))))
+    except ValueError:
+        return inherited
+
+
+def _declared_weight(element: ET.Element) -> str | None:
+    """The `font-weight` an element states, attribute or inline style."""
+    inline = _declarations(element.get("style") or "", "font-weight")
+    if inline:
+        return inline[-1]
+    return element.get("font-weight")
+
+
+def declared_faces(svg: str) -> list[dict[str, Any]]:
+    """Every distinct `(font-family, font-weight)` an SVG asks for.
 
     Walks the parsed tree rather than pattern-matching the markup, because
     the three places a family can be named — the presentation attribute, an
     inline `style=`, and CSS in a `<style>` element — do not share a syntax,
     and a regex loose enough to catch all three swallows the rest of the tag.
+
+    **A family alone does not say which face gets drawn, and that is the
+    whole reason this walks rather than collects.** Both properties inherit,
+    so `receipt.svg`'s title — `font-family="…" font-weight="700"` around a
+    `<tspan font-weight="400">` — asks for *two* faces of one family, and the
+    tspan names no family at all. Reporting per family would answer once, for
+    neither of them.
+
+    `weight` is null only for a family named inside a `<style>` rule whose
+    own body states no weight: a rule is attached by a selector this does not
+    evaluate, so which elements it reaches — and what they inherit — is not
+    knowable here. Null is "we did not evaluate the cascade", not `normal`.
     """
     try:
         root = ET.fromstring(svg)
     except ET.ParseError as exc:
         raise GraphicsError(f"not well-formed XML: {exc}") from exc
 
-    seen: dict[str, None] = {}
-    for element in root.iter():
-        attribute = element.get("font-family")
-        if attribute and attribute.strip():
-            seen.setdefault(attribute.strip(), None)
-        for declaration in _declarations(element.get("style") or ""):
-            seen.setdefault(declaration, None)
+    seen: dict[tuple[str, int | None], dict[str, Any]] = {}
+
+    def note(declaration: str, weight: int | None) -> None:
+        seen.setdefault((declaration, weight), {"declared": declaration, "weight": weight})
+
+    def walk(element: ET.Element, family: str | None, weight: int) -> None:
         if element.tag in ("style", f"{{{_SVG_NS}}}style") and element.text:
             for body in _RULE_BODY.findall(element.text):
+                stated = _declarations(body, "font-weight")
+                rule_weight = _weight(stated[-1], DEFAULT_WEIGHT) if stated else None
                 for declaration in _declarations(body):
-                    seen.setdefault(declaration, None)
-    return list(seen)
+                    note(declaration, rule_weight)
+
+        stated_family = element.get("font-family")
+        inline = _declarations(element.get("style") or "")
+        if inline:
+            stated_family = inline[-1]
+        stated_weight = _declared_weight(element)
+
+        if stated_family and stated_family.strip():
+            family = stated_family.strip()
+        weight = _weight(stated_weight, weight)
+
+        # Emitted when the element *states* something, so a `<g>` that sets a
+        # family for its children is reported once rather than once per child,
+        # and a `<tspan>` that changes only the weight is reported at all.
+        if family and (stated_family or stated_weight):
+            note(family, weight)
+
+        for child in element:
+            walk(child, family, weight)
+
+    walk(root, None, DEFAULT_WEIGHT)
+    return list(seen.values())
+
+
+def declared_fonts(svg: str) -> list[str]:
+    """Every distinct `font-family` declaration in an SVG, in document order.
+
+    The families of `declared_faces`, deduped. Kept because "which families
+    does this document name" is a question two callers ask without caring
+    about weight, and because it is the cheapest well-formedness check there
+    is.
+    """
+    families: dict[str, None] = {}
+    for face in declared_faces(svg):
+        families.setdefault(face["declared"], None)
+    return list(families)
 
 
 def font_report(svg: str) -> list[dict[str, Any]]:
-    """What fontconfig will actually draw for each `font-family` in `svg`.
+    """What fontconfig will actually draw for each face `svg` asks for.
 
-    One entry per *declaration* rather than per face, because a declaration
-    is a fallback stack and the stack is what decides the outcome:
-    `'Card Face', sans-serif` with the first installed is not a substitution,
-    and reporting its second entry as missing would be a warning about
-    working output.
+    One entry per *declaration and weight* rather than per face, because a
+    declaration is a fallback stack and the stack is what decides the
+    outcome: `'Card Face', sans-serif` with the first installed is not a
+    substitution, and reporting its second entry as missing would be a
+    warning about working output.
+
+    **The weight is half the answer.** Two faces of one family report the
+    same family name, so `drawn` alone cannot say which got picked — `style`
+    is what separates SemiBold from Bold, and the weight is what selects it.
+    Before this was weight-aware the report was already wrong about a shipped
+    template: `receipt.svg`'s title is `font-weight="700"`, librsvg draws
+    Bold, and asking fontconfig for the family alone answers SemiBold
+    wherever both are installed.
 
     `available` is tri-state, inherited from `captions.font_match`: True when
     some named face in the stack is installed, False when none is and the
@@ -184,33 +282,52 @@ def font_report(svg: str) -> list[dict[str, Any]]:
     could not be reached at all — "we could not tell" and "the font is not
     here" send someone to different places.
     """
+    cache: dict[tuple[str, int | None], dict[str, Any]] = {}
+
+    def match(family: str, weight: int | None) -> dict[str, Any]:
+        # Cached for this document only. A process-lifetime cache would go
+        # stale against a font installed while lucid is running, and the
+        # thing this report exists to catch is a font that is not there.
+        if (family, weight) not in cache:
+            cache[(family, weight)] = font_match(family, weight=weight)
+        return cache[(family, weight)]
+
     report = []
-    for declaration in declared_fonts(svg):
+    for face in declared_faces(svg):
+        declaration, weight = face["declared"], face["weight"]
         families = _families(declaration)
         named = [f for f in families if f.casefold() not in GENERIC_FAMILIES]
-        matches = [font_match(f) for f in named]
+        matches = [match(f, weight) for f in named]
 
         installed = next((m for m in matches if m["available"]), None)
+        style = None
         if installed is not None:
             available: bool | None = True
             drawn = installed["resolves_to"]
+            style = installed["style"]
         elif not named:
             # An all-generic stack asked for no particular face, so nothing
             # was substituted for anything.
             available = True
-            drawn = font_match(families[0])["resolves_to"] if families else None
+            generic = match(families[0], weight) if families else None
+            drawn = generic["resolves_to"] if generic else None
+            style = generic["style"] if generic else None
         elif all(m["available"] is None for m in matches):
             available = None
             drawn = None
         else:
             available = False
-            drawn = next((m["resolves_to"] for m in matches if m["resolves_to"]), None)
+            fallback = next((m for m in matches if m["resolves_to"]), None)
+            drawn = fallback["resolves_to"] if fallback else None
+            style = fallback["style"] if fallback else None
 
         entry: dict[str, Any] = {
             "declared": declaration,
             "families": families,
+            "weight": weight,
             "available": available,
             "drawn": drawn,
+            "drawn_style": style,
         }
         if available is False:
             entry["warning"] = (

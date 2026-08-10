@@ -318,7 +318,50 @@ def preset(name: str) -> Preset:
         ) from None
 
 
-def font_match(name: str) -> dict[str, Any]:
+#: CSS `font-weight` to fontconfig's own weight scale. **They are different
+#: numbers for the same faces**, and that is not a detail: fontconfig's Bold
+#: is 200, so a CSS weight handed straight to `fc-match` is above every real
+#: value and every query answers Bold. Measured on this box 2026-08-10 against
+#: what librsvg actually draws — CSS 600 renders SemiBold and 700 renders
+#: Bold, and only the mapped query agrees with both (PLAN.md § The
+#: emphasis-capable quote slot, finding 5).
+CSS_TO_FC_WEIGHT = {
+    100: 0,  # thin
+    200: 40,  # extralight
+    300: 50,  # light
+    400: 80,  # regular
+    500: 100,  # medium
+    600: 180,  # demibold
+    700: 200,  # bold
+    800: 205,  # extrabold
+    900: 210,  # black
+}
+
+
+def _fc_pattern(name: str, weight: int | None) -> str:
+    """`name` as a fontconfig pattern, with an optional CSS weight.
+
+    The escaping is not decoration. A fontconfig pattern is
+    `family-size:key=value`, so an *unescaped* family containing `-` has its
+    tail read as a point size and thrown away: `fc-match 'Zilla Slab-24'`
+    answers Zilla Slab, reporting a face nobody has as installed. That is the
+    silent-wrong-answer direction, so the separators are escaped and a family
+    is asked for by its actual name.
+    """
+    escaped = name.strip()
+    for char in ("\\", "-", ":", ","):
+        escaped = escaped.replace(char, "\\" + char)
+    if weight is None:
+        return escaped
+    return f"{escaped}:weight={CSS_TO_FC_WEIGHT[weight]}"
+
+
+def _nearest_css_weight(weight: int) -> int:
+    """The `CSS_TO_FC_WEIGHT` key nearest `weight` — CSS allows 1..1000."""
+    return min(CSS_TO_FC_WEIGHT, key=lambda known: (abs(known - weight), known))
+
+
+def font_match(name: str, *, weight: int | None = None) -> dict[str, Any]:
     """What fontconfig will actually hand libass for `name`.
 
     A missing font is the one styling failure with no symptom: libass
@@ -331,28 +374,47 @@ def font_match(name: str) -> dict[str, Any]:
     could not tell" and "the font is not here" are different answers, and
     reporting the first as the second would send someone installing a font
     they already have.
+
+    `weight` is a **CSS** weight and is mapped through `CSS_TO_FC_WEIGHT`
+    before it is asked, because the two scales are not the same numbers. It
+    is optional because it only changes the answer for a family with more
+    than one weight installed, and because the ASS side has no CSS weight to
+    give — libass takes a bold *flag*, whose resolution through fontconfig
+    has not been measured here, so captions ask by family exactly as before
+    rather than guessing 700.
+
+    `style` comes back alongside `resolves_to` for the reason the weight
+    argument exists at all: two faces of one family report the *same* family
+    name, so the family alone cannot say which of them got picked.
     """
+    if weight is not None:
+        weight = _nearest_css_weight(int(weight))
+    unknown = {"font": name, "weight": weight, "available": None, "resolves_to": None, "style": None}
     try:
         found = subprocess.run(
-            ["fc-match", "--format=%{family}", name],
+            ["fc-match", "--format=%{family}|%{style}", _fc_pattern(name, weight)],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,  # a non-zero fc-match is "cannot tell", not a failure
         )
     except (OSError, subprocess.SubprocessError):
-        return {"font": name, "available": None, "resolves_to": None}
+        return unknown
 
-    families = [f.strip() for f in (found.stdout or "").split(",") if f.strip()]
+    matched, _, style = (found.stdout or "").partition("|")
+    families = [f.strip() for f in matched.split(",") if f.strip()]
     if not families:
-        return {"font": name, "available": None, "resolves_to": None}
+        return unknown
 
     wanted = name.strip().casefold()
     available = any(f.casefold() == wanted for f in families)
+    styles = [s.strip() for s in style.split(",") if s.strip()]
     return {
         "font": name,
+        "weight": weight,
         "available": available,
         "resolves_to": families[0],
+        "style": styles[0] if styles else None,
         **(
             {}
             if available

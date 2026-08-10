@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import graphics, ops
+from lucid import captions, graphics, ops
 from lucid.graphics import GraphicsError
 from lucid.project import Project, ProjectError
 
@@ -39,6 +39,66 @@ def _installed_face() -> str:
         check=True,
     )
     return found.stdout.split(",")[0].strip()
+
+
+def _two_weight_family() -> str | None:
+    """An installed family with two weights whose renders differ.
+
+    Discovered rather than named: which fonts a box has is not this repo's
+    to assume (wiki `tooling.md` § Fonts), and a test that hard-coded one
+    would skip everywhere else rather than check anything.
+    """
+    found = subprocess.run(
+        ["fc-list", "--format=%{family}\n"], capture_output=True, text=True, check=False
+    )
+    counts: dict[str, set[str]] = {}
+    for line in found.stdout.splitlines():
+        for family in (f.strip() for f in line.split(",")):
+            if family:
+                counts.setdefault(family, set())
+    for family in counts:
+        styles = subprocess.run(
+            ["fc-list", family, "--format=%{style}\n"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        upright = {
+            s.split(",")[0].strip()
+            for s in styles.stdout.splitlines()
+            if s.strip() and "Italic" not in s and "Oblique" not in s
+        }
+        if {"Regular", "Bold"} <= upright:
+            return family
+    return None
+
+
+def _ink_width(family: str, weight: int, tmp_path: Path) -> int:
+    """The width of the ink a real render lays down, in pixels.
+
+    Trimmed off the raster rather than computed, because the question is
+    what librsvg drew — the whole point of measuring instead of asking
+    fontconfig.
+    """
+    source = tmp_path / f"ink-{weight}.svg"
+    source.write_text(
+        _svg(
+            f'<text x="20" y="120" font-family="{family}" font-size="80" '
+            f'font-weight="{weight}" fill="#000">Handgloves WM 0123</text>',
+            width=2200,
+            height=200,
+        ),
+        encoding="utf-8",
+    )
+    rendered = tmp_path / f"ink-{weight}.png"
+    graphics.render_svg(source, rendered)
+    trimmed = subprocess.run(
+        [*graphics.magick_command(), str(rendered), "-trim", "-format", "%w", "info:"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return int(trimmed.stdout.strip())
 
 
 def _svg(body: str, *, width: int = 1920, height: int = 1080) -> str:
@@ -118,6 +178,167 @@ def test_font_report_treats_a_generic_stack_as_asking_for_no_face() -> None:
     (entry,) = graphics.font_report(_card('font-family="sans-serif"'))
     assert entry["available"] is True
     assert "warning" not in entry
+
+
+# -- the weight half of a face --------------------------------------------
+
+
+def test_declared_faces_reports_a_tspan_that_changes_only_the_weight() -> None:
+    """`receipt.svg`'s own shape: one family, two weights, one of them on a
+    child that names no family at all.
+
+    Reporting per family answers once, for neither of them — which is what
+    made the report wrong about a shipped template.
+    """
+    svg = _svg(
+        '<text font-family="Card Face" font-weight="700">Scream'
+        '<tspan font-weight="400"> (1996)</tspan></text>'
+    )
+    assert graphics.declared_faces(svg) == [
+        {"declared": "Card Face", "weight": 700},
+        {"declared": "Card Face", "weight": 400},
+    ]
+
+
+def test_declared_faces_inherits_a_family_down_a_group() -> None:
+    """A `<g>` that sets the family is reported once, not once per child."""
+    svg = _svg(
+        '<g font-family="Card Face">'
+        "<text>one</text><text>two</text>"
+        '<text font-weight="bold">three</text>'
+        "</g>"
+    )
+    assert graphics.declared_faces(svg) == [
+        {"declared": "Card Face", "weight": 400},
+        {"declared": "Card Face", "weight": 700},
+    ]
+
+
+def test_declared_faces_resolves_the_weight_keywords_and_the_relative_ones() -> None:
+    """`bolder`/`lighter` step through CSS's own table, not by ±100.
+
+    Nested rather than listed side by side because these are the one weight
+    value that depends on what it inherits — a flat document would resolve
+    them all against `normal` and prove nothing about the walk.
+    """
+    climbing = _svg(
+        '<text font-family="Card Face" font-weight="normal">a'
+        '<tspan font-weight="bolder">b<tspan font-weight="bolder">c</tspan></tspan></text>'
+    )
+    assert [f["weight"] for f in graphics.declared_faces(climbing)] == [400, 700, 900]
+
+    falling = _svg(
+        '<text font-family="Card Face" font-weight="900">a'
+        '<tspan font-weight="lighter">b<tspan font-weight="lighter">c</tspan></tspan></text>'
+    )
+    assert [f["weight"] for f in graphics.declared_faces(falling)] == [900, 700, 400]
+
+
+def test_declared_faces_dedupes_a_weight_a_document_returns_to() -> None:
+    """One face asked for twice is one face. The report is what will be
+    drawn, not a log of where it was asked for."""
+    svg = _svg(
+        '<text font-family="Card Face" font-weight="400">a'
+        '<tspan font-weight="700">b<tspan font-weight="400">c</tspan></tspan></text>'
+    )
+    assert graphics.declared_faces(svg) == [
+        {"declared": "Card Face", "weight": 400},
+        {"declared": "Card Face", "weight": 700},
+    ]
+
+
+def test_declared_faces_reads_an_inline_style_over_the_attribute() -> None:
+    svg = _svg(
+        '<text font-family="Attribute Face" font-weight="400" '
+        'style="font-family: Inline Face; font-weight: 700">a</text>'
+    )
+    assert graphics.declared_faces(svg) == [{"declared": "Inline Face", "weight": 700}]
+
+
+def test_declared_faces_leaves_a_css_rules_weight_unknown_when_it_states_none() -> None:
+    """Null is "we did not evaluate the cascade", not `normal`.
+
+    A rule is attached by a selector this does not evaluate, so which
+    elements it reaches — and therefore what weight they inherit — is not
+    knowable from the rule alone. Reporting 400 there would be a guess
+    dressed as an answer.
+    """
+    svg = _svg(
+        "<style>.a { font-family: 'Rule Face' } "
+        ".b { font-family: 'Weighted Face'; font-weight: 600 }</style>"
+    )
+    assert graphics.declared_faces(svg) == [
+        {"declared": "'Rule Face'", "weight": None},
+        {"declared": "'Weighted Face'", "weight": 600},
+    ]
+
+
+def test_declared_fonts_still_answers_families_alone() -> None:
+    """The older question, still asked by callers that do not care."""
+    svg = _svg(
+        '<text font-family="Card Face" font-weight="700">a'
+        '<tspan font-weight="400">b</tspan></text>'
+    )
+    assert graphics.declared_fonts(svg) == ["Card Face"]
+
+
+@needs_fontconfig
+def test_font_match_does_not_let_a_family_name_become_fontconfig_syntax() -> None:
+    """A fontconfig pattern is `family-size`, so an unescaped `-` truncates.
+
+    Unescaped, `fc-match` reads the tail as a point size and answers about
+    the head — reporting a face nobody has as installed, which is the one
+    direction this report must never be wrong in.
+    """
+    installed = _installed_face()
+    match = captions.font_match(f"{installed}-24")
+    assert match["available"] is False
+
+
+@needs_fontconfig
+def test_font_match_maps_a_css_weight_onto_fontconfigs_own_scale() -> None:
+    """CSS 700 is fontconfig 200. Handed over unmapped it is above every
+    real value, so every query answers Bold — including the ones that should
+    not."""
+    family = _two_weight_family()
+    if family is None:
+        pytest.skip("no installed family has two distinguishable weights")
+    light = captions.font_match(family, weight=400)
+    heavy = captions.font_match(family, weight=700)
+    assert light["style"] != heavy["style"]
+    assert light["weight"] == 400 and heavy["weight"] == 700
+
+
+@needs_magick
+@needs_fontconfig
+def test_font_report_agrees_with_what_librsvg_actually_draws(tmp_path: Path) -> None:
+    """The check this repo's rule demands: settle which face draws by
+    measuring a render, never by `fc-match`.
+
+    Two weights of one family are rendered through `render_svg`'s own coder
+    and compared by ink width. A heavier CSS weight must draw wider ink, and
+    the report must name a different style for it — if the mapping were
+    dropped, both queries would answer Bold while the renders still differed,
+    and the report would agree with neither.
+    """
+    family = _two_weight_family()
+    if family is None:
+        pytest.skip("no installed family has two distinguishable weights")
+
+    widths = {w: _ink_width(family, w, tmp_path) for w in (400, 700)}
+    assert widths[700] > widths[400], (
+        f"{family} renders {widths} — the two weights are not distinguishable "
+        "by ink, so this test cannot tell whether the report is right"
+    )
+
+    styles = {}
+    for weight in (400, 700):
+        (entry,) = graphics.font_report(
+            _card(f'font-family="{family}" font-weight="{weight}"')
+        )
+        assert entry["weight"] == weight
+        styles[weight] = entry["drawn_style"]
+    assert styles[400] != styles[700]
 
 
 # -- rendering -------------------------------------------------------------
