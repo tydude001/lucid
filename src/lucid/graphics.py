@@ -914,6 +914,9 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "width": 1640,
                 "size": 46,
                 "font": "quote_font",
+                # What is drawn below this slot, and so what its box has to
+                # stay clear of — only when that slot has a value.
+                "footer_slot": "mark",
                 "default": "",
                 "description": (
                     "the note itself. A newline is a line break and nothing else wraps. "
@@ -1049,27 +1052,33 @@ def _rating(slot: str, value: Any) -> float:
     return rating
 
 
-#: How close a flowed slot may come to the footer, in template units. The
-#: footer is drawn at `foot_y`, so a quote whose last baseline reaches it
-#: does not overlap the wordmark but sits on its line — this is the gap that
-#: keeps them reading as two things.
+#: How close a flowed slot may come to a footer that is actually drawn, in
+#: template units. A quote whose last baseline reaches `foot_y` does not
+#: overlap the wordmark — it shares its line, which reads as one row of text
+#: in two sizes. **It is only owed when the footer exists**: reserving it for
+#: an empty slot costs a line of quote to avoid colliding with nothing.
 FLOW_FOOTER_GAP = 40
 
 
-def _flow_box(declared: dict[str, Any], view_height: int) -> int:
+def _flow_box(declared: dict[str, Any], view_height: int, footer: bool) -> int:
     """How many lines the slot's box holds at this canvas.
 
     Derived from the canvas rather than declared, because the box is the
-    space between the slot's first baseline and the footer — and the footer
-    moves with the aspect. A 9:16 receipt has room for many more lines than
-    a 16:9 one, and hard-coding either would refuse a quote that fits.
+    space between the slot's first baseline and the bottom of the card — and
+    the bottom moves with the aspect. A 9:16 receipt has room for many more
+    lines than a 16:9 one, and hard-coding either would refuse a quote that
+    fits.
+
+    `view_height - 110` is the template's own bottom margin: it is where the
+    footer's baseline sits, so it is the lowest baseline the design allows
+    whether or not a footer is drawn on it.
     """
-    bottom = view_height - 110 - FLOW_FOOTER_GAP
+    bottom = view_height - 110 - (FLOW_FOOTER_GAP if footer else 0)
     return max(1, int((bottom - declared["y"]) // declared["line_height"]) + 1)
 
 
 def _check_fits(
-    slot: str, lines: list[Runs], declared: dict[str, Any], view_height: int
+    slot: str, lines: list[Runs], declared: dict[str, Any], view_height: int, footer: bool
 ) -> None:
     """Refuse a flow that overruns its box, naming the overflow.
 
@@ -1080,7 +1089,7 @@ def _check_fits(
     baseline and `receipt()` throws it away, so a long quote overran the
     footer at exit 0.
     """
-    holds = _flow_box(declared, view_height)
+    holds = _flow_box(declared, view_height, footer)
     if len(lines) <= holds:
         return
     raise GraphicsError(
@@ -1162,7 +1171,14 @@ def fill_template(
                     font=str(resolved[declared["font"]]),
                     size=declared["size"],
                 )
-                _check_fits(slot, lines, declared, view_height)
+                footer = declared.get("footer_slot")
+                _check_fits(
+                    slot,
+                    lines,
+                    declared,
+                    view_height,
+                    bool(footer and str(resolved.get(footer, "")).strip()),
+                )
             filled[slot] = _runs_markup(
                 lines,
                 x=declared["x"],

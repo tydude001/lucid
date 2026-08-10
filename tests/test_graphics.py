@@ -496,6 +496,31 @@ def test_a_quote_that_does_not_fit_its_box_is_refused_not_shrunk() -> None:
         )
 
 
+def test_an_empty_footer_does_not_reserve_a_line_of_quote() -> None:
+    """The gap is owed to a wordmark that exists, not to the slot that could
+    hold one — reserving it for an empty slot costs a line to avoid
+    colliding with nothing. It bites hardest exactly where lines are
+    scarcest, which is the short canvas."""
+    declared = graphics.TEMPLATES["receipt"]["slots"]["quote"]
+    assert graphics._flow_box(declared, 816, False) > graphics._flow_box(declared, 816, True)
+
+
+@needs_magick
+def test_a_card_with_a_wordmark_keeps_clear_of_it() -> None:
+    """The other half of the same rule, and the half that has to bite.
+
+    At 2.35:1 the box is three lines bare and two with a wordmark, so a
+    three-line quote is the case that separates them: it must author bare
+    and be refused once there is a footer for it to run into.
+    """
+    slots = {**_required("receipt"), "quote": "line one\nline two\nline three"}
+    graphics.fill_template("receipt", slots, width=1920, height=816)
+    with pytest.raises(GraphicsError, match="too many"):
+        graphics.fill_template(
+            "receipt", {**slots, "mark": "GOOD SOMETIMES"}, width=1920, height=816
+        )
+
+
 @needs_magick
 def test_the_same_quote_fits_a_taller_canvas() -> None:
     """The box is derived from the canvas, so 9:16 holds more lines. A
