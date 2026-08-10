@@ -63,6 +63,8 @@ EXPECTED_TOOLS = {
     "caption_view",
     "caption_style",
     "canvas",
+    "synopsis",
+    "broll_brief",
     "verify",
     "check_frames",
     "check_black",
@@ -186,6 +188,8 @@ TOOL_TO_COMMAND = {
     "caption_view": "caption-view",
     "caption_style": "caption-style",
     "canvas": "canvas",
+    "synopsis": "synopsis",
+    "broll_brief": "broll-brief",
     "verify": "verify",
     "check_frames": "frames",
     "check_black": "black",
@@ -1636,6 +1640,104 @@ def test_canvas_refusal_travels_as_an_error(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "even" in out["text"]
+
+
+@needs_ffmpeg
+@needs_ffprobe
+def test_synopsis_and_broll_brief_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The pair an agent actually uses: fill the catalogue, then read the brief.
+
+    Asserted together because the brief's whole job is to carry the synopses to
+    whatever is choosing — a `synopsis` that registers but never reaches
+    `broll_brief` would pass a test of either one alone. Needs a real video
+    clip: the b-roll catalogue is footage, and the VO the cues are addressed
+    against is deliberately not in it.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        empty = await client.call("broll_brief", path=str(project))
+        listed = await client.call("synopsis", path=str(project))
+        written = await client.call(
+            "synopsis",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            text="Scream (1996) reveal. Billy and Stu unmask themselves.",
+        )
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            word_index=2,
+            asset=clip["clip_id"],
+        )
+        briefed = await client.call("broll_brief", path=str(project))
+        return {
+            "empty": empty,
+            "listed": listed,
+            "written": written,
+            "briefed": briefed,
+            "vo": vo,
+            "clip": clip,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert "no cues yet" in out["empty"]["note"], "an unplaced project says which empty it is"
+    assert out["listed"]["missing"] == [out["vo"]["clip_id"], out["clip"]["clip_id"]]
+    assert out["written"]["written"] is True
+    assert "note" not in out["briefed"]
+    assert out["briefed"]["choices"] == 1
+    assert out["briefed"]["missing_synopsis"] == [], "the VO is not a b-roll candidate"
+    assert [c["clip_id"] for c in out["briefed"]["candidates"]] == [out["clip"]["clip_id"]]
+    assert out["briefed"]["candidates"][0]["synopsis"].startswith("Scream (1996) reveal")
+    position = out["briefed"]["positions"][0]
+    assert position["card"] is False
+    # One cue, so its shot is forced to frame 0 and holds the whole timeline —
+    # the narration over it is every surviving word of the 8-word transcript.
+    assert position["narration"] == "w00 w01 w10 w11 w20 w21 w30 w31"
+
+
+@needs_ffprobe
+def test_synopsis_refusal_travels_as_an_error(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """Over the cap is a refusal naming the number, not a quietly truncated
+    synopsis — a clipped last clause is exactly the part that decides a
+    placement."""
+    audio, _ = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        result = await session.call_tool(
+            "synopsis",
+            {"path": str(project), "clip_id": clip["clip_id"], "text": "x" * 1200},
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "1200 characters" in out["text"]
 
 
 @needs_ffprobe

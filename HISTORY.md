@@ -3321,3 +3321,89 @@ VO trimmed are still in" on 2026-08-08, and correctly attributed the one
 substrate for a cut sent out for review. **A caveat recorded in a results table
 is not a guard**; the 38th cue still in the manifest is the split that refusal
 forced, and on the finished VO it is no longer needed.
+
+## Choosing the b-roll — 2026-08-10
+
+The cut from § The b-roll cut, on real footage went out for review and came
+back with the b-roll called out by name: *"the clips are less related to the
+voiceover than before — even though Claude selected those clips previously."*
+Two things in that sentence, and the second one is the finding. The index does
+not work, which was already known. And **the thing it was built to replace —
+an agent reading the transcript and knowing the films — already did.**
+
+### The prompt was the wrong suspect
+
+The plan of record was to rewrite `describe.PROMPT` to ask for events rather
+than rooms, and re-index. That would have been a 502-second pass to test a
+premise nobody had costed, and the cheap control killed it: **the clips' own
+filenames already name the event.** `scream3-reveal-roman-brother` is exactly
+what the rewritten prompt was supposed to produce, it is free, and matching on
+it scores **3 of 25** — statistically the same as the 139-window index's 2.
+
+So the information was never missing from the index. Six mechanisms against
+the same 25 human choices, and the shape of the table is the argument:
+
+| picking by | agrees |
+|---|---|
+| the `describe` index | 2 / 25 |
+| the clips' filenames | 3 / 25 |
+| a film named in the narration | 4 / 25 |
+| the `describe` index, shortlist of 3 | 8 / 25 |
+| a `synopsis` catalogue, shortlist of 3 | 15 / 25 |
+| a `synopsis` catalogue read by a model that knows the films | **13 / 25** |
+| the same, driven off `broll_brief`'s own output | **14 / 25** |
+
+Two readings, both load-bearing. A better corpus **narrows** — nine candidates
+to a correct three, 8 → 15 — and barely picks: the same corpus scored by the
+same lexical method still only takes the right one 5 times. And **nothing that
+scores text against text gets past single digits**, because the connection is
+not lexical at all. "Every one of those is further outside the film than the
+one before it" earns the Scream VI reveal because its killers are a family
+avenging someone from the previous movie. No word of that sentence appears in
+any description of those pixels, and none ever would.
+
+### What shipped
+
+**`synopsis`** — one sentence per clip saying what the footage *is*, an
+additive optional key on the clip record, no `SCHEMA_VERSION` bump for the
+reason `CANVAS_KEY` gave. Read/write/clear on one entry point, `canvas`'s
+shape. Nothing generates one: a VLM cannot, and guessing a title from a
+filename would produce confident wrong placements instead of an obviously
+empty catalogue somebody notices.
+
+**`broll_brief`** — the whole question as one read-only call: the catalogue
+with synopses and durations, then every shot position with the narration that
+plays over it and how long it is held. It goes through `_picture_plan`, not
+`build_shots`, for the reason the picture lane does — a brief offering a slot
+`export` will not produce invites a pick for a shot that cannot exist.
+
+**It does not choose, and that is the measurement rather than a preference.**
+The loop is: read the brief, decide, write back through `cue_add`, where
+`plan_picture` checks each one like any other cue. Driven end to end that way
+on the real project it rewrote 11 of 25 cues, planned clean, and rendered
+8064 of 8064 frames.
+
+### Two negative results worth the same space
+
+**A second reviewing pass makes it worse.** Handing the positions back with
+the picks in them and asking for exactly the three failures the first pass
+shows — the same clip twice across a card, a clip one beat off its own
+sentence, a clip spent before the narration reaches its subject — changed 6
+answers and scored **13 → 10**. It is not implemented for that reason, not
+because nobody thought of it. The failures are real; asking for them back is
+not how they get fixed.
+
+**Context the brief carries because it is cheap, not because it was shown to
+help.** Shot durations and the `card:` positions moved 12 correct to 13, which
+is noise. They stay in — a long hold plausibly wants footage that sustains —
+but nothing here should be defended on their behalf.
+
+### What this does to `describe`
+
+It is not the answer to *which clip*, and the 139 windows earned nothing on
+this video. Its remaining honest use is *which second inside a clip* — the
+in-point a `src_start` pin sets, which is genuinely visual. Worth stating
+plainly: **the Scream cue table pins nothing at all.** All 25 video cues run
+off `plan_picture`'s cursor, so on the one real project there is, the visual
+index currently has no consumer. Kept rather than removed because the pinning
+case is real and untested, not because it is carrying anything today.

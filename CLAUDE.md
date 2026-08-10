@@ -146,6 +146,15 @@ installed package or the upstream repo, not your memory.
     the cue's ask is **`src_pin`** and the planner's answer is **`src_start`**;
     one key for both reads as correct in every test that has a pin in it.
     HISTORY.md § The pinned cue.
+  - **A description does not choose the clip — `synopsis` does, and lucid does
+    not choose at all.** Which footage goes under a sentence is never a lexical
+    match: measured against 25 human picks, the description index agreed 2
+    times and the clips' own *filenames* 3, so a better `describe` prompt was
+    the wrong fix. `synopsis` is one line per clip saying what the footage
+    *is*, allowed to carry what no camera can see, and `broll_brief` hands it
+    plus the narration to whatever is reading — which writes back through
+    `cue_add`. **A second reviewing pass was measured and is worse (13 → 10);
+    do not add one.** HISTORY.md § Choosing the b-roll.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

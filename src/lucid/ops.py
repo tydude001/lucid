@@ -467,6 +467,107 @@ def describe_ls(
     }
 
 
+#: What a clip *is*, in one sentence of prose — the corpus a picker needs, and
+#: a different kind of fact from a `describe` window. A description says what
+#: is in front of the camera; a synopsis says what the footage *is*, which for
+#: found footage means naming the work, the scene and the people. Absent means
+#: nobody has said, which is what every project written before this key existed
+#: meant, so it is additive the way `CANVAS_KEY` is and takes no
+#: `SCHEMA_VERSION` bump. HISTORY.md § Choosing the b-roll.
+SYNOPSIS_KEY = "synopsis"
+
+#: Prose for a reader who already knows the material, not a search field. The
+#: cap keeps it from quietly becoming a second transcript: every clip's
+#: synopsis has to fit in one prompt *beside* the whole narration, and the
+#: measurement that chose this mechanism used lines of about this length.
+SYNOPSIS_MAX = 800
+
+
+def synopsis(
+    path: Path | str,
+    clip_id: str | None = None,
+    text: str | None = None,
+    *,
+    clear: bool = False,
+) -> dict[str, Any]:
+    """Read, set or clear a clip's one-line synopsis.
+
+    Read/write/clear on one entry point, the shape `canvas` already uses:
+    no `clip_id` lists every clip's synopsis, `clip_id` alone reads one,
+    `text` writes, `clear` removes. Listing is the common call — a picker
+    wants the whole catalogue, never one line.
+
+    **This is the field that decides which clip goes under a sentence, and
+    `descriptions` is not.** Measured on the Scream footage against 25 human
+    choices: the vision index agreed 2 times, the clips' own filenames 3, and
+    a synopsis catalogue read by a model that knows the films, 13. The reason
+    is not that the descriptions were bad — they are accurate — it is that the
+    connection is never lexical. "Every one of those is further outside the
+    film than the one before it" belongs over the Scream VI reveal because its
+    killers are a family avenging someone from the last movie, and no
+    description of those pixels contains any word of that sentence. So a
+    synopsis is *allowed and expected* to carry what a camera cannot see:
+    who wrote it, what the twist means, which entry in the series it is.
+    HISTORY.md § Choosing the b-roll.
+
+    Nothing generates these. A VLM cannot — that is the finding — and lucid
+    will not guess a title from a filename, because a wrong synopsis is worse
+    than an absent one: it produces confident, plausible, wrong placements
+    rather than an empty catalogue somebody notices. `broll_brief` reports
+    which clips are missing one instead.
+    """
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    clips = manifest.get("clips", [])
+
+    if clip_id is None:
+        if text is not None or clear:
+            raise ProjectError("naming a clip_id is what says which synopsis to write")
+        return {
+            "clips": [
+                {"clip_id": c["clip_id"], "synopsis": c.get(SYNOPSIS_KEY)} for c in clips
+            ],
+            "missing": [c["clip_id"] for c in clips if not c.get(SYNOPSIS_KEY)],
+            "count": len(clips),
+        }
+
+    record = media.get_clip(project, clip_id)
+    if text is not None and clear:
+        raise ProjectError("pass text to write a synopsis or clear to remove it, not both")
+
+    written = False
+    if clear:
+        record.pop(SYNOPSIS_KEY, None)
+        written = True
+    elif text is not None:
+        text = " ".join(str(text).split())
+        if not text:
+            raise ProjectError(
+                "an empty synopsis is not the same as no synopsis — pass clear to remove one"
+            )
+        if len(text) > SYNOPSIS_MAX:
+            raise ProjectError(
+                f"synopsis is {len(text)} characters, over the {SYNOPSIS_MAX} cap — every "
+                "clip's has to fit in one prompt beside the narration, so this is a "
+                "sentence or three about what the footage is, not a summary of the work"
+            )
+        record[SYNOPSIS_KEY] = text
+        written = True
+
+    if written:
+        for index, existing in enumerate(clips):
+            if existing["clip_id"] == clip_id:
+                clips[index] = record
+                break
+        project.write_manifest(manifest)
+    return {
+        "clip_id": clip_id,
+        "synopsis": record.get(SYNOPSIS_KEY),
+        "written": written,
+        "cleared": bool(clear),
+    }
+
+
 # -- cards -----------------------------------------------------------------
 #
 # Step 1 of PLAN.md § Motion graphics and templates: the asset a `card:` cue
@@ -749,6 +850,124 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
             }
         )
     return {"cues": entries, "count": len(entries)}
+
+
+def broll_brief(path: Path | str, *, fps: float | None = None) -> dict[str, Any]:
+    """Everything needed to choose b-roll, and nothing that chooses it.
+
+    One read-only call that assembles the whole question: the catalogue of
+    footage with each clip's `synopsis`, and every shot position with the
+    narration that plays over it and how long it is held. What comes back is
+    meant to be handed to something that knows the material — the agent on the
+    other end of the MCP server, a `claude -p` panel, or a person — which then
+    writes its answers back through `cue_add`, where `plan_picture` checks
+    them like any other cue.
+
+    **lucid does not pick, and this is a measurement rather than a
+    preference.** Against 25 human choices on the Scream footage: the
+    `describe` index agreed 2 times, the clips' own filenames 3, an explicit
+    film-name match 4. A synopsis catalogue narrowed nine candidates to a
+    correct three 15 times but still only picked right 5. The same catalogue
+    read by a model that knows the films picked right 13. Every mechanism that
+    scores text against text plateaus in single digits because the connection
+    is not lexical — the sentence that earns the Scream VI reveal shares no
+    word with any description of it. So the useful thing lucid can build is
+    the brief, not the ranker. HISTORY.md § Choosing the b-roll.
+
+    What is in here is what was measured to matter, and one thing that was
+    measured *not* to. `narration` per position and the synopsis catalogue are
+    the signal. `duration` and the `card` positions are cheap and plausibly
+    useful — a long hold wants footage that sustains, and a repeat reads as a
+    repeat across a card — but adding them moved 12 correct to 13, which is
+    noise, so nothing here should be defended on their behalf. The thing that
+    was measured not to work is a **second reviewing pass**: handing these
+    positions back with the picks already in them and asking for repeats and
+    off-by-one beats to be fixed changed 6 answers and scored 13 → 10. It is
+    not implemented for that reason, not because it was never tried.
+
+    `card:` positions are reported and are **not** candidates. A card is
+    authored for its moment; the choice this brief exists for is which footage
+    goes under which sentence. They are here so the picker can see the rhythm
+    it is choosing into, marked with `card: true`.
+
+    Read-only, so it never leaves a project half-briefed, and it reports
+    rather than raises: a project whose picture plan already refuses comes
+    back with `shots_error` set and `positions` empty, because a brief listing
+    a slot `export` will not produce invites a pick for a shot that cannot
+    exist.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    clips = _clips_by_id(project)
+    rate = float(fps) if fps else _export_fps(clips)
+
+    shots_error: str | None = None
+    try:
+        shots, _ = _picture_plan(project, rate)
+    except _PICTURE_REFUSALS as exc:
+        shots, shots_error = [], str(exc)
+
+    # Every word that still plays, with where it now plays. Placements come
+    # per clip because a transcript indexes its own source; the timeline is
+    # what they get sorted onto (CLAUDE.md: emits for playback map through
+    # the edit, never straight off the transcript).
+    playing: list[tuple[float, str]] = []
+    for clip_id in clips:
+        if not project.transcript_path(clip_id).exists():
+            continue
+        for item in _word_placements(edit, clip_id, _transcript(project, clip_id)):
+            if item["present"]:
+                playing.append((item["timeline_start"], item["text"]))
+    playing.sort(key=lambda pair: pair[0])
+
+    positions = []
+    for shot in shots:
+        start, end = shot["start"], shot["start"] + shot["duration"]
+        positions.append(
+            {
+                "clip_id": shot["clip_id"],
+                "word_index": shot["word_index"],
+                "asset": shot["asset"],
+                "card": bool(shot["asset"].startswith("card:")),
+                "start": start,
+                "duration": shot["duration"],
+                "narration": " ".join(
+                    text for at, text in playing if start <= at < end
+                ).strip(),
+            }
+        )
+
+    candidates = [
+        {
+            "clip_id": c["clip_id"],
+            "synopsis": c.get(SYNOPSIS_KEY),
+            "duration": c.get("duration"),
+        }
+        for c in clips.values()
+        if c.get("has_video")
+    ]
+    result: dict[str, Any] = {
+        "project": str(project.root),
+        "candidates": candidates,
+        "missing_synopsis": [c["clip_id"] for c in candidates if not c["synopsis"]],
+        "positions": positions,
+        "count": len(positions),
+        "choices": sum(1 for p in positions if not p["card"]),
+        "rate": rate,
+    }
+    if shots_error is not None:
+        result["shots_error"] = shots_error
+    elif not positions:
+        # `_picture_plan` returns empty rather than refusing for a project with
+        # no cues, which is right for the picture lane and silent here: a brief
+        # is asked for precisely when nothing has been placed yet, and an empty
+        # answer with no error reads as "nothing to choose". Say which it is.
+        result["note"] = (
+            "no cues yet, so there are no positions to choose for — a cue is where the "
+            "picture changes, and deciding where those go is a separate call (cue_add, "
+            "CLI: `lucid cue add`). The catalogue below is what they can point at."
+        )
+    return result
 
 
 def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:

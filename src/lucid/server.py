@@ -823,6 +823,57 @@ def canvas(
 
 
 @_tool()
+def synopsis(
+    path: str,
+    clip_id: str | None = None,
+    text: str | None = None,
+    clear: bool = False,
+) -> dict[str, Any]:
+    """Read, set or clear what a clip *is* — the corpus b-roll gets chosen from.
+
+    No `clip_id` lists every clip's synopsis and which are missing one;
+    `clip_id` alone reads one; `text` writes; `clear` removes.
+
+    A synopsis is a different fact from a `describe` window. A description
+    says what is in front of the camera — rooms, clothing, lighting. A
+    synopsis says what the footage is: the work, the scene, the people, and
+    whatever else decides whether it belongs under a sentence. It is meant to
+    carry what no camera can see, because that is where the signal turned out
+    to be — measured on real footage, the vision index chose the same clip a
+    human did 2 times in 25, and this catalogue read by something that knows
+    the material chose it 13.
+
+    Write these yourself. Nothing generates them: a model looking at the
+    pixels cannot, and guessing a title from a filename would produce
+    confident wrong placements rather than an obviously empty catalogue.
+    """
+    return ops.synopsis(path, clip_id, text, clear=clear)
+
+
+@_tool()
+def broll_brief(path: str, fps: float | None = None) -> dict[str, Any]:
+    """The whole b-roll question as data: what there is, and what it goes under.
+
+    Returns the footage catalogue with each clip's `synopsis` and duration,
+    then every shot position on the timeline with the narration that plays
+    over it, how long it is held, and what is currently there. `card: true`
+    positions are shown for rhythm and are not choices.
+
+    This is the half lucid can do. Choosing is the other half, and it belongs
+    to you: read the brief, decide which clip goes under which sentence, and
+    write the answers back with `cue_add`, where the picture plan checks each
+    one. Ranking the catalogue by text similarity was measured and does not
+    work — the sentence that earns a clip routinely shares no word with any
+    description of it.
+
+    `missing_synopsis` is the thing to fix first. A clip with no synopsis is
+    invisible to any reasoning about the catalogue, so it will simply never
+    be chosen.
+    """
+    return ops.broll_brief(path, fps=fps)
+
+
+@_tool()
 def verify(
     path: str,
     render: str,

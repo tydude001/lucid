@@ -260,6 +260,30 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
     p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
 
+    p_synopsis = sub.add_parser(
+        "synopsis", help="read, set or clear what a clip is — the corpus a b-roll picker needs"
+    )
+    p_synopsis.add_argument(
+        "clip_id", nargs="?", help="omit to list every clip's synopsis and which are missing one"
+    )
+    p_synopsis.add_argument(
+        "text",
+        nargs="?",
+        help="a sentence or three naming the work, the scene and the people. It is "
+        "allowed to carry what a camera cannot see — who wrote it, what the twist "
+        "means — because that is what decides the placement",
+    )
+    p_synopsis.add_argument("--clear", action="store_true", help="remove this clip's synopsis")
+
+    p_broll = sub.add_parser(
+        "broll-brief",
+        help="the whole b-roll question as data: the catalogue, and every position "
+        "with the narration over it",
+    )
+    p_broll.add_argument(
+        "--fps", type=float, help="frame grid to answer on (default: the export's rate)"
+    )
+
     p_shots = sub.add_parser(
         "shots", help="project the cue table into contiguous shots over the current edit"
     )
@@ -1017,6 +1041,14 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
     return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
 
 
+def _cmd_synopsis(args: argparse.Namespace) -> int:
+    return _emit(ops.synopsis(args.project, args.clip_id, args.text, clear=args.clear))
+
+
+def _cmd_broll_brief(args: argparse.Namespace) -> int:
+    return _emit(ops.broll_brief(args.project, fps=args.fps))
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     return _emit(
         ops.verify(
@@ -1148,6 +1180,8 @@ _COMMANDS = {
     "caption-view": _cmd_caption_view,
     "caption-style": _cmd_caption_style,
     "canvas": _cmd_canvas,
+    "synopsis": _cmd_synopsis,
+    "broll-brief": _cmd_broll_brief,
     "verify": _cmd_verify,
     "frames": _cmd_frames,
     "black": _cmd_black,

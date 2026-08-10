@@ -1393,9 +1393,19 @@ with it:
    between two *different films*, and `killer`, `unmask`, `stab` and `costume`
    appear in none of the 139 descriptions. The placement half held on real
    footage; the describing half returns rooms and clothing because
-   `describe.PROMPT` asks for rooms and clothing. **Next is a prompt, measured
-   the same way** — two or three wordings, same-clip vs different-film overlap
-   re-measured — not a ranker. HISTORY.md § The b-roll cut, on real footage.
+   `describe.PROMPT` asks for rooms and clothing. HISTORY.md § The b-roll cut,
+   on real footage.
+5. **The prompt was the wrong suspect too, and the answer is `synopsis` —
+   shipped 2026-08-10.** Rewriting `describe.PROMPT` to ask for events was next
+   until it was costed against the alternative it was competing with: the clips'
+   own *filenames* already name the event (`scream3-reveal-roman-brother`) and
+   score 3 of 25. The information is not missing from the index; the connection
+   is not lexical. So the corpus moved up a level — one sentence per clip saying
+   what the footage *is*, allowed to carry what no camera can see — and the
+   choosing moved out of lucid, to whatever is reading the brief. 2/25 → 14/25,
+   with the whole loop driven off `broll_brief`'s own output. **A second
+   reviewing pass was tried and scored worse (13 → 10), so there is not one.**
+   HISTORY.md § Choosing the b-roll.
 
 ## Aspect swap — the design note — 2026-08-09
 
