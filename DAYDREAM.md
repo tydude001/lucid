@@ -397,11 +397,13 @@ carries a length that a shot's derived length cannot be trusted to match, so
 it is deferred to its own note rather than being the second half of this
 build.
 
-**One template gap is costed separately and is not animation**: the twelve
-Scream cards cannot be re-authored through lucid at all until the `quote` slot
-carries emphasis *and* a measured wrap — lucid `PLAN.md` § The emphasis-capable
-quote slot (2026-08-10). It is the reason a card-heavy watch has no lucid-made
-cards in it yet.
+**One gap remains and it is not a template one.** The `quote` slot carries
+emphasis and a measured wrap as of 2026-08-10, and ten of the twelve Scream
+cards re-author through lucid at the project's own canvas (HISTORY.md § The
+emphasis-capable quote slot). The two that refuse are a *content* fit, not a
+missing feature: a 2.35:1 receipt holds three lines of quote where a 16:9 one
+holds seven. So a card-heavy watch is blocked on an editorial call rather
+than on a build.
 
 ### Captions — generation and styling built; per-word animation is the gap
 

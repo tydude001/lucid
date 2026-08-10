@@ -210,19 +210,16 @@ installed package or the upstream repo, not your memory.
     it rasterises pixel-identically whether the face exists or not.
     `captions.font_match` reports both; nothing prevents either. Which fonts
     this box has: wiki `tooling.md` § Fonts.
-    - **`font_report` reads `font-weight` and maps it; `captions.font_match`
-      asked bare still does not.** Two faces of one family report the *same*
-      family name, so `drawn` alone never said which one — `drawn_style` does.
-      **CSS weights are not fontconfig weights** (fontconfig's Bold is 200), so
-      a CSS value passed through unmapped is above every real one and every
-      query answers the heaviest face installed: measured, CSS 400 *and* 700
-      both returned Lato Black. `CSS_TO_FC_WEIGHT` is the translation, and a
-      family name goes into a pattern **escaped** — `fc-match 'Foo-24'` reads
-      the tail as a point size and calls a missing face installed. libass takes
-      a bold *flag* rather than a CSS weight and that resolution is unmeasured
-      here, so captions ask by family on purpose. **Settle which face draws by
-      measuring a render, never by `fc-match`.** HISTORY.md § The
-      emphasis-capable quote slot.
+    - **CSS weights are not fontconfig weights** (its Bold is 200), so an
+      unmapped CSS value is above every real one and every query answers the
+      heaviest face installed — go through `CSS_TO_FC_WEIGHT`, and escape the
+      family, because `fc-match 'Foo-24'` reads the tail as a point size and
+      calls a missing face installed. `font_report` does both and reports
+      `drawn_style`, since two faces of one family share a family name;
+      `captions.font_match` asked bare does neither, deliberately (libass takes
+      a bold *flag*, unmeasured here). **Settle which face draws by measuring a
+      render, never by `fc-match`.** HISTORY.md § The emphasis-capable quote
+      slot.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
   input.** `-size` is a vector render and **fits, never distorts**; `-resize`
   after the input resamples the pixels and wrecks text, so `render_svg` has no
@@ -231,21 +228,18 @@ installed package or the upstream repo, not your memory.
   through Qt, not librsvg, and the two disagree with no error on either side.
   Templates escape every user value and insert only lucid's own markup raw.
   HISTORY.md § The card renderer, § Card templates.
-  - **A wrap is measured or there is no wrap.** `fill_template(flow=True)`
-    renders each candidate line through `render_svg`'s own coder; `flow=False`
-    is the older contract where a newline is the only line break. A character
-    count is not merely imprecise, it is unsafe in the one direction that
-    overflows: on `WWW MMM` it lands 1054 units outside a 1640 box. Two traps
-    live in the measuring, not the wrapping — **the scratch canvas is the
-    entire cost** (413ms at 20000 wide, 38ms at 3000, same answer) **and it
-    clips rather than errors when too small**, and a clipped line measures
-    *narrower*, which ends the wrap early. A slot that overflows its box is
-    **refused; the card never grows to fit it.** HISTORY.md § The
-    emphasis-capable quote slot.
-  - **Per-run `<tspan>`s eat the whitespace between them** — SVG collapses it
-    at every chunk boundary, so `the [em]perfect[/em] horror` draws as
-    `theperfecthorror`, 25px narrower at exit 0. `xml:space="preserve"`, set
-    once per line because it inherits.
+  - **A wrap is measured or there is no wrap** — `fill_template(flow=True)`
+    renders each candidate through `render_svg`'s own coder, `flow=False` is
+    the older newline-only contract, and a character count is unsafe in the
+    one direction that overflows. The two traps are in the *measuring*: the
+    scratch canvas is the entire cost of it, and it **clips rather than
+    errors** when too small — a clipped line measures narrower and ends the
+    wrap early. A slot that overruns its box is **refused; the card never
+    grows to fit it.**
+  - **Per-run `<tspan>`s eat the whitespace between them**, so `the
+    [em]perfect[/em] horror` draws as `theperfecthorror` at exit 0.
+    `xml:space="preserve"`, once per line — it inherits. Both:
+    HISTORY.md § The emphasis-capable quote slot.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas)` and `card_reauthor` fills the template again
     at the project canvas. A card with files but no record cannot be
