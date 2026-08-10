@@ -210,6 +210,12 @@ installed package or the upstream repo, not your memory.
     it rasterises pixel-identically whether the face exists or not.
     `captions.font_match` reports both; nothing prevents either. Which fonts
     this box has: wiki `tooling.md` § Fonts.
+    - **Both reporters answer per *family* and never read `font-weight`, and
+      fontconfig's weight scale is not CSS's** — so `font_report`'s `drawn` is
+      already wrong about `receipt.svg`'s `700` title wherever a family has two
+      weights. librsvg resolves the CSS weight correctly: the *report* is wrong,
+      not the render. Settle which face draws by measuring a render, never by
+      `fc-match`. PLAN.md § The emphasis-capable quote slot, finding 5.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
   input.** `-size` is a vector render and **fits, never distorts**; `-resize`
   after the input resamples the pixels and wrecks text, so `render_svg` has no
@@ -218,7 +224,11 @@ installed package or the upstream repo, not your memory.
   through Qt, not librsvg, and the two disagree with no error on either side.
   Templates escape every user value and insert only lucid's own markup raw,
   and **nothing wraps** — a newline is a line break, because a guessed wrap
-  overflows in silence. HISTORY.md § The card renderer, § Card templates.
+  overflows in silence. HISTORY.md § The card renderer, § Card templates. The
+  rule indicts *guessed* wraps and only those: a wrap measured through
+  `render_svg`'s own coder lands within 0.8% where a character count is out by
+  a third in the unsafe direction, and one is costed in PLAN.md § The
+  emphasis-capable quote slot.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas)` and `card_reauthor` fills the template again
     at the project canvas. A card with files but no record cannot be

@@ -1618,7 +1618,10 @@ the picture and the caption layer letterbox against the same rectangle.
    a `goodsometimes` script before `card_new` existed, so there is nothing to
    persist and nothing to re-render — and their receipts carry three ink
    levels that lucid's one-fill `quote` slot cannot express. Closing that item
-   needs an emphasis-capable quote slot first. HISTORY.md § The card record.
+   needs an emphasis-capable quote slot first, **costed 2026-08-10 in § The
+   emphasis-capable quote slot**, which found a second loss this step missed:
+   the script wraps by measurement, so the slot needs a flow as well as an
+   ink. HISTORY.md § The card record.
 3. **The MLT reframe** — **shipped 2026-08-10.** Per-clip crop rects
    (`reframe`, with CLI and MCP parity) and the `qtblend` filter applied per
    node *per role*; the routing landed in step 1. Verified the way the pinned
@@ -1656,3 +1659,140 @@ the picture and the caption layer letterbox against the same rectangle.
    used. **This is where the item now sits, and it is the only thing left in
    it.** Three of the five steps above corrected their own premise by being
    built; nothing here has yet been looked at as a film.
+
+## The emphasis-capable quote slot — the design note — 2026-08-10
+
+The note § Aspect swap step 2 said it was not writing, and the one thing
+standing between the twelve unrecorded Scream cards and being re-authored
+through lucid at all (HISTORY.md § The card record). It is nominally a
+template change. **It is not, and the finding that shapes it is that the
+costing named one loss where there are two — and the second one is a rule
+this repo already wrote down.**
+
+HISTORY.md § The card record costs it as emphasis alone: the script's receipts
+"carry three ink levels inside one paragraph — `dim`, `key`, and an amber `em`
+on the fragment the VO quotes — and lucid's `receipt` has one `quote` slot of
+kind `lines`, drawn in a single fill." True. But `make_scream_cards.py:63` is
+`wrap_runs`, a greedy word-wrap that **measures** each word against a body
+width, and the emphasis runs cross the line breaks it produces. lucid's
+`_lines_markup` refuses to wrap on principle — "a wrap computed from a
+character count is a wrap that overflows the frame silently on the first line
+of wide glyphs" (`graphics.py:456`). So the slot needs emphasis *and* a wrap,
+and the wrap is the half that argues with a standing rule.
+
+**The rule survives the measurement, and its reasoning is what tells you how
+to build the wrap.** It indicts character counts, which deserve it; it does
+not indict measurement, and this box can measure through the exact renderer
+that draws the card.
+
+### Measured on this box, 2026-08-10
+
+Through `magick`'s RSVG coder — librsvg 2.62.0, ImageMagick 7.1.2-13 — which
+is the path `graphics.render_svg` already uses, at Zilla Slab 40px, the
+script's own body size.
+
+1. **Per-run emphasis renders through librsvg exactly, and reproduces all
+   three of the script's ink levels to the byte.** One `<text>` carrying three
+   `<tspan>`s with their own `font-weight`, `fill` and `fill-opacity`, sampled
+   off the raster rather than eyeballed: `dim` → `155,151,145` (ink `#1a1714`
+   at 0.42 over paper `#faf5ec` predicts 156), `em` → `232,161,60` (amber
+   `#e8a13c`, exact), `key` → `26,23,20` (ink, exact). **There is no
+   mechanism to invent here** — the emphasis half is a markup shape and a
+   vocabulary, nothing more.
+
+2. **A wrap measured through RSVG is accurate to ±0.8%; a character count is
+   wrong by −34.6% to +83.4%.** Against the ink width of the whole line
+   rendered, on three real Scream quote lines and two adversaries:
+
+   | line | measured | character count |
+   |------|----------|-----------------|
+   | "might be the perfect horror slasher." | +0.8% | +16.3% |
+   | "The satire is great. I know I am late…" | +0.3% | +19.8% |
+   | "Falls apart a bit in the second half." | +0.7% | +25.0% |
+   | `WWW MMM WWW MMM WWW MMM` | +0.7% | **−34.6%** |
+   | `illillillill iiii llll iiii llll` | −0.3% | +83.4% |
+
+   **The `WWW MMM` row is the rule's own case, and it confirms it**: the
+   character count *underestimates* by a third on wide glyphs, which is the
+   silent overflow `_lines_markup`'s docstring exists to prevent. Note the
+   direction — a character count is not merely imprecise, it is unsafe in the
+   one direction that produces a wrong card at exit 0.
+
+3. **Measure candidate lines, not words — it is exact, and it costs the same
+   number of renders.** The obvious cheap build measures each word once and
+   sums with a space advance; that is the +0.3%/+0.8% column above, and it
+   drifts to −0.3% on `illill…` because side bearings accumulate. But greedy
+   wrap tests one *prefix* per word either way, so rendering the actual
+   candidate line is O(words) too — and it is ground truth rather than a sum,
+   it captures kerning, and it can see the mixed faces a styled line actually
+   contains, which the per-word shortcut cannot without tracking run styles
+   itself. The shortcut is more code and less accurate.
+
+4. **100ms a render, so ~1.5s for a 15-word quote and ~48s for all twelve
+   cards.** That is fine for `card_new` and it is a fact about *where* this
+   lives: measurement belongs at authoring time and must never sit in a
+   request path. `card_reauthor` at a new canvas re-flows, so a canvas swap
+   over a card-heavy project pays it too — worth reporting, not worth
+   avoiding.
+
+5. **librsvg resolves CSS weights correctly, and `fc-match` disagrees with
+   it.** `font-family="Zilla Slab" font-weight="600"` renders SemiBold (918px
+   ink on a reference string) and `700` renders Bold (931px), which is right.
+   `fc-match 'Zilla Slab:weight=600'` answers `ZillaSlab-Bold.ttf` — because
+   fontconfig's weight scale is not CSS's. This nearly became a finding about
+   losing SemiBold in the re-author; it is instead a finding about the
+   reporter, and a live one rather than a future one. **`font_report` reports
+   per `font-family` declaration and never reads `font-weight`, so its `drawn`
+   field is already wrong on a shipped template**: `receipt.svg`'s title is
+   `font-weight="700"`, librsvg draws Bold, and `fc-match 'Zilla Slab'` — the
+   family alone, which is what the reporter asks — answers SemiBold. It is a
+   wrong *report*, not a wrong render, and it only bites a family with more
+   than one weight installed. Emphasis makes weight load-bearing for the first
+   time, so the reporter needs the declaration's weight before step 1 lands;
+   filed as its own remainder rather than folded into this note's steps.
+
+6. **The typeface is not a loss, which the costing did not say either way.**
+   lucid's `FONTS` defaults are Noto Serif / Lato, not Zilla Slab — but they
+   are ordinary overridable slots, so a re-author passes the script's own
+   stack and gets the script's own faces, both of which this box has
+   (`~/.local/share/fonts/ZillaSlab-{SemiBold,Bold}.ttf`). Nothing needs
+   building for it; it needs writing down, because the twelve will look wrong
+   in a way that has nothing to do with this item if nobody passes it.
+
+### The two decisions the measurements do not make
+
+- **The run vocabulary.** Three named levels (`key` as the default, `dim`,
+  `em`) is what the source data has, and semantic names beat inline style
+  because the `em` fragment is *the bit the VO quotes* — that is meaning, not
+  ink. What the note recommends and does not consider settled is spelling it
+  as lightweight inline markers rather than JSON runs, because the value
+  arrives from a CLI argument and an MCP string, where JSON is hostile. A
+  marker syntax owes an escape for a literal marker, and templates escaping
+  every user value while inserting only lucid's own markup raw is the rule
+  that syntax has to survive.
+- **What a quote that does not fit does.** The script's `wrap_runs` returns a
+  final baseline and `receipt()` throws it away, so the original could overrun
+  its own footer and nothing would say so. A flowed slot has a box; the slot
+  **refuses** when the flow exceeds it, and names the width and the overflow.
+  Growing the card instead is the tempting build and it is wrong for the same
+  reason a cue cannot carry a length: the canvas is the project's.
+
+### Build order
+
+1. **The `runs` slot kind** — the markup shape, the three-level vocabulary,
+   the escape, and per-run `<tspan>` emission. No wrapping yet: caller's line
+   breaks, exactly `lines`' contract, plus emphasis. This step is measurable
+   on its own against finding 1's three sampled ink values.
+2. **Measured flow** — greedy wrap over candidate lines through
+   `render_svg`'s own coder, a declared body width on the template, and the
+   refusal from § The two decisions. Verified against finding 2's table, the
+   `WWW MMM` adversary included, because it is the row that decides whether
+   the wrap is safe or merely usually right.
+3. **Re-author the twelve** — through `card_new` at the project canvas, with
+   the Zilla Slab stack passed per finding 6, and compare against the PNGs on
+   disk. This is the step that closes the wiki's card item, and the comparison
+   is the point: it is also the first evidence that a 1920x1080 card in a
+   1920x816 frame was the defect HISTORY.md § The card record says it is.
+4. **Stop.** The cards exist so that the aspect swap's own step 6 — the watch
+   of a vertical cut — has graphics in it. Card *animation* is still parked
+   behind that watch and this note does not touch it.
