@@ -3196,3 +3196,64 @@ the right shape and nothing yet makes the picture fill it, which is why both
 `card_new` already defaulted its canvas to `_mlt_resolution`, so a card
 authored after a swap comes out at the new shape for free. The 13 that exist
 were authored before it, and remain step 2's problem.
+
+## The b-roll cut, on real footage — 2026-08-10
+
+The first cut b-roll-by-description has ever made from real material, and the
+first thing it says is that the *indexing* half does not work. Built on a copy
+of the Scream project (`~/lucid-broll-test`, migrated v2 → v3 so nothing of
+Tyler's was touched), holding his edit and his 13 card cues fixed and replacing
+only the 25 video cues, so the one variable is which footage got chosen.
+
+`describe` ran over all nine clips: **139 windows, 502s estimated, no window
+errors**. Then each cue position was matched against the index by idf-weighted
+overlap with the narration around it — boilerplate scores zero by construction,
+so this flatters the index rather than the reverse.
+
+**It agreed with the human choice on 2 of 25.** The two agreements were
+`cold-open`, the asset that covers half the film anyway.
+
+### The index cannot separate the films
+
+Every window of Billy and Stu's unmasking — the franchise's most famous reveal —
+came back as some phrasing of "indoors, likely in a kitchen". Every Scream 6
+window is "a dimly lit room". Measured rather than eyeballed:
+
+- **17 words appear in more than half of all 139 descriptions**: appears,
+  background, colored, given, hair, indoors, light, lighting, likely, person,
+  place, possibly, room, scene, setting, wearing, with.
+- **Jaccard overlap between two windows of the same clip is 0.201; between two
+  windows of different films it is 0.161.** Four points of separation is the
+  entire signal a ranker would have to work with.
+- The terms an editor would actually search: `killer` 0 windows, `unmask` 0,
+  `stab` 0, `costume` 0, `ghostface` 1, `mask` 6.
+
+So the matches land on the *narration's* abstract vocabulary instead — shots
+chosen because a description shared the words "sentence", "ceiling", "third" or
+"way" with the sentence being spoken over it. One position scored 0.00 and took
+the first description in the corpus.
+
+**The cause is lucid's own prompt, not the model.** `describe.PROMPT` asks for
+"where it takes place, who or what is present, what they are doing, and how the
+shot is framed … colours, objects, clothing, location, time of day, lighting" —
+and it is obeyed exactly. Rooms and jackets are what was requested. Nothing in
+it asks for the event, which is the only thing a cutaway is ever chosen for.
+
+That is a prompt change and another 502-second pass, and it wants the same
+treatment as any other claim here: two or three wordings, and the same-clip vs
+different-clip overlap measured again, rather than one rewrite declared better.
+PLAN.md § B-roll by description said ranking was the next question. It is not —
+ranking a corpus with no separation in it is ranking noise.
+
+### What worked, first time, on real material
+
+Worth recording because the failure above is loud enough to bury it. The
+placement half held: 25 cues placed by pin, `mlt.plan_picture` refused the two
+whose shot would have run past the end of its asset and named the second and the
+asset in the refusal, and the corrected render came back frame-exact — 9856 of
+9856 frames at 1920x816, `agrees: true`, exit 0.
+
+It also caught the `build_shots` / `plan_picture` disagreement CLAUDE.md
+documents, the honest way: `lucid shots` reported 38 shots and no error, and the
+render then refused. The raw projection is not the plan, and a check that wants
+to know whether `export` will run has to ask `timeline_view`.

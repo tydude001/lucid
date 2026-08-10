@@ -1374,8 +1374,15 @@ with it:
    that had a pin in it.
 4. **Stop.** Watch a cut that actually uses b-roll before adding ranking of any
    kind — the same discipline the layered timeline and the card note used.
-   **This is where the item now sits**: all three build steps are done and
-   nothing further gets designed until a real b-roll cut has been watched.
+   **The cut got made on 2026-08-10, and the stop earned itself.** Ranking was
+   the wrong next question: the index it would rank has no separation in it —
+   0.201 word overlap between two windows of the same clip against 0.161
+   between two *different films*, and `killer`, `unmask`, `stab` and `costume`
+   appear in none of the 139 descriptions. The placement half held on real
+   footage; the describing half returns rooms and clothing because
+   `describe.PROMPT` asks for rooms and clothing. **Next is a prompt, measured
+   the same way** — two or three wordings, same-clip vs different-film overlap
+   re-measured — not a ranker. HISTORY.md § The b-roll cut, on real footage.
 
 ## Aspect swap — the design note — 2026-08-09
 
