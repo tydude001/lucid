@@ -303,6 +303,19 @@ counter". A filtered result reports what it filtered *out of*, so a narrow
 answer cannot be mistaken for an empty project, and `words` says how much text
 came back — at roughly 600 windows, reading them all stops being reasonable.
 
+A window's `src_start` is what places it. `cue add --src-start` pins where
+inside the asset the shot reads, so the cut shows the moment you searched for
+rather than wherever that clip's re-use cursor had got to:
+
+```sh
+lucid -C myproject cue add vo 318 cold-open --src-start 92.4
+```
+
+In-point only — the out-point stays derived from the next cue, so a later
+recut still moves the shot. A pinned shot that would run past the end of its
+asset is **refused** by `shots` and `export` rather than rewinding to the
+clip's opening seconds, which would be plausible footage and the wrong film.
+
 Descriptions live in the manifest, so `lucid info` reports a count and points
 here rather than printing them; `lucid info --raw` still prints the manifest
 verbatim.

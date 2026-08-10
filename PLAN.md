@@ -366,46 +366,33 @@ carries a length, a shot's length is derived from the edit, and a cue carrying
 a length is the failure § The property everything below defends exists to
 prevent. It gets its own note, after a watch of a card-heavy cut.
 
-**B-roll by description is in flight: its costed note is written and step 1
-shipped 2026-08-09** (§ B-roll by description; HISTORY.md § `describe`). The
-note inverts the item's own framing: the indexing half everyone assumed was
-the cloud-shaped risk is local, resident and ~8 minutes for a whole project's
-footage, while the *placement* half DAYDREAM.md counted as already-coming does
-not exist — a cue cannot name a moment inside its asset, because
-`mlt.plan_picture` picks that by a consumption cursor. What search returns is
-a moment, so the build is an in-point on a cue, pinned and refusing rather
-than rewinding.
+**B-roll by description shipped 2026-08-09, all three build steps**
+(§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
+pinned cue). The note inverted the item's own framing and was right to: the
+indexing half everyone assumed was the cloud-shaped risk is local and resident,
+while the *placement* half DAYDREAM.md counted as already-coming did not exist
+— a cue could not name a moment inside its asset, because `mlt.plan_picture`
+picks that by a consumption cursor. So footage is described, searched by
+reading, and now placed by a cue carrying an in-point that refuses rather than
+rewinds.
 
-`describe` is that note's first three-quarters — the subprocess, the windows,
-the manifest storage, the v2 -> v3 bump and skip-if-already-described — and
-the design survived contact. What building it added was one rule the note did
-not state: **the window count rounds up, so a window is never longer than the
-one asked for**, because round-to-nearest silently widens and widening is the
-one direction that fails. Two of the note's measurements came back different
-on the real project — ~3.5s a window rather than 2.6-3.3, and ~97 words a
-description rather than ~60, which moves the read-them-all ceiling from ~1000
-windows to ~600.
+Four things the build corrected or added, each outliving the step that found it:
 
-**`describe_ls` shipped 2026-08-09** and both of those numbers held on a
-second, independent run (HISTORY.md § `describe_ls`). It also answered the
-second reason it had acquired — a described project's manifest is 103 KB and
-`lucid info` printed the manifest — by standing that block down to a count
-behind a `--raw` escape.
+- **Windows round up, never to nearest** — round-to-nearest silently *widens*,
+  and widening is the one direction that fails.
+- **~3.5s a window and ~97 words a description**, against the note's 2.6–3.3s
+  and ~60, on two independent runs. The read-them-all ceiling is ~600 windows,
+  not ~1000.
+- **`src_pin` and `src_start` are separate keys** — the cue's ask against the
+  planner's answer. One key meaning both reads as correct in every test that
+  has a pin in it.
+- **A pin advances the per-asset cursor**, so an unpinned re-use after one
+  carries on rather than replaying what was just shown.
 
-**Step 3, the pinned cue, shipped the same day, and the item's build is now
-complete** (HISTORY.md § The pinned cue). `cue_add` takes an in-point,
-`plan_picture` refuses rather than rewinding for a cue that carries one, and
-the whole thing was verified by rendering colour-coded b-roll through melt and
-reading the pixels back — the rewind it exists to prevent produces a file and
-exit 0, so the suites alone could not settle it. Two things came out of
-building it. The shot dict needed a **second field name**, `src_pin` for the
-cue's ask against `src_start` for the planner's answer, because one key
-meaning both would have looked right in every test that had a pin in it. And
-**a pin advances the per-asset cursor**, so an unpinned re-use after one
-carries on instead of replaying what was just shown.
-
-What is left of b-roll is the note's own step 4, which is not a build: **watch
-a cut that actually uses b-roll**, before ranking of any kind.
+The pinned refusal was settled by rendering colour-coded b-roll through melt
+and sampling the pixels, because the rewind it prevents produces a file and
+exit 0. **What is left is not a build**: the note's step 4 is a watch of a real
+b-roll cut, before ranking of any kind.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
