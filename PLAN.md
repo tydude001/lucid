@@ -1502,10 +1502,12 @@ the ones lucid actually uses.
    off `caption_style` every time.
    - **The half of this finding about the *existing* cards was wrong, and step
      2 found out by building it.** It read `card_new`'s reply and inferred the
-     twelve cards in the Scream project came from it. They did not — they are
+     cards in the Scream project came from it. They did not — they are twelve
      PNGs with no SVG, drawn by a `goodsometimes` script before `card_new`
-     existed, so the record cannot recover them and this is not the wiki's
-     "regenerate the 13 cards" item after all. HISTORY.md § The card record.
+     existed — the thirteenth of the assembly's set is the outro card, which is
+     a tail in that script and not in lucid's cue table at all. So the record
+     cannot recover them, and this is not the wiki's "regenerate the 13 cards"
+     item after all. HISTORY.md § The card record.
 
 6. **The preview holds two ideas of the frame, and they agree today only by
    accident.** `player.js`'s `captionBox()` contain-fits the *project's*
