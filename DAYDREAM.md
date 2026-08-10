@@ -405,7 +405,7 @@ missing feature: a 2.35:1 receipt holds three lines of quote where a 16:9 one
 holds seven. So a card-heavy watch is blocked on an editorial call rather
 than on a build.
 
-### Captions — generation and styling built; per-word animation is the gap
+### Captions — built, and per-word animation declined on a watch
 
 lucid generates timeline-mapped captions (HISTORY.md § Captions came out of the
 timeline), and styles them as of 2026-08-09 (HISTORY.md § Caption styling).
@@ -415,25 +415,28 @@ regenerate-preserving-style is true by construction rather than by care.
 `caption_style` writes it, `caption_view` shows the result, `add_captions`
 reads it, and the window draws it in the viewer and on the CC lane.
 
-**What is left is per-word animation** — the pop/scale/slide Daydream applies
-to the highlighted word. Karaoke here is a colour fill and nothing moves a
-glyph. It shares a construction question with a *single-word* highlight (as
-opposed to `\k`'s left-to-right fill, which is what ASS actually does).
-**Costed 2026-08-10 — PLAN.md § Per-word caption animation**, which owns the
-design and the measurements; this row is the pointer.
+**Per-word animation was the gap, and it is now a decision instead.** Daydream
+lights one word at a time and pops it; lucid sweeps a `\k` fill and moves no
+glyph. Costed 2026-08-10 — **PLAN.md § Per-word caption animation** owns the
+design and the measurements — and **Tyler watched all four treatments on the
+real film and chose the fill lucid already writes.** So this row is complete
+by choice, and the divergence below is deliberate. Nothing was built.
 
-**The claim this row used to carry was false, and false in the expensive
-direction** — that both "want one Dialogue event per word rather than one per
-line". Measured: both are per-word `\t` blocks inside the one event per line
-that `to_ass` already writes, and one event *per word* is not a harder build
-of this feature but a different one (it draws a single word centred in the
-frame, because libass owns layout and lucid cannot supply a `\pos`). The real
-cost is metrics — a true scale pop reflows the whole line by ~13 px on the
-real film and no build avoids that, while a vertical-only pop moves nothing.
-**Which of the two ships is an editorial call on a watch**, and the four
-treatments are rendered on the real film and served for it. Also absent by
-choice: a styling UI. The agent restyles and the window renders it, which is
-the parity target.
+**The claim the row used to carry was false, and false in the expensive
+direction** — that a single-word highlight and the animation both "want one
+Dialogue event per word rather than one per line". Measured: both are per-word
+`\t` blocks inside the one event per line that `to_ass` already writes, and
+one event *per word* is not a harder build of this feature but a different one
+(it draws a single word centred in the frame, because libass owns layout and
+lucid cannot supply a `\pos`). That matters after the decision, not before it:
+it means reopening the row costs about a day, not a text-layout engine.
+
+**The one real cost of the fill, so a future watch knows what to look for:**
+by the last word of a seven-word cue every word is in the highlight colour, so
+it reads as progress through the line rather than as *which word is this*.
+
+Also absent by choice: a styling UI. The agent restyles and the window renders
+it, which is the parity target.
 
 ### Aspect swap 16:9 ↔ 9:16 — after the layered timeline, and now load-bearing
 
@@ -539,6 +542,11 @@ and the README's pitch depends on it staying asterisk-free.
 * **Codex as a second agent.** The panel speaks the installed `claude`; a
   second CLI is a config problem for the day someone has one.
 * **Cloud-shaped inference for b-roll search.** Local design or nothing.
+* **Per-word caption animation, and the single-word highlight with it.**
+  Declined on a watch 2026-08-10, not skipped for cost — all four treatments
+  were rendered on the real film first. lucid sweeps a `\k` fill. § Captions
+  has what would reopen it, and PLAN.md § Per-word caption animation has the
+  measurements, which stay valid because they are facts about libass.
 * **Marketing motion in the tool.** The replica-hero pattern is for a future
   landing page, not the workspace.
 

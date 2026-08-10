@@ -3936,3 +3936,56 @@ Nothing at 16:9 could have noticed — the box is 7 either way.
   have more than one paragraph.
 - **`card_reauthor` re-flows but has not been run at a second canvas** on
   real cards, because the twelve had no records to re-author from until now.
+
+## The caption animation nobody wanted — 2026-08-10
+
+DAYDREAM.md § Captions had one gap left: Daydream lights one word at a time
+and pops it, lucid sweeps a `\k` fill and moves no glyph. It was costed, the
+costing found the recorded blocker wrong, the four candidate looks were
+rendered on the real film, and **Tyler watched them and picked the fill lucid
+already writes.** Nothing was built. The design and every measurement are in
+PLAN.md § Per-word caption animation; what belongs here is the dated verdict
+and the two things the exercise is worth keeping for.
+
+**The blocker was a category error, which is a shape this repo had not seen.**
+PLAN.md, DAYDREAM.md and `captions.py`'s own `Preset` docstring all said the
+feature — and the single-word highlight it shares a construction with — needed
+one Dialogue event per word. That build makes lucid own text layout, because
+an event holding one word cannot know where libass put the others. Measured:
+both are per-word `\t` blocks inside the one event *per line* that `to_ass`
+already writes. Built to check, the per-word-event version drew a single word
+centred in the frame — **not a harder version of this feature, a different
+feature.** Three documents agreed with each other and all three were wrong;
+the phrasings differed enough to read as corroboration.
+
+**The decision was gated on something no amount of building resolves.** A
+scale pop reflows the line — every other word moves 13 px on the real film,
+20 px on a flat 1080 frame, twice per word, seven times a line — because a
+wider glyph run pushes its neighbours. `\fscy` alone, `\frz`, `\bord`,
+`\shad`, `\blur`, `\be`, `\alpha` and `\c` move nothing. So "a real pop" and
+"a line that holds still" are exclusive, and the choice was editorial from
+the start rather than after a build.
+
+**Two findings outlive the decision.**
+
+- **The preview would have disagreed with the render, again.** CSS's natural
+  pop is `transform: scale()`, which does not affect layout; ASS's `\fscx`
+  does. The obvious browser half would have shown a still line with one word
+  growing over a file where the whole line breathes — the same shape as the
+  `\k` fill disagreement in § Caption styling, caught this time before any
+  code existed to trip it. It binds any future caption motion whatever its
+  form.
+- **"No effect" and "no contrast" are different answers.** The first pass
+  reported `\bord`, `\shad` and `\blur` as not animating at all, zero pixels
+  changed. They animate; the outline and shadow were black and the probe
+  background was black. Third instance of this failure here, after the two
+  brightness-bbox misreads CLAUDE.md already carries. A probe that can only
+  report absence has to be shown a positive control first.
+
+**What would reopen it**, so the next reader does not re-run the probes: a
+watch that wants the current word legible late in a line. That is the fill's
+one real cost — by the seventh word of a seven-word cue every word is in the
+highlight colour, so it signals progress through the line rather than which
+word is being said. Reopening costs about a day, not a layout engine, and the
+tag measurements stay valid because they are facts about libass rather than
+about this project. The four renders are kept at `~/lucid-caption-anim/`.

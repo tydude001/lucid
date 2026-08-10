@@ -440,14 +440,15 @@ timeline being the enabler and the look pass being gated on nothing:
    and so are the six small items that were to ride it and didn't
    (HISTORY.md § The head of the parity queue). This rung is done.
 2. **Caption styling** — shipped 2026-08-09 (HISTORY.md § Caption styling).
-   What it left is per-word *animation*, **costed 2026-08-10** (§ Per-word
-   caption animation — the design note), and the costing overturned the
-   item's own premise: it is not an export cost and not a per-word Dialogue
-   event, it is two style fields over the one event `to_ass` already writes.
-   What it *is* gated on is a watch — a real scale pop reflows the line and a
-   metric-neutral one does not move it at all, and the two cannot be
-   reconciled. Four treatments are rendered on the real film and served;
-   nothing is built until one comes back.
+   What it left was per-word *animation*, **costed and then declined on a
+   watch, both 2026-08-10** (§ Per-word caption animation — the design note;
+   HISTORY.md § The caption animation nobody wanted). The costing overturned
+   the item's premise — it is not an export cost and not a per-word Dialogue
+   event, it is two style fields over the one event `to_ass` already writes —
+   and then all four treatments were rendered on the real film and Tyler
+   chose the `\k` fill lucid already writes. **This rung is done, and lucid
+   diverges from Daydream here by choice** (DAYDREAM.md § What parity does not
+   import).
    Then 3. **motion graphics + templates**, then
 4. **b-roll by description** — **all three build steps shipped 2026-08-09**
    (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
@@ -1954,12 +1955,31 @@ one arithmetic detail that is easy to get wrong and silent when wrong.
 3. **`animate`**, whichever pop the watch picks, with finding 5's constraint
    binding the browser half.
 
-### What is left, and it is Tyler's
+### The watch happened, and the answer was `fill` — 2026-08-10
 
-**The four treatments are rendered on the real film and served**, 14 seconds
-each, labelled in frame: `~/lucid-caption-anim/`, at
-`http://100.x.y.z:8791/`. `fill` (today), `word`, `word` + reflowing
-scale pop, `word` + metric-neutral vertical pop. Finding 4 says the third and
-fourth cannot be reconciled, so which one ships is an editorial call on a
-watch, not a build question — the same shape as the two cards in
-§ Aspect swap. **Nothing is built until it comes back.**
+**Tyler watched the four treatments and picked 1, the `\k` fill lucid already
+writes. So the item closes having built nothing, and the design above is a
+record of a road not taken rather than a plan.** The four are kept at
+`~/lucid-caption-anim/` (`fill`, `word`, `word` + reflowing scale pop, `word`
++ metric-neutral vertical pop), served by `serve.py` on :8791.
+
+**This is a deliberate divergence from Daydream, not an unbuilt row**, and
+DAYDREAM.md § Captions now says so. Daydream lights one word at a time and
+moves it; lucid sweeps and does not. The measurement is what makes that a
+choice rather than a limitation — findings 1 and 2 say either could ship for
+about a day's work, so nobody needs to re-derive the cost to reopen it.
+
+**What would reopen it, stated so the next reader does not re-run the
+probes:** a watch that wants the *current word* legible late in a line. That
+is the fill's one real cost — by the last word of a seven-word cue every word
+is in the highlight colour, so the signal is "how far through the line are
+you", not "which word is this". Nothing else about the fill is in question,
+and no measurement here is stale: the tag table in finding 4 is a fact about
+libass, not about this project.
+
+**What did survive the item.** Finding 5's trap is now on record before
+anything could trip it, and it applies to any future caption motion whatever
+its shape. Finding 6 is a third instance of a failure this repo keeps having
+and is cited from CLAUDE.md's brightness-bbox rule. And `captions.py`'s
+comment no longer claims a single-word highlight needs one Dialogue event per
+word — the claim was false whether or not lucid ever ships one.
