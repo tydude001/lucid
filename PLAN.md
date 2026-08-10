@@ -438,8 +438,10 @@ timeline being the enabler and the look pass being gated on nothing:
    multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
    is no longer only a parity nicety** — it is what a `tiktok-reels` export
    preset is waiting on, and the preset is the first thing anyone reaching
-   for a vertical export will ask for. It still costs what it always did:
-   the project model, both render paths, and the preview letterbox.
+   for a vertical export will ask for. **Costed 2026-08-09** (§ Aspect swap —
+   the design note), and the cost moved: not both render paths but one, since
+   an override routes through the MLT writer that already reframes — plus the
+   cards, which are the only project state a swap cannot re-derive.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -1374,3 +1376,167 @@ with it:
    kind — the same discipline the layered timeline and the card note used.
    **This is where the item now sits**: all three build steps are done and
    nothing further gets designed until a real b-roll cut has been watched.
+
+## Aspect swap — the design note — 2026-08-09
+
+The small note DAYDREAM.md § Aspect swap and § Next ask for before any build.
+**The finding that shapes it inverts which half is hard.** DAYDREAM.md records
+the multi-source side as the blocker — "the melt path cannot take a resolution
+at all until HISTORY.md § 4's memory-growth combination is isolated — so a real
+9:16 needs an answer on the multi-source side, not just a flag on the other
+one" — and `ops.export` and `picture.render` both carry the same reading.
+
+Measured, it comes out the other way round. **The melt path renders a 9:16
+frame today, with its consumer untouched, and reframes with one filter.** The
+resolution on that path is a `<profile>` attribute, and `mlt.document` has
+taken a `resolution=` argument since the MLT writer shipped; the consumer was
+never the knob. **The single-source path is the one with no answer** — `-res`
+letterboxes and auto-editor has no reframe flag to teach. So the item is not
+"add a resolution to both writers". It is: give the project a canvas, route
+anything that overrides it through the writer that can already do the work,
+and decide what part of the frame survives the crop.
+
+### Measured on this box, 2026-08-09
+
+Rendered against the real Scream footage (`~/lucid-scream-v2/proj/media`,
+`cold-open.mp4`, 1920x816), through `picture.render` — not through a
+hand-run melt, so the display env, the `$HOME` staging and the memory cap are
+the ones lucid actually uses.
+
+1. **A 9:16 profile renders, and `RENDER_ARGS` is untouched.** `mlt.document(
+   resolution=(1080, 1920))` over a 1920x816 source produced a **1080x1920**
+   file, memory cap 6G, no growth, against a 1920x816 baseline from the same
+   script. The consumer stayed the four measured-safe keys throughout.
+   HISTORY.md § 4's finding is about *restating the profile on the consumer*;
+   declaring it in the `<profile>` is a different mechanism and always was.
+   `ops.export`'s refusal of a caller-supplied `resolution` on the melt path
+   is still correct — widening the consumer remains unmeasured — but the
+   inference DAYDREAM.md drew from it, that 9:16 is therefore unreachable
+   there, is not.
+
+2. **A swapped profile pillarboxes, and the geometry is exact.** Sampled
+   pixels rather than exit codes: the content band is **459 of 1920 rows**,
+   x 236..845 — the source scaled by 1080/1920 = 0.5625 (419→236, 1503→845),
+   to the pixel. **76% of the frame is black bar.** So melt at a swapped
+   profile produces precisely what auto-editor's `-res` produces (DAYDREAM.md
+   § Export presets, measured 320x240 → 608x1080). **Both paths can already
+   make 9:16 pixels and neither reframes** — resolution was never the missing
+   piece on either one.
+   - **The first sample said 104 rows**, which reads as something worse than a
+     pillarbox. It was a dark scene, not geometry. A brightness-thresholded
+     bounding box across five frames is what settled it — the same reason the
+     picture layer is verified by canvas readback rather than by eye
+     (HISTORY.md § The preview picture layer).
+
+3. **A real crop-to-fill reframe renders today, and it is one filter.** A
+   `qtblend` filter carrying `rect="-1719 0 4518 1920 1"` (fill by height,
+   centre the overflow) hung on the source producer fills the frame: content
+   spans y **0..1919** and x **83..1079**, against the pillarbox's 459-row
+   band. No new mechanism, no new dependency, no consumer change — `mlt.py`
+   already writes `qtblend` for compositing. DAYDREAM.md's "mechanically
+   modest after the MLT writer exists" is right, about the path it called hard.
+   - **The filter has to go on every node, not every resource.** The probe
+     matched **two** nodes for one file, because `mlt.py` writes one node per
+     distinct resource *per role* — a file used by both the edit and the
+     picture lane would otherwise be reframed on one track and letterboxed on
+     the other, in the same frame.
+
+4. **The project holds two independent derivations of its canvas, and no place
+   to override either.** `ops._mlt_resolution` (first video clip, else 1080p)
+   and `ops._caption_canvas` (first video clip → `captions.canvas`) walk
+   `clips` separately for the same fact. An override must reach both: quoting
+   captions against a 16:9 reference over a 9:16 render stretches the glyphs,
+   which is what `captions.canvas`'s own docstring exists to prevent.
+
+5. **An aspect swap orphans every card already made, and nothing on disk can
+   re-author one.** `card_new` writes `assets/cards/<name>.svg` at the canvas
+   and rasterises it; the template name and slot values come back in the reply
+   and are **persisted nowhere**. The SVG on disk has the old aspect baked into
+   its viewBox, and `-size` *fits* rather than distorts, so re-rendering it at
+   a new canvas pillarboxes the card inside the frame. This is the wiki's open
+   "regenerate the 13 cards at 1920x816" item, and it is not a one-off — it
+   recurs on every aspect change. **Cards are the only project state that is
+   rasterised rather than derived**; captions survive a swap because they come
+   off `caption_style` every time.
+
+6. **The preview holds two ideas of the frame, and they agree today only by
+   accident.** `player.js`'s `captionBox()` contain-fits the *project's*
+   caption canvas into `#viewer`, while `#viewer video` is `max-width`/
+   `max-height: 100%` in a flex-centred black box — so the picture's letterbox
+   is the *media's* own aspect. The two match today because the canvas is
+   derived from the media. An aspect override is exactly what separates them:
+   a 16:9 source in a 9:16 project would draw full-width video with the
+   captions boxed to a 9:16 sub-rectangle inside it.
+
+### The design
+
+**A reframe indexes the source, so no edit can invalidate one.** The unit is
+`(clip_id, rect)` in **source pixels** — geometry, never a length — the same
+rule as a footage description, and for the same reason. Nothing here carries a
+timeline duration, so it is not in tension with § The property everything below
+defends.
+
+**The project canvas is one field, and it feeds both derivations.** A `canvas`
+in the manifest (`WIDTHxHEIGHT`, absent meaning "derive as today"), read by
+`_mlt_resolution` and `_caption_canvas` before either walks `clips`. That is a
+schema bump, v3 → v4, with a `_MIGRATIONS[3]` entry keyed by the version it
+migrates *from* — the mechanism exists so a bump is a step rather than a
+widening of `Project.open`.
+
+**An aspect override routes through the MLT writer, whatever the source
+count.** `export` picks its writer from the project and never from an argument,
+precisely so a project that would render wrong cannot be argued onto the wrong
+road; "this project overrides its canvas" is another way of asking
+`_is_layered`'s question, and it gets folded in there rather than given a flag.
+The single-source path is not taught to reframe — it cannot be.
+
+**The default crop is centre, and it is reported rather than assumed.** A
+centre crop of a 16:9 frame is wrong whenever the subject is not centred, which
+in this footage is often. So the reply names the crop it used per clip and a
+clip can override it. What `export` must never do is choose a crop by analysis
+and say nothing: that is correct-pixels-wrong-video with a plausible file to
+back it up.
+
+**Cards become re-derivable, which `card_new` owes anyway.** Persist
+`(template, slots, canvas)` alongside the card — the same v4 bump — so a swap
+can re-author every card at the new canvas, and so the 13 existing Scream cards
+regenerate by command rather than by hand.
+
+**The viewer's frame becomes the project canvas**, with the media contained
+inside *that* — one more `contain`, in the layer that currently has none, so
+the picture and the caption layer letterbox against the same rectangle.
+
+### What this note refuses to build
+
+- **No consumer widening.** Whether `width`/`height` on the melt consumer is
+  memory-safe stays unanswered *and stays unnecessary* — finding 1 makes it
+  irrelevant to this item rather than a prerequisite for it. The refusal in
+  `ops.export` stays exactly as it is.
+- **No smart reframe** — no face tracking, no saliency crop. That is a model,
+  and a wrong one reframes a film with nothing on screen saying so.
+- **No animated crop.** A pan/scale over time is a crop carrying a length, and
+  a cue carrying a length is the failure § The property everything below
+  defends exists to prevent. It belongs with animation, after its own watch.
+- **No in-place swap that leaves old cards behind.** A vertical render with 13
+  pillarboxed 16:9 cards in it is the failure this item is meant to close, not
+  a partial win. Step 2 gates step 3 for that reason.
+
+### Build order — nothing built yet
+
+1. **The canvas field** — manifest, schema v4 + `_MIGRATIONS[3]`, both
+   derivations reading it, `info` reporting it. No render change at all, so it
+   lands and is verifiable on its own.
+2. **Card re-derivation** — persist template and slots, and a re-render at the
+   project canvas. Independently useful the day it lands: it closes the wiki's
+   13-card item, which is open regardless of whether anything ever goes 9:16.
+3. **The MLT reframe** — per-clip crop rects, the `qtblend` filter applied per
+   node *per role* (finding 3), routed by widening `_is_layered`. Verified the
+   way the pinned cue was: a real melt render, sampled for pixel geometry,
+   because every failure mode here produces a file and exit 0.
+4. **The viewer's project-canvas frame** — verified in a real browser and by
+   canvas readback, never by screenshot (wiki `tooling.md` § Headless browser).
+5. **`tiktok-reels`** — only now, when the name is honest. It is one entry in
+   `EXPORT_PRESETS` plus the canvas, and the refusal text in `_resolve_preset`
+   comes out with it.
+6. **Stop.** Watch a vertical cut before ranking anything further — the same
+   discipline the layered timeline, the card note and the b-roll note all used.

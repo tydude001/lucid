@@ -417,19 +417,23 @@ UI. The agent restyles and the window renders it, which is the parity target.
 
 ### Aspect swap 16:9 ↔ 9:16 — after the layered timeline, and now load-bearing
 
-Touches the model (a project aspect/resolution property), both render paths
-(auto-editor args on the single-source path, the MLT profile on the
-multi-source path), and the preview letterbox. Small design note first;
-mechanically modest after the MLT writer exists.
+Touches the model (a project canvas property), both render paths, the cards
+already rasterised at the old canvas, and the preview letterbox. **Costed
+2026-08-09 — PLAN.md § Aspect swap — the design note**, which owns the design,
+the measurements and the build order; this row is the pointer.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
-`tiktok-reels` export preset is waiting on (§ Export presets), which is the
-first thing anyone wanting a vertical export will reach for. Two things the
-preset work already measured and this item inherits: `-res` on the
-single-source path letterboxes rather than reframes, and the melt path cannot
-take a resolution at all until HISTORY.md § 4's memory-growth combination is
-isolated — so a real 9:16 needs an answer on the multi-source side, not just
-a flag on the other one.
+`tiktok-reels` export preset is waiting on (§ Export presets), the first thing
+anyone wanting a vertical export will reach for.
+
+**The claim this row used to carry was false, and backwards** — that "the melt
+path cannot take a resolution at all" until HISTORY.md § 4's memory-growth
+combination is isolated, so a real 9:16 "needs an answer on the multi-source
+side". Measured: melt renders 9:16 today with its consumer untouched (the knob
+is the `<profile>`, never the consumer) and reframes with one `qtblend` filter.
+The **single-source** path is the one with no answer — `-res` letterboxes and
+auto-editor has no reframe flag to teach. What stays genuinely unmeasured is
+the melt *consumer*, which this item never needs to touch.
 
 ### Export presets — built, minus the one that needs aspect swap
 
@@ -449,10 +453,11 @@ that widens the consumer is a memory-growth experiment in a feature's clothes.
 **`tiktok-reels` is not shipped, and it is blocked rather than skipped.** 9:16
 is mechanically producible on the single-source path — measured, a 320x240
 clip renders to 608x1080 — but only as the 16:9 frame pillarboxed, never a
-filled or reframed vertical video. That reframe is § Aspect swap below. On the
-melt path a resolution override is refused outright for the memory reason
-above, so the preset could not have been offered consistently across the two
-writers even as a letterbox. A platform's name over a quiet pillarbox is the
+filled or reframed vertical video. That reframe is § Aspect swap below. A
+caller-supplied `resolution` is refused on the melt path for the memory reason
+above — a refusal of the *argument*, not an inability of the renderer
+(§ Aspect swap) — so the preset could not have been offered consistently
+across the two writers even as a letterbox. A platform's name over a quiet pillarbox is the
 correct-pixels-wrong-video failure this document's constraint 2 exists to
 prevent.
 
