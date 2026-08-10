@@ -3042,15 +3042,14 @@ MLT_EXPORT_FORMATS = {"kdenlive", "mlt"}
 #: `picture.RENDER_ARGS` verbatim — naming it changes nothing about what melt
 #: already does. `web` only varies values within the same four keys.
 #:
-#: There is no `tiktok-reels` entry. 9:16 is mechanically producible on the
-#: single-source path (`-res`), but only as a pillarbox of the 16:9 frame,
-#: never a filled/reframed vertical video — that is DAYDREAM.md § Aspect
-#: swap, a separately deferred item that touches the project model, both
-#: render paths, and the preview letterbox. Shipping a preset named after a
-#: platform that quietly pillarboxes would be exactly the kind of
-#: correct-pixels-wrong-video this repo writes rules against, and on the
-#: melt path a resolution override is refused outright below — so a 9:16
-#: preset could not even be offered consistently across both writers.
+#: There is still no `tiktok-reels` entry, and the reason has changed. A
+#: filled 9:16 render exists now — `canvas` plus the reframe, on the melt
+#: path — so the old objection, that a preset named after a platform would
+#: quietly pillarbox, is answered. What is left is that a preset is a
+#: *bundle*, and the canvas half of this one belongs to the project rather
+#: than to an export flag: `canvas` is where the shape is decided, and it
+#: routes and reports for itself. The preset is PLAN.md § Aspect swap step 5,
+#: deliberately behind the viewer frame and a watch of a real vertical cut.
 EXPORT_PRESETS: dict[str, dict[str, str]] = {
     "youtube": {"vcodec": "libx264", "crf": "18", "preset": "medium", "acodec": "aac"},
     "web": {"vcodec": "libx264", "crf": "23", "preset": "faster", "acodec": "aac"},
@@ -3085,9 +3084,10 @@ def _resolve_preset(
         raise ProjectError(
             f"no export preset named {preset!r}. Available: "
             f"{sorted([*EXPORT_PRESETS, 'custom'])}. There is no 'tiktok-reels' "
-            "preset: 9:16 is only producible here as a pillarbox of the 16:9 "
-            "frame, never a filled/reframed vertical video — the latter is "
-            "DAYDREAM.md § Aspect swap, a separately deferred item."
+            "preset, but a filled 9:16 render no longer needs one: set the shape "
+            "on the project with `canvas 1080x1920`, which routes through the MLT "
+            "writer and crops to fill rather than pillarboxing. `reframe` says "
+            "which part of each clip it keeps."
         )
     return dict(EXPORT_PRESETS[preset])
 
@@ -3189,6 +3189,33 @@ def _aspect(width: int, height: int) -> str:
     return f"{width // divisor}:{height // divisor}"
 
 
+def _canvas_crop_report(project: Project, resolution: tuple[int, int]) -> dict[str, Any]:
+    """What a canvas costs in footage: which clips crop, and which cannot.
+
+    Reports rather than raises, and that is the whole reason it exists.
+    A stored rect is kept as asked and refit to the canvas in force, so a
+    canvas change can leave one that no longer fits — and discovering that by
+    having `canvas` raise *after* it has written the manifest would leave the
+    project half-swapped. `export` still refuses such a project; this is the
+    warning that says which clip to fix and with what.
+    """
+    asked = _stored_reframes(project)
+    cropped, conflicts = [], []
+    for clip in project.read_manifest().get("clips", []):
+        clip_id = str(clip.get("clip_id"))
+        try:
+            entry = _clip_reframe(clip, asked.get(clip_id), resolution)
+        except ProjectError as error:
+            conflicts.append({"clip_id": clip_id, "why": str(error)})
+            continue
+        if entry is not None and not entry.is_identity(resolution):
+            cropped.append(clip_id)
+    return {
+        "cropped": cropped,
+        "reframe_conflicts": conflicts,
+    }
+
+
 def canvas(
     path: Path | str,
     *,
@@ -3211,9 +3238,10 @@ def canvas(
     teach (PLAN.md § Aspect swap). `reset` drops the override and returns the
     project to deriving from its footage. `plan` resolves without writing.
 
-    Until the reframe lands, an override that changes the *aspect* pillarboxes
-    rather than crops — reported as `fills_frame`, because a 9:16 file that is
-    76% black bar is a plausible-looking wrong answer.
+    An override that changes the *aspect* crops to fill rather than
+    pillarboxing, so what it costs is footage rather than frame. `cropped`
+    names every clip that loses some; which part each one keeps is `reframe`'s
+    to report and to override.
     """
     if size is not None and reset:
         raise ProjectError("pass a size or `reset`, not both")
@@ -3254,7 +3282,15 @@ def canvas(
         # The consequence of setting one, said out loud rather than discovered
         # at export: auto-editor cannot be handed this.
         "routes_through": "mlt" if after else "auto-editor or mlt, by source count",
-        "fills_frame": after is None or _aspect(width, height) == _aspect(*footage),
+        # True since the reframe landed — the question worth asking now is not
+        # whether the frame is filled but what filling it costs, so the clips
+        # paying for it are named beside it.
+        "fills_frame": True,
+        # Against `(width, height)` rather than through `reframe`, which would
+        # read the stored canvas — under `plan` that is the shape being
+        # replaced, and the whole point of planning is to see what the new one
+        # costs before writing it.
+        **_canvas_crop_report(project, (width, height)),
         "captions_reference": "{}x{}".format(*captions.canvas(width, height)),
         # Cards are the only project state a canvas change cannot re-derive on
         # its own (PLAN.md § Aspect swap, finding 5), so the moment the shape
@@ -3263,6 +3299,252 @@ def canvas(
         # whether the cards agree with it.
         "cards_stale": [str(r.get("card")) for r in records if r.get("canvas") != canvas_now],
         "cards_unrecorded": [c for c in _cards_on_disk(project) if c not in recorded],
+        "written": write,
+        "reset": bool(reset),
+        "plan": bool(plan),
+    }
+
+
+#: Per-clip crop rects, `[{"clip_id", "rect": [x, y, w, h]}]` in **source
+#: pixels**. Geometry and never a length, so an edit cannot invalidate one
+#: (PLAN.md § Aspect swap) — and the rect stored is the one *asked for*, refit
+#: to whatever canvas is in force at render time, so a canvas change cannot
+#: invalidate one either.
+#:
+#: Additive and optional, and so no `SCHEMA_VERSION` bump — the
+#: `CANVAS_KEY`/`CAPTION_STYLE_KEY` shape rather than the `cards` one. Absent
+#: means "centre-crop every clip", which is a complete answer rather than a
+#: gap: the migration a bump would carry is `setdefault([])`, and CLAUDE.md's
+#: bar is that a bump exists where the number is what makes the key true.
+#: Nothing about an older project is untrue without it.
+REFRAME_KEY = "reframe"
+
+
+def _parse_rect(value: Any) -> tuple[int, int, int, int]:
+    """`X,Y,W,H` → a rect in source pixels, refusing the degenerate shapes."""
+    if isinstance(value, (list, tuple)):
+        parts = [str(part).strip() for part in value]
+    else:
+        parts = [part.strip() for part in str(value).replace(" ", ",").split(",") if part.strip()]
+    if len(parts) != 4 or not all(part.lstrip("-").isdigit() for part in parts):
+        raise ProjectError(f"a crop rect must read X,Y,W,H in source pixels, not {value!r}")
+    x, y, width, height = (int(part) for part in parts)
+    if width <= 0 or height <= 0:
+        raise ProjectError(f"a crop rect must be positive, not {width}x{height}")
+    if x < 0 or y < 0:
+        raise ProjectError(f"a crop rect starts inside the source, not at {x},{y}")
+    return x, y, width, height
+
+
+def _fit_rect_to_canvas(
+    rect: tuple[int, int, int, int],
+    source: tuple[int, int],
+    resolution: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Grow a requested rect to the canvas's aspect, keeping it inside the source.
+
+    **Grow rather than shrink, and the asymmetry is the whole argument.** A
+    box drawn round a subject cannot be shown as-is in a frame of a different
+    shape — something has to give. Growing keeps everything asked for on
+    screen and pulls in surroundings; shrinking would keep the surroundings
+    out and cut the subject in half. The second is the wrong-video failure
+    this item exists to close, so the ask is treated as a floor.
+
+    Recentred on the ask, then shifted whole to stay inside the source — a
+    rect that leaves the frame renders MLT's idea of what is past the edge,
+    not the footage's. When even the grown rect cannot fit, that is refused
+    rather than quietly clipped, and the refusal names the largest rect that
+    would have worked.
+    """
+    x, y, width, height = rect
+    src_w, src_h = source
+    canvas_w, canvas_h = resolution
+    if x + width > src_w or y + height > src_h:
+        raise ProjectError(
+            f"crop rect {x},{y},{width},{height} runs past the source's {src_w}x{src_h}"
+        )
+    if width * canvas_h >= height * canvas_w:
+        grown_w, grown_h = width, round(width * canvas_h / canvas_w)
+    else:
+        grown_w, grown_h = round(height * canvas_w / canvas_h), height
+    if grown_w > src_w or grown_h > src_h:
+        largest = mlt.centre_crop(source, resolution)
+        raise ProjectError(
+            f"crop rect {x},{y},{width},{height} cannot be shown whole in a "
+            f"{canvas_w}x{canvas_h} frame — grown to that shape it is "
+            f"{grown_w}x{grown_h}, past the source's {src_w}x{src_h}. The largest "
+            f"rect that fits is {largest[0]},{largest[1]},{largest[2]},{largest[3]}"
+        )
+    grown_x = min(max(round(x + width / 2 - grown_w / 2), 0), src_w - grown_w)
+    grown_y = min(max(round(y + height / 2 - grown_h / 2), 0), src_h - grown_h)
+    return grown_x, grown_y, grown_w, grown_h
+
+
+def _stored_reframes(project: Project) -> dict[str, tuple[int, int, int, int]]:
+    """Every clip's requested crop rect, as asked for rather than as fitted."""
+    stored = {}
+    for record in project.read_manifest().get(REFRAME_KEY, []):
+        stored[str(record["clip_id"])] = _parse_rect(record["rect"])
+    return stored
+
+
+def _clip_source(clip: dict[str, Any]) -> tuple[int, int] | None:
+    """A clip's own pixel size, or None if it is not picture with a known one."""
+    if not clip.get("has_video") or not clip.get("width") or not clip.get("height"):
+        return None
+    return int(clip["width"]), int(clip["height"])
+
+
+def _clip_reframe(
+    clip: dict[str, Any],
+    asked: tuple[int, int, int, int] | None,
+    resolution: tuple[int, int],
+) -> mlt.Reframe | None:
+    """What survives into the frame for one clip, override or centre default."""
+    source = _clip_source(clip)
+    if source is None:
+        return None
+    crop = (
+        mlt.centre_crop(source, resolution)
+        if asked is None
+        else _fit_rect_to_canvas(asked, source, resolution)
+    )
+    return mlt.Reframe(source=source, crop=crop)
+
+
+def _reframe_map(project: Project, resolution: tuple[int, int]) -> dict[str, mlt.Reframe]:
+    """Clip id → the reframe to apply, for every video clip in the project.
+
+    Keyed by clip id here and translated to a resource by the caller, because
+    the manifest's unit is `(clip_id, rect)` while the MLT writer's is a node
+    per resource per role.
+    """
+    asked = _stored_reframes(project)
+    reframes = {}
+    for clip in project.read_manifest().get("clips", []):
+        clip_id = str(clip.get("clip_id"))
+        reframe = _clip_reframe(clip, asked.get(clip_id), resolution)
+        if reframe is not None:
+            reframes[clip_id] = reframe
+    return reframes
+
+
+def _rect_text(rect: tuple[int, int, int, int]) -> str:
+    return ",".join(str(value) for value in rect)
+
+
+def reframe(
+    path: Path | str,
+    clip_id: str | None = None,
+    *,
+    rect: str | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or set which part of each clip survives into the frame.
+
+    **What makes a swapped canvas fill the frame instead of pillarboxing it**
+    (PLAN.md § Aspect swap, step 3). A rect is `X,Y,W,H` in the clip's own
+    source pixels — geometry, never a length, so no cut can invalidate one —
+    and it is stored exactly as asked and refit to whatever canvas is in force
+    when the project renders. The default is a centre crop, which is *wrong
+    whenever the subject is not centred*: that is the reason this reports the
+    rect it used for every clip rather than quietly choosing one, and the
+    reason there is deliberately no analysis picking a crop for you.
+
+    Called with no arguments it changes nothing and reports the crop in force
+    per clip. `clip_id` with `rect` sets an override; `clip_id` with `reset`
+    drops that clip's; `reset` alone drops every one. `plan` resolves — a
+    rect that cannot fit is refused here either way — without writing.
+
+    An override is a *floor*, not a frame: a rect whose shape is not the
+    canvas's is grown to it, so everything asked for stays on screen, and the
+    reply names both `asked` and the `crop` it became.
+    """
+    if rect is not None and reset:
+        raise ProjectError("pass a rect or `reset`, not both")
+    if rect is not None and clip_id is None:
+        raise ProjectError("a rect needs a clip_id — a crop indexes one clip's source")
+
+    project = Project.open(path)
+    resolution = _mlt_resolution(project)
+    clips = {str(clip.get("clip_id")): clip for clip in project.read_manifest().get("clips", [])}
+    if clip_id is not None:
+        if clip_id not in clips:
+            raise ProjectError(f"no clip {clip_id!r} in this project")
+        if _clip_source(clips[clip_id]) is None:
+            raise ProjectError(
+                f"clip {clip_id!r} has no picture to crop — a reframe indexes video"
+            )
+
+    asked = _stored_reframes(project)
+    if rect is not None:
+        # Resolved before it is stored, so an impossible rect is refused at the
+        # keyboard rather than at the render an hour later.
+        parsed = _parse_rect(rect)
+        _fit_rect_to_canvas(parsed, _clip_source(clips[clip_id]), resolution)  # type: ignore[arg-type]
+        asked[str(clip_id)] = parsed
+    elif reset:
+        asked = {} if clip_id is None else {k: v for k, v in asked.items() if k != clip_id}
+
+    write = (rect is not None or reset) and not plan
+    if write:
+        manifest = project.read_manifest()
+        records = [{"clip_id": key, "rect": list(value)} for key, value in sorted(asked.items())]
+        if records:
+            manifest[REFRAME_KEY] = records
+        else:
+            manifest.pop(REFRAME_KEY, None)
+        project.write_manifest(manifest)
+
+    report = []
+    for key, clip in clips.items():
+        source = _clip_source(clip)
+        if source is None:
+            continue
+        try:
+            entry = _clip_reframe(clip, asked.get(key), resolution)
+        except ProjectError as error:
+            # A stored rect the canvas has outgrown. Reported rather than
+            # raised so that reading the table — and so finding out which clip
+            # to reset — is possible at all; `export` is where it is refused.
+            report.append(
+                {
+                    "clip_id": key,
+                    "source": f"{source[0]}x{source[1]}",
+                    "crop": None,
+                    "asked": _rect_text(asked[key]),
+                    "origin": "override",
+                    "reframes": None,
+                    "kept": None,
+                    "error": str(error),
+                }
+            )
+            continue
+        assert entry is not None
+        report.append(
+            {
+                "clip_id": key,
+                "source": f"{source[0]}x{source[1]}",
+                "crop": _rect_text(entry.crop),
+                "asked": _rect_text(asked[key]) if key in asked else None,
+                "origin": "override" if key in asked else "centre",
+                # False means the filter is not emitted at all: the clip already
+                # carries the canvas's aspect uncropped, so MLT's own placement
+                # is already the right one.
+                "reframes": not entry.is_identity(resolution),
+                "kept": round(
+                    (entry.crop[2] * entry.crop[3]) / (source[0] * source[1]),
+                    4,
+                ),
+                "error": None,
+            }
+        )
+    return {
+        "project": str(project.root),
+        "canvas": f"{resolution[0]}x{resolution[1]}",
+        "clips": report,
+        "count": len(report),
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),
@@ -3307,11 +3589,18 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     """
     rate = float(fps) if fps else _export_fps(_clips_by_id(project))
     audio = []
+    # Which clip each file on the timeline is, so a reframe stored against a
+    # clip_id reaches the resource the writer keys its nodes on. Built from the
+    # entries rather than from the manifest so an unused (or missing) clip
+    # cannot be resolved on the way past.
+    clip_of: dict[str, str] = {}
     for segment, (offset, frames) in zip(edit.segments, autoeditor.frame_layout(edit, rate)):
         clip = media.get_clip(project, segment.clip_id)
+        resource = str(media.media_path(project, clip))
+        clip_of[resource] = segment.clip_id
         audio.append(
             mlt.Entry(
-                resource=str(media.media_path(project, clip)),
+                resource=resource,
                 src_in=offset,
                 frames=frames,
                 has_video=bool(clip.get("has_video")),
@@ -3319,13 +3608,21 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         )
 
     shots, lane = _picture_plan(project, rate)
+    for shot in shots:
+        if not shot["is_image"]:
+            clip_of[shot["asset_path"]] = shot["asset"]
 
     resolution = _mlt_resolution(project)
+    by_clip = _reframe_map(project, resolution)
+    reframes = {
+        resource: by_clip[clip] for resource, clip in clip_of.items() if clip in by_clip
+    }
     document = mlt.document(
         audio=audio,
         picture=lane,
         rate=rate,
         resolution=resolution,
+        reframe=reframes,
         name=project.read_manifest().get("name") or project.root.name,
     )
     return {
@@ -3335,6 +3632,13 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
         "sources": len({entry.resource for entry in [*audio, *lane]}),
+        # What the render will actually crop, named where the render is built
+        # rather than left for a pixel probe to discover.
+        "reframed": sorted(
+            clip
+            for resource, clip in clip_of.items()
+            if resource in reframes and not reframes[resource].is_identity(resolution)
+        ),
     }
 
 
@@ -3347,6 +3651,9 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
         "shots": len(built["shots"]),
         "sources": built["sources"],
         "frames": built["frames"],
+        # Named on both roads because a crop is a decision about what is on
+        # screen, and the render that made it looks entirely plausible.
+        "reframed": built["reframed"],
         "timeline_duration": edit.duration,
         **extra,
     }

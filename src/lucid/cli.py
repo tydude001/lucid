@@ -537,6 +537,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_reframe = sub.add_parser(
+        "reframe", help="read or set which part of each clip survives into the frame"
+    )
+    p_reframe.add_argument(
+        "clip_id", nargs="?", help="the clip to crop. Omit to read every clip's crop"
+    )
+    p_reframe.add_argument(
+        "--rect",
+        metavar="X,Y,W,H",
+        help="the region to keep, in the clip's own source pixels. Grown to the "
+        "canvas's shape if it is not already, so everything named stays on screen",
+    )
+    p_reframe.add_argument(
+        "--reset",
+        action="store_true",
+        help="drop this clip's override, or every one of them with no clip_id",
+    )
+    p_reframe.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
     p_verify = sub.add_parser(
         "verify", help="transcribe a render and diff it against the timeline"
     )
@@ -727,8 +748,9 @@ def _build_parser() -> argparse.ArgumentParser:
         # it is added back explicitly.
         choices=[*sorted(ops.EXPORT_PRESETS), "custom"],
         help="a named quality bundle (--render only; an NLE export has no bitrate). "
-        "'custom' requires --resolution. No 'tiktok-reels' — 9:16 needs a real "
-        "reframe (DAYDREAM.md § Aspect swap), not offered here",
+        "'custom' requires --resolution. No 'tiktok-reels': a filled 9:16 render "
+        "comes from `lucid canvas 1080x1920`, which is project state rather than "
+        "an export flag",
     )
     p_export.add_argument(
         "--resolution",
@@ -736,7 +758,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="WIDTHxHEIGHT",
         help="single-source render only: letterboxes the existing frame to this "
         "size — does not crop or reframe it. Refused on a multi-source (melt) "
-        "project",
+        "project. To crop to fill instead, set the shape with `lucid canvas`",
     )
 
     return parser
@@ -1055,6 +1077,20 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
     return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
 
 
+def _cmd_reframe(args: argparse.Namespace) -> int:
+    # Same rule as `canvas` above: the raw `X,Y,W,H` goes through, because
+    # `ops._parse_rect` and `ops._fit_rect_to_canvas` own every refusal.
+    return _emit(
+        ops.reframe(
+            args.project,
+            args.clip_id,
+            rect=args.rect,
+            reset=args.reset,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_synopsis(args: argparse.Namespace) -> int:
     return _emit(ops.synopsis(args.project, args.clip_id, args.text, clear=args.clear))
 
@@ -1194,6 +1230,7 @@ _COMMANDS = {
     "caption-view": _cmd_caption_view,
     "caption-style": _cmd_caption_style,
     "canvas": _cmd_canvas,
+    "reframe": _cmd_reframe,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,
     "verify": _cmd_verify,

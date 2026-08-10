@@ -106,6 +106,100 @@ class Entry:
         return self.src_in + self.frames - 1
 
 
+def fit_rect(source: tuple[int, int], resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+    """Where MLT puts a source frame when nothing tells it otherwise.
+
+    Contain, never stretch: the source is scaled by the *smaller* of the two
+    ratios and centred, so a 1920x816 source in a 1080x1920 profile occupies
+    459 of 1920 rows and the other 76% is black bar. Measured on this box
+    against the real footage before any of this was built — PLAN.md § Aspect
+    swap, finding 2 — and written down here because it is the thing a reframe
+    is defined *against*: a filter that reproduces this rect changes nothing
+    and should not be emitted at all.
+    """
+    src_w, src_h = source
+    width, height = resolution
+    scale = min(width / src_w, height / src_h)
+    dest_w = round(src_w * scale)
+    dest_h = round(src_h * scale)
+    return (round((width - dest_w) / 2), round((height - dest_h) / 2), dest_w, dest_h)
+
+
+def centre_crop(source: tuple[int, int], resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+    """The largest rect of the canvas's aspect that fits inside the source.
+
+    The default reframe, and the one PLAN.md § Aspect swap insists is
+    *reported* rather than assumed: a centre crop is wrong whenever the
+    subject is not centred, which in this footage is often, so the caller is
+    told which rect it got and can name another.
+
+    Integer pixels, so the centring is exact only when the leftover is even —
+    1920x816 into 9:16 crops to 459 wide with 1461 to share, and this returns
+    x=730 where the true centre is 730.5. The probe in finding 3 rendered the
+    half-pixel version and read x back one pixel further left; a rect that
+    cannot be typed is worse than a pixel, so the integer rect is what the
+    override format and the default both speak.
+    """
+    src_w, src_h = source
+    width, height = resolution
+    if src_w * height >= src_h * width:
+        crop_w, crop_h = round(src_h * width / height), src_h
+    else:
+        crop_w, crop_h = src_w, round(src_w * height / width)
+    return ((src_w - crop_w) // 2, (src_h - crop_h) // 2, crop_w, crop_h)
+
+
+@dataclass(frozen=True)
+class Reframe:
+    """A source's size, and the rect of it that survives into the frame.
+
+    **Geometry in source pixels, never a length** — the same rule a footage
+    description follows (CLAUDE.md), and for the same reason: an edit cannot
+    invalidate a rect, so no cut has to re-derive one. `source` rides along
+    because the placement needs it — MLT is told where the *whole* frame goes,
+    and the crop is expressed by letting the rest overflow the profile.
+    """
+
+    source: tuple[int, int]
+    crop: tuple[int, int, int, int]
+
+    def dest_rect(self, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+        """Where the whole source frame lands, so that `crop` fills the frame.
+
+        `qtblend`'s rect is a *destination* in profile pixels, not a crop —
+        which is why this returns something much larger than the profile and
+        with a negative origin. Scale is `max` of the two ratios (fill), and
+        the crop's centre is put on the frame's centre; when the crop already
+        carries the canvas's aspect the two ratios are equal and nothing is
+        lost off the second axis.
+        """
+        src_w, src_h = self.source
+        crop_x, crop_y, crop_w, crop_h = self.crop
+        width, height = resolution
+        scale = max(width / crop_w, height / crop_h)
+        return (
+            round(width / 2 - (crop_x + crop_w / 2) * scale),
+            round(height / 2 - (crop_y + crop_h / 2) * scale),
+            round(src_w * scale),
+            round(src_h * scale),
+        )
+
+    def is_identity(self, resolution: tuple[int, int]) -> bool:
+        """Would this filter tell MLT anything it was not already doing?
+
+        A source already at the canvas's aspect, uncropped, lands on exactly
+        `fit_rect`. Emitting a filter for that case would change every
+        existing document to no effect, so the writer skips it — which is what
+        keeps a project with no canvas override byte-identical to the one it
+        exported before any of this existed.
+        """
+        return self.dest_rect(resolution) == fit_rect(self.source, resolution)
+
+    def rect_property(self, resolution: tuple[int, int]) -> str:
+        """The `rect` value: `x y w h opacity`, space-separated."""
+        return " ".join(str(value) for value in self.dest_rect(resolution)) + " 1"
+
+
 def plan_picture(shots: list[dict[str, Any]], rate: float) -> list[Entry]:
     """Decide what each shot actually shows, and from where in its asset.
 
@@ -298,12 +392,50 @@ def _transition(parent: ET.Element, transition_id: str, properties: dict[str, st
         _property(node, name, value)
 
 
+def _reframe_filter(node: ET.Element, reframe: Reframe, resolution: tuple[int, int]) -> bool:
+    """Hang the crop-to-fill filter on one timeline producer, if it says anything.
+
+    `qtblend` as a *filter* rather than a transition — the same service the
+    compositing transitions below use, which is why this needed no new
+    dependency and no consumer change (PLAN.md § Aspect swap, finding 3).
+    """
+    if reframe.is_identity(resolution):
+        return False
+    node_filter = ET.SubElement(node, "filter", {"id": f"filter_{node.get('id')}"})
+    _property(node_filter, "mlt_service", "qtblend")
+    _property(node_filter, "rect", reframe.rect_property(resolution))
+    return True
+
+
+def reframed_nodes(root: ET.Element) -> dict[str, str]:
+    """Every rendered producer carrying a reframe, as node id → rect.
+
+    The readback half of the trap finding 3 names: `mlt.py` writes one node
+    per distinct resource **per role**, so a file used by both the edit and
+    the picture lane has two, and a reframe applied per *resource* would crop
+    it on one track and letterbox it on the other in the same frame. The bin's
+    producers are excluded on purpose — `xml_retain` keeps them out of the
+    render, and a bin entry is the raw media, not a timeline placement.
+    """
+    found: dict[str, str] = {}
+    for node in [*root.findall("chain"), *root.findall("producer")]:
+        node_id = node.get("id") or ""
+        if node_id.startswith("bin"):
+            continue
+        for node_filter in node.findall("filter"):
+            rect = node_filter.find("property[@name='rect']")
+            if rect is not None and rect.text:
+                found[node_id] = rect.text
+    return found
+
+
 def document(
     *,
     audio: list[Entry],
     picture: list[Entry] | None = None,
     rate: float,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
+    reframe: dict[str, Reframe] | None = None,
     name: str = "lucid",
 ) -> ET.Element:
     """Build the whole MLT document, and check it against its own frame total.
@@ -318,6 +450,13 @@ def document(
     The picture lane must cover the timeline exactly. A short lane would
     become a `<blank>` and a long one would extend the render past the audio,
     and both are silent — hence a refusal here rather than a warning.
+
+    `reframe` maps a resource to the rect of it that survives into the frame,
+    and is what turns a swapped canvas from a pillarbox into a filled one. It
+    is applied per *node* rather than per resource, and never to a still: a
+    card is authored at the canvas and re-authored when the canvas moves
+    (`card_reauthor`), so cropping one would be lucid deciding to lose a
+    corner of a title it drew itself.
     """
     if not audio:
         raise MLTError("an MLT document needs at least one entry on the edit's track")
@@ -365,6 +504,19 @@ def document(
         sources.setdefault(entry.resource, entry)
     bin_ids = {resource: index + 2 for index, resource in enumerate(sources)}
 
+    reframe = reframe or {}
+    # Every rendered node this should have reached, counted before the nodes
+    # exist so the readback below has something independent to check against.
+    wants_reframe = {
+        (role, entry.resource)
+        for role, lane in (("edit", audio), ("picture", picture))
+        for entry in lane
+        if not entry.is_image
+        and entry.has_video
+        and entry.resource in reframe
+        and not reframe[entry.resource].is_identity(resolution)
+    }
+
     audio_nodes: dict[str, str] = {}
     for entry in audio:
         if entry.resource in audio_nodes:
@@ -374,6 +526,8 @@ def document(
         node = _source_node(node_id, entry, bin_ids[entry.resource], rate)
         _property(node, "set.test_audio", "0")
         _property(node, "set.test_video", "0" if entry.has_video else "1")
+        if entry.has_video and entry.resource in reframe:
+            _reframe_filter(node, reframe[entry.resource], resolution)
         root.append(node)
 
     root.append(_playlist("playlist0", audio, audio_nodes))
@@ -403,6 +557,8 @@ def document(
                 _property(node, "audio_index", "-1")
                 _property(node, "video_index", "0")
                 _property(node, "set.test_audio", "1")
+                if entry.resource in reframe:
+                    _reframe_filter(node, reframe[entry.resource], resolution)
             root.append(node)
 
         root.append(_playlist("playlist2", picture, picture_nodes))
@@ -493,6 +649,22 @@ def document(
     ET.SubElement(
         project, "track", {"producer": sequence_uuid, "in": "0", "out": str(total_frames - 1)}
     )
+
+    # The same discipline as the frame check below, for the same reason: a
+    # reframe that reached one of a file's two nodes renders a film that is
+    # cropped on one track and letterboxed on the other, and melt exits 0.
+    expected = {
+        (audio_nodes if role == "edit" else picture_nodes)[resource]
+        for role, resource in wants_reframe
+    }
+    found = set(reframed_nodes(root))
+    if expected != found:
+        raise MLTError(
+            f"the reframe reached nodes {sorted(found)} but belongs on "
+            f"{sorted(expected)} — one node per resource *per role*, so a file on "
+            "both the edit and the picture lane needs it twice or it renders "
+            "cropped on one track and letterboxed on the other"
+        )
 
     declared = declared_frames(root)
     wrong = {where: frames for where, frames in declared.items() if frames != total_frames}

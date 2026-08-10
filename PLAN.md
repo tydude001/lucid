@@ -466,8 +466,11 @@ timeline being the enabler and the look pass being gated on nothing:
    card record that makes a card re-derivable (HISTORY.md § The canvas field,
    § The card record). Both corrected the note: the bump the first refused
    landed on the second, and the cards the second was meant to rescue turned
-   out never to have been lucid's. **Next is the MLT reframe**, which is what
-   makes a swapped canvas fill the frame instead of pillarboxing it.
+   out never to have been lucid's. **Step 3, the MLT reframe, shipped
+   2026-08-10**: a swapped canvas now crops to fill, per-clip and overridable,
+   verified against a real melt render (HISTORY.md § The MLT reframe).
+   **Next is the viewer frame**, which step 3 moved from tidiness to a real
+   disagreement — the preview draws footage the render now crops away.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -1600,12 +1603,24 @@ the picture and the caption layer letterbox against the same rectangle.
    persist and nothing to re-render — and their receipts carry three ink
    levels that lucid's one-fill `quote` slot cannot express. Closing that item
    needs an emphasis-capable quote slot first. HISTORY.md § The card record.
-3. **The MLT reframe** — per-clip crop rects and the `qtblend` filter applied
-   per node *per role* (finding 3); the routing landed in step 1. Verified the
-   way the pinned cue was: a real melt render, sampled for pixel geometry,
-   because every failure mode here produces a file and exit 0.
+3. **The MLT reframe** — **shipped 2026-08-10.** Per-clip crop rects
+   (`reframe`, with CLI and MCP parity) and the `qtblend` filter applied per
+   node *per role*; the routing landed in step 1. Verified the way the pinned
+   cue was, and the method mattered: the render fills the frame *and* matches
+   ffmpeg's own crop of the source to 0.34/255, while the bbox check that
+   settled finding 2 is uninformative on a dark frame and nearly reproduced
+   its own trap. **The note under-specified one decision and the build had to
+   make it**: an override is a rect of arbitrary shape, and growing it to the
+   canvas rather than shrinking it into the canvas is what keeps the subject
+   whole. HISTORY.md § The MLT reframe.
 4. **The viewer's project-canvas frame** — verified in a real browser and by
    canvas readback, never by screenshot (wiki `tooling.md` § Headless browser).
+   **Step 3 made this urgent rather than merely next.** Finding 6 said the
+   preview's two ideas of the frame "agree today only by accident"; they now
+   disagree on purpose. A 16:9 clip in a 9:16 project previews at its own
+   full width while the render keeps a 459-pixel band of it, so the page
+   shows footage the export drops — the viewer's version of drawing a lane
+   `export` cannot produce. Nothing in the render is wrong; the page is.
 5. **`tiktok-reels`** — only now, when the name is honest. It is one entry in
    `EXPORT_PRESETS` plus the canvas, and the refusal text in `_resolve_preset`
    comes out with it.

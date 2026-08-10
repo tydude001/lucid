@@ -3487,3 +3487,111 @@ someone being helpful.
 A record holds content and a geometry and never a length, so it sits under the
 same rule as a footage description and is not in tension with PLAN.md § The
 property everything below defends.
+
+## The MLT reframe, step 3 of the aspect swap — 2026-08-10
+
+A swapped canvas now crops to fill instead of pillarboxing. The design note
+(PLAN.md § Aspect swap) had already measured the mechanism — a `qtblend`
+filter on the source producer, no new dependency, no consumer change — so
+this step was mostly building what finding 3 described. What it added was the
+part the note left open, and the verification.
+
+### The unit, and why it is stored as asked
+
+A reframe is `(clip_id, rect)` in **source pixels** — geometry, never a
+length, the same rule a footage description follows, so no cut can invalidate
+one. The build extended that one step: the rect is stored **as asked** and
+refit to whatever canvas is in force, so a canvas change cannot invalidate one
+either. Storing the fitted rect would have baked one canvas's shape into a
+record that outlives it.
+
+`reframe` is a manifest key and takes **no schema bump**, which is the
+`canvas`/`caption_style` shape rather than the `cards` one. Absent means
+"centre-crop every clip", a complete answer rather than a gap: the migration a
+bump would carry is `setdefault([])`, and CLAUDE.md's bar is that the number
+has to be what makes the key true.
+
+### Grow, don't shrink — the decision the note did not make
+
+The note said the default crop is centre and reported rather than assumed, and
+that a clip can override it. It did not say what happens when the override is
+not already the canvas's shape, which is the normal case: someone drawing a
+box round a subject types a box round the subject, not a 9:16-exact rect.
+
+Two readings, and they fail differently:
+
+- **Grow** (the ask ⊆ what is used) pulls in surroundings, and can be
+  impossible — "show me all of a 16:9 frame in 9:16" has no answer.
+- **Shrink** (what is used ⊆ the ask) never refuses, and cuts the subject in
+  half.
+
+Growing won on the asymmetry: the ask is a *floor*, everything named stays on
+screen, and the impossible case is refused with the largest rect that would
+have worked rather than quietly clipped. The reply names both `asked` and the
+`crop` it became. A grown rect that leaves the source is shifted whole back
+inside it — past the edge is MLT's idea of the footage, not the footage's.
+
+### The trap, and the guard for it
+
+Finding 3 had already named it: `mlt.py` writes one node per distinct resource
+**per role**, so a file used by both the edit and the picture lane has two, and
+a reframe applied per resource crops it on one track and letterboxes it on the
+other in the same frame — at exit 0. The filter is applied per node, and
+`document()` reads the finished tree back and refuses if the set of
+filter-bearing nodes is not the set that should have them. Same discipline as
+`declared_frames`, and for the same reason: every failure on this path is a
+file rather than an error.
+
+Two things deliberately never get one. **A still is never cropped** — a card
+is authored at the canvas and re-authored when it moves (`card_reauthor`), so
+cropping one would be lucid losing a corner of a title it drew itself. **The
+bin keeps the raw media** — it is `xml_retain`-ed out of the render, and a
+crop is a timeline placement rather than a property of the file.
+
+And no filter is emitted at all when it would say nothing: a source already at
+the canvas's aspect, uncropped, lands on exactly the rect MLT would have used
+unaided. That is what keeps every project without a canvas override writing a
+byte-identical document to the one it wrote before this existed, and a test
+asserts the two strings are equal.
+
+### Verified against a real render, and the bbox check nearly repeated its own trap
+
+Two melt renders of the real Scream cold-open (1920x816) at 1080x1920, plus a
+third on the layered project, all sampled for pixel geometry.
+
+1. **It fills the frame.** Five frames of the single-source render, brightness
+   bbox: content spans x 0..1079, y 0..1919 in every one — against the
+   measured pillarbox's 459 rows of 1920.
+2. **It is the right pixels, not merely the right count.** Compared frame for
+   frame against ffmpeg's own `crop=459:816:730:0,scale=1080:1920` of the
+   source at the matching source timestamp: **mean absolute difference
+   0.33–0.37 of 255**, which is encoder noise.
+3. **An override moves the picture to where it says.** Re-rendered at
+   `1400,0,459,816`: 0.43–0.61 against ffmpeg's crop at x=1400, and 18–39
+   against both the centre crop and the centre render. The number that matters
+   is the pair, not either alone.
+4. **The picture lane reframes through the compositing transition too** —
+   0.86–0.91 against the reference, on a layered project cut down to one cue.
+
+**The bbox check nearly reproduced finding 2's own mistake.** On the layered
+render it reported 370–423 lit rows — close enough to the pillarbox's 459 to
+read as a failure — and the rows outside were *exactly zero*, which is what a
+black bar looks like and not what a dark scene looks like. Both readings were
+wrong. The frames sampled were the film's opening credits: white text on
+black, content confined to source rows 302..482, which scale to render rows
+718..1140. The render was right and the probe was measuring the source's own
+black. What settled it was the comparison against both hypotheses as pixels —
+0.86 against crop-to-fill, 20.79 against a synthesised pillarbox. **A bbox
+answers "where is the bright part", never "where is the frame", and finding 2
+already paid for that lesson once.**
+
+### What it leaves the preview owing
+
+Finding 6 recorded that the preview holds two ideas of the frame and they
+"agree today only by accident" — `captionBox()` contain-fits the project's
+caption canvas while the `<video>` letterboxes by the media's own aspect. They
+now disagree on purpose: a 16:9 clip in a 9:16 project previews at full width
+while the render keeps a 459-pixel band of it, so the page draws footage the
+export drops. That is the viewer's version of drawing a lane `export` cannot
+produce, and it is step 4 — which this step moved from tidiness to a real
+disagreement.

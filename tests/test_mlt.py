@@ -405,3 +405,111 @@ def test_entry_positions_are_written_as_frame_integers() -> None:
         ("0", "59"),
         ("60", "119"),
     ]
+
+
+# -- the reframe ---------------------------------------------------------
+#
+# Step 3 of the aspect swap. Every assertion here is against geometry that was
+# measured on this box before any of it was built (PLAN.md § Aspect swap,
+# findings 2 and 3) — a 1920x816 source in a 1080x1920 profile — because on
+# this path every failure mode produces a file and exit 0.
+
+WIDE = (1920, 816)
+VERTICAL = (1080, 1920)
+
+
+def test_unaided_mlt_contains_rather_than_fills() -> None:
+    """The measured pillarbox: 459 of 1920 rows, the rest black bar. This is
+    what a reframe is defined against, not an incidental fact."""
+    assert mlt.fit_rect(WIDE, VERTICAL) == (0, 730, 1080, 459)
+
+
+def test_the_centre_crop_is_the_largest_rect_of_the_canvas_aspect() -> None:
+    crop = mlt.centre_crop(WIDE, VERTICAL)
+
+    assert crop == (730, 0, 459, 816)
+    assert crop[2] * VERTICAL[1] == crop[3] * VERTICAL[0], "carries the canvas aspect exactly"
+
+
+def test_the_dest_rect_is_the_measured_fill() -> None:
+    """`qtblend`'s rect is a destination in profile pixels, which is why it is
+    larger than the profile and starts negative. The probe rendered
+    `-1719 0 4518 1920` off the half-pixel centre; the integer rect this
+    speaks lands one pixel to its right."""
+    reframe = mlt.Reframe(source=WIDE, crop=mlt.centre_crop(WIDE, VERTICAL))
+
+    assert reframe.dest_rect(VERTICAL) == (-1718, 0, 4518, 1920)
+    assert reframe.rect_property(VERTICAL) == "-1718 0 4518 1920 1"
+
+
+def test_a_source_already_at_the_canvas_aspect_is_an_identity() -> None:
+    """And so gets no filter at all — which is what keeps every document
+    written before this existed byte-identical."""
+    for resolution in [(1920, 1080), (1280, 720), (3840, 2160)]:
+        reframe = mlt.Reframe(source=(1920, 1080), crop=(0, 0, 1920, 1080))
+        assert reframe.is_identity(resolution) is True
+
+
+def test_a_crop_inside_a_matching_aspect_is_not_an_identity() -> None:
+    """A zoom into a 16:9 region of a 16:9 source changes the frame even
+    though nothing about the shape did."""
+    reframe = mlt.Reframe(source=(1920, 1080), crop=(480, 270, 960, 540))
+
+    assert reframe.is_identity((1920, 1080)) is False
+    assert reframe.dest_rect((1920, 1080)) == (-960, -540, 3840, 2160)
+
+
+def test_the_filter_reaches_both_of_a_files_nodes() -> None:
+    """The trap finding 3 names: one node per resource *per role*, so a file
+    on the edit and on the picture lane has two. Reaching one of them renders
+    a film cropped on one track and letterboxed on the other, at exit 0."""
+    audio = [mlt.Entry("/media/cold-open.mp4", 0, 60, has_video=True)]
+    lane = mlt.plan_picture([_shot("cold-open", 60, duration=30.0,
+                                   path="/media/cold-open.mp4")], RATE)
+    reframe = {"/media/cold-open.mp4": mlt.Reframe(WIDE, mlt.centre_crop(WIDE, VERTICAL))}
+
+    root = mlt.document(audio=audio, picture=lane, rate=RATE,
+                        resolution=VERTICAL, reframe=reframe)
+
+    reframed = mlt.reframed_nodes(root)
+    assert sorted(reframed) == ["chain0", "vchain0"]
+    assert set(reframed.values()) == {"-1718 0 4518 1920 1"}
+
+
+def test_the_bin_keeps_the_raw_media() -> None:
+    """The bin is the project's media list, `xml_retain`-ed out of the render.
+    A crop is a timeline placement, not a property of the file."""
+    audio = [mlt.Entry("/media/cold-open.mp4", 0, 60, has_video=True)]
+    reframe = {"/media/cold-open.mp4": mlt.Reframe(WIDE, mlt.centre_crop(WIDE, VERTICAL))}
+
+    root = mlt.document(audio=audio, rate=RATE, resolution=VERTICAL, reframe=reframe)
+
+    bins = [n for n in root.findall("chain") if (n.get("id") or "").startswith("bin")]
+    assert bins, "the bin entry exists"
+    assert all(not node.findall("filter") for node in bins)
+
+
+def test_a_still_is_never_cropped() -> None:
+    """A card is authored at the canvas and re-authored when it moves
+    (`card_reauthor`) — cropping one would be lucid losing a corner of a
+    title it drew itself."""
+    audio = [mlt.Entry("/media/vo.wav", 0, 60)]
+    lane = mlt.plan_picture([_shot("card:title", 60, is_image=True,
+                                   path="/cards/title.png")], RATE)
+    reframe = {"/cards/title.png": mlt.Reframe(WIDE, mlt.centre_crop(WIDE, VERTICAL))}
+
+    root = mlt.document(audio=audio, picture=lane, rate=RATE,
+                        resolution=VERTICAL, reframe=reframe)
+
+    assert mlt.reframed_nodes(root) == {}
+
+
+def test_no_reframe_leaves_the_document_exactly_as_it_was() -> None:
+    audio = [mlt.Entry("/media/cold-open.mp4", 0, 60, has_video=True)]
+    plain = mlt.to_string(mlt.document(audio=audio, rate=RATE, resolution=VERTICAL))
+    empty = mlt.to_string(
+        mlt.document(audio=audio, rate=RATE, resolution=VERTICAL, reframe={})
+    )
+
+    assert plain == empty
+    assert "qtblend" not in mlt.reframed_nodes(ET.fromstring(plain))

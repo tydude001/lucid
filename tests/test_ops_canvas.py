@@ -172,8 +172,17 @@ def test_an_override_routes_a_single_source_project_through_mlt(project: Project
     assert ops.canvas(project.root)["routes_through"] == "mlt"
 
 
-def test_an_aspect_changing_override_says_it_does_not_fill_the_frame(project: Project) -> None:
-    """Until the reframe lands a swapped canvas pillarboxes, and a 9:16 file
-    that is 76% black bar looks exactly like a 9:16 file that is right."""
-    assert ops.canvas(project.root, size="1080x1920")["fills_frame"] is False
-    assert ops.canvas(project.root, size="960x408")["fills_frame"] is True, "same aspect, rescaled"
+def test_an_aspect_changing_override_fills_the_frame_and_names_its_cost(
+    project: Project,
+) -> None:
+    """This assertion was inverted before the reframe landed: a swapped canvas
+    pillarboxed, and `fills_frame` was False to say so. It fills now, so the
+    question worth asking moved from the frame to the footage — `cropped` is
+    where the answer went. `reframe` owns the rest, in `test_ops_reframe.py`."""
+    swapped = ops.canvas(project.root, size="1080x1920")
+    assert swapped["fills_frame"] is True
+    assert swapped["cropped"] == ["cold-open"]
+
+    rescaled = ops.canvas(project.root, size="960x408")
+    assert rescaled["fills_frame"] is True
+    assert rescaled["cropped"] == [], "same aspect, rescaled — nothing to crop"

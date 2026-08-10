@@ -64,6 +64,7 @@ EXPECTED_TOOLS = {
     "caption_view",
     "caption_style",
     "canvas",
+    "reframe",
     "synopsis",
     "broll_brief",
     "verify",
@@ -190,6 +191,7 @@ TOOL_TO_COMMAND = {
     "caption_view": "caption-view",
     "caption_style": "caption-style",
     "canvas": "canvas",
+    "reframe": "reframe",
     "synopsis": "synopsis",
     "broll_brief": "broll-brief",
     "verify": "verify",
@@ -1676,6 +1678,61 @@ def test_canvas_refusal_travels_as_an_error(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "even" in out["text"]
+
+
+def test_reframe_over_the_wire(tmp_path: Path) -> None:
+    """The sequence an agent asked for a vertical cut would run after the
+    cards: swap the canvas, read what it crops, then move the crop off centre
+    because the subject is not centred. The clip is written into the manifest
+    rather than imported — a reframe is arithmetic over a declared shape, and
+    ffprobe is not what is under test."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["clips"] = [
+            {
+                "clip_id": "cold-open",
+                "source": "/tmp/cold-open.mp4",
+                "duration": 12.0,
+                "has_video": True,
+                "has_audio": True,
+                "width": 1920,
+                "height": 816,
+            }
+        ]
+        opened.write_manifest(manifest)
+
+        swapped = await client.call("canvas", path=str(project), size="1080x1920")
+        centred = await client.call("reframe", path=str(project))
+        moved = await client.call(
+            "reframe", path=str(project), clip_id="cold-open", rect="1200,0,459,816"
+        )
+        impossible = await session.call_tool(
+            "reframe",
+            {"path": str(project), "clip_id": "cold-open", "rect": "0,0,1920,816"},
+        )
+        return {
+            "swapped": swapped,
+            "centred": centred,
+            "moved": moved,
+            "impossible": (impossible.is_error, impossible.content[0].text),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["swapped"]["cropped"] == ["cold-open"]
+    assert out["centred"]["clips"][0]["crop"] == "730,0,459,816"
+    assert out["centred"]["clips"][0]["origin"] == "centre"
+    assert out["moved"]["clips"][0]["crop"] == "1200,0,459,816"
+    assert out["moved"]["clips"][0]["origin"] == "override"
+
+    is_error, text = out["impossible"]
+    assert is_error, "an impossible ask refuses rather than quietly clipping"
+    assert "730,0,459,816" in text, "and the refusal names the rect that would work"
 
 
 @needs_ffmpeg

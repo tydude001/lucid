@@ -211,6 +211,24 @@ installed package or the upstream repo, not your memory.
     at the project canvas. A card with files but no record cannot be
     re-authored by anything — it is reported, never guessed at, and the twelve
     in the Scream project are all of them. HISTORY.md § The card record.
+- **Footage follows a canvas change by cropping, and the crop is a rect in
+  *source* pixels stored as asked** — refit whenever the canvas moves, so
+  neither a cut nor a swap can invalidate one. An override is a **floor**: a
+  rect that is not the canvas's shape is grown to it, never shrunk into it,
+  because shrinking cuts the subject in half. **A still is never cropped** (a
+  card is re-authored) and no filter is emitted where MLT's own placement
+  already matches — which is what keeps an unswapped project's document
+  byte-identical. The trap is that `mlt.py` writes one node per resource **per
+  role**, so a reframe applied per resource crops a file on one track and
+  letterboxes it on the other, in the same frame, at exit 0. HISTORY.md § The
+  MLT reframe.
+  - **A brightness bbox answers "where is the bright part", never "where is
+    the frame."** It has now misread the same render twice — once as worse
+    than a pillarbox, once as a pillarbox — because the footage sampled was a
+    dark scene and then opening credits on black, and a black *source* reads
+    exactly like a black *bar*. Settle frame geometry by comparing against
+    ffmpeg's own crop of the source, and against the wrong hypothesis too:
+    0.9 vs 20.8 of 255 is an answer, either number alone is not.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

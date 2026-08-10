@@ -837,11 +837,40 @@ def canvas(
     Setting one has a routing consequence, reported as `routes_through`: an
     overridden project renders through the MLT writer whatever its source
     count, because auto-editor cannot be handed a canvas it will honour.
-    Until the reframe lands, an override that changes the *aspect*
-    pillarboxes rather than crops — check `fills_frame` before believing a
-    vertical render is what was wanted.
+    An override that changes the *aspect* crops to fill rather than
+    pillarboxing, so `cropped` names every clip that loses footage to it —
+    use `reframe` to see or change which part of each one is kept.
     """
     return ops.canvas(path, size=size, reset=reset, plan=plan)
+
+
+@_tool()
+def reframe(
+    path: str,
+    clip_id: str | None = None,
+    rect: str | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or set which part of each clip survives into the frame.
+
+    What makes a swapped canvas fill the frame instead of pillarboxing it.
+    A rect is "X,Y,W,H" in that clip's own source pixels — the region kept —
+    and the default is a centre crop, which is **wrong whenever the subject
+    is not centred**. Call it with no `clip_id` to read the crop in force for
+    every clip, including how much of each is kept.
+
+    An override is a floor rather than a frame: a rect that is not already
+    the canvas's shape is grown to it, so nothing named is pushed off screen,
+    and the reply gives both `asked` and the `crop` it became. It is stored
+    as asked and refit whenever the canvas moves.
+
+    `clip_id` with `reset` drops that clip's override, `reset` alone drops
+    every one, and `plan` resolves without writing. Nothing here analyses the
+    picture to pick a crop — a wrong automatic reframe makes a film with
+    nothing on screen saying so.
+    """
+    return ops.reframe(path, clip_id, rect=rect, reset=reset, plan=plan)
 
 
 @_tool()

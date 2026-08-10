@@ -278,6 +278,26 @@ A card whose files predate the record — drawn elsewhere and copied in — is
 reported by name rather than guessed at, because nothing on disk says what
 made it.
 
+The footage does follow on its own, by cropping to fill rather than
+pillarboxing — a 1920x816 clip in a 9:16 frame keeps a 459-pixel-wide band of
+itself instead of 76% of the frame going black. Which band is `reframe`'s to
+say, and the default is a centre crop, **which is wrong whenever the subject
+is not centred**:
+
+```sh
+lucid -C myproject reframe                          # the crop in force per clip
+lucid -C myproject reframe cold-open --rect 1400,0,459,816
+lucid -C myproject reframe cold-open --reset        # back to the centre
+```
+
+A rect is in that clip's own source pixels, so no cut can invalidate one, and
+it is stored as asked and refit whenever the canvas moves. A rect that is not
+already the canvas's shape is *grown* to it rather than shrunk into it —
+everything named stays on screen — and one that cannot be shown whole is
+refused with the largest rect that can. Nothing here analyses the picture to
+pick a crop: a wrong automatic reframe makes a film with nothing on screen
+saying so.
+
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders
 pixel-identically to one naming a font it has**, so `font_warnings` is the only
