@@ -668,26 +668,29 @@ def parse_runs(value: str) -> list[list[tuple[str, str]]]:
     return lines
 
 
-def _runs_markup(
-    value: str, *, x: float, line_height: float, colours: dict[str, str]
-) -> str:
-    """A multi-line, multi-ink slot as one `<tspan>` per line per run.
+Runs = list[tuple[str, str]]
 
-    **Lines are the caller's, never guessed.** SVG has no automatic wrapping,
-    and a wrap computed from a character count is a wrap that overflows the
-    frame silently on the first line of wide glyphs — the shape of failure
-    this repo keeps finding. So a newline in the value is a line break and
-    nothing else breaks. (A wrap *measured* through this module's own coder
-    is a different thing and lands in its own step.)
+
+def _runs_markup(
+    lines: list[Runs], *, x: float, line_height: float, colours: dict[str, str]
+) -> str:
+    """Lines of runs as one `<tspan>` per line, one per run inside it.
+
+    **Line breaks are decided before this, never guessed here.** SVG has no
+    automatic wrapping, and a wrap computed from a character count is a wrap
+    that overflows the frame silently on the first line of wide glyphs — the
+    shape of failure this repo keeps finding. A newline in the caller's value
+    is a line break; the only other source of one is `flow_runs`, which
+    measures.
 
     `xml:space="preserve"` is not decoration, and it is measured: splitting
     one line into per-run `<tspan>`s collapses the whitespace at every chunk
     boundary, so "the [em]perfect[/em] horror" renders as "theperfecthorror"
-    — 19px narrower at 48px, at exit 0, looking like a deliberate ligature
+    — 25px narrower at 48px, at exit 0, looking like a deliberate ligature
     rather than a bug. It is set once per line because `xml:space` inherits.
     """
     markup = []
-    for index, runs in enumerate(parse_runs(value)):
+    for index, runs in enumerate(lines):
         inner = "".join(
             f"<tspan{_run_attrs(level, colours)}>{_escape(text)}</tspan>"
             for text, level in runs
@@ -695,6 +698,179 @@ def _runs_markup(
         dy = 0 if index == 0 else line_height
         markup.append(f'<tspan x="{x:g}" dy="{dy:g}" xml:space="preserve">{inner}</tspan>')
     return "".join(markup)
+
+
+def measure_runs(runs: Runs, *, font: str, size: float, box: float = 0.0) -> float:
+    """The ink width of one candidate line, rendered through the real coder.
+
+    **Rendered, not summed.** The cheap build measures each word once and
+    adds a space advance; measured against this, that drifts — side bearings
+    accumulate — and it cannot see the mixed faces a styled line actually
+    contains without tracking run styles itself. Greedy wrap tests one
+    *prefix* per word either way, so rendering the candidate costs the same
+    number of renders and is ground truth rather than a sum: ±0.8% against
+    the ink of the line as drawn, where a character count is out by −34.6% to
+    +83.4% (PLAN.md § The emphasis-capable quote slot, finding 2 and 3).
+
+    Drawn in flat opaque black at every level. Opacity is a colour question
+    and `-trim` is a colour test — measuring `dim` at 0.42 would hand back
+    the width of whatever survived the fuzz, not the width of the line.
+
+    `box` is the width the answer will be compared against, and it only sizes
+    the scratch canvas: **the canvas is the cost.** The same line measures
+    1622 units on a 20000x400 scratch and 1622 on a 3000x120 one, at 413ms
+    and 38ms — a measurement is rasterisation, so an oversized canvas is
+    paid on every candidate. What it must never do is *clip*, because a
+    clipped line measures narrower and would end the wrap early, so the
+    canvas grows and re-measures rather than trusting the headroom.
+    """
+    if not any(text.strip() for text, _ in runs):
+        return 0.0
+
+    inner = "".join(
+        f'<tspan font-weight="{RUN_STYLES[level][0]}" fill="#000">{_escape(text)}</tspan>'
+        for text, level in runs
+    )
+    height = max(int(size * 3), 60)
+    canvas = max(int(box * 3), _MEASURE_FLOOR)
+    for _ in range(_MEASURE_GROWTHS):
+        document = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{canvas}" height="{height}">'
+            f'<text x="0" y="{height // 2}" font-family="{_escape(font)}" '
+            f'font-size="{size:g}" xml:space="preserve">{inner}</text>'
+            f"</svg>"
+        )
+        measured = _ink_width(document)
+        if measured < canvas - 1:
+            return measured
+        canvas *= 4  # the ink reached the edge, so the answer is a clip, not a width
+    raise GraphicsError(
+        f"a candidate line is wider than {canvas} units and could not be measured "
+        "without clipping — nothing a card slot holds is that wide, so this is a "
+        "font or a value that is not what it looks like"
+    )
+
+
+def _ink_width(document: str) -> float:
+    """`magick`'s own measurement of how wide the ink in `document` is."""
+    command = magick_command() + [
+        "-background",
+        "none",
+        "svg:-",
+        "-trim",
+        "-format",
+        "%w",
+        "info:",
+    ]
+    try:
+        done = subprocess.run(
+            command,
+            input=document,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GraphicsError(f"could not run {command[0]} to measure a line: {exc}") from exc
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout or "").strip() or "no output"
+        raise GraphicsError(f"magick could not measure a line: {detail}")
+    try:
+        return float(done.stdout.strip().split()[0])
+    except (IndexError, ValueError):
+        raise GraphicsError(
+            f"magick measured a line as {done.stdout.strip()!r}, which is not a width"
+        ) from None
+
+
+#: The smallest scratch canvas a measurement is drawn on, and how many times
+#: it may grow before the value is treated as nonsense rather than as long.
+_MEASURE_FLOOR = 2000
+_MEASURE_GROWTHS = 4
+
+
+def flow_runs(lines: list[Runs], *, width: float, font: str, size: float) -> list[Runs]:
+    """Greedy word-wrap over `lines`, breaking each to fit `width`.
+
+    The caller's own line breaks are kept — a break is an instruction, and
+    re-flowing across one would join two paragraphs. What this adds is a
+    break where a line does not fit, chosen by measuring the candidate rather
+    than by counting characters.
+
+    A line that already fits costs exactly one render, which is the common
+    case; only a line that overruns pays per word. Widths are cached across
+    the whole flow, so the prefixes a greedy wrap re-measures are free.
+    """
+    cache: dict[tuple[tuple[str, str], ...], float] = {}
+
+    def measure(runs: Runs) -> float:
+        key = tuple(runs)
+        if key not in cache:
+            cache[key] = measure_runs(runs, font=font, size=size, box=width)
+        return cache[key]
+
+    flowed: list[Runs] = []
+    for runs in lines:
+        if not runs or measure(runs) <= width:
+            flowed.append(runs)
+            continue
+        flowed.extend(_wrap(runs, width=width, measure=measure))
+    return flowed
+
+
+def _wrap(runs: Runs, *, width: float, measure: Any) -> list[Runs]:
+    """One over-wide line, broken greedily at word boundaries.
+
+    A word that does not fit on a line of its own is placed anyway rather
+    than refused: it is a single unbreakable token, and the alternative is an
+    empty line followed by the same problem. The overflow it causes is what
+    the box check in `fill_template` reports.
+    """
+    words = [(word, level) for text, level in runs for word in _split_keeping_spaces(text)]
+    out: list[Runs] = []
+    line: Runs = []
+    for word, level in words:
+        if not word.strip() and not line:
+            continue  # a break never starts a line with the space that caused it
+        candidate = _append(line, (word, level))
+        if line and measure(candidate) > width:
+            out.append(_rstrip(line))
+            line = _append([], (word.lstrip(), level)) if word.strip() else []
+        else:
+            line = candidate
+    if line:
+        out.append(_rstrip(line))
+    return out or [[]]
+
+
+def _split_keeping_spaces(text: str) -> list[str]:
+    """`text` as words with the whitespace that followed each still attached.
+
+    Kept rather than normalised because the spacing is the caller's: a
+    double space after a full stop is a choice, and a wrap that silently
+    regularised it would be editing the quote.
+    """
+    return re.findall(r"\S+\s*|\s+", text)
+
+
+def _append(line: Runs, piece: tuple[str, str]) -> Runs:
+    """`line` with `piece` on the end, merged when the level is unchanged."""
+    text, level = piece
+    if line and line[-1][1] == level:
+        return [*line[:-1], (line[-1][0] + text, level)]
+    return [*line, piece]
+
+
+def _rstrip(line: Runs) -> Runs:
+    """`line` without the trailing space the break replaced."""
+    trimmed = [(text, level) for text, level in line]
+    while trimmed and not trimmed[-1][0].rstrip():
+        trimmed.pop()
+    if trimmed:
+        text, level = trimmed[-1]
+        trimmed[-1] = (text.rstrip(), level)
+    return trimmed
 
 
 def _run_attrs(level: str, colours: dict[str, str]) -> str:
@@ -730,7 +906,14 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             "quote": {
                 "kind": "runs",
                 "x": 140,
+                "y": 572,
                 "line_height": 58,
+                # Body width and size are stated here *and* in the SVG, the
+                # way `x` always has been. A test measures them against the
+                # file rather than trusting the pair to stay in step.
+                "width": 1640,
+                "size": 46,
+                "font": "quote_font",
                 "default": "",
                 "description": (
                     "the note itself. A newline is a line break and nothing else wraps. "
@@ -866,8 +1049,55 @@ def _rating(slot: str, value: Any) -> float:
     return rating
 
 
+#: How close a flowed slot may come to the footer, in template units. The
+#: footer is drawn at `foot_y`, so a quote whose last baseline reaches it
+#: does not overlap the wordmark but sits on its line — this is the gap that
+#: keeps them reading as two things.
+FLOW_FOOTER_GAP = 40
+
+
+def _flow_box(declared: dict[str, Any], view_height: int) -> int:
+    """How many lines the slot's box holds at this canvas.
+
+    Derived from the canvas rather than declared, because the box is the
+    space between the slot's first baseline and the footer — and the footer
+    moves with the aspect. A 9:16 receipt has room for many more lines than
+    a 16:9 one, and hard-coding either would refuse a quote that fits.
+    """
+    bottom = view_height - 110 - FLOW_FOOTER_GAP
+    return max(1, int((bottom - declared["y"]) // declared["line_height"]) + 1)
+
+
+def _check_fits(
+    slot: str, lines: list[Runs], declared: dict[str, Any], view_height: int
+) -> None:
+    """Refuse a flow that overruns its box, naming the overflow.
+
+    **Refuse rather than grow the card.** The canvas is the project's, and a
+    template that quietly got taller to fit its text would be a slot value
+    deciding the frame — the same failure as a cue carrying a length. The
+    original script had no check at all here: `wrap_runs` returns a final
+    baseline and `receipt()` throws it away, so a long quote overran the
+    footer at exit 0.
+    """
+    holds = _flow_box(declared, view_height)
+    if len(lines) <= holds:
+        return
+    raise GraphicsError(
+        f"slot {slot!r} flows to {len(lines)} lines at {declared['width']} units "
+        f"wide, and its box holds {holds} at this canvas — {len(lines) - holds} "
+        "too many. Shorten the text, or render the card at a taller canvas; "
+        "the card does not grow to fit its own slot."
+    )
+
+
 def fill_template(
-    name: str, values: dict[str, Any], *, width: int = 1920, height: int = 1080
+    name: str,
+    values: dict[str, Any],
+    *,
+    width: int = 1920,
+    height: int = 1080,
+    flow: bool = True,
 ) -> str:
     """Fill `name`'s slots with `values`, returning the SVG to write.
 
@@ -883,6 +1113,15 @@ def fill_template(
     `width`/`height` are the canvas. Geometry inside a template is in
     1920-wide units and the viewBox is written to match the canvas aspect, so
     the same template renders at any size without pillarboxing.
+
+    `flow` measures a `runs` slot through `render_svg`'s own coder and wraps
+    it to the body width the template declares, refusing when the result does
+    not fit the slot's box. **It defaults on because the failure it closes is
+    silent** — the script these cards come from threw away `wrap_runs`'s final
+    baseline, so a long enough quote overran the footer and nothing said so.
+    Off, the caller's line breaks are the only ones, which is the older
+    contract and needs no renderer; it is for callers that are testing the
+    substitution rather than authoring a card.
     """
     path = template_path(name)
     spec = TEMPLATES[name]
@@ -915,8 +1154,17 @@ def fill_template(
             continue
         if meta["kind"] == "runs":
             declared = spec["slots"][slot]
+            lines = parse_runs(str(resolved[slot]))
+            if flow:
+                lines = flow_runs(
+                    lines,
+                    width=declared["width"],
+                    font=str(resolved[declared["font"]]),
+                    size=declared["size"],
+                )
+                _check_fits(slot, lines, declared, view_height)
             filled[slot] = _runs_markup(
-                str(resolved[slot]),
+                lines,
                 x=declared["x"],
                 line_height=declared["line_height"],
                 colours={name: str(resolved[name]) for name in PALETTE},

@@ -109,7 +109,7 @@ def _quote_ink_width(quote: str, tmp_path: Path, tag: str) -> int:
     not move, so they would mask exactly the difference being looked for.
     """
     markup = graphics._runs_markup(
-        quote, x=20, line_height=58, colours=dict(graphics.PALETTE)
+        graphics.parse_runs(quote), x=20, line_height=58, colours=dict(graphics.PALETTE)
     )
     source = tmp_path / f"quote-{tag}.svg"
     source.write_text(
@@ -372,6 +372,158 @@ def test_font_report_agrees_with_what_librsvg_actually_draws(tmp_path: Path) -> 
     assert styles[400] != styles[700]
 
 
+# -- the measured flow -----------------------------------------------------
+
+#: Finding 2's own rows: three real Scream quote lines, then the two
+#: adversaries. `WWW MMM` is the one that decides whether the wrap is safe or
+#: merely usually right — a character count *underestimates* it by a third,
+#: which is the direction that overflows a card at exit 0.
+FLOW_CASES = [
+    (
+        "I just realized I never watched this movie all the way through, and it "
+        "might be the perfect horror slasher. I might bump it to 9/10."
+    ),
+    (
+        "Matthew Lillard is incredible. Costume and villain design is perfectly "
+        "iconic. The satire is great. I know I am late to the party but wow."
+    ),
+    (
+        "Falls apart a bit in the second half. There is enough charm to keep this "
+        "from being a boring teen drama reboot but it still suffers."
+    ),
+    "WWW MMM " * 12,
+    "illillillill iiii llll iiii llll " * 4,
+]
+
+#: The dumb control the measured wrap has to beat: characters times a
+#: plausible average advance. Deliberately the *obvious* build, so that when
+#: it overflows below, it is this repo's own finding being reproduced rather
+#: than a straw man.
+_CHARACTER_ADVANCE = 46 * 0.5
+
+
+def _flow(text: str, *, width: float = 1640, font: str = "serif", size: float = 46):
+    return graphics.flow_runs(
+        graphics.parse_runs(text), width=width, font=font, size=size
+    )
+
+
+@needs_magick
+@pytest.mark.parametrize("text", FLOW_CASES)
+def test_every_flowed_line_fits_the_width_it_was_flowed_to(text: str) -> None:
+    """The safety property, stated as the only thing that actually matters.
+
+    Not "the wrap is accurate" — accurate is a percentage. The card either
+    stays inside its body width or it does not, so every produced line is
+    measured back and checked.
+    """
+    for line in _flow(text):
+        measured = graphics.measure_runs(line, font="serif", size=46, box=1640)
+        rendered = "".join(run for run, _ in line)
+        assert measured <= 1640, f"{rendered!r} flowed to {measured} units, over 1640"
+
+
+@needs_magick
+def test_a_character_count_would_overflow_where_the_measurement_does_not() -> None:
+    """The control, run rather than asserted.
+
+    A wrap is only worth its renders if the cheap alternative actually
+    fails — so the cheap alternative is built here and measured on the same
+    adversary. `WWW MMM` is finding 2's −34.6% row: the count thinks it fits
+    and it does not.
+    """
+    adversary = "WWW MMM " * 12
+    words = adversary.split()
+
+    counted: list[str] = []
+    line: list[str] = []
+    for word in words:
+        candidate = [*line, word]
+        if line and len(" ".join(candidate)) * _CHARACTER_ADVANCE > 1640:
+            counted.append(" ".join(line))
+            line = [word]
+        else:
+            line = candidate
+    if line:
+        counted.append(" ".join(line))
+
+    widest = max(
+        graphics.measure_runs([(text, "key")], font="serif", size=46, box=1640)
+        for text in counted
+    )
+    assert widest > 1640, (
+        "the character count fitted this adversary, so it is not the adversary "
+        f"finding 2 measured — widest counted line is {widest} units"
+    )
+
+    for line_runs in _flow(adversary):
+        measured = graphics.measure_runs(line_runs, font="serif", size=46, box=1640)
+        assert measured <= 1640
+
+
+@needs_magick
+def test_a_flow_keeps_the_runs_a_line_break_lands_inside() -> None:
+    """A break inside an emphasised phrase must not lose the emphasis."""
+    text = "plain words before [em]" + ("emphasised words " * 14) + "[/em] and after"
+    flowed = _flow(text)
+    assert len(flowed) > 1, "this case is only interesting once it wraps"
+    levels = {level for line in flowed for _, level in line}
+    assert "em" in levels and "key" in levels
+    for line in flowed:
+        joined = "".join(text for text, _ in line)
+        assert joined == joined.strip(), "a wrapped line keeps the space it broke at"
+
+
+@needs_magick
+def test_a_flow_keeps_the_callers_own_line_breaks() -> None:
+    """A break is an instruction; re-flowing across one joins two paragraphs."""
+    flowed = _flow("short one\nshort two\nshort three")
+    assert [("".join(t for t, _ in line)) for line in flowed] == [
+        "short one",
+        "short two",
+        "short three",
+    ]
+
+
+@needs_magick
+def test_a_quote_that_does_not_fit_its_box_is_refused_not_shrunk() -> None:
+    """Growing the card is the tempting build and it is the wrong one — the
+    canvas is the project's, not a slot value's."""
+    with pytest.raises(GraphicsError, match="too many"):
+        graphics.fill_template(
+            "receipt",
+            {**_required("receipt"), "quote": "a fairly ordinary sentence. " * 40},
+        )
+
+
+@needs_magick
+def test_the_same_quote_fits_a_taller_canvas() -> None:
+    """The box is derived from the canvas, so 9:16 holds more lines. A
+    hard-coded box would refuse a quote that plainly fits."""
+    quote = "a fairly ordinary sentence. " * 40
+    filled = graphics.fill_template(
+        "receipt", {**_required("receipt"), "quote": quote}, width=1080, height=1920
+    )
+    assert filled.count('xml:space="preserve"') > 10
+
+
+def test_the_runs_slot_geometry_agrees_with_the_svg_it_is_drawn_in() -> None:
+    """The spec states `x`, `y`, `size` and the SVG states them again.
+
+    That duplication is how `x` has always worked here, but a body width
+    read from one and a font size read from the other is a wrap measured at
+    a size the card is not drawn at — silently, and only visible as a line
+    that is slightly too long.
+    """
+    declared = graphics.TEMPLATES["receipt"]["slots"]["quote"]
+    svg = graphics.template_path("receipt").read_text(encoding="utf-8")
+    line = next(row for row in svg.splitlines() if "{{quote}}" in row)
+    assert f'x="{declared["x"]}"' in line
+    assert f'y="{declared["y"]}"' in line
+    assert f'font-size="{declared["size"]}"' in line
+    assert declared["width"] == 1920 - 2 * declared["x"]
+
+
 # -- rendering -------------------------------------------------------------
 
 
@@ -513,30 +665,34 @@ def test_every_shipped_template_agrees_with_its_manifest(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
 def test_every_shipped_template_fills_and_parses(name: str) -> None:
-    filled = graphics.fill_template(name, _required(name))
+    filled = graphics.fill_template(name, _required(name), flow=False)
     assert "{{" not in filled, "a placeholder survived the fill"
     graphics.declared_fonts(filled)  # raises unless the result is well-formed
 
 
 def test_fill_template_refuses_a_missing_required_slot() -> None:
     with pytest.raises(GraphicsError, match="which nothing supplied"):
-        graphics.fill_template("receipt", {"title": "Scream"})
+        graphics.fill_template("receipt", {"title": "Scream"}, flow=False)
 
 
 def test_fill_template_refuses_a_slot_that_does_not_exist() -> None:
     with pytest.raises(GraphicsError, match="no slot"):
-        graphics.fill_template("receipt", {**_required("receipt"), "subtitle": "no such thing"})
+        graphics.fill_template(
+            "receipt", {**_required("receipt"), "subtitle": "no such thing"}, flow=False
+        )
 
 
 def test_fill_template_refuses_an_unknown_template() -> None:
     with pytest.raises(GraphicsError, match="no template named"):
-        graphics.fill_template("nonexistent", {})
+        graphics.fill_template("nonexistent", {}, flow=False)
 
 
 def test_user_text_is_escaped_and_cannot_rewrite_the_document() -> None:
     """String substitution's one real hazard, closed and asserted."""
     hostile = '</text><script>alert("x")</script><text>'
-    filled = graphics.fill_template("receipt", {**_required("receipt"), "title": hostile})
+    filled = graphics.fill_template(
+        "receipt", {**_required("receipt"), "title": hostile}, flow=False
+    )
     assert "<script>" not in filled
     assert "&lt;/text&gt;" in filled
     graphics.declared_fonts(filled)  # still well-formed
@@ -553,19 +709,19 @@ def test_a_slot_landing_in_an_attribute_cannot_close_it() -> None:
 
 def test_lucid_generated_markup_is_not_escaped() -> None:
     """Derived slots are the only unescaped insertion, and they must render."""
-    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3})
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3}, flow=False)
     assert filled.count("<polygon") == 3
     assert "&lt;polygon" not in filled
 
 
 def test_a_half_rating_draws_a_clipped_star_rather_than_a_second_path() -> None:
-    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 4.5})
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 4.5}, flow=False)
     assert filled.count("<polygon") == 5
     assert filled.count("<clipPath") == 1
 
 
 def test_a_whole_rating_draws_no_clip() -> None:
-    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3})
+    filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3}, flow=False)
     assert "<clipPath" not in filled
 
 
@@ -580,20 +736,30 @@ def test_the_two_rows_of_a_comparison_do_not_share_a_clip_id() -> None:
 
 def test_a_rating_must_be_a_number_out_of_five() -> None:
     with pytest.raises(GraphicsError, match="rating out of five"):
-        graphics.fill_template("receipt", {**_required("receipt"), "rating": "four and a half"})
+        graphics.fill_template(
+            "receipt", {**_required("receipt"), "rating": "four and a half"}, flow=False
+        )
     with pytest.raises(GraphicsError, match="outside it"):
-        graphics.fill_template("receipt", {**_required("receipt"), "rating": 7})
+        graphics.fill_template("receipt", {**_required("receipt"), "rating": 7}, flow=False)
 
 
-def test_a_newline_in_a_runs_slot_is_a_line_break_and_nothing_else_wraps() -> None:
+def test_unflowed_a_newline_is_a_line_break_and_nothing_else_breaks() -> None:
+    """`flow=False` is the older contract, kept exactly rather than relaxed.
+
+    Without a measurement there is no safe wrap, so there is no wrap: the
+    caller's newlines are the only line breaks, and 200 words run off the
+    card in one line. That is the claim `_lines_markup` used to make, and it
+    still holds for the mode that does not measure. Step 2 did not soften it;
+    it added a mode that measures.
+    """
     filled = graphics.fill_template(
-        "receipt", {**_required("receipt"), "quote": "first line\nsecond line"}
+        "receipt", {**_required("receipt"), "quote": "first line\nsecond line"}, flow=False
     )
     assert filled.count("<tspan") >= 2
     assert "first line" in filled and "second line" in filled
 
     long = "word " * 200
-    once = graphics.fill_template("receipt", {**_required("receipt"), "quote": long})
+    once = graphics.fill_template("receipt", {**_required("receipt"), "quote": long}, flow=False)
     assert once.count('dy="58"') == 0, "nothing may wrap on its own"
 
 
@@ -733,9 +899,9 @@ def test_splitting_a_line_into_runs_does_not_eat_the_spaces_between_them(
 def test_the_viewbox_follows_the_canvas_aspect() -> None:
     """Why a template can be authored once and rendered at any canvas."""
     name = min(graphics.TEMPLATES)
-    wide = graphics.fill_template(name, _required(name), width=1920, height=816)
+    wide = graphics.fill_template(name, _required(name), width=1920, height=816, flow=False)
     assert 'viewBox="0 0 1920 816"' in wide
-    tall = graphics.fill_template(name, _required(name), width=1080, height=1920)
+    tall = graphics.fill_template(name, _required(name), width=1080, height=1920, flow=False)
     assert 'viewBox="0 0 1920 3413"' in tall
 
 
