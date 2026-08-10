@@ -4210,8 +4210,10 @@ affected path. There is no action item; the row should stop carrying one.
 The 9:16 render was served and rejected on look: the cards "really small and
 awkward", the footage "not formatted in a way that makes them easy to watch".
 Both are real, both were measurable, and they are two unrelated faults. The
-watch also settled captions outright — **not burned in, this cut or any**, so
-the caption-contrast A/B closes undecided-by-choice rather than unanswered.
+watch also settled captions for the 16:9 cut — **not burned in** — so the
+caption-contrast A/B closes undecided-by-choice rather than unanswered. It read
+as "this cut or any" at the time and is not: the vertical teaser asked for them
+back the same day, § The hand-framed teaser, watched.
 
 **The cards are drawn at 0.5625 and nothing said so.** `fill_template` sets
 `view_height = round(TEMPLATE_WIDTH * height / width)` with `TEMPLATE_WIDTH`
@@ -4336,3 +4338,70 @@ dir, and the samples are throwaways. What a build would need is a detector
 (subprocess with its own interpreter, the `describe`/`LUCID_VLM` shape — lucid's
 venv has no opencv), per-shot framing on the cue, and a stacked render path in
 `mlt.py`. Served for the decision at `/vertical-native.html`.
+
+## The hand-framed teaser, watched — 2026-08-10
+
+The tracked-framing spike asked "build it at all?" and the answer arrived as a
+counter-example rather than a decision: a 44s vertical teaser, framed by hand,
+watched and approved. Fifteen shots, one crop-x number each, one eased move —
+no detector, no framing on the cue, no stacked render path. It is ffmpeg
+scripts in the job's tmp dir and samples under `~/lucid-final-cut/`; nothing
+entered lucid.
+
+The load-bearing part is not the teaser, it is that **a teaser is the only
+vertical output that can reach the feed at all** — the film is 5:36 and Shorts
+and Reels both cap at 3:00. So the auto-reframe build was justified by a cut
+that could not be distributed, and 62%-of-shots-served was answering the wrong
+question.
+
+**Captions come back for vertical.** § The vertical cut, refused on a watch
+settled them off, and the teaser reopened them on the same day, asked for by
+name. The two are not in conflict once the reason is stated: a Short is watched
+sound-off. The 16:9 essay still ships clean.
+
+### The tell for an invented word is overlap, never grammar
+
+Burning the transcript over 44 seconds surfaced **nine words Whisper invented**,
+all at retake seams. The mechanism is that it transcribes straight *across* a
+splice and emits words from both takes interleaved, so the invention **starts
+before the word ahead of it ends** — `Stu` 102.72–102.98 against `do`
+102.74–103.06.
+
+Eight were removed by eye in one pass and the ninth survived it, because
+"Billy and Stu **do** spend the entire film" is a grammatical English sentence
+where "Billy **Billions** and Stu" is not. Tyler caught it on a watch. **Reading
+for sense finds the nonsense ones and is blind to the rest**; the overlap scan
+finds all nine and needs no judgement. It is the same shape as § 2's rule about
+durations and a different consequence: there, an inflated duration hides a
+retake from an audio mask; here, the seam *adds* a word that gets drawn on
+screen.
+
+Nine in 44 seconds of a 5:36 film is a rate. They are in the transcript, not in
+any render — so anything downstream of it (an SRT, a platform subtitle track)
+carries them, and wants the scan first.
+
+### A mis-framed shot looks like a shot the editor chose
+
+Two of the fifteen crop numbers were wrong and neither was visible in motion —
+they read as framing, because there is no reference in the frame to say
+otherwise. What surfaced them was a contact sheet: every shot at three moments,
+the 9:16 window drawn in red **on the source frame**. 45 images, two bad.
+
+The wrong instinct is worth recording. Having just built the keyframed move for
+shot 9, the fix for shot 8 looked like another one — and measuring the mask
+centre at seven timestamps said no: it drifts 235px, but the window is 459 wide
+and the subject about 130, so a single x holds it end to end. **The window was
+not moving too little, it was parked in the wrong place.** Same for shot 3.
+
+If the detector is ever built, the contact sheet is the thing to build beside
+it — the detector's output is unreviewable without one.
+
+### Measure the overlay against every shot, not the opening one
+
+The teaser's title header is persistent, so it sits over all fifteen shots. Type
+against background measured 14–16:1 on thirteen of them and **4.2:1 on the one
+blown-out frame** — under the floor, and the same failure as the 1.10:1
+captions over the light cards in § The film had no captions in it. Deepening the
+scrim 62% → 75% took it to 5.2:1 and cost nothing elsewhere, because over dark
+footage the scrim was already invisible. Sampling the opener would have reported
+14:1 and been useless.

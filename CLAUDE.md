@@ -178,6 +178,12 @@ installed package or the upstream repo, not your memory.
   - The trap when *masking audio* with a word map: an inflated duration covers
     the retake it swallowed, so believing it hides exactly the hole you are
     looking for. Trim spans through `energy.believable` first. HISTORY.md § `verify --windowed`.
+  - **A retake seam also *adds* words** — whisper reads across the splice and
+    interleaves both takes — **and the tell is that the word starts before the
+    one ahead of it ends, never that it reads wrong.** Reading for sense removes
+    the nonsense ones and leaves every grammatical one standing; nine were in
+    44s of the Scream VO. Overlap-scan anything derived from a transcript before
+    it is drawn. HISTORY.md § The hand-framed teaser, watched.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the
