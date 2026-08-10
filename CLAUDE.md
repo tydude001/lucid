@@ -216,3 +216,9 @@ installed package or the upstream repo, not your memory.
   registered duration), never read back. `restore` is bounded by those gaps,
   which is what keeps the timeline a subset of the source and separates it
   from the parked `vo_extend`. PLAN.md § Parked.
+  - **A dogfood project can be the wrong cut while every check passes.** The
+    Scream project held the *silence-cut* VO, not the shipped one — 411s
+    against 351s, 72s of retakes — and the render, `verify`, the cue table and
+    the shot plan all agreed with it. Before building anything for review on
+    one, compare its `timeline_duration` against the film it is meant to be.
+    HISTORY.md § The VO the project was holding.

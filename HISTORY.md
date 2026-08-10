@@ -3201,9 +3201,11 @@ were authored before it, and remain step 2's problem.
 
 The first cut b-roll-by-description has ever made from real material, and the
 first thing it says is that the *indexing* half does not work. Built on a copy
-of the Scream project (`~/lucid-broll-test`, migrated v2 → v3 so nothing of
+of the Scream project (`~/lucid-final-broll`, migrated v2 → v3 so nothing of
 Tyler's was touched), holding his edit and his 13 card cues fixed and replacing
-only the 25 video cues, so the one variable is which footage got chosen.
+only the 25 video cues, so the one variable is which footage got chosen. The
+edit under it is the finished VO — the first pass was not, § The VO the project
+was holding.
 
 `describe` ran over all nine clips: **139 windows, 502s estimated, no window
 errors**. Then each cue position was matched against the index by idf-weighted
@@ -3250,10 +3252,72 @@ ranking a corpus with no separation in it is ranking noise.
 Worth recording because the failure above is loud enough to bury it. The
 placement half held: 25 cues placed by pin, `mlt.plan_picture` refused the two
 whose shot would have run past the end of its asset and named the second and the
-asset in the refusal, and the corrected render came back frame-exact — 9856 of
-9856 frames at 1920x816, `agrees: true`, exit 0.
+asset in the refusal, and the corrected render came back frame-exact — 8064 of
+8064 frames at 1920x816, `agrees: true`, exit 0.
 
 It also caught the `build_shots` / `plan_picture` disagreement CLAUDE.md
 documents, the honest way: `lucid shots` reported 38 shots and no error, and the
 render then refused. The raw projection is not the plan, and a check that wants
 to know whether `export` will run has to ask `timeline_view`.
+
+## The VO the project was holding — 2026-08-10
+
+The b-roll cut above went out for review and came back with a complaint that had
+nothing to do with b-roll: *"it seems like you're working with a worse version of
+the voiceover — there are lots of retakes in there that aren't cut out."* He was
+right, and no check in lucid was in a position to say so.
+
+The recording was current — `VO2.wav`, the same file the shipped film uses. What
+was stale was the *edit*. `~/lucid-scream-v2`'s timeline is **73 segments,
+410.96s**, and `Project/Scream VO v2 - silence cut.kdenlive` is **73 entries,
+408.53s**. Same stage. The retake pass after it — `Scream VO v2 - retakes
+trimmed.kdenlive`, **63 entries, 336.27s** — was done in Kdenlive and never
+carried across. What sat in lucid's timeline and not in the film:
+
+- **15 stretches, 71.6s, 178 words** (1148 surviving words against 970).
+- All of them audibly retakes: "the best 12 minutes of horror **whore. in the
+  90s.**", "a secret half-brother where nobody… **blah.**", "the problem was
+  **problem** purely structural".
+
+**It also moved the picture, which is the part that made it a b-roll complaint.**
+Those 72 seconds sit *between* cue positions, so every shot spanning one held
+longer than written: **13 of 38 shots changed length by more than a second**, the
+worst 24.5s where the finished VO gives it 11.2s. A clip held for twenty-four
+seconds reads as unrelated to the narration regardless of who chose it — so the
+review conflated a stale edit with a bad choice, and both were present.
+
+### What lucid could and could not have caught
+
+`verify --windowed` finds a retake **in a render**, and it is the reason two got
+caught in August. It answers a question nobody asked here, because the render was
+faithful — the timeline really did contain those words. There is no op that finds
+a repeated take *in a transcript*; `vo_windows.py --repeats` in `goodsometimes`
+does, and lives outside lucid. `speech-overlap` and `spots` are unrelated.
+
+Nor is there any way to bring a Kdenlive trim in. The fix was 63 ranges parsed
+out of the `.kdenlive` playlist and written straight to `Edit`, which is not a
+supported path — it bypasses `cut` and its history entirely.
+
+The cross-check that the transplant was right: **970 surviving words against the
+983 that whisper reads off his own v6 render** (`VO/v6-render-windowed.json`),
+the difference being the 12.8s outro lucid does not have. And the cue tables
+already agreed — lucid's 38 cues match `assemble_scream.py`'s `CUES` on 37 of 38
+by word index *and* asset, so with the finished VO underneath, lucid renders his
+film: 63 segments, 8064 of 8064 frames, `agrees: true`.
+
+### The rule this earns
+
+**A lucid project seeded from one stage of an outside edit stays at that stage,
+silently, and every downstream number stays self-consistent while it does.** The
+render agreed with the timeline, `verify` had nothing to report, the cue table
+resolved, 38 shots planned without error. Nothing was broken; it was the wrong
+film. The only signal available was duration against the thing it is supposed to
+be — 411s against 351s — and nothing compares those.
+
+And it was *not* undetected. § Rendering through `melt`, step 5 of the layered
+timeline wrote "73 segments, 410.963s — a plain silence cut, so the retakes the finished
+VO trimmed are still in" on 2026-08-08, and correctly attributed the one
+`plan_picture` refusal that day to them. Two days later that project was the
+substrate for a cut sent out for review. **A caveat recorded in a results table
+is not a guard**; the 38th cue still in the manifest is the split that refusal
+forced, and on the finished VO it is no longer needed.

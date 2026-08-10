@@ -193,6 +193,19 @@ left. The conclusion survives because it was always the load-bearing one, but
 
 ## Open questions
 
+- **How does a lucid project know it is the film? Opened 2026-08-10.** The
+  Scream project sat at the *silence-cut* stage of an edit whose retake pass had
+  been done in Kdenlive — 73 segments and 411s against the shipped film's 63 and
+  336s — and every check lucid has agreed with itself the whole time: the render
+  matched the timeline, `verify` had nothing to report, all 38 shots planned. It
+  was not broken, it was the wrong cut, and 72s of retakes reached a review.
+  Three gaps, in the order they bite: **no repeat-finder in a transcript**
+  (`verify --windowed` finds one in a *render*; `goodsometimes/scripts/vo_windows.py
+  --repeats` finds one in audio and lives outside lucid), **no way to bring an
+  outside edit in** (63 ranges were parsed from the `.kdenlive` playlist and
+  written straight to `Edit`, bypassing `cut`), and **nothing that compares a
+  project against what it is meant to be**. HISTORY.md § The VO the project was
+  holding.
 - **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host
