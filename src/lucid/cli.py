@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from lucid import __version__, asr, captions, describe, energy, ops, webui
 from lucid.asr import ASRError
@@ -126,7 +127,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_init.add_argument("--name", help="project name (default: the directory name)")
 
-    sub.add_parser("info", help="show a project's manifest")
+    p_info = sub.add_parser("info", help="show a project's manifest")
+    p_info.add_argument(
+        "--raw",
+        action="store_true",
+        help="print the manifest verbatim, descriptions and all",
+    )
 
     p_migrate = sub.add_parser(
         "migrate", help="bring an older project manifest forward to the current schema"
@@ -178,6 +184,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan",
         action="store_true",
         help="resolve the work list and the estimate without loading a model",
+    )
+
+    p_describe_ls = sub.add_parser(
+        "describe-ls", help="read the footage descriptions — this is the b-roll search"
+    )
+    p_describe_ls.add_argument(
+        "clip_id", nargs="?", help="only this clip's descriptions (default: every clip)"
+    )
+    p_describe_ls.add_argument(
+        "--contains",
+        help="keep descriptions containing every one of these terms, case-insensitively",
     )
 
     p_card = sub.add_parser("card", help="generate the card assets a picture cue points at")
@@ -695,7 +712,33 @@ def _cmd_init(args: argparse.Namespace) -> int:
 def _cmd_info(args: argparse.Namespace) -> int:
     from lucid.project import Project
 
-    return _emit(Project.open(args.project).read_manifest())
+    return _emit(_summarise(Project.open(args.project).read_manifest(), raw=args.raw))
+
+
+def _summarise(manifest: dict[str, Any], *, raw: bool) -> dict[str, Any]:
+    """Stand the descriptions down to a count, unless `--raw`.
+
+    `info` prints the manifest, and the manifest is where descriptions live —
+    which took a described project's `info` to 103 KB of prose, in a command
+    whose whole job is being readable at a glance. `describe-ls` is where the
+    text is meant to be read, so this points at it rather than inlining it.
+    Substituting a summary is a lie unless the escape hatch exists, hence
+    `--raw`: nothing else in lucid can show you the stored bytes.
+    """
+    if raw or not manifest.get("descriptions"):
+        return manifest
+    descriptions = manifest["descriptions"]
+    per_clip: dict[str, int] = {}
+    for entry in descriptions:
+        per_clip[entry["clip_id"]] = per_clip.get(entry["clip_id"], 0) + 1
+    return {
+        **manifest,
+        "descriptions": {
+            "count": len(descriptions),
+            "clips": per_clip,
+            "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
+        },
+    }
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
@@ -724,6 +767,10 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
             args.project, args.clip_id, first=args.first, last=args.last, search=args.search
         )
     )
+
+
+def _cmd_describe_ls(args: argparse.Namespace) -> int:
+    return _emit(ops.describe_ls(args.project, args.clip_id, contains=args.contains))
 
 
 def _cmd_describe(args: argparse.Namespace) -> int:
@@ -1047,6 +1094,7 @@ _COMMANDS = {
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
     "describe": _cmd_describe,
+    "describe-ls": _cmd_describe_ls,
     "card": _cmd_card,
     "cue": _cmd_cue,
     "shots": _cmd_shots,

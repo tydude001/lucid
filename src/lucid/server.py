@@ -223,6 +223,35 @@ def describe(
 
 
 @_tool()
+def describe_ls(
+    path: str, clip_id: str | None = None, contains: str | None = None
+) -> dict[str, Any]:
+    """Read the footage descriptions, to find b-roll by what is in it.
+
+    **This is the search.** There is no ranking and no similarity score to
+    ask for — you read the descriptions and pick, which is why the prompt
+    behind them asks for concrete nouns. Each entry is `(clip_id, src_start,
+    src_end, text)` in **source** seconds, so what you pick stays valid
+    however the edit is cut.
+
+    `contains` filters: whitespace-separated terms, case-insensitive, and
+    every term must appear — `"kitchen knife"` matches "a knife on the
+    kitchen counter". Reach for it before reading everything on a large
+    project; `words` says how much text came back.
+
+    Two things not to over-read. A window is evidence of what is *visible in
+    a span*, never of a continuous shot — the model narrates across a cut
+    inside one as though it were a single take. And an entry with
+    `truncated` true stopped mid-fact and reads exactly like a complete
+    description.
+
+    A clip listed under `clips` with `windows: 0` has not been described yet;
+    `describe` is what indexes it.
+    """
+    return ops.describe_ls(path, clip_id, contains=contains)
+
+
+@_tool()
 def card_templates() -> dict[str, Any]:
     """The card templates lucid ships, and the slots each one takes.
 

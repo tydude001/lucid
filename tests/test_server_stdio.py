@@ -42,6 +42,7 @@ EXPECTED_TOOLS = {
     "transcribe",
     "get_transcript",
     "describe",
+    "describe_ls",
     "card_templates",
     "card_new",
     "card_render",
@@ -163,6 +164,7 @@ TOOL_TO_COMMAND = {
     "transcribe": "transcribe",
     "get_transcript": "transcript",
     "describe": "describe",
+    "describe_ls": "describe-ls",
     "card_templates": "card",
     "card_new": "card",
     "card_render": "card",
@@ -194,7 +196,9 @@ TOOL_TO_COMMAND = {
 CLI_ONLY = {
     "mcp",  # starts the server; nothing to call it from
     "ping",  # a tool, but takes no project and needs no mapping
-    "info",  # prints the raw manifest, which MCP clients get from other tools
+    "info",  # prints the manifest, which MCP clients get from other tools —
+    # and stands its descriptions down to a count, because describe_ls is
+    # where the text is meant to be read
     "web",  # serves the UI until Ctrl-C; an agent cannot watch a page
     "waveform",  # 19,000 floats is a picture, not something an agent reasons
     # over — PLAN.md § Read-model additions
@@ -377,6 +381,84 @@ def test_describe_plans_over_the_wire_without_loading_a_model(tmp_path: Path) ->
     assert set(out["runtime"]) == {"available", "python", "tagger", "why"}
     # Nothing was described, so nothing was stored.
     assert Project.open(project).read_manifest()["descriptions"] == []
+
+
+@needs_ffprobe
+def test_describe_ls_searches_over_the_wire(tmp_path: Path) -> None:
+    """The read half reachable over stdio — and reachable is the whole point,
+    since this is what an agent looking for b-roll actually calls.
+
+    The descriptions are written into the manifest directly rather than
+    generated: the model is 31 GB under another interpreter, and what is
+    under test here is the transport and the filter, not the vision pass
+    (`test_ops_describe.py` covers that against a stub).
+    """
+    project = tmp_path / "proj"
+    source = tmp_path / "silent.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-nostdin", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=320x240:r=24:d=25",
+            str(source),
+        ],
+        check=True,
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        await client.call("import_media", path=str(project), source=str(source))
+
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["descriptions"] = [
+            {
+                "clip_id": "silent",
+                "src_start": 0.0,
+                "src_end": 12.5,
+                "text": "A knife on a kitchen counter, beside a white phone.",
+                "truncated": False,
+                "origin": "qwen2.5-vl:10s/3f",
+            },
+            {
+                "clip_id": "silent",
+                "src_start": 12.5,
+                "src_end": 25.0,
+                "text": "A car parked in a driveway at night, headlights",
+                "truncated": True,
+                "origin": "qwen2.5-vl:10s/3f",
+            },
+        ]
+        opened.write_manifest(manifest)
+
+        return {
+            "all": await client.call("describe_ls", path=str(project)),
+            "hit": await client.call("describe_ls", path=str(project), contains="kitchen knife"),
+            "miss": await client.call("describe_ls", path=str(project), contains="helicopter"),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["all"]["count"] == 2
+    assert out["all"]["clips"] == [
+        {
+            "clip_id": "silent",
+            "windows": 2,
+            "described_seconds": 25.0,
+            "duration": pytest.approx(25.0, abs=0.05),
+            "truncated": 1,
+        }
+    ]
+
+    # Every term, anywhere — not a phrase match.
+    assert out["hit"]["count"] == 1
+    assert "knife" in out["hit"]["descriptions"][0]["text"]
+    assert out["hit"]["filter"]["terms"] == ["kitchen", "knife"]
+
+    # A miss still says what it filtered out of, so it cannot be mistaken for
+    # a project with nothing described in it.
+    assert out["miss"]["count"] == 0
+    assert out["miss"]["total"] == 2
 
 
 @needs_ffprobe

@@ -277,6 +277,111 @@ def test_a_truncated_description_is_stored_and_reported(
     assert [d["truncated"] for d in stored] == [False, True, False]
 
 
+# -- reading them back -------------------------------------------------------
+#
+# `describe_ls` is not a listing beside the search — it *is* the search, so
+# what these check is that the filter cannot quietly mislead: an empty result
+# still says what it filtered out of, and the terms it split into come back.
+
+
+def test_describe_ls_returns_the_table_in_source_order(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dsc, "describe_windows", _stub(["A kitchen.", "A hallway.", "A car."]))
+    ops.describe(project.root)
+
+    listed = ops.describe_ls(project.root)
+
+    assert listed["count"] == 3
+    assert listed["total"] == 3
+    assert [d["text"] for d in listed["descriptions"]] == ["A kitchen.", "A hallway.", "A car."]
+    assert [d["src_start"] for d in listed["descriptions"]] == sorted(
+        d["src_start"] for d in listed["descriptions"]
+    )
+    assert listed["words"] == 6
+
+
+def test_describe_ls_counts_every_video_clip_including_undescribed_ones(
+    project: Project,
+) -> None:
+    """A zero has to read as "not described yet" rather than "no such clip" —
+    otherwise the only way to tell them apart is to go and describe it."""
+    listed = ops.describe_ls(project.root)
+
+    assert listed["clips"] == [
+        {
+            "clip_id": "clipa",
+            "windows": 0,
+            "described_seconds": 0,
+            "duration": 25.0,
+            "truncated": 0,
+        }
+    ]
+    assert listed["descriptions"] == []
+    assert listed["total"] == 0
+
+
+def test_describe_ls_summary_reports_coverage_and_truncation(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Truncated entries read exactly like complete ones to whoever searches,
+    so the count rides along rather than waiting to be noticed."""
+    monkeypatch.setattr(
+        dsc, "describe_windows", _stub(["A kitchen.", "A hallway with a", "A car."])
+    )
+    ops.describe(project.root)
+
+    listed = ops.describe_ls(project.root)
+
+    assert listed["clips"][0]["windows"] == 3
+    assert listed["clips"][0]["described_seconds"] == pytest.approx(25.0)
+    assert listed["clips"][0]["truncated"] == 1
+
+
+def test_describe_ls_contains_requires_every_term_anywhere(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not a phrase match: "kitchen knife" has to find "a knife on the kitchen
+    counter", which is how anyone actually types a search for b-roll."""
+    monkeypatch.setattr(
+        dsc,
+        "describe_windows",
+        _stub(
+            [
+                "A knife on the kitchen counter.",
+                "A kitchen with white cabinets.",
+                "A car in a driveway.",
+            ]
+        ),
+    )
+    ops.describe(project.root)
+
+    listed = ops.describe_ls(project.root, contains="Kitchen KNIFE")
+
+    assert listed["count"] == 1
+    assert listed["descriptions"][0]["text"] == "A knife on the kitchen counter."
+    # What it filtered out of, and what it split into — an empty or narrow
+    # result otherwise reads as a project with nothing in it.
+    assert listed["total"] == 3
+    assert listed["filter"] == {
+        "clip_id": None,
+        "contains": "Kitchen KNIFE",
+        "terms": ["Kitchen", "KNIFE"],
+    }
+
+
+def test_describe_ls_narrows_to_one_clip(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dsc, "describe_windows", _stub(["A kitchen.", "A hallway.", "A car."]))
+    ops.describe(project.root)
+
+    assert ops.describe_ls(project.root, "clipa")["count"] == 3
+    empty = ops.describe_ls(project.root, "vo")
+    assert empty["count"] == 0
+    assert empty["total"] == 3
+
+
 # -- the property the design rests on ----------------------------------------
 
 

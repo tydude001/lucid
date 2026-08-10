@@ -321,3 +321,67 @@ def test_slot_assignments_parses_pairs_and_the_newline_escape() -> None:
 def test_slot_assignments_refuses_a_pair_with_no_equals() -> None:
     with pytest.raises(ProjectError, match="SLOT=VALUE"):
         _slot_assignments(["title"])
+
+
+# -- `info` and the 103 KB manifest ---------------------------------------
+#
+# Descriptions live in the manifest, and `info` prints the manifest — which
+# took a described project's `info` to 103 KB of prose in a command whose job
+# is being readable at a glance. `describe-ls` is where that text is meant to
+# be read, so `info` points at it. Substituting a summary is only honest with
+# an escape hatch, which is what `--raw` is and why it is asserted here.
+
+
+def _described_project(tmp_path: Path) -> Path:
+    from lucid.project import Project
+
+    root = tmp_path / "proj"
+    project = Project.create(root)
+    manifest = project.read_manifest()
+    manifest["clips"] = [
+        {"clip_id": "clipa", "source": "/tmp/a.mp4", "duration": 25.0, "has_video": True}
+    ]
+    manifest["descriptions"] = [
+        {"clip_id": "clipa", "src_start": 0.0, "src_end": 12.5, "text": "A kitchen."},
+        {"clip_id": "clipa", "src_start": 12.5, "src_end": 25.0, "text": "A car."},
+    ]
+    project.write_manifest(manifest)
+    return root
+
+
+def test_info_stands_descriptions_down_to_a_count(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["-C", str(_described_project(tmp_path)), "info"]) == 0
+    out = json.loads(capsys.readouterr().out)
+
+    assert out["descriptions"] == {
+        "count": 2,
+        "clips": {"clipa": 2},
+        "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
+    }
+    # Everything else is still the manifest, verbatim.
+    assert out["clips"][0]["clip_id"] == "clipa"
+
+
+def test_info_raw_still_prints_the_stored_entries(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing else in lucid can show you what is actually on disk."""
+    assert main(["-C", str(_described_project(tmp_path)), "info", "--raw"]) == 0
+    out = json.loads(capsys.readouterr().out)
+
+    assert [d["text"] for d in out["descriptions"]] == ["A kitchen.", "A car."]
+
+
+def test_info_on_an_undescribed_project_is_untouched(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The summary is a substitution, so it must not appear where there is
+    nothing to substitute — an empty list stays the empty list `describe`
+    wrote."""
+    assert main(["init", str(tmp_path / "plain")]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(tmp_path / "plain"), "info"]) == 0
+    assert json.loads(capsys.readouterr().out)["descriptions"] == []

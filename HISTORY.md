@@ -2965,3 +2965,79 @@ Two of the note's numbers were off, both measured rather than argued:
 `lucid info` prints the manifest. That is a CLI-only surface, so no agent is
 flooded by it, but it is a debugging command that just got much harder to
 read. `describe_ls` is the table that answers this, and it is next.
+
+## `describe_ls`, step 2 of b-roll by description — 2026-08-09
+
+The table that reads the descriptions back, and it **is** the search: no
+ranking, no embeddings, no similarity threshold, for the note's measured
+reason. What follows is what building it added or answered.
+
+### It took `info` with it, and that needed an escape hatch
+
+Step 1 left the problem stated: descriptions live in the manifest, `lucid info`
+prints the manifest, and a described project's manifest is 103 KB. So `info`
+now stands that one block down to a count and a pointer, and everything else
+stays verbatim.
+
+The part worth writing down is that **substituting a summary is a lie unless
+there is a way to see the bytes**, and nothing else in lucid can show you what
+is on disk — `describe_ls` returns the descriptions, not the manifest. Hence
+`lucid info --raw`, and a test asserting it prints the stored entries. The
+summary is also *only* a substitution: on an undescribed project the empty list
+`describe` wrote stays an empty list, because a summary appearing where there is
+nothing to summarise is a second thing to explain.
+
+Measured on the real six-window project below: 6050 bytes of manifest to 1456.
+
+### `contains` matches terms, not a phrase, and real footage settled it
+
+The note called keyword filtering "a convenience on top, not a subsystem" and
+said nothing about what a match is. Substring-of-the-whole-string is the
+obvious reading and is the wrong one: on the real Scream footage the window
+that matters describes *"a knife on the kitchen counter"*, and nobody searching
+for it types that. `--contains "kitchen knife"` finds it because every term has
+to appear **somewhere**, not in that order.
+
+The terms it split into come back in `filter`, on the same principle that makes
+a word-indexed tool echo the words it resolved to: a search that quietly
+tokenised differently than you assumed returns a plausible wrong answer.
+
+### Two shapes that exist so an empty answer cannot mislead
+
+- **`total` rides along with `count`.** A filter matching 1 of 6 and a project
+  with 1 description in it print the same `descriptions` array. One of those
+  means "narrow your terms" and the other means "go and run `describe`", and
+  the caller cannot tell them apart without the denominator.
+- **`clips` covers every video clip, described or not.** A clip with
+  `windows: 0` has not been indexed; without the zero row, an undescribed clip
+  and a mistyped `clip_id` are the same empty result. `described_seconds`
+  against `duration` is the coverage check, and `duration` is rounded to match
+  it — 14.013 against 14.013292 reads as a shortfall that is not there.
+
+`words` is reported for the ceiling the note set: ~600 windows is where reading
+them all stops being reasonable, and a number after the fact beats a guess.
+
+### The web half of step 2's parity was not built, on purpose
+
+The build order asked for "CLI/MCP/web parity". CLI and MCP shipped; the web
+pane did not, and the reason is the same one that governs the timeline lanes:
+**nothing in the window places a cue.** Cue placement is a CLI and agent-panel
+operation, so a descriptions pane would draw the input to a decision the UI
+cannot take — a view widening ahead of the model. `cue_add --src-start` (step
+3) is what would give it a user. Noted rather than silently skipped, because a
+build order with an unexplained gap reads as an oversight.
+
+Worth recording that this is not the precedent breaking: `cue_ls` has no web
+endpoint either. The convention that is actually asserted, by
+`test_every_mcp_tool_has_a_cli_subcommand`, is CLI/MCP.
+
+### Verified on the GPU, and two of step 1's numbers held
+
+Six windows across two real Scream source clips, described for real rather than
+against the stub, then read back through the CLI and over a live MCP stdio
+session:
+
+- **34.6s against a 36s estimate** — the 3.5s-a-window constant plus the load,
+  on an independent run from the one that set it.
+- **593 words over 6 descriptions, ~99 each** — step 1 corrected the note's ~60
+  to ~97, and this lands on it. The ~600-window ceiling stands.

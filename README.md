@@ -288,6 +288,25 @@ The model runs under a separate interpreter (`LUCID_VLM`), so nothing here
 puts torch in lucid's own environment. `--plan` reports whether this machine
 can run it at all.
 
+Then read them back, which **is** the search — no ranking, no embeddings, no
+similarity score to tune:
+
+```sh
+lucid -C myproject describe-ls                        # the whole table
+lucid -C myproject describe-ls --contains "kitchen knife"
+lucid -C myproject describe-ls cold-open              # or one clip's
+```
+
+`--contains` takes terms rather than a phrase: every term has to appear
+somewhere in a description, so `kitchen knife` finds "a knife on the kitchen
+counter". A filtered result reports what it filtered *out of*, so a narrow
+answer cannot be mistaken for an empty project, and `words` says how much text
+came back — at roughly 600 windows, reading them all stops being reasonable.
+
+Descriptions live in the manifest, so `lucid info` reports a count and points
+here rather than printing them; `lucid info --raw` still prints the manifest
+verbatim.
+
 A cue names a *word*, so a later recut recomputes every shot position rather
 than invalidating it — and a cue whose word the recut removed is refused
 rather than silently snapped forward. Once a project has a cue table (or a

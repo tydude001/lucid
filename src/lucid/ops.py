@@ -389,6 +389,83 @@ def describe(
     return report
 
 
+def describe_ls(
+    path: Path | str,
+    clip_id: str | None = None,
+    *,
+    contains: str | None = None,
+) -> dict[str, Any]:
+    """List the footage descriptions — the read half of b-roll by description.
+
+    Read-only, and this *is* the search: no ranking, no embeddings, no
+    similarity threshold. The descriptions are text, and whoever is looking
+    reads them and picks. That holds up to a measured ceiling of roughly 600
+    windows, past which reading them in one go stops being reasonable and a
+    cross-project library would be the trigger to revisit (PLAN.md § B-roll by
+    description). `words` reports the size of what came back so that cost is
+    visible rather than guessed at.
+
+    `contains` is a convenience on top, not a subsystem: whitespace-separated
+    terms matched case-insensitively, and **every** term must appear somewhere
+    in a description for it to match — so `"kitchen knife"` finds "a knife on
+    the kitchen counter". The terms it split into come back under `filter`,
+    the same reason a word-indexed tool echoes what it landed on.
+
+    Ordered by `(clip_id, src_start)`: source order, which is the order the
+    footage runs in and which no edit can renumber. `clips` covers **every**
+    video clip in the project, described or not, so a zero there reads as "not
+    described yet" rather than "no such clip".
+    """
+    project = Project.open(path)
+    stored = _descriptions(project)
+    total = len(stored)
+
+    terms = (contains or "").split()
+    entries = [
+        d
+        for d in stored
+        if (clip_id is None or d["clip_id"] == clip_id)
+        and all(term.lower() in d["text"].lower() for term in terms)
+    ]
+    entries.sort(key=lambda d: (d["clip_id"], d["src_start"]))
+
+    # Every video clip, not just the described ones: "clipa: 0" is the answer
+    # to "is this footage indexed", and leaving it out makes an undescribed
+    # clip indistinguishable from a clip_id that does not exist.
+    described: dict[str, list[dict[str, Any]]] = {}
+    for d in stored:
+        described.setdefault(d["clip_id"], []).append(d)
+    clips = []
+    for clip in _describable(project, None):
+        cid = clip["clip_id"]
+        mine = described.get(cid, [])
+        clips.append(
+            {
+                "clip_id": cid,
+                "windows": len(mine),
+                "described_seconds": round(sum(d["src_end"] - d["src_start"] for d in mine), 3),
+                # Rounded to match `described_seconds`, because the pair is
+                # read as a coverage check and 14.013 against 14.013292 looks
+                # like a shortfall that is not there.
+                "duration": round(float(clip["duration"]), 3),
+                # Truncated entries read exactly like complete ones to whoever
+                # searches them, so the count rides along here too.
+                "truncated": sum(1 for d in mine if d.get("truncated")),
+            }
+        )
+
+    return {
+        "descriptions": entries,
+        "count": len(entries),
+        # What a filter matched *out of*: three hits with no total reads the
+        # same as a project with three descriptions in it.
+        "total": total,
+        "words": sum(len(d["text"].split()) for d in entries),
+        "clips": clips,
+        "filter": {"clip_id": clip_id, "contains": contains, "terms": terms},
+    }
+
+
 # -- cards -----------------------------------------------------------------
 #
 # Step 1 of PLAN.md § Motion graphics and templates: the asset a `card:` cue
