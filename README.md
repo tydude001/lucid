@@ -268,6 +268,26 @@ actually draw — **a card naming a font this machine lacks renders
 pixel-identically to one naming a font it has**, so `font_warnings` is the only
 place that substitution is visible.
 
+To find the b-roll to cue in the first place, describe it:
+
+```sh
+lucid -C myproject describe --plan          # what it would cost, no model loaded
+lucid -C myproject describe                 # every video clip not yet described
+lucid -C myproject describe cold-open       # or just one
+```
+
+Each clip is split into fixed ~10-second windows and each window gets a couple
+of sentences of what is visible in it, stored against the clip in **source**
+seconds — so cutting the edit can never invalidate one. It is a job rather
+than a request: about three and a half seconds per window, so a project's
+footage is minutes of GPU time, which is what `--plan` is for. **The windows
+are never widened to save time** — one pass over a whole clip described six
+frames as six people, fluently, with nothing on screen saying it was wrong.
+
+The model runs under a separate interpreter (`LUCID_VLM`), so nothing here
+puts torch in lucid's own environment. `--plan` reports whether this machine
+can run it at all.
+
 A cue names a *word*, so a later recut recomputes every shot position rather
 than invalidating it — and a cue whose word the recut removed is refused
 rather than silently snapped forward. Once a project has a cue table (or a

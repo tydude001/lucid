@@ -366,14 +366,27 @@ carries a length, a shot's length is derived from the edit, and a cue carrying
 a length is the failure § The property everything below defends exists to
 prevent. It gets its own note, after a watch of a card-heavy cut.
 
-**Next in the queue is b-roll by description, and its costed note is written —
-2026-08-09, nothing built** (§ B-roll by description). The note inverts the
-item's own framing: the indexing half everyone assumed was the cloud-shaped
-risk is local, resident and ~6 minutes for a whole project's footage, while the
-*placement* half DAYDREAM.md counted as already-coming does not exist — a cue
-cannot name a moment inside its asset, because `mlt.plan_picture` picks that by
-a consumption cursor. What search returns is a moment, so the build is an
-in-point on a cue, pinned and refusing rather than rewinding.
+**B-roll by description is in flight: its costed note is written and step 1
+shipped 2026-08-09** (§ B-roll by description; HISTORY.md § `describe`). The
+note inverts the item's own framing: the indexing half everyone assumed was
+the cloud-shaped risk is local, resident and ~8 minutes for a whole project's
+footage, while the *placement* half DAYDREAM.md counted as already-coming does
+not exist — a cue cannot name a moment inside its asset, because
+`mlt.plan_picture` picks that by a consumption cursor. What search returns is
+a moment, so the build is an in-point on a cue, pinned and refusing rather
+than rewinding.
+
+`describe` is that note's first three-quarters — the subprocess, the windows,
+the manifest storage, the v2 -> v3 bump and skip-if-already-described — and
+the design survived contact. What building it added was one rule the note did
+not state: **the window count rounds up, so a window is never longer than the
+one asked for**, because round-to-nearest silently widens and widening is the
+one direction that fails. Two of the note's measurements came back different
+on the real project — ~3.5s a window rather than 2.6-3.3, and ~97 words a
+description rather than ~60, which moves the read-them-all ceiling from ~1000
+windows to ~600. **Next is `describe_ls`**, and it has acquired a second
+reason to exist: the manifest is 103 KB on a described project, and
+`lucid info` prints the manifest.
 
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
@@ -407,10 +420,11 @@ timeline being the enabler and the look pass being gated on nothing:
    What it left is per-word *animation*, which shares a construction question
    with a single-word highlight and is an export cost, not a styling one.
    Then 3. **motion graphics + templates**, then
-4. **b-roll by description** — its costed note is written and nothing is built
-   (§ B-roll by description, 2026-08-09). The hour-metering worry resolved
-   against Daydream rather than for it: describing locally is minutes, and the
-   part that actually needs building is a cue that can name a moment.
+4. **b-roll by description** — step 1 of its costed note shipped 2026-08-09
+   (§ B-roll by description; HISTORY.md § `describe`), leaving `describe_ls`
+   and the pinned cue. The hour-metering worry resolved against Daydream
+   rather than for it: describing locally is minutes, and the part that
+   actually needs building is a cue that can name a moment.
 5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
    is no longer only a parity nicety** — it is what a `tiktok-reels` export
@@ -1330,10 +1344,11 @@ with it:
 - **No re-describe hook on edit.** Descriptions index the source; cutting the VO
   cannot invalidate them. Stated explicitly so nobody adds the invalidation.
 
-### Build order — nothing is built yet
+### Build order — step 1 shipped 2026-08-09
 
 1. `describe` — the subprocess, fixed windows, manifest storage, the schema
-   bump, and skip-if-already-described.
+   bump, and skip-if-already-described. **Shipped**, with the corrections
+   measured on the way in: HISTORY.md § `describe`.
 2. `describe_ls` — the table, with the CLI/MCP/web parity every tool here gets.
 3. `cue_add --src-start`, `plan_picture`'s pinned-entry refusal, and the stdio
    and HTTP suites that prove both are reachable rather than merely written.

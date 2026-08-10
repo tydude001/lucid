@@ -41,6 +41,11 @@ installed package or the upstream repo, not your memory.
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
   PLAN.md's older tables say. Why it is not an import: `asr.py`'s docstring.
+  - **The vision model behind `describe` is the same shape and lucid's venv
+    has no torch either** — `LUCID_VLM` names an *interpreter*, and
+    `_vlm_worker.py` ships inside the package precisely to be run by it
+    rather than imported. One process describes every window of every clip:
+    the load is ~15s against ~3.5s a window. HISTORY.md § `describe`.
 - **`claude -p` stream-json output requires `--verbose`, and the
   allow/disallow-tools flags do not gate built-in tools.** Without
   `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in
@@ -124,7 +129,14 @@ installed package or the upstream repo, not your memory.
   backs `info` and `status`, so a read would rewrite a project someone only
   looked at. Migration is explicit (`lucid migrate`), and a schema bump adds a
   step to `_MIGRATIONS` — keyed by the version it migrates *from* — rather
-  than widening `open`. HISTORY.md § The schema migration.
+  than widening `open`. HISTORY.md § The schema migration. **The schema is at
+  3**; v3 added `descriptions`.
+- **A footage description indexes the source, so no edit can invalidate one** —
+  the unit is `(clip_id, src_start, src_end, text)` in *source* seconds, and
+  there is deliberately no re-describe hook anywhere. Windows are never
+  *widened*: a whole-clip pass described six frames as six people, fluently,
+  so `plan_windows` rounds the count up rather than to nearest. PLAN.md
+  § B-roll by description.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

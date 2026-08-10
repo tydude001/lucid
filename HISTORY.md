@@ -2825,3 +2825,143 @@ with the layout adapted — full-bleed background, footer still off the bottom
 edge, no pillarbox. Rendered at 1920x1080 against the real cards, all three
 templates are recognisably the same design as the originals they were read
 from.
+
+## `describe`, step 1 of b-roll by description — 2026-08-09
+
+The costed note is PLAN.md § B-roll by description, and this is its first
+three-quarters: the subprocess, the windows, the manifest storage, the schema
+bump, and skip-if-already-described. `describe_ls` and the pinned cue are
+steps 2 and 3 and are not built.
+
+The note's design survived contact — nothing here contradicts it — so what
+follows is only what building it *added*.
+
+### The window count rounds up, and that was not in the note
+
+The note fixed the window length and said nothing about how a clip that is
+not a whole number of windows gets split. The obvious answer, nearest, is
+wrong, and a test caught it before any footage did: **25s at 10s windows
+became two windows of 12.5s.** Round-to-nearest silently *widens*, and
+widening is the one direction that fails — the whole-clip pass that described
+six frames as six people is just a window widened far enough. 14s at 10s
+windows would have been a single 14s window, 40% over what was asked for,
+arrived at silently.
+
+So the count is `ceil`, and the invariant is stated as **a window is never
+longer than the one asked for**. It trades cost for fidelity, and cost is the
+knob the caller already has. The windows are still divided evenly rather than
+`window`-then-a-remainder, for the note's reason: a 0.4s tail samples three
+frames from one instant and is then described as though it were ten seconds.
+
+### One process for the whole run, and why the worker is a separate file
+
+Loading the model is ~15s; describing a window is ~3s. So the unit of work
+handed to the subprocess is **every window of every clip at once**, not a
+window and not a clip — a process per clip would spend most of the run
+loading the same 31 GB of weights again. `ops.describe` builds the whole work
+list, `describe.describe_windows` runs it in one process, and results come
+back keyed by window index so nothing depends on the order they finish in.
+
+`_vlm_worker.py` lives inside the package but is **never imported by lucid**.
+It is executed by whichever interpreter `LUCID_VLM` resolves — the sibling
+tagging venv here — which is the same trade `asr.py` makes for whisper and
+for the same reason: `lucid status` should not pay for a torch import. What
+crosses the boundary is a JSON job file in and a JSON result file out.
+
+**A file rather than stdout**, and that is not fastidiousness: torch,
+transformers and bitsandbytes each write to whichever stream they feel like,
+and a progress bar landing in the middle of a JSON document is a parse error
+that reads exactly like a model failure. Whisper is read back from a file for
+the same reason.
+
+Reused from `tagger_core`: `load_qwen` and `run_vlm`, the measured-working
+4-bit config. Not reused: its prompt and its vocabulary, both
+specific to that repo's own library. lucid passes its own prompt, which asks for the
+concrete nouns a later search has to match on — a description reading "a
+person does something" indexes nothing.
+
+### A failed window is reported, not fatal, and truncation is computed
+
+Two error classes the note measured are surfaced on every result rather than
+smoothed over:
+
+- **`errors`** — a window the model could not describe. One unseekable moment
+  in a 133-window run is not a reason to throw away 132 good descriptions, so
+  the failure is recorded against that window and the run continues. The
+  *worker* failing to start at all is still an exception: nothing was
+  described.
+- **`truncated`** — text that stops mid-sentence. The note measured two
+  windows truncating at `max_new_tokens=120` and warned that whatever limit
+  ships "has to be checked against, not assumed". So the limit is 220 *and*
+  every entry is checked: a description ending anywhere but sentence-final
+  punctuation is flagged. It is still stored — it indexes what it did say —
+  because the failure being guarded against is that it reads as complete.
+
+The third error class is not detectable and is written down instead: the
+model narrates *across* a cut inside a window as though it were one take. A
+window is evidence of what is visible in a span, never of a continuous shot.
+
+### The schema bump, and what `describe` refuses
+
+v2 -> v3, one `_MIGRATIONS[2]` entry keyed by the version it migrates *from*,
+additive like v2 before it. It covers the optional in-point a cue gains in
+step 3 as well — one bump for both, because a v2 cue without one means in v3
+exactly what it meant in v2, so no cue needs rewriting.
+
+Descriptions live in the manifest rather than a sidecar directory or
+`cache/`: they are per-clip metadata `info` should report, they have no
+natural filename the way a card does, and they cost GPU minutes, which is not
+what `cache/` is for.
+
+Two refusals, both naming what they refused:
+
+- **An audio-only clip.** Descriptions index pictures; its words are what
+  `transcribe` indexes. Skipping it quietly reads the same as describing it
+  and finding nothing worth saying — and the Scream project's VO is exactly
+  this clip, so the quiet version would have shipped.
+- **No interpreter with a vision model.** `LUCID_VLM`, then the sibling venv,
+  then a refusal naming both. There is no PATH step, unlike
+  `asr.whisper_binary`: `python` is always on PATH and is almost never the one
+  with torch in it, so searching it would resolve to an interpreter that fails
+  several minutes later with an ImportError instead of refusing now.
+
+`plan=True` resolves the whole work list, the estimate, and whether this box
+can run the model at all — without loading anything. **The estimate includes
+the model load**, which matters more than it sounds: three windows is 9s of
+describing and 25s of waiting, and an estimate wrong by 3x on the small run
+someone checks it against is not a useful estimate.
+
+### Verified on the real footage, and two numbers the note had wrong
+
+The whole Scream project — nine video clips, 14s to 730s — described end to
+end: **139 windows, 0 errors, 0 truncations, 498.6s** against an estimate of
+502. The 730s cold open is 74 windows and did not OOM, which is finding 3
+holding: frames per call are fixed at 3 and length is absorbed by the window
+count, so the clip that failed vaultmedia's length-scaled rule is unremarkable
+here. GPU sat at 11.5 of 12.2 GiB throughout, alongside the always-on
+`llama-server`.
+
+Finding 4 reproduced exactly on the clip it was measured on. The whole-clip
+pass had described the 30s Billy/Stu window as six men; in windows it reads
+*"a kitchen... a person wearing a white shirt with red stains resembling
+blood, holding a knife"* — two people, correctly. The cold open gives the kind
+of noun a search actually needs: *"a hand reaching towards a corded telephone
+on a wooden table"*, *"a wooden entertainment center that houses a television
+displaying a blue screen"*.
+
+Two of the note's numbers were off, both measured rather than argued:
+
+- **~3.5s per window, not 2.6-3.3.** The note's spike ran on smaller frames;
+  the real mix at 1920x816 is slower. The estimate carries 3.5 and now lands
+  within 1% on a 139-window run.
+- **~97 words per description, not ~60.** That moves the ceiling on "search is
+  the agent reading the descriptions": this project is **~18k tokens, not
+  10k**, and the point where reading them stops being reasonable arrives at
+  roughly 600 windows rather than 1000. The design is unchanged — 18k is
+  readable, and the trigger for embeddings is still a *cross-project* library
+  — but the number to revisit it at is 600.
+
+**One thing this leaves for step 2**: the manifest is now 103 KB, and
+`lucid info` prints the manifest. That is a CLI-only surface, so no agent is
+flooded by it, but it is a debugging command that just got much harder to
+read. `describe_ls` is the table that answers this, and it is next.
