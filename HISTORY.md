@@ -1738,6 +1738,17 @@ it — and `timeline_view` grew `layered`.
   would otherwise leave a half-muxed file at the destination that looks
   finished — and the destination may be on the NAS, which the flatpak's writes
   should not be aimed at mid-encode either.
+  - **Nothing ever removes a staging directory, and that is deliberate for the
+    failures and untidy for the successes.** A disagreeing render is *meant* to
+    stay put — the bullet above is the reason, the file being the evidence — but
+    a successful one leaves its directory behind too. Measured 2026-08-10 after
+    two days of heavy rendering: **51 directories, 408 KB total**, each holding
+    one ~4.7 KB `timeline.mlt` and no media, because the output was copied out
+    and the scratch encode removed with it. So this is tidiness, not disk, and
+    it is recorded here rather than opened as work — the number is the point,
+    since "renders leave scratch behind" sounds like a space problem and is off
+    by about four orders of magnitude. The kept `.mlt` files are also the only
+    on-disk record of what document each render was given.
 - **The window picks a container that can hold picture.** `RenderJob` named its
   output after the primary clip's media, which on a layered timeline is the VO's
   `.wav` — melt would have been asked to mux h264 into a wav. It asks
@@ -3989,3 +4000,68 @@ highlight colour, so it signals progress through the line rather than which
 word is being said. Reopening costs about a day, not a layout engine, and the
 tag measurements stay valid because they are facts about libass rather than
 about this project. The four renders are kept at `~/lucid-caption-anim/`.
+
+## The film had no captions in it — 2026-08-10
+
+The layered-timeline row said the finished cut's captions were "the `clean`
+default — white, no fill", so applying the look picked earlier that day read as
+one `caption_style` call and a re-render. It was not. **`~/lucid-final-cut/out.mp4`
+had no captions burned into it at all**, and had never had any.
+
+The check that found it was a pixel readback of the film itself, at 17 points
+across its 336 seconds: **zero caption ink at twelve of them**. The other five
+were not captions either — they were ~289000 saturated pixels, the *whole*
+bottom band, which is a full-frame review card. A sentence in a status table was
+the only thing that had ever asserted the captions existed.
+
+**This is § The VO the project was holding again, one layer out.** That entry's
+rule is that a project seeded from one stage of an outside edit stays at that
+stage while every downstream number agrees. Here nothing was even stale: the
+manifest's `caption_style` was genuinely `clean`, `caption-view` genuinely
+resolved it, and both were true statements about *project state*. Neither is a
+statement about the file, and no op connects the two — `export --render` does not
+burn captions and never claimed to, `captions --burn` is a separate opt-in step,
+and nothing reports that a render was made without it.
+
+So the rule this earns is narrower than the VO one and shares its shape:
+**`caption_style` is a claim about what a burn would draw, never evidence that a
+burn happened.** The only thing that settles it is reading the render.
+
+### What the burn then found, which the row could not have
+
+`verify` and `check_frames` were clean, because they answer whether the render
+says what the timeline says, and it did. What they do not answer is whether
+anyone can read the result. White captions over the seven light "receipt" cards
+measure a **1.10:1** contrast ratio against the card's own `(250, 243, 236)`;
+amber over the same card is 1.41:1. Both are invisible, and what keeps the words
+legible at all is the 3px black outline. Over footage the same captions measure
+21:1.
+
+Measured against the shot plan rather than eyeballed, because the fraction is
+what decides whether it matters: **13 of 38 shots are cards, 90.6s of 336.3s**,
+and of the twelve distinct cards **seven are light and five are dark**. Only the
+light ones are affected, and against them **49 of 178 caption lines — 67.3
+caption-seconds** draw at that ratio.
+
+The candidate fix measures well and is not free. `caption_style --box` (ASS
+`BorderStyle: 3`, the one field that differs) takes the same words from 1.95:1
+to **20.87:1** — but libass draws one box per override block, so a `\k` line
+gets one box per karaoke chunk and the top and bottom edges come out ragged
+where they meet. **Fill and clean box edges are in tension the same way a scale
+pop and a still line are** (§ The caption animation nobody wanted), which makes
+this an editorial call and not a build. It is Tyler's, on a watch, and the 13
+seconds either way are rendered and served for it.
+
+### The smaller correction, on the record because it changed what he watched
+
+The four caption treatments of § The caption animation nobody wanted were
+rendered with a **red** highlight (`&H003B30FF`) that the probes hardcoded, and
+option 1 was labelled "what lucid writes today". lucid's `karaoke` preset is
+**amber** (`&H0000C8FF`). The label was wrong; the decision was not, because the
+colour was constant across all four options and the variable was the motion. But
+the film he approved from and the film the preset produces differ in a way he can
+see, so it is said plainly rather than left to be noticed.
+
+The generated ASS is otherwise identical to the probe's `fill.ass` — same `\k`
+values, same line breaks, same PlayRes and margins — which is what makes the
+comparison exact.

@@ -205,6 +205,18 @@ installed package or the upstream repo, not your memory.
   is part of the look, so it is stored with it. `captions.resolve` is the only
   translation and `ops._caption_cues` the only derivation. HISTORY.md § Caption
   styling has each trap and the measurement behind it.
+  - **`caption_style` says what a burn *would* draw, never that one happened.**
+    `export --render` does not burn captions; `captions --burn` is a separate
+    opt-in step and nothing reports a render made without it. So a manifest,
+    `caption-view`, `verify` and `check_frames` can all agree about captions
+    that are not in the file — the finished cut carried none for three days on
+    the strength of a status line. Settle it by reading the render's pixels.
+    HISTORY.md § The film had no captions in it.
+    - And a legible one is a further question: over the light cards white
+      captions measure **1.10:1**, held together only by the outline, while
+      `verify` stays clean because the render does match the timeline. A box
+      (`--box`) buys 20.87:1 and costs clean edges, since libass draws one box
+      per override block and `\k` makes one block per word.
   - **The font named in a style may not be installed** — libass substitutes
     silently and ffmpeg still exits 0, and **a card's SVG has the same hole**:
     it rasterises pixel-identically whether the face exists or not.
