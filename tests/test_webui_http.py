@@ -270,6 +270,80 @@ def test_the_picture_lane_reaches_the_page_over_http(project: Path, server: str)
     assert shot["word_index"] == 2
 
 
+def _make_broll(root: Path, *, duration: float) -> Path:
+    """A real encoded clip for the picture lane to point at. Real, because
+    `_resolve_asset` reads the registered duration off a probe and the pin is
+    checked against it."""
+    broll = root / "broll.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=160x120:rate=30:duration={duration}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(broll),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    return broll
+
+
+def test_a_pinned_cue_reaches_the_lane_with_the_moment_it_names(
+    project: Path, server: str
+) -> None:
+    """The b-roll placement, drawn. `src_pin` is what the cue asked for and
+    `src_start` is where the planner says the shot reads — the page needs both,
+    because the preview layer seeks to `src_start` and a viewer who cannot see
+    that the two agree has no way to tell a placement from a re-use.
+    """
+    broll = _make_broll(project.parent, duration=8.0)
+    ops.import_media(project, broll, clip_id="broll")
+    Project.open(project).cards_dir.joinpath("outro.png").write_bytes(b"\x89PNG")
+    ops.cue_add(project, "vo", 0, "broll", src_start=2.0)
+    ops.cue_add(project, "vo", 4, "card:outro")
+
+    status, payload = _json(f"{server}/api/view")
+
+    assert status == 200
+    shots = payload["shots"]
+    assert shots[0]["asset"] == "broll"
+    assert shots[0]["src_pin"] == 2.0
+    assert shots[0]["src_start"] == pytest.approx(2.0)
+    assert shots[0]["src_in"] == 60  # 2.0s on the 30fps export grid
+    # A card takes no pin, and says so rather than reporting a number.
+    assert shots[1]["src_pin"] is None
+
+
+def test_a_pin_that_runs_off_its_asset_is_drawn_as_a_refusal_not_a_rewind(
+    project: Path, server: str
+) -> None:
+    """The safety property this step adds, over the wire. Unpinned, the same
+    shot is drawn from the head of the clip without complaint — so the test
+    does both, because the pair is the design: the rewind is right for a
+    re-use and would be a lie for a placement.
+    """
+    broll = _make_broll(project.parent, duration=8.0)
+    ops.import_media(project, broll, clip_id="broll")
+    Project.open(project).cards_dir.joinpath("outro.png").write_bytes(b"\x89PNG")
+    ops.cue_add(project, "vo", 0, "broll", src_start=7.0)  # 4s shot, 1s left in the clip
+    ops.cue_add(project, "vo", 4, "card:outro")
+
+    status, payload = _json(f"{server}/api/view")
+
+    assert status == 200
+    assert payload["shots"] is None
+    assert "a pinned cue shows the moment it names" in payload["shots_error"]
+    # Every other lane still answers — the window is how the cue gets fixed.
+    assert payload["words"] is not None
+    assert payload["segments"]
+
+    ops.cue_rm(project, "vo", 0)
+    ops.cue_add(project, "vo", 0, "broll")
+
+    _, redrawn = _json(f"{server}/api/view")
+    assert redrawn.get("shots_error") is None
+    assert redrawn["shots"][0]["src_in"] == 0
+
+
 def test_a_cue_the_edit_cuts_away_is_drawn_as_a_refusal_not_a_500(
     project: Path, server: str
 ) -> None:

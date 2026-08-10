@@ -153,3 +153,65 @@ def test_cue_ls_filters_by_clip_id(project: Project) -> None:
 def test_cue_ls_on_an_empty_table_reports_nothing(project: Project) -> None:
     listed = ops.cue_ls(project.root)
     assert listed == {"cues": [], "count": 0}
+
+
+# -- the pinned in-point (PLAN.md § B-roll by description) -----------------
+
+
+def test_cue_add_stores_a_pinned_in_point_and_echoes_it(project: Project) -> None:
+    added = ops.cue_add(project.root, "vo", 2, "cold-open", src_start=12.5)
+
+    assert added["src_start"] == 12.5
+    assert project.read_manifest()["cues"] == [
+        {"clip_id": "vo", "word_index": 2, "asset": "cold-open", "src_start": 12.5}
+    ]
+
+
+def test_an_unpinned_cue_is_written_exactly_as_it_was_before_the_pin_existed(
+    project: Project,
+) -> None:
+    """The migration rests on this: a v2 cue means in v3 what it meant in v2,
+    so `_v2_to_v3` rewrites no cue. A `"src_start": None` written into the
+    table would be a fourth key those manifests do not have."""
+    ops.cue_add(project.root, "vo", 2, "cold-open")
+
+    assert project.read_manifest()["cues"] == [
+        {"clip_id": "vo", "word_index": 2, "asset": "cold-open"}
+    ]
+
+
+def test_cue_add_refuses_an_in_point_before_the_start_of_the_asset(project: Project) -> None:
+    with pytest.raises(tx.TranscriptError, match="before the start of"):
+        ops.cue_add(project.root, "vo", 2, "cold-open", src_start=-0.5)
+
+    assert project.read_manifest().get("cues", []) == []
+
+
+def test_cue_add_refuses_an_in_point_on_a_card(project: Project) -> None:
+    """A still is held, not played, so a pin on one could only ever be
+    ignored — and a silently ignored in-point is a cue that says it shows a
+    moment and does not."""
+    with pytest.raises(tx.TranscriptError, match="no playhead to move"):
+        ops.cue_add(project.root, "vo", 2, "card:receipt", src_start=3.0)
+
+    assert project.read_manifest().get("cues", []) == []
+
+
+def test_cue_add_does_not_check_the_pin_against_the_assets_length(project: Project) -> None:
+    """`asset` is opaque here — resolving it needs media on disk and belongs
+    to the projection. A pin 90s into a 5s clip is accepted and refused by
+    `build_shots`/`plan_picture`, which is where the duration is known."""
+    added = ops.cue_add(project.root, "vo", 2, "no-such-clip", src_start=90.0)
+
+    assert added["src_start"] == 90.0
+
+
+def test_cue_ls_and_cue_rm_report_the_pin(project: Project) -> None:
+    ops.cue_add(project.root, "vo", 0, "cold-open", src_start=4.25)
+    ops.cue_add(project.root, "vo", 3, "s4-reveal")
+
+    listed = ops.cue_ls(project.root)
+    assert [c["src_start"] for c in listed["cues"]] == [4.25, None]
+
+    removed = ops.cue_rm(project.root, "vo", 0)
+    assert removed["src_start"] == 4.25

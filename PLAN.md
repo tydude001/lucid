@@ -392,6 +392,21 @@ second reason it had acquired — a described project's manifest is 103 KB and
 `lucid info` printed the manifest — by standing that block down to a count
 behind a `--raw` escape.
 
+**Step 3, the pinned cue, shipped the same day, and the item's build is now
+complete** (HISTORY.md § The pinned cue). `cue_add` takes an in-point,
+`plan_picture` refuses rather than rewinding for a cue that carries one, and
+the whole thing was verified by rendering colour-coded b-roll through melt and
+reading the pixels back — the rewind it exists to prevent produces a file and
+exit 0, so the suites alone could not settle it. Two things came out of
+building it. The shot dict needed a **second field name**, `src_pin` for the
+cue's ask against `src_start` for the planner's answer, because one key
+meaning both would have looked right in every test that had a pin in it. And
+**a pin advances the per-asset cursor**, so an unpinned re-use after one
+carries on instead of replaying what was just shown.
+
+What is left of b-roll is the note's own step 4, which is not a build: **watch
+a cut that actually uses b-roll**, before ranking of any kind.
+
 One named thing did not ship and is blocked rather than unfinished: a
 **`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
 of the 16:9 frame and a real reframe is § Next's own deferred aspect-swap
@@ -424,13 +439,14 @@ timeline being the enabler and the look pass being gated on nothing:
    What it left is per-word *animation*, which shares a construction question
    with a single-word highlight and is an export cost, not a styling one.
    Then 3. **motion graphics + templates**, then
-4. **b-roll by description** — steps 1 and 2 of its costed note shipped
-   2026-08-09 (§ B-roll by description; HISTORY.md § `describe`,
-   § `describe_ls`), leaving **the pinned cue**. Footage can now be indexed
-   and searched; what it cannot yet do is *place* what the search found. The
-   hour-metering worry resolved against Daydream rather than for it:
-   describing locally is minutes, and the part that actually needs building
-   is a cue that can name a moment.
+4. **b-roll by description** — **all three build steps shipped 2026-08-09**
+   (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
+   pinned cue). Footage is indexed, searched, and now *placed*: a cue carries
+   an in-point and the shot shows the moment it names or `export` refuses.
+   The hour-metering worry resolved against Daydream rather than for it —
+   describing locally is minutes, and the part that actually needed building
+   was the cue that could name a moment. **What is left is not a build**: the
+   note's step 4 is a watch of a real b-roll cut, before ranking of any kind.
 5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
    is no longer only a parity nicety** — it is what a `tiktok-reels` export
@@ -1362,5 +1378,12 @@ with it:
    § `describe_ls`.
 3. `cue_add --src-start`, `plan_picture`'s pinned-entry refusal, and the stdio
    and HTTP suites that prove both are reachable rather than merely written.
+   **Shipped 2026-08-09**, verified by a real melt render rather than by the
+   suites alone: HISTORY.md § The pinned cue. What it added is a second field
+   name — the cue's ask is `src_pin` and the planner's answer is `src_start`,
+   because carrying both under one key would have read correctly in every test
+   that had a pin in it.
 4. **Stop.** Watch a cut that actually uses b-roll before adding ranking of any
    kind — the same discipline the layered timeline and the card note used.
+   **This is where the item now sits**: all three build steps are done and
+   nothing further gets designed until a real b-roll cut has been watched.

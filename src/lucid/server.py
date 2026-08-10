@@ -326,7 +326,9 @@ def card_render(
 
 
 @_tool()
-def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
+def cue_add(
+    path: str, clip_id: str, word_index: int, asset: str, src_start: float | None = None
+) -> dict[str, Any]:
     """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
 
     Source-addressed like a word range — `asset` is an opaque key or path,
@@ -335,8 +337,23 @@ def cue_add(path: str, clip_id: str, word_index: int, asset: str) -> dict[str, A
     sits at that exact word; cue_rm it first to replace it. Echoes the
     resolved word plus three either side, the same convention every
     word-indexed tool follows.
+
+    `src_start` pins **where inside `asset` the shot reads from**: seconds in
+    that asset's own source time, which is exactly the number `describe_ls`
+    reports for a window. This is how a moment you found with `describe` gets
+    placed — without it the shot reads from wherever the per-asset cursor
+    had got to, which is right for re-using a clip and wrong for showing the
+    thing you searched for.
+
+    It is an in-point and never a range: the out-point stays derived from the
+    next cue through the edit, so a later cut still renumbers the shot
+    correctly. The cost is a refusal instead of a rewind — if the shot's
+    length runs past the end of the asset from that in-point, `build_shots`
+    and the picture lane report it rather than quietly showing the asset's
+    opening seconds instead. Shorten the shot with another cue, or pin
+    earlier. A card takes no `src_start`; a held frame has no playhead.
     """
-    return ops.cue_add(path, clip_id, word_index, asset)
+    return ops.cue_add(path, clip_id, word_index, asset, src_start=src_start)
 
 
 @_tool()

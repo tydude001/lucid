@@ -245,6 +245,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cue_add.add_argument(
         "asset", help="card:name, or a registered video clip_id — `lucid shots` resolves it"
     )
+    p_cue_add.add_argument(
+        "--src-start",
+        type=float,
+        help="pin the in-point: seconds into the asset's own source time, as "
+        "`lucid describe ls` reports it. Omitted, the shot reads from wherever "
+        "the per-asset cursor is. In-point only — the out-point stays derived",
+    )
 
     p_cue_rm = cue_sub.add_parser("rm", help="remove a cue")
     p_cue_rm.add_argument("clip_id")
@@ -822,7 +829,15 @@ def _cmd_card(args: argparse.Namespace) -> int:
 
 def _cmd_cue(args: argparse.Namespace) -> int:
     if args.cue_command == "add":
-        return _emit(ops.cue_add(args.project, args.clip_id, args.word_index, args.asset))
+        return _emit(
+            ops.cue_add(
+                args.project,
+                args.clip_id,
+                args.word_index,
+                args.asset,
+                src_start=args.src_start,
+            )
+        )
     if args.cue_command == "rm":
         return _emit(ops.cue_rm(args.project, args.clip_id, args.word_index))
     return _emit(ops.cue_ls(args.project, clip_id=args.clip_id))

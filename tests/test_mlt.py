@@ -25,7 +25,8 @@ RATE = 30.0
 
 
 def _shot(asset: str, frames: int, *, is_image: bool = False, duration: float | None = None,
-          path: str | None = None, start_frame: int = 0) -> dict[str, object]:
+          path: str | None = None, start_frame: int = 0,
+          src_pin: float | None = None) -> dict[str, object]:
     return {
         "asset": asset,
         "asset_path": path or f"/media/{asset}.mp4",
@@ -35,6 +36,7 @@ def _shot(asset: str, frames: int, *, is_image: bool = False, duration: float | 
         "start_frame": start_frame,
         "clip_id": "vo",
         "word_index": 1,
+        "src_pin": src_pin,
     }
 
 
@@ -112,6 +114,89 @@ def test_plan_picture_refuses_an_asset_with_no_known_duration() -> None:
 def test_plan_picture_refuses_a_shot_with_no_frames_in_it() -> None:
     with pytest.raises(mlt.MLTError, match="a cue landed on top of the next one"):
         mlt.plan_picture([_shot("film", 0, duration=10.0)], RATE)
+
+
+# -- the pinned cue: it shows the moment it names, or it refuses -----------
+
+
+def test_plan_picture_reads_a_pinned_shot_from_its_in_point() -> None:
+    """The whole point of the pin: somebody read a description and asked for
+    *that* moment, so the cursor does not get a say."""
+    entries = mlt.plan_picture([_shot("film", 30, duration=10.0, src_pin=4.0)], RATE)
+
+    assert [(e.src_in, e.frames) for e in entries] == [(120, 30)]
+
+
+def test_a_pin_beats_the_cursor_a_previous_use_of_the_same_asset_left() -> None:
+    entries = mlt.plan_picture(
+        [_shot("film", 60, duration=10.0), _shot("film", 30, duration=10.0, src_pin=6.0)], RATE
+    )
+
+    assert [e.src_in for e in entries] == [0, 180]
+
+
+def test_an_unpinned_re_use_after_a_pin_carries_on_from_where_the_pin_ended() -> None:
+    """A pin consumes its stretch like any other shot — otherwise the shot
+    after it replays footage the viewer has just seen."""
+    entries = mlt.plan_picture(
+        [_shot("film", 30, duration=10.0, src_pin=4.0), _shot("film", 30, duration=10.0)], RATE
+    )
+
+    assert [e.src_in for e in entries] == [120, 150]
+
+
+def test_plan_picture_refuses_a_pinned_shot_that_runs_past_its_asset() -> None:
+    """The one thing this step exists to prevent. Unpinned, this rewinds to 0
+    and shows the asset's opening seconds — correct pixels, wrong video, and
+    nothing on screen saying the search result was not what got placed."""
+    with pytest.raises(mlt.MLTError, match="pins 'film' to 8.0s and the shot runs 3.0s"):
+        mlt.plan_picture([_shot("film", 90, duration=10.0, src_pin=8.0)], RATE)
+
+    # And the edge it stops exactly at: ending on the asset's last frame fits.
+    entries = mlt.plan_picture([_shot("film", 60, duration=10.0, src_pin=8.0)], RATE)
+    assert [(e.src_in, e.src_out) for e in entries] == [(240, 299)]
+
+
+def test_the_pinned_refusal_is_not_the_rewind_the_same_shot_would_have_got() -> None:
+    """Stated as a pair, because the two answers to one arrangement of frames
+    are the whole design: the rewind is right for a re-use and wrong for a
+    placement."""
+    unpinned = _shot("film", 45, duration=2.0)
+    entries = mlt.plan_picture([_shot("film", 45, duration=2.0), unpinned], RATE)
+    assert [e.src_in for e in entries] == [0, 0]
+
+    with pytest.raises(mlt.MLTError, match="a pinned cue shows the moment it names"):
+        mlt.plan_picture([_shot("film", 45, duration=2.0, src_pin=1.0)], RATE)
+
+
+def test_plan_picture_refuses_a_pin_before_the_start_of_the_asset() -> None:
+    with pytest.raises(mlt.MLTError, match="before the start of the asset"):
+        mlt.plan_picture([_shot("film", 30, duration=10.0, src_pin=-1.0)], RATE)
+
+
+def test_plan_picture_refuses_a_pin_on_a_still_rather_than_ignoring_it() -> None:
+    """`cue_add` turns this away first. If one reached here it would be a
+    silent no-op, which is the failure mode this file is written against."""
+    with pytest.raises(mlt.MLTError, match="it is a still"):
+        mlt.plan_picture(
+            [_shot("card:x", 30, is_image=True, path="/cards/x.png", src_pin=2.0)], RATE
+        )
+
+
+def test_a_shot_with_no_src_pin_key_at_all_still_plans() -> None:
+    """The projection is the only caller that sets the key, and a caller
+    building shots by hand (the export path's own tests do) must not have to."""
+    bare = {
+        "asset": "film",
+        "asset_path": "/media/film.mp4",
+        "asset_duration": 10.0,
+        "is_image": False,
+        "frames": 30,
+        "start_frame": 0,
+        "clip_id": "vo",
+        "word_index": 1,
+    }
+    assert [e.src_in for e in mlt.plan_picture([bare], RATE)] == [0]
 
 
 # -- the document, read back off itself -----------------------------------

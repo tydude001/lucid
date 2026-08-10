@@ -295,3 +295,75 @@ def test_the_view_reports_the_writers_refusal_too_not_just_the_projections(
     assert view["shots"] is None
     assert "is only" in view["shots_error"]
     assert "tiny" in view["shots_error"]
+
+
+# -- the pinned cue, through the projection and onto the lane -------------
+#
+# `build_shots` carries the pin and decides nothing about it — the two field
+# names are the point. `src_pin` is what the cue asked for; `src_start` is
+# where the planner says the shot actually reads. That they agree for a
+# pinned shot is the whole guarantee, and it is only a guarantee because
+# `plan_picture` refuses instead of rewinding when they cannot.
+
+
+def test_build_shots_carries_the_pin_without_deciding_anything_about_it(
+    project: Project,
+) -> None:
+    ops.cue_add(project.root, "vo", 1, "clipa", src_start=5.0)
+    ops.cue_add(project.root, "vo", 3, "clipa")
+
+    shots = ops.build_shots(project.root, fps=30.0)["shots"]
+
+    assert [s["src_pin"] for s in shots] == [5.0, None]
+    # The projection says when and for how long, and nothing about where
+    # inside the asset — that stays the planner's answer.
+    assert "src_start" not in shots[0]
+    assert "src_in" not in shots[0]
+
+
+def test_the_lane_reads_a_pinned_shot_from_the_moment_its_cue_names(
+    project: Project,
+) -> None:
+    ops.cue_add(project.root, "vo", 1, "clipa", src_start=5.0)  # forced to frame 0
+    ops.cue_add(project.root, "vo", 3, "clipa")  # "after", 2.2s -> frame 66 at 30fps
+
+    shots = ops.timeline_view(project.root)["shots"]
+
+    # What the cue asked for and where the shot reads are the same number.
+    assert shots[0]["src_pin"] == 5.0
+    assert shots[0]["src_start"] == pytest.approx(5.0)
+    assert shots[0]["src_in"] == 150
+    # And the unpinned re-use after it carries on from where the pin ended,
+    # rather than replaying the footage just shown.
+    assert shots[1]["src_pin"] is None
+    assert shots[1]["src_in"] == 150 + shots[0]["frames"]
+
+
+def test_the_lane_reports_a_pin_that_runs_off_its_asset_rather_than_rewinding(
+    project: Project,
+) -> None:
+    """The failure this step exists for, at the level a person sees it. The
+    identical arrangement of frames without the pin is drawn happily — the
+    cursor rewinds to 0, which is right for a re-use. Pinned it refuses,
+    because rewinding would show the asset's opening seconds under a cue that
+    says it shows the moment at 9.0s: correct pixels, wrong video.
+    """
+    ops.cue_add(project.root, "vo", 1, "clipa", src_start=9.0)
+    ops.cue_add(project.root, "vo", 3, "card:outro")
+
+    view = ops.timeline_view(project.root)
+
+    assert view["shots"] is None
+    assert "a pinned cue shows the moment it names" in view["shots_error"]
+    # Reported, not raised: the rest of the view still answers, because this
+    # window is how a person finds the cue to move.
+    assert len(view["segments"]) == 2
+    assert view["words"] is not None
+
+    # The same shot, unpinned, draws without complaint.
+    ops.cue_rm(project.root, "vo", 1)
+    ops.cue_add(project.root, "vo", 1, "clipa")
+
+    redrawn = ops.timeline_view(project.root)
+    assert redrawn.get("shots_error") is None
+    assert redrawn["shots"][0]["src_in"] == 0

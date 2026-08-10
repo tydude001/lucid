@@ -135,6 +135,14 @@ installed package or the upstream repo, not your memory.
   deliberately no re-describe hook. Windows are never *widened* — a whole-clip
   pass described six frames as six people — so `plan_windows` rounds the count
   up, never to nearest. PLAN.md § B-roll by description.
+  - **A cue's `src_start` pins the in-point, and a pinned shot refuses rather
+    than rewinds.** `plan_picture` rewinds an unpinned cursor that would
+    overrun its asset — right for a re-use, a silent wrong-video for a
+    placement. In a shot dict the cue's ask is **`src_pin`** and the planner's
+    answer is **`src_start`**: different keys because they are different
+    claims, and one key for both reads as correct in every test that has a pin
+    in it. An unpinned cue omits the key rather than storing null, which is
+    what lets `_v2_to_v3` rewrite no cue. HISTORY.md § The pinned cue.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

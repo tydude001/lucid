@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -3802,6 +3803,154 @@ def test_a_cue_table_makes_export_write_mlt_itself(tmp_path: Path) -> None:
     # millisecond timebase — asking for shots on 30 gives the same total.
     assert result["shots"]["total_frames"] == result["export"]["frames"]
     assert 'frame_rate_num="30"' in out.read_text(encoding="utf-8")
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_pinned_cue_puts_its_in_point_into_the_document(tmp_path: Path) -> None:
+    """`cue_add`'s `src_start` is reachable over the wire and lands in the XML.
+
+    The end of the b-roll chain: `describe` finds a moment, `describe_ls`
+    reports its `src_start`, and this is where that number becomes the `in`
+    on an entry melt reads. Asserted off the written document rather than off
+    `build_shots`, because the projection deliberately does not decide the
+    in-point — only the writer does, and a number that was right in the plan
+    and absent from the XML is exactly the bug this file exists to catch.
+    """
+    audio, transcript = _make_sources(tmp_path)
+    film = tmp_path / "film.mp4"
+    _make_video(film, duration=20.0)
+    project = tmp_path / "proj"
+    out = tmp_path / "out.kdenlive"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        pinned = await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=clip_id,
+            word_index=4,
+            asset=asset["clip_id"],
+            src_start=7.0,
+        )
+        return {
+            "pinned": pinned,
+            "listed": await client.call("cue_ls", path=str(project)),
+            "export": await client.call("export", path=str(project), output=str(out)),
+        }
+
+    result = anyio.run(_with_server, body)
+
+    assert result["pinned"]["src_start"] == 7.0
+    assert [c["src_start"] for c in result["listed"]["cues"]] == [None, 7.0]
+    assert result["export"]["writer"] == "mlt"
+
+    document = ET.fromstring(out.read_text(encoding="utf-8"))
+    film_nodes = {
+        node.get("id")
+        for node in document.iter()
+        if node.tag in {"chain", "producer"}
+        and any(
+            p.get("name") == "resource" and str(p.text).endswith("film.mp4")
+            for p in node.findall("property")
+        )
+    }
+    assert film_nodes, "the film never made it into the document at all"
+    # Track playlists only — `main_bin` lists the same film again as a bin
+    # entry, always at 0, and that one says nothing about the timeline.
+    picture_ins = [
+        int(entry.get("in"))
+        for playlist in document.iter("playlist")
+        if playlist.get("id") != "main_bin"
+        for entry in playlist.findall("entry")
+        if entry.get("producer") in film_nodes
+    ]
+    # Two shots off the film: the unpinned one from its head, and the pinned
+    # one at 7.0s * 30fps. Nothing rewound and nothing was clamped.
+    assert picture_ins == [0, 210], f"expected the pin at frame 210, got {picture_ins}"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_pinned_cue_that_outruns_its_asset_refuses_over_the_wire(tmp_path: Path) -> None:
+    """The safety property, at the transport. Unpinned this same shot rewinds
+    to the head of the clip and exports happily; pinned it must refuse, or the
+    film quietly shows the asset's opening seconds under a cue that says it
+    shows the moment at 19.0s.
+    """
+    audio, transcript = _make_sources(tmp_path)
+    film = tmp_path / "film.mp4"
+    _make_video(film, duration=20.0)
+    project = tmp_path / "proj"
+    out = tmp_path / "out.kdenlive"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=clip_id,
+            word_index=0,
+            asset=asset["clip_id"],
+            src_start=19.0,
+        )
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=4, asset=asset["clip_id"]
+        )
+        refused = await session.call_tool(
+            "export", {"path": str(project), "output": str(out)}
+        )
+        return {"is_error": refused.is_error, "text": refused.content[0].text}
+
+    result = anyio.run(_with_server, body)
+
+    assert result["is_error"]
+    assert "a pinned cue shows the moment it names" in result["text"]
+    assert not out.exists(), "a refused export must leave no half-written document"
+
+
+@needs_ffprobe
+def test_cue_add_refuses_a_pin_on_a_card_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A held frame has no playhead, so this is refused where it is cheapest —
+    before any media is resolved. Over the wire because a refusal that only
+    exists in `ops` is one the agent never meets."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        result = await session.call_tool(
+            "cue_add",
+            {
+                "path": str(project),
+                "clip_id": clip["clip_id"],
+                "word_index": 0,
+                "asset": "card:outro",
+                "src_start": 3.0,
+            },
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+    assert out["is_error"]
+    assert "no playhead to move" in out["text"]
 
 
 @needs_ffprobe

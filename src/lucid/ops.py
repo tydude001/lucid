@@ -615,7 +615,14 @@ def _cue_echo(parsed: tx.Transcript, word_index: int) -> dict[str, Any]:
     }
 
 
-def cue_add(path: Path | str, clip_id: str, word_index: int, asset: str) -> dict[str, Any]:
+def cue_add(
+    path: Path | str,
+    clip_id: str,
+    word_index: int,
+    asset: str,
+    *,
+    src_start: float | None = None,
+) -> dict[str, Any]:
     """Add a cue: from `word_index` of `clip_id` onward, show `asset`.
 
     Source-addressed, like every other word-indexed tool here — `asset` is
@@ -624,12 +631,48 @@ def cue_add(path: Path | str, clip_id: str, word_index: int, asset: str) -> dict
     Refused if a cue already sits at this exact word; remove it first with
     `cue_rm` to replace it, so a call can never silently pick a winner
     between two assets at the same word.
+
+    `src_start` **pins the in-point**: seconds into `asset`, in that asset's
+    own source time, which is exactly what a `describe_ls` window reports
+    (PLAN.md § B-roll by description). Omit it and the shot reads from
+    wherever `mlt.plan_picture`'s per-asset cursor has got to — the right
+    default for re-using a clip, and wrong for placing a moment somebody
+    searched for.
+
+    **It is an in-point only, never a range.** The out-point stays derived
+    from the next cue through the edit, because a cue carrying its own length
+    is the failure PLAN.md § The property everything below defends exists to
+    prevent — the music bed's lengths were tuned to a runtime and a later
+    append invalidated every one of them. What the pin costs instead is a
+    refusal: a pinned shot that outruns its asset is `plan_picture`'s error,
+    not a rewind, and it surfaces on the picture lane as `shots_error`.
+
+    Nothing here checks the pin against the asset's duration, for the same
+    reason nothing here resolves the asset: that needs media on disk, and it
+    is the projection's job. What it does check is the pin's own arithmetic —
+    a negative in-point, or one on a `card:`, where a held frame has no
+    playhead to move.
     """
     project = Project.open(path)
     media.get_clip(project, clip_id)
     parsed = _transcript(project, clip_id)
     word_index = int(word_index)
     echo = _cue_echo(parsed, word_index)
+
+    cue: dict[str, Any] = {"clip_id": clip_id, "word_index": word_index, "asset": asset}
+    if src_start is not None:
+        src_start = float(src_start)
+        if src_start < 0:
+            raise tx.TranscriptError(
+                f"src_start {src_start} is before the start of {asset!r} — an "
+                "in-point is seconds into the asset, in its own source time"
+            )
+        if asset.startswith("card:"):
+            raise tx.TranscriptError(
+                f"asset {asset!r} is a card, and a still has no playhead to move — "
+                "drop src_start, or point the cue at a video clip_id"
+            )
+        cue["src_start"] = src_start
 
     manifest = project.read_manifest()
     cues = manifest.setdefault("cues", [])
@@ -638,10 +681,16 @@ def cue_add(path: Path | str, clip_id: str, word_index: int, asset: str) -> dict
             f"{clip_id!r} already has a cue at word {word_index} — remove it "
             "with cue_rm first (CLI: `lucid cue rm`) if you meant to replace it"
         )
-    cues.append({"clip_id": clip_id, "word_index": word_index, "asset": asset})
+    cues.append(cue)
     cues.sort(key=lambda c: (c["clip_id"], c["word_index"]))
     project.write_manifest(manifest)
-    return {"clip_id": clip_id, "asset": asset, "cues": len(cues), **echo}
+    return {
+        "clip_id": clip_id,
+        "asset": asset,
+        "src_start": src_start,
+        "cues": len(cues),
+        **echo,
+    }
 
 
 def cue_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
@@ -664,6 +713,7 @@ def cue_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
     return {
         "clip_id": clip_id,
         "asset": match["asset"],
+        "src_start": match.get("src_start"),
         "cues": len(manifest["cues"]),
         **_cue_echo(parsed, word_index),
     }
@@ -693,6 +743,7 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
             {
                 "clip_id": cid,
                 "asset": cue["asset"],
+                "src_start": cue.get("src_start"),
                 **_cue_echo(transcripts[cid], cue["word_index"]),
             }
         )
@@ -770,6 +821,14 @@ def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
     shows for the duration computed here, and belong with the XML that
     consumes them — this step only says when and for how long.
 
+    A cue's optional in-point rides through as `src_pin` and is not one of
+    them: it is *carried*, never decided here. The distinction is worth the
+    second field name — `src_pin` is what the cue asked for, and the
+    `src_start` a shot picks up in `_picture_plan` is where it actually
+    reads. For a pinned shot they agree by construction, which is what
+    `plan_picture` refusing rather than rewinding buys; for an unpinned one
+    `src_pin` is None and `src_start` is wherever the cursor had got to.
+
     `fps` states which frame grid to answer on, and defaults to the project's
     own timebase — which for an audio-only project is **milliseconds**, not
     frames (`autoeditor.AUDIO_TIMEBASE`). An export quantises to a real frame
@@ -810,6 +869,7 @@ def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
                 "word_index": cue["word_index"],
                 "text": echo["text"],
                 "asset": cue["asset"],
+                "src_pin": cue.get("src_start"),
                 **_resolve_asset(project, cue["asset"]),
                 "start_frame": round(timeline_start * rate),
             }

@@ -122,13 +122,28 @@ def plan_picture(shots: list[dict[str, Any]], rate: float) -> list[Entry]:
     like a render bug rather than a re-use. A single shot longer than its
     whole asset cannot be solved by rewinding and refuses instead.
 
-    Stills have no cursor: a card is one frame held for the shot's length.
+    **A pinned shot has no cursor and never rewinds** — it refuses (PLAN.md
+    § B-roll by description). `src_pin` is source seconds, put there by a cue
+    carrying `src_start`: somebody read a description and asked for *that*
+    moment. Rewinding a pin to 0 would show footage the search did not find —
+    correct pixels, wrong video, and nothing on screen saying so — which is
+    the one failure a b-roll placement can make silently. The rewind above
+    stays right for an unpinned re-use, where the only claim being made is
+    "some of this clip".
+
+    A pin still advances the cursor, so an unpinned re-use after one carries
+    on from where the pinned stretch ended rather than replaying it.
+
+    Stills have no cursor: a card is one frame held for the shot's length. A
+    pin on one refuses rather than being ignored — `cue_add` turns it away
+    first, and a pin that reached here anyway would be a silent no-op.
     """
     cursors: dict[str, int] = {}
     entries: list[Entry] = []
     for shot in shots:
         resource = str(shot["asset_path"])
         frames = int(shot["frames"])
+        pin = shot.get("src_pin")
         if frames < 1:
             raise MLTError(
                 f"shot for {shot['asset']!r} at frame {shot['start_frame']} is "
@@ -136,6 +151,12 @@ def plan_picture(shots: list[dict[str, Any]], rate: float) -> list[Entry]:
             )
 
         if shot["is_image"]:
+            if pin is not None:
+                raise MLTError(
+                    f"the cue at {shot['clip_id']!r} word {shot['word_index']} pins "
+                    f"{shot['asset']!r} to {float(pin):.1f}s, but it is a still — a "
+                    "held frame has no playhead to move; drop the in-point"
+                )
             entries.append(Entry(resource, 0, frames, is_image=True, has_video=True))
             continue
 
@@ -153,9 +174,27 @@ def plan_picture(shots: list[dict[str, Any]], rate: float) -> list[Entry]:
                 f"{available / rate:.1f}s long — split the shot with another cue, "
                 "or point it at longer material"
             )
-        cursor = cursors.get(resource, 0)
-        if cursor + frames > available:
-            cursor = 0
+        if pin is None:
+            cursor = cursors.get(resource, 0)
+            if cursor + frames > available:
+                cursor = 0
+        else:
+            cursor = round(float(pin) * rate)
+            if cursor < 0:
+                raise MLTError(
+                    f"the cue at {shot['clip_id']!r} word {shot['word_index']} pins "
+                    f"{shot['asset']!r} to {float(pin):.1f}s, which is before the "
+                    "start of the asset"
+                )
+            if cursor + frames > available:
+                raise MLTError(
+                    f"the cue at {shot['clip_id']!r} word {shot['word_index']} pins "
+                    f"{shot['asset']!r} to {cursor / rate:.1f}s and the shot runs "
+                    f"{frames / rate:.1f}s, which ends past the asset's "
+                    f"{available / rate:.1f}s — a pinned cue shows the moment it "
+                    "names or nothing, so move the in-point earlier or shorten the "
+                    "shot with another cue"
+                )
         entries.append(Entry(resource, cursor, frames, has_video=True))
         cursors[resource] = cursor + frames
     return entries

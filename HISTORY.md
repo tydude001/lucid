@@ -3041,3 +3041,105 @@ session:
   on an independent run from the one that set it.
 - **593 words over 6 descriptions, ~99 each** — step 1 corrected the note's ~60
   to ~97, and this lands on it. The ~600-window ceiling stands.
+
+## The pinned cue, step 3 of b-roll by description — 2026-08-09
+
+The last thing the note said to build: `cue_add --src-start`, and
+`plan_picture` refusing rather than rewinding for a cue that carries one. It
+closes the gap the note found — `describe` indexes footage and `describe_ls`
+searches it, but what search returns is *a moment inside an asset*, and until
+now nothing could place one.
+
+The design survived contact. What follows is what building it added, and the
+one measurement that settles whether it works.
+
+### Two names, because they are two different claims
+
+The note said "no new plumbing for the window: `timeline_view`'s shots already
+carry `src_start`". True, and it is exactly why the cue's field could not be
+called `src_start` in the shot dict.
+
+`_picture_plan` annotates every shot with `src_start` — *where the planner says
+it reads*. Carrying the cue's in-point under the same key would have made one
+name mean two things depending on whether the dict had been through the
+planner: the ask before, the answer after. For a pinned shot they are the same
+number, which is the worst version of the bug — it would have looked correct
+in every test that had a pin in it.
+
+So the projection carries **`src_pin`** (what the cue asked for, or None) and
+the plan adds **`src_start`** (where it actually reads). That they agree for a
+pinned shot is the whole guarantee, and it is only a guarantee because the
+planner refuses when they cannot.
+
+### A pin still advances the cursor
+
+Not in the note, and it has to be decided somewhere. A pinned shot consumes its
+stretch like any other, so the per-asset cursor moves to the end of it — an
+unpinned re-use afterwards carries on rather than replaying footage the viewer
+has just seen. Measured on the live server: a pin at 10.0s of a 20s clip under
+a 4s shot gives `src_in` 300, and the unpinned cue after it 420, not 0.
+
+### The refusal, and where each half of it lives
+
+`cue_add` checks only what it can check without touching disk — a negative
+in-point, and a pin on a `card:`, where a held frame has no playhead and the
+number could only ever be ignored. It deliberately does **not** check the pin
+against the asset's length: resolving the asset needs media, and that is the
+projection's job. A pin 90s into a 5s clip is accepted and refused later.
+
+`plan_picture` owns the real one, and refuses a pin on a still too rather than
+ignoring it — unreachable through `cue_add`, but a silent no-op is the failure
+class this module is written against. The refusal arrives as `shots_error` for
+the lane to draw, never as an exception, because `mlt.MLTError` was already in
+`_PICTURE_REFUSALS`.
+
+### Verified against a real melt render, by colour
+
+Twenty seconds of b-roll built as ten distinct two-second colour blocks, so a
+rendered pixel names its own source second and a wrong in-point cannot look
+right. One cue, pinned to 10.0s, over an 8s VO; rendered through melt at 30fps.
+
+| Rendered at | Sampled RGB | Source second the pin implies | Source's own RGB there |
+|-------------|-------------|-------------------------------|------------------------|
+| 0.5s        | 0 255 253   | 10.5s (cyan)                  | 1 255 255              |
+| 3.5s        | 255 255 255 | 13.5s (white)                 | 255 255 255            |
+
+What a rewind would have produced at 0.5s is `254 0 0` — the clip's own opening
+red. That is the whole failure this step exists to prevent, and the render says
+it did not happen.
+
+The refusals were run live too: a pin at 14.0s under an 8s shot exits 1 with
+the message and writes no file; `cue add … card:outro --src-start 3.0` is
+refused at the cue table.
+
+### One line of front end, and why it earns its place
+
+The note's "no new plumbing" held for the data — the payload already carried
+`src_start`, and the preview layer already seeks to it. What was added is a
+tooltip clause: *"— pinned there by the cue"*.
+
+It is not cosmetic. Two shots reading from the same second are identical in the
+lane, and the difference between them is what happens next: an unpinned shot's
+content slides when an upstream cue moves, and a pinned one's does not — it
+shows the moment its cue names or `export` refuses. Read back off the real page
+over CDP, both shots and the refusal:
+
+```
+broll · 0:00.0–0:04.0 · 120 frames @ 30.000fps
+reads the asset from 0:10.0 — pinned there by the cue
+cue: vo word 0 — w0
+```
+
+```
+picture refused — the cue at 'vo' word 0 pins 'broll' to 18.0s and the shot
+runs 4.0s, which ends past the asset's 20.0s — …
+```
+
+### The schema bump that was already paid
+
+None was needed. Step 1's `_v2_to_v3` was written saying it covered the
+optional `src_start` a picture cue would gain, and that claim only holds if an
+unpinned cue is still written with exactly three keys — a `"src_start": None`
+in the table would be a fourth key v2 manifests do not have, and the migration
+would have had to rewrite every cue. `cue_add` omits the key rather than
+writing null, and a test asserts the byte-level shape.

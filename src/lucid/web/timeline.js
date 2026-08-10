@@ -222,12 +222,21 @@ function shotLabel(shot) {
  * addresses the source and never renumbers — PLAN.md § The property everything
  * below defends). The first shot says out loud that it does not start at its
  * own cue: the picture track is contiguous by construction, so whichever cue
- * resolves first covers from the open regardless of where its word lands. */
+ * resolves first covers from the open regardless of where its word lands.
+ *
+ * Whether that in-point is *pinned* is the third fact, and it is not cosmetic:
+ * an unpinned shot's content slides when an upstream cue moves, and a pinned
+ * one's does not — it shows the moment its cue names or `export` refuses
+ * (PLAN.md § B-roll by description). Two shots reading from the same second
+ * look identical here otherwise. */
 function shotTitle(shot, state, index) {
   const rate = state.shots_rate;
+  const pinned = shot.src_pin !== null && shot.src_pin !== undefined;
   const lines = [
     `${shotLabel(shot)} · ${fmt(shot.start)}–${fmt(shot.start + shot.duration)} · ${shot.frames} frames${rate ? ` @ ${rate.toFixed(3)}fps` : ""}`,
-    shot.is_image ? "a card, held for the shot" : `reads the asset from ${fmt(shot.src_start)}`,
+    shot.is_image
+      ? "a card, held for the shot"
+      : `reads the asset from ${fmt(shot.src_start)}${pinned ? " — pinned there by the cue" : ""}`,
     `cue: ${shot.clip_id} word ${shot.word_index} — ${shot.text}`,
   ];
   if (index === 0) lines.push("(the first shot covers from the open, not from its own cue's word)");
