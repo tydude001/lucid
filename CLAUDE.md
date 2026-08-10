@@ -116,12 +116,11 @@ installed package or the upstream repo, not your memory.
     headless Chrome does not composite `<video>` into a capture (wiki
     `tooling.md` § Headless browser). Compare against ffmpeg's frame at the
     source timestamp the page claims. HISTORY.md § The preview picture layer.
-    - **`drawImage` reads back a mid-seek element and a `visibility: hidden`
-      one just as happily**, so a readback proves neither that the frame is
-      current nor that anyone can see it. Gate on `!seeking && readyState >=
-      2`, and grid the *whole* frame against ffmpeg's as a calibration before
-      believing any geometry the same read reports. Both traps were paid for:
-      HISTORY.md § The viewer's frame.
+    - **A readback proves neither that the frame is current nor that anyone
+      can see it** — `drawImage` obliges on a mid-seek and on a
+      `visibility: hidden` element alike, and both cost this repo a day. What
+      to gate on, and the calibration that catches it: wiki `tooling.md`
+      § Headless browser. What they cost here: HISTORY.md § The viewer's frame.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind
