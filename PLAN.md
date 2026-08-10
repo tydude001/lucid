@@ -461,7 +461,13 @@ timeline being the enabler and the look pass being gated on nothing:
    for a vertical export will ask for. **Costed 2026-08-09** (§ Aspect swap —
    the design note), and the cost moved: not both render paths but one, since
    an override routes through the MLT writer that already reframes — plus the
-   cards, which are the only project state a swap cannot re-derive.
+   cards, which are the only project state a swap cannot re-derive. **Steps 1
+   and 2 shipped 2026-08-10** — the canvas field with its routing, and the
+   card record that makes a card re-derivable (HISTORY.md § The canvas field,
+   § The card record). Both corrected the note: the bump the first refused
+   landed on the second, and the cards the second was meant to rescue turned
+   out never to have been lucid's. **Next is the MLT reframe**, which is what
+   makes a swapped canvas fill the frame instead of pillarboxing it.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -1490,11 +1496,16 @@ the ones lucid actually uses.
    and rasterises it; the template name and slot values come back in the reply
    and are **persisted nowhere**. The SVG on disk has the old aspect baked into
    its viewBox, and `-size` *fits* rather than distorts, so re-rendering it at
-   a new canvas pillarboxes the card inside the frame. This is the wiki's open
-   "regenerate the 13 cards at 1920x816" item, and it is not a one-off — it
+   a new canvas pillarboxes the card inside the frame. It is not a one-off — it
    recurs on every aspect change. **Cards are the only project state that is
    rasterised rather than derived**; captions survive a swap because they come
    off `caption_style` every time.
+   - **The half of this finding about the *existing* cards was wrong, and step
+     2 found out by building it.** It read `card_new`'s reply and inferred the
+     twelve cards in the Scream project came from it. They did not — they are
+     PNGs with no SVG, drawn by a `goodsometimes` script before `card_new`
+     existed, so the record cannot recover them and this is not the wiki's
+     "regenerate the 13 cards" item after all. HISTORY.md § The card record.
 
 6. **The preview holds two ideas of the frame, and they agree today only by
    accident.** `player.js`'s `captionBox()` contain-fits the *project's*
@@ -1577,9 +1588,16 @@ the picture and the caption layer letterbox against the same rectangle.
    routes through the MLT writer from the day the field exists, and the reply
    says so (`routes_through`). Until step 3 a swapped aspect pillarboxes, and
    the reply says that too (`fills_frame`).
-2. **Card re-derivation** — persist template and slots, and a re-render at the
-   project canvas. Independently useful the day it lands: it closes the wiki's
-   13-card item, which is open regardless of whether anything ever goes 9:16.
+2. **Card re-derivation** — **shipped 2026-08-10.** `card_new` records
+   `(template, slots, canvas)`, `card_reauthor` fills the template again at
+   the project canvas, and `canvas` names the cards a swap has left behind.
+   The v4 bump lands here, as step 1 said it would. **What it does not do is
+   close the wiki's 13-card item, and this step's premise was wrong about
+   that**: the twelve cards in the real project are PNGs with no SVG, drawn by
+   a `goodsometimes` script before `card_new` existed, so there is nothing to
+   persist and nothing to re-render — and their receipts carry three ink
+   levels that lucid's one-fill `quote` slot cannot express. Closing that item
+   needs an emphasis-capable quote slot first. HISTORY.md § The card record.
 3. **The MLT reframe** — per-clip crop rects and the `qtblend` filter applied
    per node *per role* (finding 3); the routing landed in step 1. Verified the
    way the pinned cue was: a real melt render, sampled for pixel geometry,

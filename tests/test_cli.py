@@ -105,6 +105,27 @@ def test_explicit_dash_c_dot_is_not_mistaken_for_an_unset_default(
     assert not _project_exists(tmp_path / "proj")
 
 
+# -- `card reauthor` -------------------------------------------------------
+#
+# The behaviour is proven over the wire in test_server_stdio.py and against
+# ops in test_ops_card_reauthor.py. What only the CLI has is the optional
+# positional: `card reauthor` with no name is the sweep, and argparse would
+# otherwise make that a usage error rather than the common case.
+
+
+def test_card_reauthor_takes_no_name_and_means_every_card(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "card", "reauthor", "--plan"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["cards"] == []
+    assert out["plan"] is True
+
+
 # -- `cut --through-pause` -------------------------------------------------
 #
 # The behaviour `through_pause` enables is proven end-to-end over the wire in

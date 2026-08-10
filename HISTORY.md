@@ -3407,3 +3407,83 @@ plainly: **the Scream cue table pins nothing at all.** All 25 video cues run
 off `plan_picture`'s cursor, so on the one real project there is, the visual
 index currently has no consumer. Kept rather than removed because the pinning
 case is real and untested, not because it is carrying anything today.
+
+## The card record, step 2 of aspect swap — 2026-08-10
+
+A card now carries what it was made from. `card_new` writes
+`(card, template, slots, canvas)` into a `cards` list in the manifest — the
+v3 → v4 bump step 1's write-up deferred to here — and `card_reauthor` fills
+the template again at the project's current canvas, rewriting both the SVG
+and the PNG. `lucid card reauthor` with no name sweeps every recorded card the
+canvas has left behind; named, it redraws that one whatever its canvas.
+`canvas` gained `cards_stale` and `cards_unrecorded`, because the moment the
+shape moves is the moment to say which cards no longer agree with it.
+
+**It re-authors rather than resizes, and that distinction is the whole
+feature.** Measured on the real project rather than asserted: the same receipt
+card, authored at 1920x816 and then handed to the new canvas both ways.
+
+```
+render the old SVG at 1080x1920   →  1080x459   (a 459-row band, 76% bar)
+card reauthor                     →  1080x1920, cream to all four corners
+```
+
+The 459 is the same number the costing spike and step 1 both measured, from a
+third direction. `-size` fits, so no rasterisation of a 16:9 document will ever
+fill a 9:16 frame; only `fill_template` can move the geometry, and only the
+record can feed it. The re-authored source carries `viewBox="0 0 1920 3413"` —
+the aspect in the template's own 1920-wide units — which is what a resize
+cannot produce.
+
+### The thing the note got wrong: the Scream cards are not lucid's
+
+The design note (PLAN.md § Aspect swap, finding 5) says step 2 "closes the
+wiki's 13-card item ... which is open regardless of whether anything ever goes
+9:16". It does not, and the reason is one `ls`:
+
+```
+assets/cards/  →  12 PNGs, 1920x1080, no SVG beside any of them
+```
+
+They were drawn by `goodsometimes/scripts/make_scream_cards.py` before
+`card_new` existed and copied in. So they have no record to persist and no
+source to re-render — `card_reauthor` names all twelve under `unrecorded`
+rather than pretending, and `card_render` could not touch them either. The
+note's finding 5 read `card_new`'s reply and inferred that the cards on disk
+came from it. **Every card in the one real project predates the generator.**
+
+Two consequences, both real:
+
+- **The 1920x1080-in-a-1920x816-frame defect is still live in the shipped
+  film** — a 4:3-shaped card fits by height into a 40:17 frame and gives up
+  roughly a quarter of its width to bar, which is finding 4 of the motion
+  graphics note measured on the cards that provoked it. Step 2 does not fix
+  it; it makes every card made *after* it immune.
+- **Regenerating those twelve through lucid is not lossless, and now it is
+  costed.** The script's receipts carry three ink levels inside one
+  paragraph — `dim`, `key`, and an amber `em` on the fragment the VO quotes —
+  and lucid's `receipt` has one `quote` slot of kind `lines`, drawn in a
+  single fill. Re-authoring them today would flatten the emphasis. Closing the
+  wiki item through lucid therefore needs an emphasis-capable quote slot
+  first; that is a template change, and it is not in this note.
+
+### The guard that was looking at the wrong file
+
+Finding the PNG-only cards found a hole in `card_new`. Its
+already-exists refusal checked the SVG source alone, so a name with a PNG and
+no SVG — every one of the twelve — was waved straight through and the raster a
+cue resolves to was overwritten without the guard ever tripping. Either file
+now counts as existing. This is the same shape as every other trap in this
+repo: the failure produced a file and exit 0.
+
+### What it deliberately does not take
+
+`card_reauthor` has no width or height. A card authored at anything but the
+project canvas is the motion graphics note's finding 4 all over again, and the
+knob for rendering at another shape is `canvas`, one level up. A test asserts
+the signature, because the argument is the kind that gets added back by
+someone being helpful.
+
+A record holds content and a geometry and never a length, so it sits under the
+same rule as a footage description and is not in tension with PLAN.md § The
+property everything below defends.

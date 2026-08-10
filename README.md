@@ -263,6 +263,21 @@ re-rasterises after a hand edit. **Cards generate at the project's own canvas**,
 so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with a
 quarter of its width in black bar.
 
+Change the canvas later and the cards are the one thing that cannot follow on
+their own — the aspect is baked into the SVG's viewBox, and rasterising a 16:9
+document into a 9:16 frame *fits* it rather than reflowing it. So lucid records
+what each card was made from and draws it again:
+
+```sh
+lucid -C myproject canvas 1080x1920                 # names the cards left behind
+lucid -C myproject card reauthor --plan             # what would be redrawn
+lucid -C myproject card reauthor                    # every stale card, at the canvas
+```
+
+A card whose files predate the record — drawn elsewhere and copied in — is
+reported by name rather than guessed at, because nothing on disk says what
+made it.
+
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders
 pixel-identically to one naming a font it has**, so `font_warnings` is the only

@@ -5,7 +5,7 @@ inspectable with ordinary tools::
 
     myproject/
       lucid.json            manifest — schema version, clip registry, cue table,
-                            footage descriptions, settings
+                            footage descriptions, card records, settings
       media/                imported source media (copies or symlinks)
       project.otio          the timeline; the source of truth tools mutate
       cache/
@@ -37,7 +37,9 @@ from typing import Any
 #: 2 added the cue table (`cues`, PLAN.md § The layered timeline).
 #: 3 added footage descriptions (`descriptions`, PLAN.md § B-roll by
 #: description), and covers the optional in-point a cue gains with them.
-SCHEMA_VERSION = 3
+#: 4 added card records (`cards`, PLAN.md § Aspect swap step 2) — what a
+#: card was made from, so an aspect swap can re-author it.
+SCHEMA_VERSION = 4
 
 MANIFEST_NAME = "lucid.json"
 TIMELINE_NAME = "project.otio"
@@ -103,6 +105,19 @@ def _v2_to_v3(manifest: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
+def _v3_to_v4(manifest: dict[str, Any]) -> dict[str, Any]:
+    """v4 added card records (PLAN.md § Aspect swap, step 2).
+
+    Additive, and the list is empty on purpose: a record says what a card was
+    *made from*, and nothing on disk can recover that for a card made before
+    the key existed. An empty list after this step is the honest answer —
+    "this project records no cards" — rather than a guess, and `card_reauthor`
+    names every unrecorded card rather than skipping it.
+    """
+    manifest.setdefault("cards", [])
+    return manifest
+
+
 #: Keyed by the version each step migrates *from*; a step returns the manifest
 #: at version key+1, and `migrate` stamps the number. Stepwise rather than
 #: one function per (from, to) pair, so the next bump is a single entry and
@@ -111,6 +126,7 @@ def _v2_to_v3(manifest: dict[str, Any]) -> dict[str, Any]:
 _MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _v1_to_v2,
     2: _v2_to_v3,
+    3: _v3_to_v4,
 }
 
 
@@ -262,6 +278,7 @@ class Project:
                 "clips": [],
                 "cues": [],
                 "descriptions": [],
+                "cards": [],
             }
         )
         return project

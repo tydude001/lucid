@@ -236,6 +236,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--height", type=int, help="render height in pixels (with --width)"
     )
 
+    p_card_reauthor = card_sub.add_parser(
+        "reauthor", help="draw recorded cards again at the project's canvas"
+    )
+    p_card_reauthor.add_argument(
+        "name",
+        nargs="?",
+        help="one card; omit to redraw every recorded card the canvas has left behind",
+    )
+    p_card_reauthor.add_argument(
+        "--plan", action="store_true", help="report what would be redrawn, writing nothing"
+    )
+
     p_cue = sub.add_parser("cue", help="manage the picture cue table (word_index -> asset)")
     cue_sub = p_cue.add_subparsers(dest="cue_command", required=True)
 
@@ -862,6 +874,8 @@ def _cmd_card(args: argparse.Namespace) -> int:
                 overwrite=args.overwrite,
             )
         )
+    if args.card_command == "reauthor":
+        return _emit(ops.card_reauthor(args.project, args.name, plan=args.plan))
     return _emit(ops.card_render(args.project, args.name, width=args.width, height=args.height))
 
 

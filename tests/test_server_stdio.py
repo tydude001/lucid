@@ -26,7 +26,7 @@ import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-from lucid import energy, media, ops, picture
+from lucid import energy, graphics, media, ops, picture
 from lucid.project import Project
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
@@ -47,6 +47,7 @@ EXPECTED_TOOLS = {
     "card_templates",
     "card_new",
     "card_render",
+    "card_reauthor",
     "cue_add",
     "cue_rm",
     "cue_ls",
@@ -172,6 +173,7 @@ TOOL_TO_COMMAND = {
     "card_templates": "card",
     "card_new": "card",
     "card_render": "card",
+    "card_reauthor": "card",
     "cue_add": "cue",
     "cue_rm": "cue",
     "cue_ls": "cue",
@@ -350,6 +352,40 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
     cards = Project.open(project).cards_dir
     assert (cards / "receipt-scream-1996.svg").is_file()
     assert (cards / "receipt-scream-1996.png").is_file()
+
+
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_card_reauthor_over_the_wire_follows_a_canvas_swap(tmp_path: Path) -> None:
+    """The sequence an agent asked for a vertical cut would actually run: swap
+    the canvas, which names the cards it has left behind, then redraw them.
+    Re-rendering the old SVG at the new size would pillarbox the card inside
+    the frame at exit 0, so the shape on disk is what settles it."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        await client.call(
+            "card_new",
+            path=str(project),
+            name="reveal-two",
+            template="reveal",
+            slots={"title": "Scream 2"},
+        )
+        swapped = await client.call("canvas", path=str(project), size="1080x1920")
+        planned = await client.call("card_reauthor", path=str(project), plan=True)
+        redrawn = await client.call("card_reauthor", path=str(project))
+        return {"swapped": swapped, "planned": planned, "redrawn": redrawn}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["swapped"]["cards_stale"] == ["reveal-two"]
+    assert out["planned"]["redrawn"] == 0
+    assert out["planned"]["to_redraw"] == 1
+    assert out["redrawn"]["redrawn"] == 1
+    assert out["redrawn"]["cards"][0]["width"] == 1080
+    assert out["redrawn"]["cards"][0]["height"] == 1920
+    assert graphics.identify(Project.open(project).cards_dir / "reveal-two.png") == (1080, 1920)
 
 
 @needs_ffprobe

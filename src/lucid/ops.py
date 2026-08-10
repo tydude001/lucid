@@ -574,8 +574,60 @@ def synopsis(
 # resolves to, generated rather than drawn elsewhere and copied in. SVG is the
 # source and PNG the rasterisation, both kept — the cue table and the preview
 # `<img>` want a raster, and a card you cannot re-edit is a card you redraw
-# from scratch to change a year. No schema bump: `assets/cards/` is a
-# directory, not a manifest field.
+# from scratch to change a year.
+#
+# Step 2 of PLAN.md § Aspect swap added the *record*: the two files on disk
+# have the canvas baked into them (the SVG's viewBox, the PNG's pixels), so
+# the shape of a card is not derivable from the card. `cards` in the manifest
+# is what it was made from, and `card_reauthor` is what turns that back into
+# the two files at whatever shape the project is now. This one is a schema
+# bump where `assets/cards/` was not, for the reason CLAUDE.md gives: it is a
+# list another op would `setdefault`, so the version number is what makes it
+# true rather than incidentally survivable.
+
+#: Card records in the manifest, one per card `card_new` has made:
+#: `{"card", "template", "slots", "canvas"}` — geometry and content, never a
+#: length, so nothing here is in tension with PLAN.md § The property
+#: everything below defends.
+CARDS_KEY = "cards"
+
+
+def _card_records(project: Project) -> list[dict[str, Any]]:
+    return list(project.read_manifest().get(CARDS_KEY, []))
+
+
+def _card_record(project: Project, name: str) -> dict[str, Any] | None:
+    for record in _card_records(project):
+        if record.get("card") == name:
+            return record
+    return None
+
+
+def _write_card_record(project: Project, record: dict[str, Any]) -> None:
+    """Store what a card was made from, replacing any record of that name.
+
+    Replaces rather than appends because a card name is the key a cue points
+    at: two records for one name would make "what is this card" a question
+    with two answers, and `card_reauthor` would draw whichever came first.
+    """
+    manifest = project.read_manifest()
+    records = [r for r in manifest.setdefault(CARDS_KEY, []) if r.get("card") != record["card"]]
+    records.append(record)
+    manifest[CARDS_KEY] = records
+    project.write_manifest(manifest)
+
+
+def _cards_on_disk(project: Project) -> list[str]:
+    """Every card name with a file under `assets/cards/`, SVG or PNG.
+
+    Both extensions, because the two are separately sufficient to make a card
+    real: an SVG with no PNG is a card no cue can resolve yet, and a PNG with
+    no SVG is a card made outside lucid — which is what the Scream project
+    holds, and the reason `card_new`'s guard cannot look at the SVG alone.
+    """
+    if not project.cards_dir.is_dir():
+        return []
+    return sorted({p.stem for p in project.cards_dir.iterdir() if p.suffix in (".svg", ".png")})
 
 
 def card_templates() -> dict[str, Any]:
@@ -615,7 +667,15 @@ def card_new(
 
     Refused if the card already exists, unless `overwrite`. A card is
     referenced by cues, and silently replacing the asset under one is the
-    kind of edit nobody can see happen.
+    kind of edit nobody can see happen. **Either file is enough to exist** —
+    a card made outside lucid has a PNG and no SVG, and a guard that looked
+    only at the source would overwrite the raster a cue resolves to without
+    ever tripping.
+
+    What it was made from is recorded in the manifest (`cards`), which is
+    what lets `card_reauthor` draw it again at a different canvas. The record
+    is written after both files land, so a template error leaves no record of
+    a card that does not exist.
     """
     project = Project.open(path)
     _card_name(name)
@@ -632,9 +692,11 @@ def card_new(
     else:
         canvas_from = "requested"
     source = project.cards_dir / f"{name}.svg"
-    if source.exists() and not overwrite:
+    existing = [p for p in (source, project.cards_dir / f"{name}.png") if p.exists()]
+    if existing and not overwrite:
         raise ProjectError(
-            f"a card named {name!r} already exists at {source} — pass overwrite "
+            f"a card named {name!r} already exists at "
+            f"{', '.join(str(p) for p in existing)} — pass overwrite "
             "to replace it, remembering that any cue pointing at card:"
             f"{name} will show the new one"
         )
@@ -642,11 +704,22 @@ def card_new(
     svg = graphics.fill_template(template, dict(slots), width=width, height=height)
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(svg, encoding="utf-8")
+    rendered = card_render(path, name)
+    _write_card_record(
+        project,
+        {
+            "card": name,
+            "template": template,
+            "slots": dict(slots),
+            "canvas": f"{width}x{height}",
+        },
+    )
     return {
         "template": template,
         "canvas": f"{width}x{height}",
         "canvas_from": canvas_from,
-        **card_render(path, name),
+        "recorded": True,
+        **rendered,
     }
 
 
@@ -691,6 +764,117 @@ def card_render(
         source, project.cards_dir / f"{name}.png", width=width, height=height
     )
     return {"card": name, "asset": f"card:{name}", **rendered}
+
+
+def card_reauthor(
+    path: Path | str,
+    name: str | None = None,
+    *,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Draw recorded cards again, at the shape the project renders at now.
+
+    Step 2 of PLAN.md § Aspect swap, and the thing that gates step 3: a
+    vertical render with the old 16:9 cards pillarboxed inside it is the
+    failure the item exists to close, not a partial win. **Cards are the only
+    project state that is rasterised rather than derived** — captions survive
+    a canvas change because they come off `caption_style` every time, while a
+    card has its canvas baked into the SVG's viewBox and the PNG's pixels.
+    This is what makes one derivable after the fact: the record says what it
+    was made from, and the card is authored again from that at
+    `_mlt_resolution`, which is `card_new`'s own default and the number the
+    MLT profile declares.
+
+    **It re-authors rather than resizes**, for the reason `render_svg` has no
+    resize path: `-size` *fits*, so rasterising a 16:9 document into a 9:16
+    frame pillarboxes the card inside the frame rather than reflowing it.
+    Only `fill_template` can put the geometry at a new aspect, and only the
+    record can feed it.
+
+    With no `name` this sweeps: every recorded card whose canvas is not the
+    project's, plus any whose files have gone missing. Named, it redraws that
+    one whatever its canvas — an explicit ask is not second-guessed.
+
+    **A card with no record is reported, never skipped quietly.** Nothing on
+    disk can recover what a card was made from, so the honest output is its
+    name and the fact that `card new --overwrite` is the way back — which is
+    also how such a card gains a record. `plan` resolves and writes nothing.
+
+    There is deliberately no size argument. A card authored at anything but
+    the project canvas is finding 4 of the note all over again, and the knob
+    for "render at a different shape" is `canvas`, one level up.
+    """
+    project = Project.open(path)
+    width, height = _mlt_resolution(project)
+    canvas_now = f"{width}x{height}"
+
+    records = _card_records(project)
+    known = {r.get("card") for r in records}
+    unrecorded = [c for c in _cards_on_disk(project) if c not in known]
+
+    if name is not None:
+        _card_name(name)
+        record = _card_record(project, name)
+        if record is None:
+            where = "it has files on disk but no record" if name in unrecorded else "no such card"
+            raise ProjectError(
+                f"nothing recorded for card {name!r} — {where}. A record says what a "
+                "card was made from, and no file on disk carries that; make it again "
+                f"with `card new {name} --template ... --overwrite`, which records it "
+                "and leaves every later swap a single command"
+            )
+        records = [record]
+
+    results = []
+    for record in records:
+        card = record.get("card")
+        was = str(record.get("canvas") or "")
+        svg = project.cards_dir / f"{card}.svg"
+        png = project.cards_dir / f"{card}.png"
+        missing = [p.name for p in (svg, png) if not p.is_file()]
+        if name is not None:
+            why = "asked for"
+        elif missing:
+            why = "missing " + " and ".join(missing)
+        elif was != canvas_now:
+            why = f"{was or 'unrecorded canvas'} -> {canvas_now}"
+        else:
+            why = ""
+        entry: dict[str, Any] = {
+            "card": card,
+            "template": record.get("template"),
+            "canvas_was": was or None,
+            "canvas": canvas_now,
+            "redrawn": bool(why) and not plan,
+            "why": why or "already at the project canvas",
+        }
+        if why and not plan:
+            drawn = card_new(
+                project.root,
+                str(card),
+                str(record.get("template")),
+                dict(record.get("slots") or {}),
+                width=width,
+                height=height,
+                overwrite=True,
+            )
+            entry["asset"] = drawn["asset"]
+            entry["width"] = drawn["width"]
+            entry["height"] = drawn["height"]
+            entry["font_warnings"] = drawn["font_warnings"]
+        results.append(entry)
+
+    return {
+        "project": str(project.root),
+        "canvas": canvas_now,
+        "cards": results,
+        "redrawn": sum(1 for e in results if e["redrawn"]),
+        "to_redraw": sum(1 for e in results if e["why"] != "already at the project canvas"),
+        # Named rather than counted: the name is what a caller needs to make
+        # one of these right, and the count is what lets it be ignored.
+        "unrecorded": unrecorded,
+        "plan": bool(plan),
+    }
 
 
 # -- cue table -------------------------------------------------------------
@@ -3054,10 +3238,13 @@ def canvas(
 
     footage = _footage_resolution(project)
     width, height = after or footage
+    canvas_now = f"{width}x{height}"
     has_clips = any(c.get("has_video") for c in project.read_manifest().get("clips", []))
+    records = _card_records(project)
+    recorded = {r.get("card") for r in records}
     return {
         "project": str(project.root),
-        "canvas": f"{width}x{height}",
+        "canvas": canvas_now,
         "width": width,
         "height": height,
         "aspect": _aspect(width, height),
@@ -3069,6 +3256,13 @@ def canvas(
         "routes_through": "mlt" if after else "auto-editor or mlt, by source count",
         "fills_frame": after is None or _aspect(width, height) == _aspect(*footage),
         "captions_reference": "{}x{}".format(*captions.canvas(width, height)),
+        # Cards are the only project state a canvas change cannot re-derive on
+        # its own (PLAN.md § Aspect swap, finding 5), so the moment the shape
+        # moves is the moment to name the ones now drawn at the old one.
+        # Reported by both arms: reading the canvas is also how you ask
+        # whether the cards agree with it.
+        "cards_stale": [str(r.get("card")) for r in records if r.get("canvas") != canvas_now],
+        "cards_unrecorded": [c for c in _cards_on_disk(project) if c not in recorded],
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),

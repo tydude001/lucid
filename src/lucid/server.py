@@ -326,6 +326,28 @@ def card_render(
 
 
 @_tool()
+def card_reauthor(path: str, name: str | None = None, plan: bool = False) -> dict[str, Any]:
+    """Draw recorded cards again at the shape this project renders at now.
+
+    Reach for this after `canvas` — a card is the only thing in a project
+    whose shape a canvas change cannot fix on its own, because the aspect is
+    baked into the SVG it was drawn from. Re-rendering the old SVG at the new
+    size would pillarbox the card inside the frame; this fills the template
+    again at the new canvas, from what `card_new` recorded.
+
+    With no `name` it sweeps every recorded card the canvas has left behind,
+    plus any whose files have gone missing. Named, it redraws that one
+    whatever its canvas.
+
+    Read `unrecorded` in the result. Those are cards with files on disk and
+    no record of what made them — nothing can re-author one, and the way to
+    fix it is card_new with `overwrite`, which records it on the way past.
+    `plan` reports what would change and writes nothing.
+    """
+    return ops.card_reauthor(path, name, plan=plan)
+
+
+@_tool()
 def cue_add(
     path: str, clip_id: str, word_index: int, asset: str, src_start: float | None = None
 ) -> dict[str, Any]:

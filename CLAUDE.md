@@ -129,7 +129,7 @@ installed package or the upstream repo, not your memory.
   looked at. Migration is explicit (`lucid migrate`), and a schema bump adds a
   step to `_MIGRATIONS` — keyed by the version it migrates *from* — rather
   than widening `open`. HISTORY.md § The schema migration. **The schema is at
-  3**; v3 added `descriptions`.
+  4**; v4 added `cards`.
   - **An additive *optional* key does not bump** — `caption_style` and `canvas`
     are absent-means-what-every-older-manifest-meant, and a bump would make
     `open` refuse every project on disk to gain nothing. Both bumps so far were
@@ -206,6 +206,11 @@ installed package or the upstream repo, not your memory.
   Templates escape every user value and insert only lucid's own markup raw,
   and **nothing wraps** — a newline is a line break, because a guessed wrap
   overflows in silence. HISTORY.md § The card renderer, § Card templates.
+  - So **a card is re-authored, never resized**: `card_new` records
+    `(template, slots, canvas)` and `card_reauthor` fills the template again
+    at the project canvas. A card with files but no record cannot be
+    re-authored by anything — it is reported, never guessed at, and the twelve
+    in the Scream project are all of them. HISTORY.md § The card record.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.
