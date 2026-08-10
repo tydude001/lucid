@@ -418,10 +418,22 @@ reads it, and the window draws it in the viewer and on the CC lane.
 **What is left is per-word animation** — the pop/scale/slide Daydream applies
 to the highlighted word. Karaoke here is a colour fill and nothing moves a
 glyph. It shares a construction question with a *single-word* highlight (as
-opposed to `\k`'s left-to-right fill, which is what ASS actually does): both
-want one Dialogue event per word rather than one per line, and both are
-export questions to cost before building. Also absent by choice: a styling
-UI. The agent restyles and the window renders it, which is the parity target.
+opposed to `\k`'s left-to-right fill, which is what ASS actually does).
+**Costed 2026-08-10 — PLAN.md § Per-word caption animation**, which owns the
+design and the measurements; this row is the pointer.
+
+**The claim this row used to carry was false, and false in the expensive
+direction** — that both "want one Dialogue event per word rather than one per
+line". Measured: both are per-word `\t` blocks inside the one event per line
+that `to_ass` already writes, and one event *per word* is not a harder build
+of this feature but a different one (it draws a single word centred in the
+frame, because libass owns layout and lucid cannot supply a `\pos`). The real
+cost is metrics — a true scale pop reflows the whole line by ~13 px on the
+real film and no build avoids that, while a vertical-only pop moves nothing.
+**Which of the two ships is an editorial call on a watch**, and the four
+treatments are rendered on the real film and served for it. Also absent by
+choice: a styling UI. The agent restyles and the window renders it, which is
+the parity target.
 
 ### Aspect swap 16:9 ↔ 9:16 — after the layered timeline, and now load-bearing
 

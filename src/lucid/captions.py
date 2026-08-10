@@ -233,8 +233,15 @@ class Preset:
     #: sweeps left to right, not one word lit at a time — measured by burning
     #: this and reading the pixels back, which is also how the preview overlay
     #: was caught disagreeing with it. A single-word highlight is a different
-    #: construction (one Dialogue event per word) and is not what `to_ass`
-    #: writes.
+    #: construction and is not what `to_ass` writes.
+    #:
+    #: **It is not, however, one Dialogue event per word, which this comment
+    #: used to claim.** Measured 2026-08-10 by the same method: per-word `\\t`
+    #: colour steps inside the *one* event per line light exactly one word at
+    #: every sample, where `\\k` on the same words accumulates 1..7. One event
+    #: per word is a different feature — libass owns layout, so an event
+    #: holding one word centres it alone in the frame. PLAN.md § Per-word
+    #: caption animation.
     primary: str
     secondary: str
     outline_colour: str

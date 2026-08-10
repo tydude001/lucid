@@ -440,8 +440,14 @@ timeline being the enabler and the look pass being gated on nothing:
    and so are the six small items that were to ride it and didn't
    (HISTORY.md § The head of the parity queue). This rung is done.
 2. **Caption styling** — shipped 2026-08-09 (HISTORY.md § Caption styling).
-   What it left is per-word *animation*, which shares a construction question
-   with a single-word highlight and is an export cost, not a styling one.
+   What it left is per-word *animation*, **costed 2026-08-10** (§ Per-word
+   caption animation — the design note), and the costing overturned the
+   item's own premise: it is not an export cost and not a per-word Dialogue
+   event, it is two style fields over the one event `to_ass` already writes.
+   What it *is* gated on is a watch — a real scale pop reflows the line and a
+   metric-neutral one does not move it at all, and the two cannot be
+   reconciled. Four treatments are rendered on the real film and served;
+   nothing is built until one comes back.
    Then 3. **motion graphics + templates**, then
 4. **b-roll by description** — **all three build steps shipped 2026-08-09**
    (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
@@ -1813,3 +1819,147 @@ script's own body size.
    of a vertical cut — has graphics in it. Card *animation* is still parked
    behind that watch and this note does not touch it. **This is where the
    item now sits**, alongside the editorial call step 3 raised.
+
+## Per-word caption animation — the design note — 2026-08-10
+
+The last named gap on DAYDREAM.md § Captions: lucid generates and styles
+timeline-mapped captions, but the highlight is `\k`'s left-to-right fill and
+nothing moves a glyph. The row costs it as two things sharing one construction
+question — *"both want one Dialogue event per word rather than one per line,
+and both are export questions to cost before building"* — and
+`captions.py`'s `Preset` docstring says the same in code: *"a genuine
+one-word-at-a-time highlight is a different construction (one Dialogue event
+per word) and is not what `to_ass` writes."*
+
+**That construction claim is wrong, and it is wrong in the expensive
+direction.** One Dialogue event per word is the build that would force lucid
+to own text layout — libass decides where a word sits, and an event carrying
+one word has no way to be told where the *other* words put it. Measured
+instead: both the single-word highlight and the per-word animation are
+per-word `\t` blocks **inside one Dialogue event per line**, which is the
+shape `to_ass` already writes. The real cost is somewhere else entirely, and
+it is a metrics question.
+
+### Measured on this box, 2026-08-10
+
+libass through ffmpeg 8.1.2 (`--enable-libass`), burned over a flat frame at
+1920×1080 and read back per pixel, then reproduced on the real film
+(`~/lucid-final-cut/out.mp4`, 1920×816, the caption canvas being the 2541×1080
+PlayRes `to_ass` writes). Probes kept at `~/lucid-caption-anim/`.
+
+1. **A single-word highlight is one event, and it is exact.** Per word, a
+   block of `{\c<base>\t(on,on+1,\c<hi>)\t(off,off+1,\c<base>)}`. Sampled at
+   seven times across a seven-word line, **exactly one word is in the
+   highlight colour at every sample and it advances**, against the `\k`
+   control on the same words accumulating 1 → 2 → 3 → 4 → 5 → 6 → 7. On the
+   real film's first cue the same two constructions read 1,1,1,1,1 and
+   2,3,4,6,7. The `\k` finding of HISTORY.md § Caption styling is reproduced
+   exactly; what is new is that stepping out of it costs one tag, not a
+   rebuild.
+
+2. **Per-word animation is also one event.** `\t` inside a mid-line override
+   block animates only the run that follows it, so each word carries its own
+   pop. A 130% scale over 120ms on word 3 of 7 rendered at 42px→50px of ink
+   height and returned. **No event splitting, no `\pos`, no layout of our
+   own.**
+
+3. **What one event per word actually gives you is a different feature.**
+   Built to check: with no `\pos` — which lucid cannot compute — every event
+   centres itself, so the seven words drew as a single blob at x≈890–1030 at
+   every sample. That is **one word alone in the middle of the frame**, which
+   is a real caption style and is not "a line with the current word lit". The
+   claim on file did not name a harder build of this feature; it named a
+   different feature.
+
+4. **The cost is metrics: a scale pop reflows the whole line.** The animatable
+   tags split cleanly, measured as the drift of the line's outermost ink
+   columns — which belong to the first and last words, neither of them the
+   animated one:
+
+   | tag | animates | line drift | |
+   |-----|----------|-----------|---|
+   | `\fscx`+`\fscy` | yes | **20 px** | reflows |
+   | `\fs` | yes | **20 px** | reflows |
+   | `\fsp` | yes | **18 px** | reflows |
+   | `\fscy` alone | yes | 0 px | metric-neutral |
+   | `\frz` | yes | 0 px | metric-neutral |
+   | `\bord` · `\shad` · `\blur` · `\be` | yes | 0 px | metric-neutral |
+   | `\alpha` · `\c` | yes | 0 px | metric-neutral |
+
+   On the real film the same pop moves both edges of the line 13 px, seven
+   times a line, while `\fscy` alone moves them **0 px across every frame of
+   the pop**. So a *proper* scale pop and a line that holds still are
+   mutually exclusive, and no amount of building changes that — it is what
+   text layout is. `\fsp` compensation was tried and is not a way out: at the
+   compensation that holds the width, neighbouring words merge.
+
+5. **The trap, and it is the `\k` disagreement again.** The preview overlay
+   must draw what libass will, and **CSS's natural pop is metric-neutral
+   where ASS's is not** — `transform: scale()` does not affect layout, so the
+   obvious browser implementation shows a still line with one word growing
+   while the render shows the whole line breathing. Right in the window,
+   wrong in the file, no error on either side. Whatever ships, the browser
+   half animates the property that *reflows* (`font-size`) if the ASS half
+   reflows, and the agreement is settled by reading back a burned frame
+   against the page, never by looking at the page.
+
+6. **An artifact worth writing down, because this repo has had it twice
+   before.** The first pass of finding 4 reported `\bord`, `\shad` and
+   `\blur` as *not animating at all* — zero pixels changed. They animate
+   fine; the outline and shadow colours were black and the probe background
+   was black. Same shape as the brightness-bbox misreads in CLAUDE.md: a
+   black subject reads exactly like an absent one. The fix was a coloured
+   outline, and the lesson is that "no effect" and "no contrast" need
+   separating before either is believed.
+
+7. **It is not an export cost.** No new dependency, no filter, no second
+   pass — the same `-vf ass=` burn. The `.ass` grows about 4× (1.7 KB → 6.6 KB
+   over eight cues; ~150 KB for the film's 178), which is nothing, and the
+   sidecar stays a plain ASS file Kdenlive opens.
+
+### The design
+
+Two fields on the existing `caption_style` object, both additive and optional,
+so **no `SCHEMA_VERSION` bump** — the standing rule in CLAUDE.md, and neither
+is a list key another op would `setdefault`.
+
+- **`emphasis`**: `none` | `fill` | `word`. This absorbs the `karaoke`
+  boolean rather than sitting beside it, because two knobs for one thing is
+  two answers — `karaoke: true` resolves to `fill` and `false` to `none`, the
+  alias stays accepted and stays readable in every manifest already on disk,
+  and `describe()` reports `emphasis` resolved. `fill` remains what `\k`
+  writes, so no existing project changes appearance.
+- **`animate`**: `none` | `pop`, plus `animate_ms` and `animate_amount`. Only
+  meaningful with `emphasis` set, and refused with `emphasis: none` rather
+  than silently ignored, per the standing rule on style fields.
+
+**One derivation, as before.** `Cue.karaoke_spans()` already owns the rule
+that a word's highlight begins where the previous one ended, and `as_dict`
+already exports `highlight_start`/`highlight_end` — so the `word` mode needs
+no new server field at all, and the pop needs only the two style numbers the
+overlay already receives resolved. `_dialogue_text` grows a branch per mode
+and stays the only place a cue becomes ASS. `\t` times are milliseconds
+**relative to the Dialogue line's own start**, i.e. `cue.start`, which is the
+one arithmetic detail that is easy to get wrong and silent when wrong.
+
+### The build
+
+1. **`emphasis`, with `word` writing per-word `\t` colour steps.** Style
+   field, alias, echo, CLI and MCP parity. The test burns and counts
+   highlighted blobs, because a test that asserts on the `.ass` text proves
+   the string and not the picture.
+2. **The overlay draws `word`**, calibrated against a burned frame the way
+   HISTORY.md § Caption styling calibrated the `\k` fill — readback, not
+   screenshot.
+3. **`animate`**, whichever pop the watch picks, with finding 5's constraint
+   binding the browser half.
+
+### What is left, and it is Tyler's
+
+**The four treatments are rendered on the real film and served**, 14 seconds
+each, labelled in frame: `~/lucid-caption-anim/`, at
+`http://100.x.y.z:8791/`. `fill` (today), `word`, `word` + reflowing
+scale pop, `word` + metric-neutral vertical pop. Finding 4 says the third and
+fourth cannot be reconciled, so which one ships is an editorial call on a
+watch, not a build question — the same shape as the two cards in
+§ Aspect swap. **Nothing is built until it comes back.**
