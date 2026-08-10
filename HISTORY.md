@@ -3143,3 +3143,56 @@ unpinned cue is still written with exactly three keys — a `"src_start": None`
 in the table would be a fourth key v2 manifests do not have, and the migration
 would have had to rewrite every cue. `cue_add` omits the key rather than
 writing null, and a test asserts the byte-level shape.
+
+## The canvas field, step 1 of aspect swap — 2026-08-10
+
+The project gained a `canvas` — one manifest key, `WIDTHxHEIGHT`, absent
+meaning "derive from the footage" — and the two derivations that used to walk
+`clips` independently (`_mlt_resolution` for the MLT profile, `_caption_canvas`
+for the reference caption sizes are quoted against) now read it before either
+walks anything. It is reachable as `lucid canvas`, as the `canvas` tool, and it
+shows up in `status`.
+
+Two things the design note (PLAN.md § Aspect swap) had wrong, both found by
+building it.
+
+### The schema bump it did not need
+
+The note costed a v3 → v4 bump with a `_MIGRATIONS[3]` step. The precedent
+against it was already written in this repo, at `CAPTION_STYLE_KEY`: an
+additive *optional* key whose absence means what every older manifest already
+meant needs no version, and bumping for one "would make `Project.open` refuse
+every existing project to gain nothing". Both bumps so far were for *list* keys
+another op would `setdefault` anyway — `cues` in v2, `descriptions` in v3 —
+where the number is what makes the key true rather than incidentally
+survivable. A canvas is the `caption_style` shape. The bump comes back at step
+2, where persisted card records are a list and the cards on disk lack them.
+
+### The routing could not wait for step 3
+
+The note put the `_is_layered` widening in step 3, with the reframe. That is
+one step too late, and the failure is this repo's usual one. `export` picks its
+writer from the project; a single-source project whose canvas `_is_layered` did
+not know about would go to auto-editor, which takes the export and renders the
+footage's own shape at exit 0. A 16:9 file where 9:16 was asked for, no error
+anywhere. So the routing shipped with the field: an overridden project reaches
+the MLT writer whatever its source count, and the reply says so rather than
+leaving it to be discovered at export.
+
+Verified end to end rather than by unit test, on five real seconds of the
+Scream cold open (1920x816) through the actual CLI:
+
+```
+lucid canvas 1080x1920   →  routes_through: mlt, fills_frame: false
+lucid export --render    →  writer: melt, 1080x1920, 63 of 63 frames, exit 0
+```
+
+and then sampled, because exit 0 proves nothing here: the content band is 461
+of 1920 rows, **76% black bar**, matching the 459 rows the costing spike
+measured. That is the honest state until step 3 — the field makes the frame
+the right shape and nothing yet makes the picture fill it, which is why both
+`fills_frame` and `routes_through` are in every reply rather than in a doc.
+
+`card_new` already defaulted its canvas to `_mlt_resolution`, so a card
+authored after a swap comes out at the new shape for free. The 13 that exist
+were authored before it, and remain step 2's problem.

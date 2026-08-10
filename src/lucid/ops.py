@@ -17,6 +17,7 @@ import tempfile
 import time
 from collections.abc import Iterable, Sequence
 from itertools import pairwise
+from math import gcd
 from pathlib import Path
 from typing import Any
 
@@ -1000,6 +1001,7 @@ def status(path: Path | str) -> dict[str, Any]:
         "segments": len(edit.segments),
         "undo_depth": len(project.snapshots()),
         "clips": [c["clip_id"] for c in project.read_manifest().get("clips", [])],
+        "canvas": "{}x{}".format(*_mlt_resolution(project)),
     }
 
 
@@ -2724,22 +2726,48 @@ def _melt_consumer_args(bundle: dict[str, str] | None) -> tuple[str, ...]:
     return tuple(f"{key}={value}" for key, value in bundle.items())
 
 
-def _is_layered(project: Project, edit: tl.Edit) -> bool:
-    """Does this timeline name more than one source file?
+#: Where a project keeps the shape it renders at, as `WIDTHxHEIGHT`. Absent
+#: means "derive from the footage", which is exactly what every project
+#: written before this key existed meant — so it is additive the way
+#: `CAPTION_STYLE_KEY` is, and gets no `SCHEMA_VERSION` bump for the same
+#: reason: a bump would make `Project.open` refuse every project on disk to
+#: gain nothing. PLAN.md § Aspect swap.
+CANVAS_KEY = "canvas"
 
-    Two ways to get there and they hit the same wall: a cue table lays picture
-    over the edit, and an edit naming two clips already holds two `src` files.
-    auto-editor 31.x refuses to *export* either one (exit 2) and *renders*
-    them at 720x576 with exit 0 (CLAUDE.md), so either one routes through the
-    MLT writer.
+
+def _parse_canvas(value: Any) -> tuple[int, int]:
+    """`WIDTHxHEIGHT` → a pair, refusing what the encoders refuse quietly.
+
+    The odd dimension is the one worth naming: libx264 at `yuv420p`
+    subsamples chroma by two, so an odd edge is padded or refused depending
+    on which link in the chain notices first — and a canvas that comes back
+    one pixel different from the one asked for is the silent-wrong-output
+    this whole item exists to avoid.
     """
-    if len({segment.clip_id for segment in edit.segments}) > 1:
-        return True
-    return bool(project.read_manifest().get("cues"))
+    text = str(value).strip().lower().replace("×", "x")
+    parts = text.split("x")
+    if len(parts) != 2 or not all(part.strip().isdigit() for part in parts):
+        raise ProjectError(f"canvas must read WIDTHxHEIGHT (e.g. 1080x1920), not {value!r}")
+    width, height = (int(part) for part in parts)
+    if width <= 0 or height <= 0:
+        raise ProjectError(f"canvas must be positive, not {width}x{height}")
+    if width % 2 or height % 2:
+        raise ProjectError(
+            f"canvas must be even on both edges, not {width}x{height} — libx264 at "
+            "yuv420p subsamples chroma by two, and an odd edge is padded or refused "
+            "depending on which link in the chain notices first"
+        )
+    return width, height
 
 
-def _mlt_resolution(project: Project) -> tuple[int, int]:
-    """The canvas to declare in the MLT profile: the first real picture in the
+def _stored_canvas(project: Project) -> tuple[int, int] | None:
+    """The project's canvas override, or None to derive from the footage."""
+    stored = project.read_manifest().get(CANVAS_KEY)
+    return None if stored is None else _parse_canvas(stored)
+
+
+def _footage_resolution(project: Project) -> tuple[int, int]:
+    """The shape the footage itself implies: the first real picture in the
     project, else 1080p. Cards are not consulted — scaling a still to the
     canvas is normal; sizing the canvas to a still is not.
     """
@@ -2747,6 +2775,107 @@ def _mlt_resolution(project: Project) -> tuple[int, int]:
         if clip.get("has_video") and clip.get("width") and clip.get("height"):
             return int(clip["width"]), int(clip["height"])
     return mlt.DEFAULT_RESOLUTION
+
+
+def _aspect(width: int, height: int) -> str:
+    """`1080x1920` → `9:16`. Reported because it is the question actually
+    being asked, and because two canvases that differ only in scale are the
+    same decision while two that differ in ratio are not.
+    """
+    divisor = gcd(width, height) or 1
+    return f"{width // divisor}:{height // divisor}"
+
+
+def canvas(
+    path: Path | str,
+    *,
+    size: str | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the shape this project renders at.
+
+    **The canvas is project state and every frame size is derived from it**,
+    the same separation `caption_style` has and for the same reason: the MLT
+    profile and the captions' reference canvas both read this, so a project
+    cannot end up quoting caption sizes against one shape while rendering
+    another. Called with no arguments it changes nothing and reports what is
+    in force, including the footage-derived shape it would fall back to.
+
+    Setting one has a routing consequence, reported as `routes_through`: an
+    overridden project renders through the MLT writer whatever its source
+    count, because auto-editor's `-res` letterboxes and has no reframe to
+    teach (PLAN.md § Aspect swap). `reset` drops the override and returns the
+    project to deriving from its footage. `plan` resolves without writing.
+
+    Until the reframe lands, an override that changes the *aspect* pillarboxes
+    rather than crops — reported as `fills_frame`, because a 9:16 file that is
+    76% black bar is a plausible-looking wrong answer.
+    """
+    if size is not None and reset:
+        raise ProjectError("pass a size or `reset`, not both")
+
+    project = Project.open(path)
+    stored = _stored_canvas(project)
+    if size is not None:
+        after: tuple[int, int] | None = _parse_canvas(size)
+    elif reset:
+        after = None
+    else:
+        after = stored
+
+    write = (size is not None or reset) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if after is None:
+            manifest.pop(CANVAS_KEY, None)
+        else:
+            manifest[CANVAS_KEY] = f"{after[0]}x{after[1]}"
+        project.write_manifest(manifest)
+
+    footage = _footage_resolution(project)
+    width, height = after or footage
+    has_clips = any(c.get("has_video") for c in project.read_manifest().get("clips", []))
+    return {
+        "project": str(project.root),
+        "canvas": f"{width}x{height}",
+        "width": width,
+        "height": height,
+        "aspect": _aspect(width, height),
+        "source": "override" if after else ("footage" if has_clips else "default"),
+        "footage": f"{footage[0]}x{footage[1]}",
+        "footage_aspect": _aspect(*footage),
+        # The consequence of setting one, said out loud rather than discovered
+        # at export: auto-editor cannot be handed this.
+        "routes_through": "mlt" if after else "auto-editor or mlt, by source count",
+        "fills_frame": after is None or _aspect(width, height) == _aspect(*footage),
+        "captions_reference": "{}x{}".format(*captions.canvas(width, height)),
+        "written": write,
+        "reset": bool(reset),
+        "plan": bool(plan),
+    }
+
+
+def _is_layered(project: Project, edit: tl.Edit) -> bool:
+    """Does this timeline need the MLT writer?
+
+    Three ways to get there and they hit the same wall: a cue table lays
+    picture over the edit, an edit naming two clips already holds two `src`
+    files, and a canvas override names a shape auto-editor can only
+    letterbox into. auto-editor 31.x refuses to *export* the first two
+    (exit 2) and *renders* them at 720x576 with exit 0 (CLAUDE.md); it would
+    take the third and quietly ignore it, which is the same failure wearing
+    a different hat. All three route through the MLT writer.
+    """
+    if len({segment.clip_id for segment in edit.segments}) > 1:
+        return True
+    manifest = project.read_manifest()
+    return bool(manifest.get("cues") or manifest.get(CANVAS_KEY))
+
+
+def _mlt_resolution(project: Project) -> tuple[int, int]:
+    """The canvas to declare in the MLT profile."""
+    return _stored_canvas(project) or _footage_resolution(project)
 
 
 def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[str, Any]:
@@ -2995,8 +3124,10 @@ def export(
     choice is made from the project, not from a flag — a cue table or a second
     clip on the timeline *is* a multi-source timeline, and there is no
     combination of arguments that should route one through the path that
-    silently ruins it. The reply says which road was taken: `"writer"` is
-    `"auto-editor"`, `"mlt"`, or `"melt"`.
+    silently ruins it. A `canvas` override joins them for the same reason:
+    auto-editor would take the export and ignore the canvas, which is the same
+    silent wrong output wearing a different hat. The reply says which road was
+    taken: `"writer"` is `"auto-editor"`, `"mlt"`, or `"melt"`.
 
     `preset` names one of `EXPORT_PRESETS` (`"youtube"`, `"web"`) or
     `"custom"` (which requires `resolution`) — a bundle of the same four
@@ -3005,9 +3136,10 @@ def export(
     `resolution` sets a `WIDTH,HEIGHT` output size on the single-source path
     only — **it letterboxes the existing 16:9 frame, it does not crop or
     reframe it**, so it is not a substitute for a vertical/9:16 export. There
-    is deliberately no `"tiktok-reels"` preset: 9:16 needs a real reframe,
-    which is DAYDREAM.md § Aspect swap, a separately deferred item that
-    touches the project model, both render paths, and the preview letterbox.
+    is deliberately no `"tiktok-reels"` preset yet: 9:16 needs a real reframe,
+    and the shape a project renders at is `canvas`'s job rather than an
+    argument's — PLAN.md § Aspect swap, whose step 5 is where the preset comes
+    back, once the name would be honest.
     Neither `preset` nor `resolution` may be combined with a non-`None`
     `export_format` — an NLE project file has no bitrate to set. `resolution`
     on a layered (multi-source) project is refused outright: widening the
@@ -3124,7 +3256,16 @@ def _transcripts_for(project: Project, clip_id: str | None) -> dict[str, tx.Tran
 
 
 def _caption_canvas(project: Project) -> tuple[int, int]:
-    """The reference canvas for captions: the picture's shape, not its size."""
+    """The reference canvas for captions: the picture's shape, not its size.
+
+    Reads the project's canvas override before the footage, because the two
+    derivations of this fact have to move together — sizes and margins quoted
+    against a 16:9 reference and burned into a 9:16 render stretch the
+    glyphs, which is what `captions.canvas` exists to prevent.
+    """
+    override = _stored_canvas(project)
+    if override is not None:
+        return captions.canvas(*override)
     for clip in project.read_manifest().get("clips", []):
         if clip.get("has_video"):
             return captions.canvas(clip.get("width"), clip.get("height"))

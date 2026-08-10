@@ -62,6 +62,7 @@ EXPECTED_TOOLS = {
     "add_captions",
     "caption_view",
     "caption_style",
+    "canvas",
     "verify",
     "check_frames",
     "check_black",
@@ -184,6 +185,7 @@ TOOL_TO_COMMAND = {
     "add_captions": "captions",
     "caption_view": "caption-view",
     "caption_style": "caption-style",
+    "canvas": "canvas",
     "verify": "verify",
     "check_frames": "frames",
     "check_black": "black",
@@ -1591,6 +1593,49 @@ def test_a_stored_style_reaches_the_ass_file_and_survives_a_cut(
     assert len(out["view"]["cues"]) == out["written"]["cues"]
     assert out["view"]["words"] == out["written"]["words"] == 6
     assert out["view"]["words_cut"] == 2
+
+
+def test_canvas_over_the_wire(tmp_path: Path) -> None:
+    """Registration and the `-C` binding, plus the one field feeding both
+    derivations — a project with no footage still has a canvas to report."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        derived = await client.call("canvas", path=str(project))
+        planned = await client.call("canvas", path=str(project), size="1080x1920", plan=True)
+        set_ = await client.call("canvas", path=str(project), size="1080x1920")
+        after_plan = await client.call("canvas", path=str(project))
+        return {"derived": derived, "planned": planned, "set": set_, "after": after_plan}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["derived"]["canvas"] == "1920x1080"
+    assert out["derived"]["source"] == "default"
+    assert out["planned"]["written"] is False
+    assert out["set"]["aspect"] == "9:16"
+    assert out["set"]["routes_through"] == "mlt"
+    assert out["after"]["canvas"] == "1080x1920", "the plan call left the set one alone"
+
+
+def test_canvas_refusal_travels_as_an_error(tmp_path: Path) -> None:
+    """An odd edge has to come back as a refusal naming the number, not as a
+    canvas one pixel different from the one asked for."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        result = await session.call_tool(
+            "canvas", {"path": str(project), "size": "1081x1920"}
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "even" in out["text"]
 
 
 @needs_ffprobe

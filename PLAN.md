@@ -1478,10 +1478,17 @@ defends.
 
 **The project canvas is one field, and it feeds both derivations.** A `canvas`
 in the manifest (`WIDTHxHEIGHT`, absent meaning "derive as today"), read by
-`_mlt_resolution` and `_caption_canvas` before either walks `clips`. That is a
-schema bump, v3 → v4, with a `_MIGRATIONS[3]` entry keyed by the version it
-migrates *from* — the mechanism exists so a bump is a step rather than a
-widening of `Project.open`.
+`_mlt_resolution` and `_caption_canvas` before either walks `clips`.
+
+**It takes no schema bump, and the first draft of this note was wrong to say it
+did.** The precedent is written at `CAPTION_STYLE_KEY`: an additive optional
+key whose absence means what every older manifest already meant needs no
+version, and bumping for one "would make `Project.open` refuse every existing
+project to gain nothing". v2 and v3 both bumped for *list* keys that other ops
+`setdefault` — there the number is what makes the key true rather than
+incidentally survivable. A canvas is the `caption_style` shape, not the
+`descriptions` shape. **Where the bump does land is step 2**: persisted card
+records are a list, and old cards on disk lack them.
 
 **An aspect override routes through the MLT writer, whatever the source
 count.** `export` picks its writer from the project and never from an argument,
@@ -1498,7 +1505,7 @@ and say nothing: that is correct-pixels-wrong-video with a plausible file to
 back it up.
 
 **Cards become re-derivable, which `card_new` owes anyway.** Persist
-`(template, slots, canvas)` alongside the card — the same v4 bump — so a swap
+`(template, slots, canvas)` alongside the card — the v4 bump — so a swap
 can re-author every card at the new canvas, and so the 13 existing Scream cards
 regenerate by command rather than by hand.
 
@@ -1523,14 +1530,21 @@ the picture and the caption layer letterbox against the same rectangle.
 
 ### Build order — nothing built yet
 
-1. **The canvas field** — manifest, schema v4 + `_MIGRATIONS[3]`, both
-   derivations reading it, `info` reporting it. No render change at all, so it
-   lands and is verifiable on its own.
+1. **The canvas field** — **shipped 2026-08-10.** Manifest key, both
+   derivations reading it, `status` reporting it, `canvas` op with CLI and MCP
+   parity. **The routing came with it rather than waiting for step 3**, which
+   the note originally had backwards: an override that `_is_layered` did not
+   know about would send a single-source project to auto-editor, which takes
+   the export and ignores the canvas — a 16:9 file at exit 0, the exact
+   silent-wrong-output this item exists to close. So an overridden project
+   routes through the MLT writer from the day the field exists, and the reply
+   says so (`routes_through`). Until step 3 a swapped aspect pillarboxes, and
+   the reply says that too (`fills_frame`).
 2. **Card re-derivation** — persist template and slots, and a re-render at the
    project canvas. Independently useful the day it lands: it closes the wiki's
    13-card item, which is open regardless of whether anything ever goes 9:16.
-3. **The MLT reframe** — per-clip crop rects, the `qtblend` filter applied per
-   node *per role* (finding 3), routed by widening `_is_layered`. Verified the
+3. **The MLT reframe** — per-clip crop rects and the `qtblend` filter applied
+   per node *per role* (finding 3); the routing landed in step 1. Verified the
    way the pinned cue was: a real melt render, sampled for pixel geometry,
    because every failure mode here produces a file and exit 0.
 4. **The viewer's project-canvas frame** — verified in a real browser and by

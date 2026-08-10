@@ -795,6 +795,34 @@ def caption_style(
 
 
 @_tool()
+def canvas(
+    path: str,
+    size: str | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the shape this project renders at.
+
+    The canvas is project state and every frame size derives from it — the
+    MLT profile and the captions' reference canvas both read it, so a project
+    cannot quote caption sizes against one shape and render another. Call it
+    with no `size` to read what is in force plus the footage-derived shape it
+    would fall back to; `reset` drops the override and returns to that shape.
+
+    `size` is "WIDTHxHEIGHT", e.g. "1080x1920" for a vertical reel. Both
+    edges must be even.
+
+    Setting one has a routing consequence, reported as `routes_through`: an
+    overridden project renders through the MLT writer whatever its source
+    count, because auto-editor cannot be handed a canvas it will honour.
+    Until the reframe lands, an override that changes the *aspect*
+    pillarboxes rather than crops — check `fills_frame` before believing a
+    vertical render is what was wanted.
+    """
+    return ops.canvas(path, size=size, reset=reset, plan=plan)
+
+
+@_tool()
 def verify(
     path: str,
     render: str,

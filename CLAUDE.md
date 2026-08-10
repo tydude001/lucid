@@ -31,8 +31,8 @@ installed package or the upstream repo, not your memory.
     three traps all produce output rather than an error: HISTORY.md § 4.
     PLAN.md § The layered timeline.
   - The writer is `mlt.py`, and `export` picks it **from the project** — a cue
-    table or a second clip_id on the edit — never from an argument, because
-    the failure it routes around is silent. Positions in it are frame
+    table, a second clip_id on the edit, or a `canvas` override — never from an
+    argument, because the failure it routes around is silent. Positions in it are frame
     integers, `out` is the last frame *index*, and every declared length is
     read back off the finished document by `mlt.declared_frames` before it is
     returned: melt renders to the longest one it finds. HISTORY.md § The MLT
@@ -130,6 +130,11 @@ installed package or the upstream repo, not your memory.
   step to `_MIGRATIONS` — keyed by the version it migrates *from* — rather
   than widening `open`. HISTORY.md § The schema migration. **The schema is at
   3**; v3 added `descriptions`.
+  - **An additive *optional* key does not bump** — `caption_style` and `canvas`
+    are absent-means-what-every-older-manifest-meant, and a bump would make
+    `open` refuse every project on disk to gain nothing. Both bumps so far were
+    for list keys another op would `setdefault` anyway, where the number is
+    what makes the key true rather than incidentally survivable.
 - **A footage description indexes the source, so no edit can invalidate one** —
   `(clip_id, src_start, src_end, text)` in *source* seconds, and there is
   deliberately no re-describe hook. Windows are never *widened* — a whole-clip

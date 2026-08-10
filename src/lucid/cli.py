@@ -487,6 +487,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_canvas = sub.add_parser("canvas", help="read or change the shape this project renders at")
+    p_canvas.add_argument(
+        "size",
+        nargs="?",
+        metavar="WIDTHxHEIGHT",
+        help="e.g. 1080x1920. Omit to read what is in force and what it derives from",
+    )
+    p_canvas.add_argument(
+        "--reset", action="store_true", help="drop the override and go back to the footage's shape"
+    )
+    p_canvas.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
     p_verify = sub.add_parser(
         "verify", help="transcribe a render and diff it against the timeline"
     )
@@ -997,6 +1011,12 @@ def _cmd_caption_style(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_canvas(args: argparse.Namespace) -> int:
+    # The raw string goes through: `ops._parse_canvas` owns every refusal, so
+    # the CLI and the MCP tool cannot disagree about what a canvas may be.
+    return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     return _emit(
         ops.verify(
@@ -1127,6 +1147,7 @@ _COMMANDS = {
     "captions": _cmd_captions,
     "caption-view": _cmd_caption_view,
     "caption-style": _cmd_caption_style,
+    "canvas": _cmd_canvas,
     "verify": _cmd_verify,
     "frames": _cmd_frames,
     "black": _cmd_black,
