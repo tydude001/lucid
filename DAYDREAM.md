@@ -405,6 +405,16 @@ missing feature: a 2.35:1 receipt holds three lines of quote where a 16:9 one
 holds seven. So a card-heavy watch is blocked on an editorial call rather
 than on a build.
 
+**That refusal is aspect-specific, measured 2026-08-10: at 9:16 all twelve
+author, zero refusals** — the frame got taller and the long reviews fit
+(HISTORY.md § Step 6 of the aspect swap, watched). So the editorial call is a
+16:9-only one and gates no vertical work. What the same render found instead
+is a *composition* gap the wrap measurement could not see: the `receipt`
+template stacks from the top, so at 1080x1920 its content sits in the top
+quarter and two-thirds is empty. **A template that fits is not a template that
+composes**, and only the fit was ever measured. The five `reveal` cards
+compose tall without change.
+
 ### Captions — built, and per-word animation declined on a watch
 
 lucid generates timeline-mapped captions (HISTORY.md § Captions came out of the
@@ -447,8 +457,16 @@ the measurements and the build order; this row is the pointer. **The preview
 letterbox closed 2026-08-10** — the viewer's frame is the project canvas and
 media is placed at the render's own rect, so the page crops where the render
 crops (HISTORY.md § The viewer's frame). **The preset below shipped the same
-day** (HISTORY.md § `tiktok-reels`). **Left is only the watch of a real
-vertical cut, which ends the item.**
+day** (HISTORY.md § `tiktok-reels`). **The vertical cut was rendered and read
+back 2026-08-10** (HISTORY.md § Step 6 of the aspect swap, watched): 1080x1920,
+8064 frames, `agrees: true`, all twelve cards re-authored, no bars anywhere.
+
+**What it found is that the centre-crop default is not usable** — of six
+frames sampled across the film one is composed correctly, the title card's
+"SCREAM" crops to "REA", and two faces are cut. That is the question the step
+existed to ask, now answered by measurement rather than assumed. `reframe`
+already exists per clip, so what is left is nine editorial choices and a
+watch, not a build.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing

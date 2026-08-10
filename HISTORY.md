@@ -4065,3 +4065,142 @@ see, so it is said plainly rather than left to be noticed.
 The generated ASS is otherwise identical to the probe's `fill.ass` — same `\k`
 values, same line breaks, same PlayRes and margins — which is what makes the
 comparison exact.
+
+## The cut and v7 are different shapes — 2026-08-10
+
+The layered-timeline row's first watch asked whether *anything but the music
+and the outro card* still separates `out-karaoke.mp4` from Video Final v7. It
+was written as a question only a watch could answer. It was not: **the two
+films are different shapes, and it is measurable in one ffprobe.**
+
+- **Video Final v7 is 1920x1080.** lucid's cut is **1920x816**.
+- lucid derived its canvas from the *footage* (`_footage_resolution` — the
+  Scream clips are 1920x816 scope), and the hand edit derived its from a
+  1080p timeline.
+
+That single difference inverts how both kinds of material sit:
+
+| | v7 | lucid |
+|---|---|---|
+| movie footage | letterboxed, 132px bars top/bottom | fills the frame |
+| review cards | **fill the frame** | **234px bars each side** |
+
+The cards are 1920x1080 stills in a 1920x816 project, and **a still is
+contained, never cropped** — so every card renders as a 1451px island. That
+is 1451 measured against 1451 predicted (`1920 * 816/1080`) and bars of 234
+against 234.5 predicted, i.e. the geometry to the pixel, not a brightness
+bbox reading a dark scene as a bar. v7's letterbox was measured the same way:
+content rows 130..947, 818 tall, against 816 predicted for the same contain in
+the other direction.
+
+**Confirmed to be the same card, not merely a similar one**: lucid's card
+content, cropped out of its bars and downscaled, differs from v7's frame at
+the matching timestamp by a mean of **0.03 of 255**. lucid's cards *are* v7's
+cards, shrunk.
+
+**Scale: 13 of 38 shots, 90.6s of 336.3s — 27% of the film.** This is the
+strongest available candidate for the 2026-08-10 log entry's standing open
+question, *"the hand-assembled cut is still the better one, and why is now the
+open question."* A quarter of the film displayed at 75% width in black would
+read as cheap without being easy to name.
+
+### It is not a one-command fix, and that is the useful half
+
+The obvious repair — `canvas 1920x1080` to match v7 — was run on a copy.
+`fills_frame: true`, and **all nine footage clips move to `cropped`**. lucid
+crops footage to fill and contains a still; it has no letterbox mode for
+footage at all, by design (CLAUDE.md: media is *placed*, never fitted). So:
+
+1. Keep the scope frame and **re-author the cards at 1920x816** — which lucid
+   can now do (below).
+2. Match v7 at 1080p, which needs a footage-letterbox mode lucid does not
+   have. That is a build, and it argues against the current "always fill" rule.
+3. Leave it. Nothing is broken — `verify` and `check_frames` agree, because
+   the render does match the timeline. Legibility was never their question,
+   the same gap § The film had no captions in it opened.
+
+**This is § The film had no captions in it one layer out again.** Every check
+lucid has was green, and the thing that separated the two films was a property
+no check asks about. Served for the call at `vertical.html`.
+
+## Step 6 of the aspect swap, watched — and its blocker dissolved — 2026-08-10
+
+The last open piece of § Aspect swap: *"A vertical cut of real footage is what
+says whether centre-crop defaults are usable, whether a 64pt caption in a
+608-wide reference reads, and whether the twelve unrecorded cards make the
+whole thing moot."* Rendered, at `~/lucid-vertical/`, and served.
+
+### The card blocker dissolved, and it was never twelve
+
+§ The card record said the twelve Scream cards have files and no record, so
+`card_reauthor` can only report them. True of `~/lucid-final-cut/proj`, whose
+`cards` key is `[]`. **But the ten records exist** — in
+`~/lucid-cards-reauthor/proj`, complete with `(template, slots, canvas)`, and
+the slot table for **all twelve** is in that directory's `reauthor.py`.
+
+So the records were never lost; they were written against a *different working
+copy*. And that copy is the 411s silence cut (73 segments), not the 336s film
+— **§ The VO the project was holding, a third instance.** A second project
+copy at the wrong edit stage, holding the only copy of state the real one
+needs. The rule earns a corollary: **derived project state written on a
+scratch copy has to be carried back, or the next reader finds the film missing
+it and concludes the feature does not work.**
+
+**All twelve author at 1080x1920, zero refusals**, through `card_new` at the
+project canvas. Including the two that refused at 2.35:1 — a receipt holding
+three quote lines wide holds four and six tall, because the frame got taller.
+**The editorial call the parity row describes is a 16:9-only problem and does
+not gate the vertical cut at all.**
+
+The render: 1080x1920, **8064 frames, `agrees: true`**, 336.34s, `writer:
+melt`, `preset: tiktok-reels`. Four sampled frames fill the frame edge to
+edge — no bars anywhere, which is what the twelve re-authored cards buy.
+
+### The centre crop is not usable, and that is the answer
+
+Six frames across the film, read back from the render:
+
+- the title card's **"SCREAM" crops to "REA"**
+- one face survives; one is cut in half
+- a staircase shot where the subject sits below the crop
+- a wall with no subject in it at all
+- and a card
+
+**One of six is composed correctly.** A centre crop cannot be the default for
+this footage. lucid already has `reframe` per clip, so the fix is nine
+decisions, not a feature — but the *default* is now measured rather than
+assumed, which is what step 6 existed for.
+
+### The receipt template does not compose tall
+
+The five dark `reveal` cards read well at 9:16 — centred, generous air. The
+seven cream `receipt` cards stack from the top, so at 1080x1920 the content
+occupies the top quarter and two-thirds is empty cream. Not a refusal and not
+a bar: `fill_template` measured every line and fit them. **A template that
+fits is not a template that composes**, and only the wrap was ever measured.
+
+## kdenlive's trailing black frame, filed closed — 2026-08-10
+
+Carried as **Unfiled** on the layered-timeline row. Reproduced live against
+the installed versions (auto-editor 31.4.2, melt 7.40.0): a 360-frame
+single-source project exports with its clip entry correct (`out` = frame 359)
+and all three tractors declaring `out` = frame 360 — a count where MLT wants
+the last index. `lucid frames` reports `delta: 1, agrees: false`, and
+rendering that project through the real flatpak `melt` encodes **361 frames,
+the last measuring YAVG 16 against ~122** for real picture. Pixel-identical to
+the 2026-08-07 measurement in § `check_frames`.
+
+**It files closed, not open.** It is a real upstream defect and it is already
+named (`picture.KNOWN_TAIL_FRAME`/`TAIL_FRAME_NOTE`), detected
+(`check_frames`/`check_black`), pinned by a real non-mocked test
+(`test_server_stdio.py:2375`), and structurally walled off: lucid's own
+`mlt.py` writes every `out` as `total_frames - 1` and `declared_frames()`
+reads all four lengths back before returning, and **nothing in lucid pipes an
+auto-editor kdenlive export into a delivered render** — `picture.render()`
+only ever renders lucid's own MLT document, and single-source `export
+--render` uses auto-editor's own renderer, which does not carry the +1.
+
+The film confirms it end to end: `render-nocaps.mp4` and `out-karaoke.mp4`
+both count exactly **8064 frames**, `agrees: true, delta: 0`, with no luma
+drop on the tail — because that project is layered and never touched the
+affected path. There is no action item; the row should stop carrying one.

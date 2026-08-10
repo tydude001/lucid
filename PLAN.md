@@ -1983,3 +1983,256 @@ its shape. Finding 6 is a third instance of a failure this repo keeps having
 and is cited from CLAUDE.md's brightness-bbox rule. And `captions.py`'s
 comment no longer claims a single-word highlight needs one Dialogue event per
 word — the claim was false whether or not lucid ever ships one.
+
+## The preview proxy transcode — the design note — 2026-08-10
+
+The last open piece of the tier-3 workspace, and the one the wiki row already
+shaped: *"a job, not a request, so it wants `/api/render`'s pattern, a cache
+key and an eviction rule."* All three of those hold. What does not hold is the
+sentence this document wrote above it, in § Tier 3 is the goal's codec-wall
+bullet, and it is worth correcting first because it names the one build that
+would reintroduce the bug the proxy exists beside.
+
+### The premise this note overturns
+
+That bullet says the fix is *"a cached proxy transcode into a new
+`cache/proxy/`, **resolved the way `media.media_path()` already prefers an
+attenuated copy**"*. Copying that resolution is exactly what must not happen.
+
+`media_path()` prefers the attenuated copy by reading a **manifest key** —
+`clip.get("attenuated") or clip.get("media")` (`media.py:342-352`) — and that
+is what makes attenuation transparent to `export`, `verify`, `check_frames`
+and every other downstream op *for free*. A `proxy` key folded into the same
+chain inherits the identical reach, and the thing it would reach is the
+render: a delivered file at preview quality. `tests/test_server_stdio.py`'s
+`test_export_renders_the_attenuated_copy_not_the_original` is the historical
+regression for this shape of bug pointing the other way — `autoeditor.to_v3`
+once built `"src"` from `record["source"]` and skipped `media_path()`
+entirely, so a render taken after `attenuate_noises` carried the noise at full
+volume with `written: true` giving no sign.
+
+So the rule is structural rather than procedural: **the proxy never enters the
+manifest, and `media_path()` gains no branch.** A new
+`media.preview_path(project, clip)` tries `cache/proxy/` first and falls back
+to `media_path()`; its only callers are `webui._send_media`, `_send_asset` and
+`ops.preview_source` (the swap is one line, `ops.py:1868`). `export` cannot
+reach the proxy because it never calls the new function — not because a
+resolution order was written carefully. That is the difference worth having.
+
+The pin is two tests: the cheap one asserts `media_path()`'s return is
+unchanged by the presence of a `proxy` key on the clip dict at all; the real
+one attaches a genuinely unplayable `hev1` source, produces a proxy, renders,
+and reads the *output's* codec back — still HEVC, never the proxy's H.264.
+
+### What a transcode actually fixes, measured against `playability()`
+
+`media.playability()` (`media.py:190-249`) refuses in four classes, and the
+proxy closes three of them in one ffmpeg pass:
+
+| Refusal | Example | Closed by a transcode? |
+|---|---|---|
+| Container not browser-openable | `.mkv` | **Yes** — remux to `.mp4` |
+| No streams at all | empty/corrupt file | **No** — not a codec problem |
+| Video codec outside `{h264, vp8, vp9, av1, theora}` | `hevc`/`hev1` | **Yes** — `libx264` |
+| Pixel format outside `{yuv420p, yuvj420p}` | High 10 / `yuv420p10le` | **Yes** — `-pix_fmt yuv420p` |
+| Audio codec outside the playable set | `ac3` | **Yes** — `aac` |
+
+Only "no streams" is unfixable, and it should stay a refusal rather than
+become a failed job. `playability()` itself does not change: it stays
+reported-never-enforced and consulted only from the preview side.
+`tests/test_media_playability.py`'s `_encode()` helper already builds a
+fixture for every fixable class from a one-second `lavfi` source, so the
+proxy's test suite needs no new binary assets.
+
+### Homebase's encoder is struck, and this is the second row to strike it
+
+§ Tier 3's bullet says *"homebase already runs an encoder service for exactly
+this conversion (port 8765) — worth checking whether lucid should call it."*
+Checked, live, on this box: it is up, and it is the wrong tool twice over.
+
+1. **It has no per-file API.** `vaultmedia/encoder_common.py` exposes exactly
+   three routes — `/` (dashboard), `/state` (JSON progress), and
+   `/cmd/<command>` (`pause`/`resume`/`hardstop`). It is a directory-walking
+   batch daemon over a fixed `TheVaultData` root. Nothing can hand it an
+   arbitrary path and get one file back.
+2. **Its output would still not play.** `encoder.py`'s `video_args()` always
+   encodes `libx265`/`hevc_nvenc` tagged `-tag:v hvc1` — its whole purpose is
+   HEVC-for-Apple. lucid's own `_PLAYABLE_VIDEO` excludes `hevc` under every
+   tag, deliberately (`media.py:176-179`: an `hvc1`-tagged HEVC plays on iOS
+   and not in the Chromium/Firefox `lucid web` actually runs against). Its
+   output would fail `playability()` and show the same black.
+
+DAYDREAM.md § B-roll by description already struck this service off that
+item's checklist for having no inference in it, and redirected it here. It is
+now struck here too, for a different reason, and the note is: **grow our
+own.** One `subprocess.run(["ffmpeg", ...])` in the `energy.attenuate` idiom.
+`h264_nvenc` is available (RTX 5070) if latency ever matters, unmeasured.
+
+### The cache key is the house one; the eviction rule is genuinely new
+
+**Key: the resolved source's `st_size` + `st_mtime_ns`**, verbatim from
+`_cached_waveform` (`ops.py:1745-1763`) — "cheap to check (no re-read of the
+media) and exactly what `attenuate_noises` or a re-import changes when they
+replace a clip's audio." A content hash is correct across an mtime-preserving
+copy and costs a full read of a multi-hundred-MB file; no cache in this repo
+uses one, and the disagreement is narrow enough that the convention has
+already made this call once. Key off **`media_path()`'s result**, not
+`clip["source"]`, so a proxy of the attenuated copy is a different entry from
+a proxy of the raw original.
+
+**Eviction has no precedent here and that is the finding.** Every existing
+`cache/` subdirectory — `waveform/`, `attenuated/`, `verify/`, `frames/` — is
+either one-entry-per-clip-overwritten-on-invalidation or hand-cleaned, and
+none of them has an eviction rule. They get away with it because a waveform is
+a small JSON. A proxy is a full-resolution H.264 re-encode, so a project with
+many unplayable clips grows `cache/proxy/` without bound and nothing in the
+current convention says what deletes one. **This is new ground, not a pattern
+to copy** — which is precisely why the wiki row asked for the rule by name.
+
+### The job shape, and the one decision it leaves open
+
+`RenderJob` (`webui.py:555-743`) is the pattern, and it transfers almost
+verbatim: `_lock`/`_running`/`_cancel`, an output path computed *before* any
+state is touched so a bad request is a 400 rather than a job that starts to
+immediately fail, `_finish()` in a `finally`, and completion pushed as an
+event on the SSE bus rather than polled — **there is no GET-by-job-id route in
+this codebase at all.** `POST /api/proxy {"asset": ...}` → `202 {"job_id"}`,
+with `"running"` → `"done"`/`"error"`/`"cancelled"` on `/api/events`. The op
+itself is `ops.proxy_transcode`, with a CLI subcommand and an `@_tool()`
+registration, per the standing parity convention.
+
+**Open, and deliberately not decided here: whether a proxy job is
+one-at-a-time per server like a render.** `RenderJob`'s single slot is
+justified by "one render at a time per server" being an acceptable product
+constraint. A proxy is keyed by *asset*, and a timeline can show several
+unplayable shots, so copying the constraint means the second unplayable shot
+clicked returns 409 while the first encodes. That may be right; it is not
+measured, and the thing that would settle it is a real project carrying more
+than one unplayable asset, which this box does not yet have.
+
+### Cost
+
+Roughly: `project.py` +10 (a `PROXY_DIR` constant and a `proxy_path`, mirroring
+`waveform_dir`/`waveform_path` exactly), `media.py` +50-80 (`preview_path` and
+the transcode primitive; **`media_path()` itself changes by zero lines, which
+is the point**), `ops.py` +60-100, `webui.py` +150-250 against `RenderJob`'s
+own ~190, `cli.py`/`server.py` +30-50. Tests are the largest single piece, as
+they were for the picture layer.
+
+## Three uncosted parity items, costed — 2026-08-10
+
+The wiki's parity row carried *"**Uncosted:** reel selection, music, a default
+font"* with no note behind any of them. Costed here together because two of
+the three turn out to be smaller than their names, and the third is larger.
+
+### Reel selection — the mechanism exists; only the choosing is open
+
+**The name is ambiguous and both readings matter, so both are costed.** The
+row's own provenance is the 2026-08-10 log entry: *"Aspect swap approved,
+driver a promo reel per video; reel selection is a separate uncosted
+question."* So the primary reading is **which sixty seconds of a six-minute
+film becomes the vertical reel** — not a gesture.
+
+**Under that reading there is nothing to build, and that is the finding.**
+`cut_by_time(spans=…)` already takes spans in *timeline* seconds — "what a
+human reports watching an export" — converts them through `Edit.source_spans`
+and cuts through the same `Edit.remove` path `cut_by_transcript` uses. So a
+reel is: copy the project, `cut_by_time` the head and the tail, `canvas`, and
+`export --preset tiktok-reels`. Every step ships today. **That is the dumb
+control any reel feature has to beat**, and it should be built as a test
+before anything cleverer is designed.
+
+What is genuinely absent is one level up: **a reel is a derived project, and
+lucid has no project-derivation op.** The canvas is project state and the cuts
+are destructive, so the copy is mandatory and is currently a `cp -a` done by
+hand. `lucid reel <start> <end>` — copy, two cuts, canvas, refit, re-author
+cards — is the real shape, and it is small.
+
+The *selection* itself is the `synopsis` precedent, not a new algorithm.
+§ Choosing the b-roll measured that lexical matching does not choose footage
+and that lucid should not choose at all — one line per clip handed to whatever
+is reading, which writes back through `cue_add`. A reel wants the same:
+narration plus synopsis handed out, spans written back through `cut_by_time`.
+**Do not build a ranker.** That is the measurement that already exists.
+
+**The second reading** is Daydream's timeline gesture — *"right-click-drag on
+the timeline selects a range"* (DAYDREAM.md:102-104), the third b-roll entry
+point beside the agent prompt and the transcript selection. That is UI-only
+*if* one premise holds: that a timeline range translates to the word-index /
+`src_start` pair `cue_add` needs. `timeline.js:344-361` already draws a
+selection box, but it is driven by **word indices** and its `'selection'`
+event is unwired and commented as speculative; there is no pointer handler on
+the canvas at all. The premise breaks on a drag that starts or ends **inside a
+gap a prior cut left**, where no surviving word sits under the cursor — and
+"put b-roll over this silence" is a *likely* drag, not an edge case. If most
+useful drags land on gaps, the build is gap-anchored placement, which is a
+different and currently unbuilt address space. Cheap to settle against the
+Scream project with `Edit.gaps`; settle it before writing any UI.
+
+### Music — the headline is that it has nowhere to live
+
+Daydream places music as short accent blocks on its own **A2** lane
+(DAYDREAM.md:92-104), imported under a distinct role. lucid has no such lane
+and cannot grow one cheaply, for a reason already on the record.
+
+`Edit`'s own docstring: *"One track. A/V are linked… there is no way to cut
+picture without sound yet."* `mlt.document()` accepts exactly two lane roles,
+`audio` and `picture`, and its length invariant only checks `picture` against
+`audio`'s frame count. There is no third role, and `grep -rn 'A2' src/lucid/`
+returns nothing.
+
+**The trap is the length model, and this repo has already been burned by it.**
+`cue_add` is in-point only, deliberately: a cue carrying its own length is the
+failure § The property everything below defends exists to prevent. The
+goodsometimes Scream assembly is the worked example — a music bed whose
+lengths were tuned to one runtime was invalidated wholesale by a ~12s VO
+append, while the word-indexed shot plan recomputed for free. **Music is the
+one asset that genuinely wants a length** (a bed under a passage), which is
+precisely the shape the rule forbids. Any design that reintroduces
+explicit-length placement repeats a failure already written against.
+
+So the first step is not a lane. It is to measure whether a bed can be
+expressed length-agnostically — loop or hold, fading against the last
+surviving segment rather than a baked timecode — the way § Motion graphics
+already solved it for animated cards. **That premise is the one most likely to
+be wrong, and it is not cheap to settle by inspection**: music is not
+indifferent to when it ends, and a bed that loops past a natural beat is a
+worse defect than a picture held one frame long. It needs a toy bed rendered
+over the Scream cut and *listened to*. Until that watch happens, music risks
+being costed as a rendering problem when its whole cost is in the length
+model.
+
+### A default font — the premise is dead on measurement
+
+The row reads as "port Daydream's caption/template fonts" — DAYDREAM.md:196-209
+names Inter Tight and Poppins, deferred there as *"irrelevant until the
+graphics work"*, a clause that expired when cards and caption styling shipped.
+
+**Measured on this box, 2026-08-10: none of them are installed, and neither is
+lucid's own default.** `fc-match "DejaVu Sans"` → Noto Sans; `fc-match "Inter
+Tight"` → Noto Sans; `fc-match "Poppins"` → Noto Sans; `fc-list` counts zero
+for both of Daydream's faces. All three caption `PRESETS` name `DejaVu Sans`
+and every one of them draws as Noto Sans. So copying Daydream's choice moves
+the silent substitution from one absent name to another absent name. **The
+item as named builds nothing.**
+
+The real question is already on the record and explicitly not taken
+(§ Direction and order): *whether lucid's default should name a font this
+machine actually has, because changing the table would silently restyle every
+existing project.* That is the item, and it is smaller and different: make the
+default resolve-safe rather than aspirational. Two shapes — vendor the faces
+into fontconfig's path (note the web UI's `woff2` files do **not** put a face
+where `fc-match`, libass or librsvg can see it; those are separate delivery
+mechanisms), or name what resolves on the rendering machine, computed rather
+than hardcoded.
+
+Cards already dodge this and captions cannot: `graphics.py:464-466` uses CSS
+fallback *stacks* ending in a generic, which is the SVG-native survival trick.
+libass's `\fn` takes exactly one family name, so captions have no equivalent.
+Only captions are exposed.
+
+Whatever is chosen, it is not a schema bump — no new key — but it *is* a
+behaviour change to every prior project's output, and nothing is stored
+per-project until overridden. And it is settled by measuring a render's
+pixels, never by `fc-match`, per § The emphasis-capable quote slot: `fc-match`
+answers "is the family present", not "which face drew".
