@@ -255,8 +255,12 @@ installed package or the upstream repo, not your memory.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas)` and `card_reauthor` fills the template again
     at the project canvas. A card with files but no record cannot be
-    re-authored by anything — it is reported, never guessed at, and the twelve
-    in the Scream project are all of them. HISTORY.md § The card record.
+    re-authored by anything — it is reported, never guessed at. The twelve in
+    `~/lucid-final-cut/proj` have no record, **but their slot tables survive in
+    `~/lucid-cards-reauthor/`** — look there before concluding a card is
+    unrecoverable. All twelve author at 9:16; the two that refuse are a
+    16:9-only content fit. HISTORY.md § The card record, § Step 6 of the aspect
+    swap, watched.
 - **Footage follows a canvas change by cropping, and the crop is a rect in
   *source* pixels stored as asked** — refit whenever the canvas moves, so
   neither a cut nor a swap can invalidate one. An override is a **floor**: a
@@ -308,4 +312,6 @@ installed package or the upstream repo, not your memory.
     against 351s, 72s of retakes — and the render, `verify`, the cue table and
     the shot plan all agreed with it. Before building anything for review on
     one, compare its `timeline_duration` against the film it is meant to be.
-    HISTORY.md § The VO the project was holding.
+    **And carry derived state back off a scratch copy** — the ten card records
+    were written on the 411s copy, so the film's own project read as having
+    none. Three instances now. HISTORY.md § The VO the project was holding.
