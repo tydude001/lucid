@@ -333,7 +333,11 @@ in [CLAUDE.md](CLAUDE.md): trust word *order*, never word *durations*;
 survival is an *overlap* test; anything emitting times for playback maps
 through `Edit.timeline_span`.
 
-### Now — nothing in flight
+### Recently — what shipped, and what each one corrected
+
+**What is in flight is the wiki's Open items table, never this file** (root
+`CLAUDE.md` § Knowledge stores). What follows is the standing record of what
+each shipped item turned out to be, which is a different question.
 
 The tier-3 workspace shipped 2026-08-08 (§ Tier 3 is the goal). Of its two
 remainders one is closed — the agent's MCP server binds to its `-C` project
@@ -445,8 +449,11 @@ timeline being the enabler and the look pass being gated on nothing:
    an in-point and the shot shows the moment it names or `export` refuses.
    The hour-metering worry resolved against Daydream rather than for it —
    describing locally is minutes, and the part that actually needed building
-   was the cue that could name a moment. **What is left is not a build**: the
-   note's step 4 is a watch of a real b-roll cut, before ranking of any kind.
+   was the cue that could name a moment. **The watch that step 4 held for
+   happened 2026-08-10, and cost the item its premise**: what chooses a clip
+   is not the vision index but a per-clip `synopsis`, and lucid does not
+   choose at all (§ B-roll by description step 5; HISTORY.md § Choosing the
+   b-roll). The index's remaining use is the in-point, which nothing pins yet.
 5. **The long tail** — aspect swap, import roles + assets pane,
    multi-project picker, HTTP MCP transport, properties pane. **Aspect swap
    is no longer only a parity nicety** — it is what a `tiktok-reels` export
