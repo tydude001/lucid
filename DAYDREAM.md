@@ -420,7 +420,8 @@ UI. The agent restyles and the window renders it, which is the parity target.
 Touches the model (a project canvas property), both render paths, the cards
 already rasterised at the old canvas, and the preview letterbox. **Costed
 2026-08-09 — PLAN.md § Aspect swap — the design note**, which owns the design,
-the measurements and the build order; this row is the pointer.
+the measurements and the build order; this row is the pointer. **Left is the
+preview letterbox**, then the preset below.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing
@@ -450,16 +451,16 @@ four consumer keys `picture.RENDER_ARGS` already hardcodes, because HISTORY.md
 combination and nobody has since isolated which addition caused it. A preset
 that widens the consumer is a memory-growth experiment in a feature's clothes.
 
-**`tiktok-reels` is not shipped, and it is blocked rather than skipped.** 9:16
-is mechanically producible on the single-source path — measured, a 320x240
-clip renders to 608x1080 — but only as the 16:9 frame pillarboxed, never a
-filled or reframed vertical video. That reframe is § Aspect swap below. A
-caller-supplied `resolution` is refused on the melt path for the memory reason
-above — a refusal of the *argument*, not an inability of the renderer
-(§ Aspect swap) — so the preset could not have been offered consistently
-across the two writers even as a letterbox. A platform's name over a quiet pillarbox is the
-correct-pixels-wrong-video failure this document's constraint 2 exists to
-prevent.
+**`tiktok-reels` is not shipped, and what blocks it has changed.** A filled
+9:16 render exists — `canvas` plus the reframe, on the melt path (§ Aspect
+swap) — so the old objection, that a platform's name would sit over a quiet
+pillarbox and trip this document's constraint 2, is answered. What remains is
+that the canvas half belongs to the *project* rather than to an export flag:
+`canvas` decides the shape, routes for itself and reports what it crops, which
+leaves the preset the quality bundle it always was. It is queued behind the
+preview letterbox and a watch of a real vertical cut. A caller-supplied
+`resolution` stays refused on the melt path for the memory reason above — a
+refusal of the *argument*, not an inability of the renderer.
 
 ### MCP over HTTP — optional, unranked
 
@@ -529,7 +530,7 @@ item is unchanged — real Scream VO, real browser (wiki `tooling.md`
    didn't — model label, thumbs, `@`-mentions, inline pause markers,
    `restore`, export presets — **shipped the same day** as their own step
    (HISTORY.md § The head of the parity queue). This rung is done, except for
-   `tiktok-reels`, which is blocked on § Aspect swap in item 6.
+   `tiktok-reels`, which is queued behind § Aspect swap's preview letterbox.
 2. **The layered timeline, steps 1–6** (PLAN.md § The layered timeline) —
    already Next; ends with the picture lane, the legal gate for the rest.
 3. **Caption styling** — the style object, agent-settable, burn-in at
