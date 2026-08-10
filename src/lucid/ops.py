@@ -1633,6 +1633,18 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     * `shots_rate` is the frame grid the shots were quantised on, which is
       `export`'s rate (`_export_fps`) and **not** `timebase` — an audio-only
       project's timebase is milliseconds, and the picture is not.
+
+    `canvas` and `reframe` are the frame, and they are here so a preview can
+    draw the shape the render declares instead of the shape its media happens
+    to be — step 4 of PLAN.md § Aspect swap. `canvas` is `_mlt_resolution`,
+    the profile's own number. `reframe` maps a clip to `dest`, **where its
+    whole source frame lands on that canvas**, in canvas pixels: the same
+    `Reframe.dest_rect` the MLT writer turns into a `qtblend` rect, so a
+    front end places media by reading it rather than by re-deriving a crop.
+    A clip whose reframe changes nothing still gets an entry, and it is the
+    contain placement — one path draws both, and neither is the front end's
+    own arithmetic. A stale stored rect comes back as `reframe_error`, for
+    `shots_error`'s reason: the view is how a person finds the rect to fix.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -1658,6 +1670,21 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     except _PICTURE_REFUSALS as exc:
         shots, shots_error = [], str(exc)
 
+    resolution = _mlt_resolution(project)
+    reframe_error: str | None = None
+    try:
+        placement = {
+            clip_id_: {
+                "source": list(entry.source),
+                "crop": list(entry.crop),
+                "dest": list(entry.dest_rect(resolution)),
+                "crops": not entry.is_identity(resolution),
+            }
+            for clip_id_, entry in _reframe_map(project, resolution).items()
+        }
+    except ProjectError as exc:
+        placement, reframe_error = {}, str(exc)
+
     result: dict[str, Any] = {
         "project": str(project.root),
         "name": project.read_manifest().get("name", project.root.name),
@@ -1676,6 +1703,8 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "timebase": _rate(project),
         "undo_depth": len(project.snapshots()),
         "layered": _is_layered(project, edit),
+        "canvas": list(resolution),
+        "reframe": placement,
         "shots": shots or None,
         "shots_rate": shots_rate,
         "segments": _placed_segments(edit),
@@ -1683,6 +1712,8 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     }
     if shots_error is not None:
         result["shots_error"] = shots_error
+    if reframe_error is not None:
+        result["reframe_error"] = reframe_error
     if parsed is None:
         result["words"] = None
         result["transcript_missing"] = True

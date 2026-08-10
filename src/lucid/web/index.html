@@ -70,23 +70,34 @@
 
       <section id="preview-pane" class="pane">
         <div id="viewer">
-          <!-- Never display:none, even on an audio-only clip (PLAN.md §
-               Layout) — player.js draws a level display into #visualizer
-               instead when there is no picture to show. -->
-          <video id="media" preload="metadata"></video>
-          <canvas id="visualizer" width="960" height="240"></canvas>
-          <!-- V2 over V1, stacked the way melt composites the picture track
-               over the edit's own track. player.js shows the shot under the
-               playhead in here, muted: the audio is always the transport's. -->
-          <div id="picture" hidden>
-            <video id="picture-video" preload="metadata" muted playsinline></video>
-            <img id="picture-still" alt="">
-            <p id="picture-note" class="picture-note" hidden></p>
+          <!-- The frame is the project canvas, not the media's own shape, and
+               everything that draws lives inside it: the render crops footage
+               to fill this rectangle, so a viewer shaped like the media would
+               show footage the export drops (PLAN.md § Aspect swap, step 4).
+               player.js sizes it; `overflow: hidden` is what makes it a crop. -->
+          <div id="frame">
+            <!-- Never display:none, even on an audio-only clip (PLAN.md §
+                 Layout) — player.js draws a level display into #visualizer
+                 instead when there is no picture to show. -->
+            <video id="media" preload="metadata"></video>
+            <canvas id="visualizer" width="960" height="240"></canvas>
+            <!-- V2 over V1, stacked the way melt composites the picture track
+                 over the edit's own track. player.js shows the shot under the
+                 playhead in here, muted: the audio is always the transport's. -->
+            <div id="picture" hidden>
+              <video id="picture-video" preload="metadata" muted playsinline></video>
+              <img id="picture-still" alt="">
+              <p id="picture-note" class="picture-note" hidden></p>
+            </div>
+            <!-- CC over both, because that is the order the burn-in composites
+                 in. Sized and coloured entirely from /api/captions — nothing
+                 about this look is decided here or in the palette. -->
+            <div id="caption-layer" hidden><div id="caption-line"></div></div>
           </div>
-          <!-- CC over both, because that is the order the burn-in composites
-               in. Sized and coloured entirely from /api/captions — nothing
-               about this look is decided here or in the palette. -->
-          <div id="caption-layer" hidden><div id="caption-line"></div></div>
+          <!-- Outside the frame: a refused crop rect is a fact about the whole
+               canvas, and the frame it would describe is the one not being
+               drawn (timeline.js's `lane-refusal`, one pane over). -->
+          <p id="frame-note" class="picture-note" hidden></p>
         </div>
         <div id="transport">
           <button id="play" title="play the timeline (space)">▶</button>

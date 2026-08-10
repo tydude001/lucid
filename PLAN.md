@@ -469,8 +469,13 @@ timeline being the enabler and the look pass being gated on nothing:
    out never to have been lucid's. **Step 3, the MLT reframe, shipped
    2026-08-10**: a swapped canvas now crops to fill, per-clip and overridable,
    verified against a real melt render (HISTORY.md § The MLT reframe).
-   **Next is the viewer frame**, which step 3 moved from tidiness to a real
-   disagreement — the preview draws footage the render now crops away.
+   **Step 4, the viewer's frame, shipped 2026-08-10** — the preview is shaped
+   like the render and crops where it crops, which closes both the
+   disagreement step 3 opened and the older finding 6 (HISTORY.md § The
+   viewer's frame). It corrected the note too: the note said "contain" there
+   and contain would have drawn black bars the render does not have.
+   **Next is `tiktok-reels`**, now one preset entry plus the canvas, and then
+   the stop-and-watch that ends this item.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -1520,6 +1525,8 @@ the ones lucid actually uses.
    derived from the media. An aspect override is exactly what separates them:
    a 16:9 source in a 9:16 project would draw full-width video with the
    captions boxed to a 9:16 sub-rectangle inside it.
+   - **Closed by step 4**, and it turned out to be the smaller half of what
+     the preview owed: there is one rectangle now, and it is #frame.
 
 ### The design
 
@@ -1565,6 +1572,15 @@ regenerate by command rather than by hand.
 **The viewer's frame becomes the project canvas**, with the media contained
 inside *that* — one more `contain`, in the layer that currently has none, so
 the picture and the caption layer letterbox against the same rectangle.
+
+> **Corrected by step 4, which built it.** `contain` was written before step 3
+> decided the render *crops to fill*, and it only answers finding 6. Contained
+> media in a canvas frame draws the whole 16:9 clip pillarboxed inside a 9:16
+> box — still showing footage the export drops, now with black bars the render
+> does not have. The build places media at the writer's own `dest_rect`
+> instead, so the preview crops exactly where the render crops. A still keeps
+> the `contain`, because that is what MLT does to one. HISTORY.md § The
+> viewer's frame.
 
 ### What this note refuses to build
 
@@ -1613,14 +1629,17 @@ the picture and the caption layer letterbox against the same rectangle.
    make it**: an override is a rect of arbitrary shape, and growing it to the
    canvas rather than shrinking it into the canvas is what keeps the subject
    whole. HISTORY.md § The MLT reframe.
-4. **The viewer's project-canvas frame** — verified in a real browser and by
-   canvas readback, never by screenshot (wiki `tooling.md` § Headless browser).
-   **Step 3 made this urgent rather than merely next.** Finding 6 said the
-   preview's two ideas of the frame "agree today only by accident"; they now
-   disagree on purpose. A 16:9 clip in a 9:16 project previews at its own
-   full width while the render keeps a 459-pixel band of it, so the page
-   shows footage the export drops — the viewer's version of drawing a lane
-   `export` cannot produce. Nothing in the render is wrong; the page is.
+4. **The viewer's project-canvas frame** — **shipped 2026-08-10.** `#frame`
+   is the canvas, every layer draws inside it, and media is *placed* at
+   `timeline_view`'s new `reframe[clip].dest` — the writer's own rect — rather
+   than fitted to its own aspect, so the preview crops where the render crops.
+   `captionBox()` collapsed to the frame, which closes finding 6 as well.
+   **The note said "contain" here and the build had to correct it**: contain
+   would have closed finding 6 and left step 3's disagreement open, drawing
+   black bars the render does not have. Verified in a real browser on two
+   copies of the Scream project, geometry from `getBoundingClientRect()` and
+   pixels against both hypotheses; it also turned up a shipped bug the picture
+   layer's own readback could not see. HISTORY.md § The viewer's frame.
 5. **`tiktok-reels`** — only now, when the name is honest. It is one entry in
    `EXPORT_PRESETS` plus the canvas, and the refusal text in `_resolve_preset`
    comes out with it.

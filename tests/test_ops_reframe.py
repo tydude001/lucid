@@ -315,3 +315,69 @@ def test_an_unswapped_project_reaches_the_document_with_no_filter(project: Proje
 
     assert built["reframed"] == []
     assert mlt.reframed_nodes(built["document"]) == {}
+
+
+# -- reaching the viewer -------------------------------------------------
+#
+# Step 4. The document half above is what melt renders; this is what the
+# window draws, and the two have to be the same rectangle or the preview
+# shows footage the export drops (PLAN.md § Aspect swap, step 4).
+
+
+def test_the_view_carries_the_canvas_the_profile_declares(project: Project) -> None:
+    assert ops.timeline_view(project.root)["canvas"] == [1920, 816]
+
+    ops.canvas(project.root, size="1080x1920")
+
+    assert ops.timeline_view(project.root)["canvas"] == [1080, 1920]
+
+
+def test_the_view_hands_the_writers_own_destination_rect_to_the_page(
+    project: Project,
+) -> None:
+    """The same numbers the `qtblend` filter carries, so the preview places
+    media by reading the render's answer rather than re-deriving a crop."""
+    ops.canvas(project.root, size="1080x1920")
+    built = ops._build_mlt(project, ops._load_edit(project), fps=30.0)
+
+    entry = ops.timeline_view(project.root)["reframe"]["cold-open"]
+
+    assert entry["crop"] == [730, 0, 459, 816]
+    assert entry["crops"] is True
+    assert " ".join(str(n) for n in entry["dest"]) + " 1" in set(
+        mlt.reframed_nodes(built["document"]).values()
+    )
+
+
+def test_an_unswapped_clip_is_still_placed_and_it_is_the_contain(
+    project: Project,
+) -> None:
+    """One code path draws both. A clip the render does not crop still gets a
+    `dest`, and it is `fit_rect` — what MLT does when no filter is emitted —
+    so the page never has to choose between two ways of placing an element."""
+    entry = ops.timeline_view(project.root)["reframe"]["cold-open"]
+
+    assert entry["crops"] is False
+    assert entry["dest"] == list(mlt.fit_rect((1920, 816), (1920, 816)))
+
+
+def test_a_clip_with_no_picture_is_not_placed_at_all(project: Project) -> None:
+    """There is nothing to crop, and an entry would invite the page to place
+    an element that has no frame to put anywhere."""
+    assert "vo" not in ops.timeline_view(project.root)["reframe"]
+
+
+def test_a_rect_the_canvas_outgrew_is_reported_rather_than_raised(
+    project: Project,
+) -> None:
+    """`shots_error`'s policy, for the same reason: the view is how a person
+    finds the rect to fix, so it must not be what the stale rect takes down."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="900,0,100,800")
+    ops.canvas(project.root, size="1920x408")
+
+    view = ops.timeline_view(project.root)
+
+    assert view["reframe"] == {}
+    assert "cannot be shown whole" in view["reframe_error"]
+    assert view["segments"], "the rest of the view still answers"

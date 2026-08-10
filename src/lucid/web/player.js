@@ -11,7 +11,10 @@
  * level display (PLAN.md § Layout — #viewer is never `display:none`), and the
  * picture layer, which shows the V2 shot under the playhead over whatever the
  * transport is playing. Both hang off the same tick; neither touches the seam
- * logic, which still owns `media` alone.
+ * logic, which still owns `media` alone. Newer still, and not on the tick at
+ * all: the frame — #frame is the project canvas and every layer draws inside
+ * it, with media placed at the rect the render places it at rather than fitted
+ * to its own shape. See § the frame, below.
  *
  * Exports:
  *   init(ctx)      call once, after `$("media")` etc. exist. Wires the
@@ -31,7 +34,8 @@
  *                    playing()     bool
  *                    seekWord(w)   seek to a word's timeline_start, if present
  *
- * player.js owns #viewer, #media, #visualizer, #picture (with #picture-video,
+ * player.js owns #viewer, #frame (with #frame-note), #media, #visualizer,
+ * #picture (with #picture-video,
  * #picture-still, #picture-note), #caption-layer (with #caption-line),
  * #transport, #play, #clock, #playhint and touches no other pane's DOM. Every animation frame it emits
  * a 'playhead' event `{now, total}` on the shared bus, and a 'playing-word'
@@ -49,6 +53,8 @@ const SEAM_EPS = 0.02;
 
 let ctx = null;
 let media = null;
+let frame = null; // the project canvas, in #viewer's pixels
+let frameNote = null; // a refused crop rect, in words
 let visualizer = null;
 let vizCtx = null;
 let audioCtx = null;
@@ -92,6 +98,7 @@ function setClip(clipId) {
   if (mediaClip === clipId) return;
   mediaClip = clipId;
   media.src = `/api/media/${encodeURIComponent(clipId)}`;
+  place(media, clipId);
 }
 
 function segAt(t) {
@@ -211,6 +218,85 @@ function paintWord(t) {
   ctx.emit("playing-word", { index });
 }
 
+/* -- the frame: the project canvas, and where each source lands on it -----
+ *
+ * #frame is the rectangle the render declares — `timeline_view`'s `canvas`,
+ * which is the MLT profile's own number — contain-fitted into #viewer. Every
+ * layer in the pane lives inside it, so the picture and the captions cannot
+ * disagree about where the frame is (PLAN.md § Aspect swap, finding 6).
+ *
+ * **Media is placed, not fitted.** Since the reframe shipped, the render
+ * crops footage to fill this rectangle, so a `max-width: 100%` video would
+ * draw exactly the material the export drops — the viewer's version of
+ * drawing a lane `export` cannot produce. `reframe[clip].dest` is
+ * `mlt.Reframe.dest_rect`: where the *whole* source frame lands on the canvas
+ * so that its crop fills the frame, in canvas pixels, which is why it is
+ * routinely wider than the canvas and starts at a negative x. Scaling it by
+ * the frame's own size and letting #frame's `overflow: hidden` do the rest
+ * reproduces the crop rather than re-deriving it — the same rect the writer
+ * hands melt as a `qtblend` property.
+ *
+ * A clip with no entry (no picture, or no known size) and every still is left
+ * to the stylesheet's `contain`, which is what MLT does when no filter is
+ * emitted. So both branches here draw what the render draws.
+ */
+
+function frameBox() {
+  return { width: frame.clientWidth, height: frame.clientHeight };
+}
+
+/* The canvas the frame is shaped to. Absent before the first view lands, and
+ * on a project whose view failed — the frame is the viewer then, which is
+ * what this pane did before it had a canvas at all. */
+function canvasSize() {
+  const v = view();
+  const canvas = v && v.canvas;
+  return canvas && canvas[0] > 0 && canvas[1] > 0 ? canvas : null;
+}
+
+function layoutFrame() {
+  if (!frame) return;
+  const viewer = $("viewer");
+  const box = { width: viewer.clientWidth, height: viewer.clientHeight };
+  const canvas = canvasSize();
+  if (!canvas || !box.width || !box.height) {
+    frame.style.width = "100%";
+    frame.style.height = "100%";
+  } else {
+    const scale = Math.min(box.width / canvas[0], box.height / canvas[1]);
+    frame.style.width = `${canvas[0] * scale}px`;
+    frame.style.height = `${canvas[1] * scale}px`;
+  }
+  place(media, mediaClip);
+  place(pictureVideo, pictureAsset);
+}
+
+/* Put one element where the render puts that source. Called whenever either
+ * input moves: the element's asset (a seam, a new shot) or the frame's size. */
+function place(el, clipId) {
+  if (!el) return;
+  const v = view();
+  const entry = clipId && v && v.reframe ? v.reframe[clipId] : null;
+  const canvas = canvasSize();
+  const box = frameBox();
+  if (!entry || !canvas || !box.width) {
+    // Back to the stylesheet's contain — MLT's own answer for anything it
+    // emits no filter for.
+    el.style.left = el.style.top = el.style.width = el.style.height = "";
+    el.style.objectFit = "";
+    return;
+  }
+  const scale = box.width / canvas[0];
+  const [x, y, w, h] = entry.dest;
+  el.style.left = `${x * scale}px`;
+  el.style.top = `${y * scale}px`;
+  el.style.width = `${w * scale}px`;
+  el.style.height = `${h * scale}px`;
+  // `dest` already carries the source's aspect, so this only stops a rounded
+  // pixel from re-letterboxing inside a box that is meant to be exact.
+  el.style.objectFit = "fill";
+}
+
 /* -- the picture layer: the shot under the playhead ----------------------
  *
  * What makes V2 a picture rather than a plan of one. timeline.js draws the
@@ -285,6 +371,10 @@ function loadShot(shot) {
     pictureVideo.src = assetURL(shot.asset);
     pendingPictureSeek = shot.src_start;
   }
+  // A still is never placed (the render does not crop one); a clip is placed
+  // where the render puts it, which for a shot is the same rect its own track
+  // would get — the writer emits one filter per node *per role*.
+  place(pictureVideo, shot.is_image ? null : shot.asset);
 }
 
 function paintPicture(t) {
@@ -359,33 +449,22 @@ let captionState = null; // the /api/captions payload, or null before it lands
 let cueCursor = 0;
 let shownCue = null;
 
-/* The frame the captions burn into, in #viewer's own coordinates: the
- * project's caption canvas, `contain`-fitted into the viewer the same way
- * both media elements are.
+/* The frame the captions burn into: #frame, and it is no longer computed.
  *
- * The canvas — `caption_view`'s `resolution`, which is the PlayRes `to_ass`
- * writes — and deliberately not whichever element currently has picture in
- * it. Measured off the DOM instead, this box changed size every time a shot
- * started or ended: the Scream assembly's picture track has holes, and the
- * captions are the same size across them because the render's canvas does not
- * move. It is also the only box available on an audio-only project, where
- * every element in here reports `videoWidth 0` and the captions are still the
- * thing being styled. */
+ * It used to contain-fit `caption_view`'s `resolution` into #viewer, which was
+ * a second construction of the same rectangle the picture was drawn against —
+ * and finding 6 of PLAN.md § Aspect swap is that the two agreed only because
+ * both derived from the media. Now one element is the canvas and everything
+ * sits in it, so this returns that element's box and the CSS holds it.
+ *
+ * `resolution` is still the right *scale* reference and is read below: it is
+ * the PlayRes `to_ass` writes, 1080 tall whatever the footage is, so a size in
+ * it means the same thing on any canvas of that aspect. Measuring the box off
+ * whichever element has picture would still be wrong for the reason it always
+ * was — the Scream assembly's picture track has holes, and the captions are
+ * the same size across them because the render's canvas does not move. */
 function captionBox() {
-  const viewer = $("viewer");
-  const box = { left: 0, top: 0, width: viewer.clientWidth, height: viewer.clientHeight };
-  const canvas = captionState && captionState.resolution;
-  if (!canvas || !canvas[0] || !canvas[1] || !box.width || !box.height) return box;
-
-  const scale = Math.min(box.width / canvas[0], box.height / canvas[1]);
-  const drawnW = canvas[0] * scale;
-  const drawnH = canvas[1] * scale;
-  return {
-    left: (box.width - drawnW) / 2,
-    top: (box.height - drawnH) / 2,
-    width: drawnW,
-    height: drawnH,
-  };
+  return { left: 0, top: 0, width: frame.clientWidth, height: frame.clientHeight };
 }
 
 /* ASS alignment is the numpad; the server sends it back as a name. */
@@ -461,15 +540,12 @@ function paintCaption(t) {
   }
 
   const look = captionState.style.resolved;
-  const frame = captionBox();
-  const scale = frame.height / CAPTION_REFERENCE;
+  // The layer's geometry is the frame's, held by CSS — only the scale is
+  // computed here, and it is against the caption reference rather than the
+  // canvas: a size is quoted at 1080 tall whatever the footage is.
+  const scale = captionBox().height / CAPTION_REFERENCE;
 
   captionLayer.hidden = false;
-  captionLayer.style.left = `${frame.left}px`;
-  captionLayer.style.top = `${frame.top}px`;
-  captionLayer.style.width = `${frame.width}px`;
-  captionLayer.style.height = `${frame.height}px`;
-
   const edge = placeLine(look.position);
   captionLine.style.fontFamily = `"${look.font}", sans-serif`;
   captionLine.style.fontSize = `${Math.max(1, look.size * scale)}px`;
@@ -573,6 +649,16 @@ function drawVisualizer() {
 export function update(state) {
   if (!state) return;
   $("viewer").classList.toggle("audio", !currentClip().has_video);
+  // The canvas and every placement can have moved — a `canvas` or a `reframe`
+  // is a manifest write, and `_revision` watches the manifest.
+  layoutFrame();
+  // A refused rect is drawn rather than raised, the same policy `shots_error`
+  // has one pane over: the frame is drawn uncropped, and the reason it is
+  // uncropped is on screen instead of being left to a pixel probe.
+  if (frameNote) {
+    frameNote.textContent = state.reframe_error ? `frame uncropped — ${state.reframe_error}` : "";
+    frameNote.hidden = !state.reframe_error;
+  }
   // A cue changed, or the plan started refusing: drop what the layer holds so
   // the next frame reloads against the new projection rather than keeping a
   // shot that no longer exists on screen.
@@ -587,6 +673,8 @@ export function update(state) {
 export function init(passedCtx) {
   ctx = passedCtx;
   media = $("media");
+  frame = $("frame");
+  frameNote = $("frame-note");
   visualizer = $("visualizer");
   vizCtx = visualizer.getContext("2d");
   picture = $("picture");
@@ -628,6 +716,12 @@ export function init(passedCtx) {
   window.addEventListener("lucid:theme", () => {
     barColour = null;
   });
+
+  // The frame's size is the pane's, so it moves with the window and with any
+  // pane the layout resizes. Observed rather than recomputed every tick: this
+  // is a layout read, and the answer changes on resize and nothing else.
+  new ResizeObserver(() => layoutFrame()).observe($("viewer"));
+  layoutFrame();
 
   window.addEventListener("keydown", (event) => {
     const tag = event.target.tagName;

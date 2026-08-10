@@ -3595,3 +3595,124 @@ while the render keeps a 459-pixel band of it, so the page draws footage the
 export drops. That is the viewer's version of drawing a lane `export` cannot
 produce, and it is step 4 — which this step moved from tidiness to a real
 disagreement.
+
+## The viewer's frame, step 4 of the aspect swap — 2026-08-10
+
+The preview stops being shaped like its media and starts being shaped like the
+render. `#frame` is the project canvas, every layer draws inside it, and media
+is *placed* at the rect the MLT writer places it at rather than fitted to its
+own aspect. What step 3 left owing — "the page draws footage the export drops"
+— is closed, and so is finding 6, which is the older half of the same bug.
+
+### One rectangle, and the payload that carries it
+
+`timeline_view` gained two fields. `canvas` is `_mlt_resolution`, the number
+the MLT profile declares. `reframe` maps a clip to `dest` — `mlt.Reframe.
+dest_rect`, where the *whole* source frame lands on that canvas so its crop
+fills the frame, in canvas pixels. The page scales that by the frame's own
+size and lets `overflow: hidden` do the rest, so it **reproduces** the crop
+rather than re-deriving one. It is the same rect the writer turns into a
+`qtblend` property, and a test asserts the string the document carries is the
+one the view reported.
+
+Three consequences worth writing down, because each was a choice:
+
+- **A clip the render does not crop still gets an entry**, and its `dest` is
+  `fit_rect` — the contain placement MLT uses when no filter is emitted. One
+  code path draws both, so the page never chooses between two ways of putting
+  an element somewhere. It is also why a project with no canvas override looks
+  exactly as it did: the placement it computes is the placement it had.
+- **A still is never placed**, matching the writer, which emits no filter for
+  an image. So a card authored at the old canvas pillarboxes in the preview
+  and pillarboxes in the render, which is what `card_reauthor` is for and what
+  a `cover` in the stylesheet would have hidden in both places.
+- **A rect the canvas outgrew comes back as `reframe_error`**, not an
+  exception — `shots_error`'s policy, for its reason: the view is how a person
+  finds the rect to fix. The frame is still drawn at the canvas's shape, and
+  the pane draws the sentence.
+
+`captionBox()` went from twelve lines to one. It used to contain-fit the
+caption canvas into `#viewer`, which was a second construction of the same
+rectangle the picture was drawn against — finding 6's whole complaint. The
+layer is now `inset: 0` in the frame and the only thing computed is the
+*scale*, still against `captions.REFERENCE_HEIGHT` rather than the canvas,
+because a caption size is quoted at 1080 tall whatever the footage is.
+
+### `aspect-ratio` cannot do this, and the reason is worth one line
+
+The frame's size is measured in JS off a `ResizeObserver`. CSS was tried
+first: a flex item with no in-flow content has no size for `aspect-ratio` to
+keep the ratio of, and every child of `#frame` is absolutely positioned, so
+the box collapsed. Adding `width: 100%; height: 100%` over-constrains it and
+`aspect-ratio` is then ignored outright.
+
+### Verified in a real browser, twice, on real footage
+
+`chrome-headless-shell` over CDP against `lucid web`, on two copies of the
+Scream project — one swapped to 1080x1920, one left at its derived 1920x816 —
+with shots reached by clicking the V2 lane the way a person reaches them.
+
+**Geometry, which is layout and not arithmetic.** The frame measured
+386.44x687 in an 800x687 pane: aspect 0.5625 against the canvas's 0.5625, and
+centred. `#caption-layer`'s box equalled `#frame`'s to the hundredth of a
+pixel. Then the strong claim: for each shot, the visible region was derived
+from `getBoundingClientRect()` alone — the element's box intersected with the
+frame's, converted to source pixels by its own `videoWidth` — and compared
+against the server's `crop`. Five of six agreed **to the pixel**
+(`[730, 0, 459, 816]`, which is finding 3's own number), the sixth within one
+(451 vs 450, a half-pixel centring).
+
+**Pixels, against the wrong hypothesis too.** `drawImage` of the visible
+region into an 8x4 mean-RGB grid, against ffmpeg's frame at the source
+timestamp the page claimed, cropped the same way — and against the *uncropped*
+frame, which is the hypothesis this step exists to refute. Every read: 19.5 vs
+33.7, 11.9 vs 37.5, 4.4 vs 33.2, 11.8 vs 30.9, 11.2 vs 32.1, 10.0 vs 27.8, out
+of 255. One number alone would have said nothing; CLAUDE.md's rule about the
+brightness bbox is the same rule.
+
+**The first run had one row where the wrong hypothesis won**, 46.4 against
+36.0, and the calibration is what caught it rather than a judgement call. Each
+read also grids the *whole* decoded frame against ffmpeg's whole frame, which
+asks "are these two even the same moment?" — every good row answered 4.6–5.4,
+that one answered 28.1. A follow-up probe named it exactly: `seeking: true`,
+`readyState: 1`. **`drawImage` on a mid-seek `<video>` hands back the frame
+that was there before**, which reads exactly like a wrong rectangle; the same
+element read after settling scored 4.8. The harness now waits for
+`!seeking && readyState >= 2` rather than for a guess at how long a seek
+takes. This is the third distinct way this repo has found to measure a black
+or stale frame and believe it.
+
+**And the unswapped copy is unchanged**, which is the regression half: the
+frame took the footage's own 40:17 and filled the pane's width, uncropped
+clips showed their whole source, and the one clip that does crop at that
+canvas (`s4-reveal`, 1920x800 in 1920x816) cropped by the 19 px the server
+said. That crop is invisible at an 8x4 grid — 5.1 against 5.3 — which is worth
+saying plainly: the pixel discriminator only bites when the crop is large, and
+the geometry check is what covers the small ones.
+
+### A shipped bug the readback could not see
+
+`#viewer.audio video` — the audio-only rule — matched **every** `video`
+descendant, including `#picture-video`. `audio` is about the clip the
+*transport* holds, and on a VO project that is the audio-only one, while the
+picture lane over it is the entire assembly. So every shot in the Scream
+project was `visibility: hidden` behind the level display.
+
+It survived because of how the picture layer was verified: `drawImage` reads a
+`visibility: hidden` element back perfectly happily, and screenshots were
+already known to be useless for `<video>`. The measurement that proved the
+layer correct could not see that nobody could see it. The selector is now
+`#viewer.audio #media`, and the browser run reports `#picture-video` computed
+`visible` while `#media` stays `hidden`.
+
+### What this does not cover
+
+- **`tiktok-reels` is not in it.** That is step 5, and it is now honest to
+  build: one `EXPORT_PRESETS` entry plus the canvas.
+- **The caption style is not re-tuned for vertical.** The preview now shows a
+  64pt caption wrapping to five lines in a 608-wide reference, which is what
+  the render would do. Showing it is this step's job; deciding about it is a
+  watch, which is step 6.
+- **Nothing here places a card.** A still is contained, deliberately, and the
+  twelve unrecorded Scream cards still need an emphasis-capable `quote` slot
+  before they can be re-authored at all.

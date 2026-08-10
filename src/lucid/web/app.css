@@ -597,25 +597,63 @@ textarea {
   background: #000;
 }
 
-#viewer video {
-  max-width: 100%;
-  max-height: 100%;
+/* The project canvas, contain-fitted into the pane — the one rectangle every
+   layer in here letterboxes against, so the picture and the captions can no
+   longer disagree about where the frame is (PLAN.md § Aspect swap, finding 6).
+   Its pixel size is player.js's `layoutFrame()`: `aspect-ratio` cannot do it
+   here, because a flex item with no in-flow content has no size to keep the
+   ratio of, and every child of this is absolutely positioned.
+
+   `overflow: hidden` is the crop. Media inside is placed at the render's own
+   destination rect, which is deliberately larger than this box and often has
+   a negative origin — that overflow *is* the footage the export drops. */
+#frame {
+  position: relative;
+  flex: none; /* the size is measured, not negotiated with the flex container */
+  overflow: hidden;
+  background: #000;
+}
+
+/* Placed by player.js from `reframe`'s `dest`, so the preview crops where the
+   render crops. The rule below is what an *unplaced* element gets — no
+   reframe entry, which means no picture with a known size, and every still —
+   and it is `fit_rect`'s contain, exactly what MLT does when no filter is
+   emitted. So a card authored at the old canvas pillarboxes here and
+   pillarboxes in the render, which is what `card_reauthor` exists to fix and
+   what a `cover` in this file would hide in both places. */
+#frame video,
+#frame img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* Same contract as .waveform-canvas: `color` is what player.js paints with. */
 #viewer #visualizer {
   display: none;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   color: var(--viz-bar);
 }
 
 /* An audio-only clip has no picture, but the pane is never display:none
-   (tier 2's worst behaviour) — the video box is hidden in favour of a level
-   display drawn from the actual playing audio (player.js). */
-#viewer.audio video {
+   (tier 2's worst behaviour) — the transport's box is hidden in favour of a
+   level display drawn from the actual playing audio (player.js).
+
+   **#media alone, never `video`.** `audio` is about the clip the *transport*
+   holds, and on a VO project that is the audio-only one — while the picture
+   lane over it is the whole assembly. A `video` selector here also matched
+   #picture-video and hid every shot behind the level display, on exactly the
+   project the picture layer was built for; `drawImage` reads a
+   `visibility: hidden` element back happily, so the canvas readback that
+   verified that layer could not see it. HISTORY.md § The viewer's frame. */
+#viewer.audio #media {
   visibility: hidden;
-  position: absolute;
 }
 
 #viewer.audio #visualizer {
@@ -626,31 +664,22 @@ textarea {
    transport is showing, because that is the order melt composites in. Its own
    black ground rather than a transparent overlay: a shot that is letterboxed
    against the canvas must not show the level display through the bars. */
+   It fills #frame and centres nothing: its children are placed against the
+   canvas now, not flexed to the middle of whatever box they are in. */
 #picture {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   background: #000;
 }
 
-/* `hidden` has to beat the `display: flex` above, and does not on its own. */
+/* `hidden` has to beat the `display` above, and does not on its own. */
 #picture[hidden],
 #picture-video[hidden],
 #picture-still[hidden] {
   display: none;
 }
 
-/* `contain`, never `cover`: a shot cropped to fill the box is the
-   correct-pixels-wrong-video failure in miniature — the preview would hide
-   exactly the framing problem a person opened it to see. */
-#viewer #picture video,
-#viewer #picture img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
 
 /* The caption layer — geometry only.
 
@@ -661,11 +690,15 @@ textarea {
    picture of lucid's theme rather than of the render. The rules below only
    say where the layer sits and that it never eats a click.
 
-   `left/top/width/height` are set by player.js to the *video's* content box,
-   not this element's parent — a letterboxed frame must not have its captions
-   float in the black bars, where the burn-in cannot put them. */
+   It fills #frame and nothing sets its geometry any more. That is the point
+   of the frame: captions burn into the *canvas*, so the box they are placed
+   in is the canvas, and it no longer has to be reconstructed from whichever
+   element currently holds picture. `overflow: hidden` still matters — the
+   canvas is where the burn-in can put a caption, and a margin that pushed one
+   past the edge would be drawn outside a frame ffmpeg would clip. */
 #caption-layer {
   position: absolute;
+  inset: 0;
   pointer-events: none;
   overflow: hidden;
   display: flex;

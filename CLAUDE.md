@@ -104,10 +104,24 @@ installed package or the upstream repo, not your memory.
       `src_start` is where inside its asset the shot reads, so a clip used
       three times previews from three places. Reloading each asset from its
       head looks right and is a different film. `player.js` § the picture layer.
+  - **`#frame` is the project canvas, and media is *placed* in it, never
+    fitted.** Every layer draws inside that one rectangle, and each element
+    goes at `timeline_view`'s `reframe[clip].dest` — the writer's own
+    `dest_rect`, scaled — so the preview crops where the render crops. Fitting
+    to the media's aspect draws footage `export` drops; so does `contain`ing
+    it in the canvas, which adds bars the render has not got. A **still** is
+    the exception and keeps `contain`, because that is what MLT does to one.
+    Nothing in JS derives a crop. HISTORY.md § The viewer's frame.
   - **Verify the picture layer by canvas readback, never by screenshot** —
     headless Chrome does not composite `<video>` into a capture (wiki
     `tooling.md` § Headless browser). Compare against ffmpeg's frame at the
     source timestamp the page claims. HISTORY.md § The preview picture layer.
+    - **`drawImage` reads back a mid-seek element and a `visibility: hidden`
+      one just as happily**, so a readback proves neither that the frame is
+      current nor that anyone can see it. Gate on `!seeking && readyState >=
+      2`, and grid the *whole* frame against ffmpeg's as a calibration before
+      believing any geometry the same read reports. Both traps were paid for:
+      HISTORY.md § The viewer's frame.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind

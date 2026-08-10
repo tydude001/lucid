@@ -313,6 +313,47 @@ def test_a_pinned_cue_reaches_the_lane_with_the_moment_it_names(
     assert shots[1]["src_pin"] is None
 
 
+def test_the_frame_reaches_the_page_with_the_render_s_own_placement(
+    project: Path, server: str
+) -> None:
+    """Step 4 of the aspect swap, over the wire. The page draws #frame at
+    `canvas` and places media at `reframe[clip].dest`, so both have to survive
+    the trip — and `dest` has to be the *whole source frame's* landing rect,
+    which is wider than the canvas and starts left of it whenever the render
+    crops. A page given only the crop would have to re-derive that itself.
+    """
+    broll = _make_broll(project.parent, duration=8.0)  # 160x120, so 4:3
+    ops.import_media(project, broll, clip_id="broll")
+    ops.canvas(project, size="1080x1920")
+
+    status, payload = _json(f"{server}/api/view")
+
+    assert status == 200
+    assert payload["canvas"] == [1080, 1920]
+    entry = payload["reframe"]["broll"]
+    assert entry["source"] == [160, 120]
+    assert entry["crops"] is True
+    # 9:16 out of 4:3 keeps a 68-wide column of the 160 — centred, and in
+    # source pixels, because a rect no edit can invalidate is the whole rule.
+    assert entry["crop"] == [46, 0, 68, 120]
+    x, y, w, h = entry["dest"]
+    assert x < 0 and w > 1080, "the whole frame lands wider than the canvas"
+    assert (y, h) == (0, 1920), "filled by height, which is the axis that fits"
+    # The audio-only clip has no picture to place, and gets no entry at all.
+    assert "vo" not in payload["reframe"]
+
+
+def test_an_unswapped_project_still_reports_a_frame_to_draw(server: str) -> None:
+    """The page has one code path, so the canvas is always answered — here it
+    is the audio-only default rather than an absence the front end has to
+    guess a shape for."""
+    _, payload = _json(f"{server}/api/view")
+
+    assert payload["canvas"] == [1920, 1080]
+    assert payload["reframe"] == {}
+    assert "reframe_error" not in payload
+
+
 def test_a_pin_that_runs_off_its_asset_is_drawn_as_a_refusal_not_a_rewind(
     project: Path, server: str
 ) -> None:
