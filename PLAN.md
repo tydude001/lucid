@@ -411,12 +411,11 @@ and sampling the pixels, because the rewind it prevents produces a file and
 exit 0. **What is left is not a build**: the note's step 4 is a watch of a real
 b-roll cut, before ranking of any kind.
 
-One named thing did not ship and is blocked rather than unfinished: a
-**`tiktok-reels` preset**, because 9:16 is only producible here as a pillarbox
-of the 16:9 frame and a real reframe is § Next's own deferred aspect-swap
-item. Shipping a platform's name over a quiet letterbox is the
-correct-pixels-wrong-video failure the trap below exists to prevent, so it
-waits for the item that does it properly.
+The one named thing it blocked has since cleared: a **`tiktok-reels` preset**
+waited on a real reframe rather than a pillarbox of the 16:9 frame — shipping a
+platform's name over a quiet letterbox being the correct-pixels-wrong-video
+failure the trap below exists to prevent. The aspect-swap item delivered the
+reframe and the preset shipped 2026-08-10 (§ Next, item 5).
 
 ### Done — the layered timeline
 
@@ -481,8 +480,11 @@ timeline being the enabler and the look pass being gated on nothing:
    disagreement step 3 opened and the older finding 6 (HISTORY.md § The
    viewer's frame). It corrected the note too: the note said "contain" there
    and contain would have drawn black bars the render does not have.
-   **Next is `tiktok-reels`**, now one preset entry plus the canvas, and then
-   the stop-and-watch that ends this item.
+   **`tiktok-reels` shipped 2026-08-10** (HISTORY.md § `tiktok-reels`), and
+   the stop-and-watch that was to end this item ran instead of ending it:
+   **the centre-crop default is refused, and so is letterboxing the footage
+   back in.** What the item is now waiting on is per-*shot* framing, measured
+   but unbuilt — DAYDREAM.md § Aspect swap carries the numbers and the shape.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -2140,7 +2142,10 @@ and cuts through the same `Edit.remove` path `cut_by_transcript` uses. So a
 reel is: copy the project, `cut_by_time` the head and the tail, `canvas`, and
 `export --preset tiktok-reels`. Every step ships today. **That is the dumb
 control any reel feature has to beat**, and it should be built as a test
-before anything cleverer is designed.
+before anything cleverer is designed. **What it produces is not yet watchable,
+and that is a framing problem rather than a reel one** — the centre crop
+mis-frames a subject in most of the seconds that hold one (DAYDREAM.md
+§ Aspect swap), so a reel built on it would be correct-pixels-wrong-video.
 
 What is genuinely absent is one level up: **a reel is a derived project, and
 lucid has no project-derivation op.** The canvas is project state and the cuts
