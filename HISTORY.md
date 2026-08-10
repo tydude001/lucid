@@ -3716,3 +3716,79 @@ layer correct could not see that nobody could see it. The selector is now
 - **Nothing here places a card.** A still is contained, deliberately, and the
   twelve unrecorded Scream cards still need an emphasis-capable `quote` slot
   before they can be re-authored at all.
+
+## `tiktok-reels`, step 5 of the aspect swap — 2026-08-10
+
+The preset the item was named after, and the smallest step in it: one
+`EXPORT_PRESETS` entry, its four encode values copied from `youtube`, plus a
+precondition. What took five steps to earn was not the encode — it was the
+render behind it, and the honesty of the name.
+
+### The decision the build had to make, because the note left it open
+
+PLAN.md § Aspect swap called step 5 "one entry in `EXPORT_PRESETS` plus the
+canvas". Those two halves live in different places and the note did not say
+how they meet. A preset in that dict is four consumer keys and nothing else —
+`vcodec`/`crf`/`preset`/`acodec`, the combination HISTORY.md § 4 measured as
+memory-safe — and the canvas is manifest state that routes the export and
+reports what its crop costs. So there were two shapes available:
+
+1. **The preset checks the canvas and refuses**, naming the `canvas` command
+   that fixes it.
+2. **The preset sets the canvas**, and a vertical render falls out of one
+   flag.
+
+**It checks.** (2) is an export argument rewriting project state on the way
+past, which is the same class of failure as picking the writer from an
+argument — the thing `export` picks its writer *from the project* to prevent.
+A flag that reshapes the project also silently invalidates nothing visible: it
+would leave a swapped manifest behind after a render the caller may have
+cancelled, and the next unflagged export would be vertical for no stated
+reason. So `PRESET_ASPECT` is a claim a preset's *name* makes about geometry,
+checked against `_mlt_resolution` and never applied.
+
+**Exact 9:16, not "portrait enough".** Both platforms specify 9:16, and a
+preset named after that spec that quietly accepted 19.5:9 would be guessing on
+the caller's behalf about a shape the caller can simply state. A vertical
+canvas that is not 9:16 is a legitimate export; it goes out under `youtube` or
+`web`, and the refusal says so rather than leaving it to be discovered.
+
+The comparison is cross-multiplied (`w * 16 == h * 9`) rather than a ratio:
+1080/1920 is not exactly representable, and a float test refuses the one shape
+that is exactly right.
+
+### The audio-only project is refused separately, and that is not fussiness
+
+`_mlt_resolution` falls back to 1080p when nothing in the manifest has
+picture. Routed through the geometry check, an audio-only project under
+`tiktok-reels` would have been refused for being **1920x1080** — a true
+refusal quoting a frame that project has not got, which is the shape of every
+plausible-and-wrong message this repo has had to unpick. It is caught first,
+and says the real thing: there is no picture to shape.
+
+Asked of the manifest rather than of the rendered payload, deliberately —
+every other canvas derivation in `ops.py` walks `clips`, and § Aspect swap's
+finding 4 is about what happens when two of them stop agreeing.
+
+### What was verified, and where
+
+- **A real melt render, not an exit code.** `canvas 90x160` (exactly 9:16,
+  even on both edges, cheap to encode) plus `--preset tiktok-reels` renders
+  through melt and ffprobe reads **90x160** back off the file, with the
+  consumer still the four measured-safe keys. The preset name in a reply
+  proves nothing — a degraded render would carry it too.
+- **The refusal against the real 23-source Scream project, through the CLI.**
+  1920x816 (40:17) refuses with `lucid canvas 1080x1920` in the message, and
+  writes nothing: no output file, and no `canvas` key added to a manifest that
+  did not have one. That last check is the point of choosing (1).
+- 739 tests pass.
+
+### What this does not close
+
+**Step 6 — the watch.** Nothing here has been looked at as a film. The build
+order says stop before ranking anything further, and it means it: every prior
+step in this item corrected its own premise, and three of them were corrected
+by building rather than by reasoning. A vertical cut of real footage is what
+says whether centre-crop defaults are usable, whether a 64pt caption in a
+608-wide reference reads, and whether the twelve unrecorded cards make the
+whole thing moot until they can be re-authored.

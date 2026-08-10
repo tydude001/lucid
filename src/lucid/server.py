@@ -668,15 +668,18 @@ def export(
     multi-source path, where lucid owns the profile; it is ignored when
     auto-editor renders a single-source timeline.
 
-    `preset` is one of "youtube", "web", or "custom" (which requires
-    `resolution`) — a named quality bundle, only meaningful together with
-    `export_format=null` (an NLE project file has no bitrate). `resolution`
-    is `[width, height]`; it **letterboxes** the existing frame on the
-    single-source render path — it does not crop or reframe it — and is
-    refused outright on a multi-source (melt) project, where widening the
-    hardcoded consumer to accept it has not been re-proven memory-safe
-    (HISTORY.md § 4). There is deliberately no "tiktok-reels" preset: a real
-    9:16 reframe is DAYDREAM.md § Aspect swap, a separately deferred item.
+    `preset` is one of "youtube", "web", "tiktok-reels", or "custom" (which
+    requires `resolution`) — a named quality bundle, only meaningful together
+    with `export_format=null` (an NLE project file has no bitrate).
+    "tiktok-reels" additionally **checks** that the project renders 9:16 and
+    refuses otherwise: it never sets the shape, because a preset that reshaped
+    a project would be an export argument rewriting project state. Set the
+    shape with `canvas` first. `resolution` is `[width, height]`; it
+    **letterboxes** the existing frame on the single-source render path — it
+    does not crop or reframe it — and is refused outright on a multi-source
+    (melt) project, where widening the hardcoded consumer to accept it has not
+    been re-proven memory-safe (HISTORY.md § 4). The reply's `canvas` is the
+    shape the render was built at, on either road.
     """
     return ops.export(
         path,

@@ -3073,18 +3073,88 @@ MLT_EXPORT_FORMATS = {"kdenlive", "mlt"}
 #: `picture.RENDER_ARGS` verbatim — naming it changes nothing about what melt
 #: already does. `web` only varies values within the same four keys.
 #:
-#: There is still no `tiktok-reels` entry, and the reason has changed. A
-#: filled 9:16 render exists now — `canvas` plus the reframe, on the melt
-#: path — so the old objection, that a preset named after a platform would
-#: quietly pillarbox, is answered. What is left is that a preset is a
-#: *bundle*, and the canvas half of this one belongs to the project rather
-#: than to an export flag: `canvas` is where the shape is decided, and it
-#: routes and reports for itself. The preset is PLAN.md § Aspect swap step 5,
-#: deliberately behind the viewer frame and a watch of a real vertical cut.
+#: `tiktok-reels` arrived with PLAN.md § Aspect swap step 5, and it carries
+#: `youtube`'s four values on purpose: both platforms re-encode what they are
+#: given, so the upload wants the highest-quality source the measured-safe
+#: keys can express, and there is no fifth key to reach for. **What the entry
+#: actually adds is the aspect it asserts** (`PRESET_ASPECT`) — because the
+#: canvas half of this preset belongs to the project rather than to an export
+#: flag. `canvas` is where the shape is decided; a preset that quietly set it
+#: would be an export argument reshaping a project, which is the same class of
+#: silent wrong output `export`-picks-its-writer-from-the-project exists to
+#: prevent. So the preset checks and refuses with the fix in it, and never
+#: writes.
 EXPORT_PRESETS: dict[str, dict[str, str]] = {
     "youtube": {"vcodec": "libx264", "crf": "18", "preset": "medium", "acodec": "aac"},
     "web": {"vcodec": "libx264", "crf": "23", "preset": "faster", "acodec": "aac"},
+    "tiktok-reels": {"vcodec": "libx264", "crf": "18", "preset": "medium", "acodec": "aac"},
 }
+
+
+#: The frame shape a preset's *name* claims, for the presets whose name is a
+#: claim about geometry. Checked against the canvas in force at export, never
+#: applied — see `EXPORT_PRESETS`. Exact rather than "portrait enough": both
+#: platforms specify 9:16, and a preset named after that spec accepting
+#: 19.5:9 would be guessing on the caller's behalf about a shape the caller
+#: can simply state. A vertical canvas that is not 9:16 is a legitimate
+#: export; it just goes out under `youtube` or `web`.
+PRESET_ASPECT: dict[str, tuple[int, int]] = {"tiktok-reels": (9, 16)}
+
+
+def _suggest_canvas(aspect: tuple[int, int]) -> str:
+    """A concrete `WIDTHxHEIGHT` to put in a refusal, at the delivery size.
+
+    Scaled so the *shorter* edge lands on 1080 — 9:16 → `1080x1920`, and a
+    landscape ratio would come out `1920x1080` rather than upside down. The
+    factor is even at every ratio that reaches here, which is what keeps the
+    suggestion something `_parse_canvas` will actually accept.
+    """
+    factor = max(1, 1080 // min(aspect))
+    return f"{aspect[0] * factor}x{aspect[1] * factor}"
+
+
+def _check_preset_canvas(project: Project, preset: str | None) -> None:
+    """Refuse a preset whose name claims a shape this project does not render at.
+
+    The failure being closed is a landscape file with a vertical name on it:
+    every downstream check passes, because nothing but the preset's name ever
+    said the frame should be 9:16. The message names the one command that
+    fixes it rather than describing the problem, since `canvas` is also what
+    reports what the crop costs.
+
+    **A project with no picture is refused separately, and not by geometry.**
+    `_mlt_resolution` falls back to 1080p for an audio-only project, so the
+    shared path would refuse a vertical preset by quoting a frame size that
+    project does not have — a true refusal for a false reason. Asked of the
+    manifest rather than of the rendered payload, deliberately: every other
+    canvas derivation in this file walks `clips`, and finding 4 of PLAN.md
+    § Aspect swap is about what happens when two of them stop agreeing.
+    """
+    want = PRESET_ASPECT.get(preset or "")
+    if want is None:
+        return
+    if not any(clip.get("has_video") for clip in project.read_manifest().get("clips", [])):
+        raise ProjectError(
+            f"preset {preset!r} names a frame shape ({want[0]}:{want[1]}) and this project "
+            "has no picture to shape — the render would be audio. Drop the preset, or use "
+            "'youtube'/'web', which claim nothing about the frame."
+        )
+    width, height = _mlt_resolution(project)
+    if width * want[1] != height * want[0]:
+        # Cross-multiplied rather than compared as floats: the canvas is a pair
+        # of integers and 1080/1920 is not exactly representable, so a ratio
+        # test would refuse a shape that is exactly right.
+        suggest = _suggest_canvas(want)
+        raise ProjectError(
+            f"preset {preset!r} renders {want[0]}:{want[1]}, and this project's canvas is "
+            f"{width}x{height} ({_aspect(width, height)}) — a preset names the encode, and "
+            "the shape a project renders at is `canvas`'s job rather than an export flag's, "
+            "so honouring this one would mean an export argument reshaping the project. "
+            f"Set the shape first (`lucid canvas {suggest}`), which "
+            "routes through the MLT writer, crops to fill rather than pillarboxing, and "
+            "reports what each clip loses; then export again. A vertical canvas that is not "
+            f"{want[0]}:{want[1]} is a legitimate export — use 'youtube' or 'web' with it."
+        )
 
 
 def _resolve_preset(
@@ -3114,11 +3184,9 @@ def _resolve_preset(
     if preset not in EXPORT_PRESETS:
         raise ProjectError(
             f"no export preset named {preset!r}. Available: "
-            f"{sorted([*EXPORT_PRESETS, 'custom'])}. There is no 'tiktok-reels' "
-            "preset, but a filled 9:16 render no longer needs one: set the shape "
-            "on the project with `canvas 1080x1920`, which routes through the MLT "
-            "writer and crops to fill rather than pillarboxing. `reframe` says "
-            "which part of each clip it keeps."
+            f"{sorted([*EXPORT_PRESETS, 'custom'])}. A preset names the encode only — "
+            "the shape a project renders at is `canvas`'s, and 'tiktok-reels' checks "
+            "it rather than setting it."
         )
     return dict(EXPORT_PRESETS[preset])
 
@@ -3677,6 +3745,10 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
     """The fields both multi-source roads report, so they cannot drift apart."""
     return {
         "writer": extra.pop("writer"),
+        # The shape the document was actually built at, said out loud because
+        # a preset can now claim one (`PRESET_ASPECT`) and a reply that only
+        # echoes the preset name proves nothing about what got written.
+        "canvas": "{}x{}".format(*built["resolution"]),
         "timebase": built["rate"],
         "segments": len(edit.segments),
         "shots": len(built["shots"]),
@@ -3880,17 +3952,23 @@ def export(
     silent wrong output wearing a different hat. The reply says which road was
     taken: `"writer"` is `"auto-editor"`, `"mlt"`, or `"melt"`.
 
-    `preset` names one of `EXPORT_PRESETS` (`"youtube"`, `"web"`) or
-    `"custom"` (which requires `resolution`) — a bundle of the same four
-    consumer keys `picture.RENDER_ARGS` already hardcodes on the melt path,
-    and of auto-editor's own quality flags on the single-source path.
-    `resolution` sets a `WIDTH,HEIGHT` output size on the single-source path
-    only — **it letterboxes the existing 16:9 frame, it does not crop or
-    reframe it**, so it is not a substitute for a vertical/9:16 export. There
-    is deliberately no `"tiktok-reels"` preset yet: 9:16 needs a real reframe,
-    and the shape a project renders at is `canvas`'s job rather than an
-    argument's — PLAN.md § Aspect swap, whose step 5 is where the preset comes
-    back, once the name would be honest.
+    `preset` names one of `EXPORT_PRESETS` (`"youtube"`, `"web"`,
+    `"tiktok-reels"`) or `"custom"` (which requires `resolution`) — a bundle
+    of the same four consumer keys `picture.RENDER_ARGS` already hardcodes on
+    the melt path, and of auto-editor's own quality flags on the single-source
+    path. `resolution` sets a `WIDTH,HEIGHT` output size on the single-source
+    path only — **it letterboxes the existing 16:9 frame, it does not crop or
+    reframe it**, so it is not a substitute for a vertical/9:16 export.
+
+    **`"tiktok-reels"` checks the project's shape and never sets it**
+    (`PRESET_ASPECT`, PLAN.md § Aspect swap step 5). A preset whose name is a
+    claim about geometry refuses a canvas that contradicts it, naming the
+    `canvas` command that fixes it — because the alternative, an export flag
+    reshaping the project on the way past, is the same silent wrong output as
+    picking the writer from an argument. Its four encode values are
+    `"youtube"`'s: both platforms re-encode the upload, so the source wants
+    the best quality the measured-safe keys can say. The reply's `"canvas"` is
+    the shape the render was actually built at, on either road.
     Neither `preset` nor `resolution` may be combined with a non-`None`
     `export_format` — an NLE project file has no bitrate to set. `resolution`
     on a layered (multi-source) project is refused outright: widening the
@@ -3912,6 +3990,7 @@ def export(
     bundle = _resolve_preset(preset, resolution)
 
     project = Project.open(path)
+    _check_preset_canvas(project, preset)
     edit = _load_edit(project)
     if not edit.segments:
         raise ProjectError("the timeline is empty — nothing to export")
@@ -3979,6 +4058,10 @@ def export(
         "output": str(written),
         "format": export_format or "media",
         "writer": "auto-editor",
+        # The project's own shape, which is what this road renders — `-res`
+        # letterboxes on top of it and is reported separately as
+        # `"resolution"`, measured off the finished file rather than asked for.
+        "canvas": "{}x{}".format(*_mlt_resolution(project)),
         "timebase": timebase,
         "segments": len(edit.segments),
         "timeline_duration": edit.duration,

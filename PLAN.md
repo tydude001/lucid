@@ -1640,8 +1640,19 @@ the picture and the caption layer letterbox against the same rectangle.
    copies of the Scream project, geometry from `getBoundingClientRect()` and
    pixels against both hypotheses; it also turned up a shipped bug the picture
    layer's own readback could not see. HISTORY.md § The viewer's frame.
-5. **`tiktok-reels`** — only now, when the name is honest. It is one entry in
-   `EXPORT_PRESETS` plus the canvas, and the refusal text in `_resolve_preset`
-   comes out with it.
+5. **`tiktok-reels`** — **shipped 2026-08-10.** One `EXPORT_PRESETS` entry
+   carrying `youtube`'s four encode values, plus `PRESET_ASPECT`; the refusal
+   text in `_resolve_preset` came out with it, and CLI, MCP and the window's
+   preset menu all carry the name. **The note said "plus the canvas" and left
+   open how the two halves meet, so the build decided it: the preset
+   *checks* the project's canvas and refuses, and never sets it.** A preset
+   that reshaped a project would be an export argument rewriting project
+   state — the same class of failure as picking the writer from an argument.
+   Verified by a real melt render measured at 90x160 and by the refusal
+   against the real Scream project, which wrote nothing. HISTORY.md
+   § `tiktok-reels`.
 6. **Stop.** Watch a vertical cut before ranking anything further — the same
-   discipline the layered timeline, the card note and the b-roll note all used.
+   discipline the layered timeline, the card note and the b-roll note all
+   used. **This is where the item now sits, and it is the only thing left in
+   it.** Three of the five steps above corrected their own premise by being
+   built; nothing here has yet been looked at as a film.

@@ -748,9 +748,9 @@ def _build_parser() -> argparse.ArgumentParser:
         # it is added back explicitly.
         choices=[*sorted(ops.EXPORT_PRESETS), "custom"],
         help="a named quality bundle (--render only; an NLE export has no bitrate). "
-        "'custom' requires --resolution. No 'tiktok-reels': a filled 9:16 render "
-        "comes from `lucid canvas 1080x1920`, which is project state rather than "
-        "an export flag",
+        "'custom' requires --resolution. 'tiktok-reels' checks that the project's "
+        "canvas is 9:16 and refuses otherwise — it never sets the shape, because "
+        "that is `lucid canvas`'s job",
     )
     p_export.add_argument(
         "--resolution",

@@ -235,6 +235,15 @@ installed package or the upstream repo, not your memory.
   role**, so a reframe applied per resource crops a file on one track and
   letterboxes it on the other, in the same frame, at exit 0. HISTORY.md § The
   MLT reframe.
+  - **An export preset never sets the canvas — `tiktok-reels` *checks* it and
+    refuses.** The obvious build is the wrong one: a flag that reshapes the
+    project is an export argument rewriting project state, the same failure as
+    picking the writer from an argument, and it leaves a swapped manifest
+    behind after a render nobody kept. `PRESET_ASPECT` is a claim a preset's
+    *name* makes, tested cross-multiplied against `_mlt_resolution` (a float
+    ratio refuses the one shape that is exactly right), and an audio-only
+    project is refused *before* it, or the message quotes the 1080p fallback
+    as if it were the project's frame. HISTORY.md § `tiktok-reels`.
   - **A brightness bbox answers "where is the bright part", never "where is
     the frame."** It has now misread the same render twice — once as worse
     than a pillarbox, once as a pillarbox — because the footage sampled was a

@@ -423,8 +423,9 @@ already rasterised at the old canvas, and the preview letterbox. **Costed
 the measurements and the build order; this row is the pointer. **The preview
 letterbox closed 2026-08-10** — the viewer's frame is the project canvas and
 media is placed at the render's own rect, so the page crops where the render
-crops (HISTORY.md § The viewer's frame). **Left is the preset below**, then
-the watch that ends the item.
+crops (HISTORY.md § The viewer's frame). **The preset below shipped the same
+day** (HISTORY.md § `tiktok-reels`). **Left is only the watch of a real
+vertical cut, which ends the item.**
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing
@@ -439,10 +440,11 @@ The **single-source** path is the one with no answer — `-res` letterboxes and
 auto-editor has no reframe flag to teach. What stays genuinely unmeasured is
 the melt *consumer*, which this item never needs to touch.
 
-### Export presets — built, minus the one that needs aspect swap
+### Export presets — built, all four
 
 Shipped 2026-08-08 (HISTORY.md § The head of the parity queue) as `youtube`,
-`web` and `custom`, on `ops.export`, the CLI and the window's Export flow.
+`web` and `custom`, on `ops.export`, the CLI and the window's Export flow;
+`tiktok-reels` joined them 2026-08-10 (HISTORY.md § `tiktok-reels`).
 
 **"Cheap, anytime" was optimistic in two ways, and both are worth keeping on
 the record.** First, the sentence this row used to carry — that the presets
@@ -454,17 +456,18 @@ four consumer keys `picture.RENDER_ARGS` already hardcodes, because HISTORY.md
 combination and nobody has since isolated which addition caused it. A preset
 that widens the consumer is a memory-growth experiment in a feature's clothes.
 
-**`tiktok-reels` is not shipped, and what blocks it has changed.** A filled
-9:16 render exists — `canvas` plus the reframe, on the melt path (§ Aspect
-swap) — so the old objection, that a platform's name would sit over a quiet
-pillarbox and trip this document's constraint 2, is answered. What remains is
-that the canvas half belongs to the *project* rather than to an export flag:
-`canvas` decides the shape, routes for itself and reports what it crops, which
-leaves the preset the quality bundle it always was. **The preview letterbox
-closed 2026-08-10**, so what is left ahead of it is the preset itself and then
-a watch of a real vertical cut. A caller-supplied
-`resolution` stays refused on the melt path for the memory reason above — a
-refusal of the *argument*, not an inability of the renderer.
+**`tiktok-reels` shipped last, and it is the one preset that checks rather
+than only encoding.** The old objection — that a platform's name would sit
+over a quiet pillarbox and trip this document's constraint 2 — was answered by
+`canvas` plus the reframe (§ Aspect swap). What was left was that the canvas
+half belongs to the *project* rather than to an export flag, and the build
+resolved it by having the preset **refuse** a canvas that is not 9:16, naming
+the `canvas` command that fixes it, rather than setting the shape itself: an
+export argument rewriting project state is the same failure as picking the
+writer from an argument. Its four encode values are `youtube`'s, because both
+platforms re-encode the upload. A caller-supplied `resolution` stays refused
+on the melt path for the memory reason above — a refusal of the *argument*,
+not an inability of the renderer.
 
 ### MCP over HTTP — optional, unranked
 

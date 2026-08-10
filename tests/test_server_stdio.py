@@ -4249,10 +4249,11 @@ def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
 # -- export presets --------------------------------------------------------
 #
 # DAYDREAM.md § Export presets maps YouTube/Web/Custom onto ops.export as
-# named bundles. There is deliberately no TikTok-Reels: 9:16 is only
-# producible here as a pillarbox of the 16:9 frame (verified live against the
-# installed auto-editor binary while surveying this item), never a real
-# reframe — that is DAYDREAM.md § Aspect swap, a separately deferred item.
+# named bundles. TikTok-Reels joined them with PLAN.md § Aspect swap step 5,
+# once a filled 9:16 render existed to make the name honest — and it is the
+# one preset that *checks* rather than only encoding, because the shape a
+# project renders at is `canvas`'s and a preset that set it would be an
+# export argument rewriting project state.
 
 
 @needs_ffprobe
@@ -4331,6 +4332,62 @@ def test_export_preset_web_only_varies_the_four_known_keys(visible_tmp: Path) ->
 
 @needs_ffprobe
 @needs_ffmpeg
+@needs_melt
+def test_tiktok_reels_renders_a_filled_vertical_frame_through_melt(
+    visible_tmp: Path,
+) -> None:
+    """Step 5 end to end, against a real melt: with the canvas set, the preset
+    renders and the finished file measures 9:16.
+
+    The whole point of the preset is a claim about the frame, so the assertion
+    is the frame ffprobe reads back — not the exit code, and not the reply's
+    echo of the preset name. The consumer is asserted alongside it because the
+    entry carries `youtube`'s four values: the shape must come from the canvas
+    and nothing else. A small 9:16 canvas rather than 1080x1920 keeps the
+    encode cheap; 90x160 is exactly 9:16 and even on both edges.
+    """
+    audio, transcript = _make_sources(visible_tmp)
+    film = visible_tmp / "film.mp4"
+    _make_video(film, duration=12.0)
+    project = visible_tmp / "proj"
+    output = visible_tmp / "out.mp4"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip_id = await _seeded(client, project, audio, transcript)
+        asset = await client.call("import_media", path=str(project), source=str(film))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset=asset["clip_id"]
+        )
+        swapped = await client.call("canvas", path=str(project), size="90x160")
+        rendered = await client.call(
+            "export",
+            path=str(project),
+            output=str(output),
+            export_format=None,
+            preset="tiktok-reels",
+        )
+        return swapped, rendered
+
+    swapped, rendered = anyio.run(_with_server, body)
+
+    assert swapped["aspect"] == "9:16"
+    assert rendered["writer"] == "melt"
+    assert rendered["preset"] == "tiktok-reels"
+    # The reply's own account of the shape, and the file's — a render that
+    # degraded would still have carried the preset name.
+    assert rendered["canvas"] == "90x160"
+    assert (rendered["rendered"]["width"], rendered["rendered"]["height"]) == (90, 160)
+    assert rendered["rendered"]["consumer"] == [
+        "vcodec=libx264",
+        "crf=18",
+        "preset=medium",
+        "acodec=aac",
+    ]
+
+
+@needs_ffprobe
+@needs_ffmpeg
 def test_export_resolution_on_a_layered_project_is_refused(tmp_path: Path) -> None:
     """melt's consumer is deliberately hardcoded shut against width/height —
     HISTORY.md § 4's growth to 14.6 GB was never isolated to a safe subset —
@@ -4366,9 +4423,88 @@ def test_export_resolution_on_a_layered_project_is_refused(tmp_path: Path) -> No
     assert "single-source" in text
 
 
-def test_unknown_export_preset_lists_available_names_and_names_why_tiktok_reels_is_absent(
+def test_unknown_export_preset_lists_every_available_name(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.wav"),
+                "export_format": None,
+                "preset": "instagram-story",
+            },
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    text = result.content[0].text
+    assert "youtube" in text and "web" in text and "custom" in text
+    # The name that arrived last has to be reachable from the refusal too,
+    # or the one preset with a precondition is the one nobody discovers.
+    assert "tiktok-reels" in text
+
+
+def test_tiktok_reels_refuses_a_project_whose_canvas_is_not_9_16(tmp_path: Path) -> None:
+    """The failure this preset exists to close: a landscape render under a
+    vertical name, which every downstream check would have passed.
+
+    The clip is written into the manifest rather than imported — what is under
+    test is the shape check, not ffprobe — and the refusal is asserted to carry
+    the fix, because `canvas` is also what reports what the crop would cost.
+    """
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["clips"] = [
+            {
+                "clip_id": "cold-open",
+                "source": "/tmp/cold-open.mp4",
+                "duration": 12.0,
+                "has_video": True,
+                "has_audio": True,
+                "width": 1920,
+                "height": 816,
+            }
+        ]
+        opened.write_manifest(manifest)
+        return await session.call_tool(
+            "export",
+            {
+                "path": str(project),
+                "output": str(tmp_path / "out.mp4"),
+                "export_format": None,
+                "preset": "tiktok-reels",
+            },
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result.is_error
+    text = result.content[0].text
+    assert "1920x816" in text and "9:16" in text
+    assert "canvas 1080x1920" in text
+    # And it refuses without writing: a preset that fixed the shape on the
+    # caller's behalf is the thing this design decided against.
+    assert Project.open(project).read_manifest().get("canvas") is None
+
+
+def test_tiktok_reels_refuses_an_audio_only_project_for_the_true_reason(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`_mlt_resolution` falls back to 1080p with no footage, so the geometry
+    path would refuse this by quoting a frame the project has not got — a
+    true refusal for a false reason. It is caught before that.
+    """
     audio, transcript = sources
     project = tmp_path / "proj"
 
@@ -4388,8 +4524,8 @@ def test_unknown_export_preset_lists_available_names_and_names_why_tiktok_reels_
     result = anyio.run(_with_server, body)
     assert result.is_error
     text = result.content[0].text
-    assert "youtube" in text and "web" in text and "custom" in text
-    assert "tiktok" in text.lower() or "aspect" in text.lower()
+    assert "no picture" in text
+    assert "1920x1080" not in text, "quoting the 1080p fallback would be a fiction"
 
 
 def test_preset_or_resolution_with_an_nle_export_format_is_refused(
