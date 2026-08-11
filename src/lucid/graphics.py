@@ -48,6 +48,7 @@ import shlex
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -967,43 +968,129 @@ TEMPLATES: dict[str, dict[str, Any]] = {
 STYLE_SLOTS = {**PALETTE, **FONTS}
 RESERVED_SLOTS = frozenset({"width", "height", "view_height", "mid_y", "note_y", "foot_y"})
 
+#: The variants a template may be drawn in, and the canvas that selects each.
+#: A variant is a *file* — `receipt` at a tall canvas draws
+#: `receipt.portrait.svg` — chosen from the shape of the frame and never named
+#: by the caller. That is the whole reason it is not a second template name:
+#: `card_new` records `(template, slots, canvas)` and `card_reauthor` fills the
+#: same template again at the project's canvas, so a portrait *template* would
+#: make an aspect swap rewrite the record and the record would stop saying what
+#: the card is. Named this way, every record already on disk keeps meaning what
+#: it meant. PLAN.md § The vertical card layout.
+VARIANTS: dict[str, Callable[[int, int], bool]] = {
+    "portrait": lambda width, height: height > width,
+}
 
-def template_path(name: str) -> Path:
-    path = _TEMPLATE_DIR / f"{name}.svg"
-    if name not in TEMPLATES or not path.is_file():
+#: The geometry lucid derives from the canvas rather than reading out of the
+#: file, in template units. These are the landscape file's numbers, and they
+#: are per-variant because a portrait layout stacks differently — `foot_margin`
+#: especially, since `view_height - 110` puts the wordmark 62px from the bottom
+#: of a 1080x1920 frame, inside the band `goodsometimes/branding.md` reserves
+#: for the platform's own UI.
+BASE_GEOMETRY: dict[str, float] = {"mid_ratio": 0.44, "note_gap": 130, "foot_margin": 110}
+
+
+def template_path(name: str, variant: str | None = None) -> Path:
+    if name not in TEMPLATES:
         known = ", ".join(sorted(TEMPLATES)) or "none"
         raise GraphicsError(f"no template named {name!r} (there are: {known})")
-    return path
+    path = _TEMPLATE_DIR / (f"{name}.{variant}.svg" if variant else f"{name}.svg")
+    if path.is_file():
+        return path
+    if variant:
+        raise GraphicsError(
+            f"template {name!r} declares a {variant!r} variant and there is no "
+            f"file at {path} — a canvas that asks for it cannot fall back to "
+            "the base card, because that is the pillarboxed card the variant exists to replace"
+        )
+    raise GraphicsError(f"no template named {name!r} (there are: {', '.join(sorted(TEMPLATES))})")
 
 
-def template_slots(name: str) -> dict[str, dict[str, Any]]:
+def _declared_slots(name: str, variant: str | None) -> dict[str, dict[str, Any]]:
+    """`name`'s slot table as the variant draws it — base, with its overrides.
+
+    One merge, shared by the drift guard and the fill, because a variant that
+    declared its geometry to one and not the other would wrap a quote to a box
+    the file does not have.
+    """
+    spec = TEMPLATES[name]
+    over = spec.get("variants", {}).get(variant, {}).get("slots", {}) if variant else {}
+    return {slot: {**meta, **over.get(slot, {})} for slot, meta in spec["slots"].items()}
+
+
+def template_layout(name: str, width: int, height: int) -> dict[str, Any]:
+    """Which file `name` draws at this canvas, and the geometry that goes with it.
+
+    **A variant exists because the manifest declares it, not because a file is
+    sitting in the templates directory.** Both halves of that are guards. A
+    declared variant with no file refuses rather than falling back, because a
+    silent fall back to the landscape card is exactly the pillarboxed card the
+    item exists to remove — and it would render at exit 0. An *undeclared*
+    file refuses too, which is the same drift guard `template_slots` runs
+    between a manifest and its placeholders: a variant authored but never
+    declared would never be drawn, and nothing would say so.
+
+    A template that declares no variant resolves to its own file and
+    `BASE_GEOMETRY` at every canvas, which is what every template does today.
+    """
+    if name not in TEMPLATES:
+        known = ", ".join(sorted(TEMPLATES)) or "none"
+        raise GraphicsError(f"no template named {name!r} (there are: {known})")
+    declared = TEMPLATES[name].get("variants", {})
+    stray = [
+        v for v in VARIANTS if v not in declared and (_TEMPLATE_DIR / f"{name}.{v}.svg").is_file()
+    ]
+    if stray:
+        raise GraphicsError(
+            f"template {name!r} has {sorted(stray)} variant file(s) its manifest "
+            "does not declare — nothing would ever draw them, and no canvas "
+            "would say so"
+        )
+
+    variant = next(
+        (v for v, selects in VARIANTS.items() if v in declared and selects(width, height)),
+        None,
+    )
+    geometry = declared.get(variant, {}).get("geometry", {}) if variant else {}
+    return {
+        "variant": variant,
+        "path": template_path(name, variant),
+        "slots": _declared_slots(name, variant),
+        "geometry": {**BASE_GEOMETRY, **geometry},
+    }
+
+
+def template_slots(name: str, variant: str | None = None) -> dict[str, dict[str, Any]]:
     """Every slot `name` accepts, its default, and what it is for.
 
     Read against the template on disk rather than from the manifest alone:
     the placeholders in the file are the truth about what gets filled, and a
     manifest that has drifted from them is how a card ends up shipping with
-    `{{year}}` printed on its face.
+    `{{year}}` printed on its face. A variant file is held to the same
+    agreement, because it is the same manifest entry drawn a second way.
     """
-    path = template_path(name)
+    path = template_path(name, variant)
     spec = TEMPLATES[name]
+    declared = _declared_slots(name, variant)
+    drawn = f"{name}.{variant}" if variant else name
     found = set(_PLACEHOLDER.findall(path.read_text(encoding="utf-8")))
 
-    placed = {n for n, s in spec["slots"].items() if s.get("placed", True)}
+    placed = {n for n, s in declared.items() if s.get("placed", True)}
     expected = placed | set(spec["derived"]) | set(STYLE_SLOTS) | RESERVED_SLOTS
     if found - expected:
         raise GraphicsError(
-            f"template {name!r} has placeholders nothing fills: "
+            f"template {drawn!r} has placeholders nothing fills: "
             f"{sorted(found - expected)} — the manifest and the SVG disagree"
         )
     unplaced = (placed | set(spec["derived"])) - found
     if unplaced:
         raise GraphicsError(
-            f"template {name!r} declares slots its SVG never places: "
+            f"template {drawn!r} declares slots its SVG never places: "
             f"{sorted(unplaced)} — the manifest and the SVG disagree"
         )
 
     slots = {}
-    for slot, meta in spec["slots"].items():
+    for slot, meta in declared.items():
         slots[slot] = {
             "description": meta["description"],
             "kind": meta.get("kind", "text"),
@@ -1060,7 +1147,12 @@ def _rating(slot: str, value: Any) -> float:
 FLOW_FOOTER_GAP = 40
 
 
-def _flow_box(declared: dict[str, Any], view_height: int, footer: bool) -> int:
+def _flow_box(
+    declared: dict[str, Any],
+    view_height: int,
+    footer: bool,
+    geometry: dict[str, float] | None = None,
+) -> int:
     """How many lines the slot's box holds at this canvas.
 
     Derived from the canvas rather than declared, because the box is the
@@ -1069,16 +1161,24 @@ def _flow_box(declared: dict[str, Any], view_height: int, footer: bool) -> int:
     lines than a 16:9 one, and hard-coding either would refuse a quote that
     fits.
 
-    `view_height - 110` is the template's own bottom margin: it is where the
-    footer's baseline sits, so it is the lowest baseline the design allows
-    whether or not a footer is drawn on it.
+    `view_height - foot_margin` is the template's own bottom margin: it is
+    where the footer's baseline sits, so it is the lowest baseline the design
+    allows whether or not a footer is drawn on it. The margin comes from the
+    resolved variant, because a portrait layout keeps clear of the platform's
+    UI band and a landscape one has no such band to keep clear of.
     """
-    bottom = view_height - 110 - (FLOW_FOOTER_GAP if footer else 0)
+    margin = (geometry or BASE_GEOMETRY)["foot_margin"]
+    bottom = view_height - margin - (FLOW_FOOTER_GAP if footer else 0)
     return max(1, int((bottom - declared["y"]) // declared["line_height"]) + 1)
 
 
 def _check_fits(
-    slot: str, lines: list[Runs], declared: dict[str, Any], view_height: int, footer: bool
+    slot: str,
+    lines: list[Runs],
+    declared: dict[str, Any],
+    view_height: int,
+    footer: bool,
+    geometry: dict[str, float] | None = None,
 ) -> None:
     """Refuse a flow that overruns its box, naming the overflow.
 
@@ -1089,7 +1189,7 @@ def _check_fits(
     baseline and `receipt()` throws it away, so a long quote overran the
     footer at exit 0.
     """
-    holds = _flow_box(declared, view_height, footer)
+    holds = _flow_box(declared, view_height, footer, geometry)
     if len(lines) <= holds:
         return
     raise GraphicsError(
@@ -1123,6 +1223,13 @@ def fill_template(
     1920-wide units and the viewBox is written to match the canvas aspect, so
     the same template renders at any size without pillarboxing.
 
+    **The canvas also picks which of the template's files gets filled.** A
+    template that declares a variant for this shape draws that file, with the
+    geometry declared alongside it; one that declares none draws its own file
+    at `BASE_GEOMETRY`, which is every template today. The grid stays 1920
+    units wide across variants — a variant changes the vertical stack and the
+    sizes, never the coordinate system. `template_layout`.
+
     `flow` measures a `runs` slot through `render_svg`'s own coder and wraps
     it to the body width the template declares, refusing when the result does
     not fit the slot's box. **It defaults on because the failure it closes is
@@ -1132,9 +1239,13 @@ def fill_template(
     contract and needs no renderer; it is for callers that are testing the
     substitution rather than authoring a card.
     """
-    path = template_path(name)
+    if width <= 0 or height <= 0:
+        raise GraphicsError(f"canvas must be positive, got {width}x{height}")
+    layout = template_layout(name, width, height)
     spec = TEMPLATES[name]
-    slots = template_slots(name)
+    declared_slots = layout["slots"]
+    geometry = layout["geometry"]
+    slots = template_slots(name, layout["variant"])
 
     unknown = set(values) - set(slots)
     if unknown:
@@ -1144,25 +1255,24 @@ def fill_template(
     missing = [s for s, meta in slots.items() if meta["required"] and s not in values]
     if missing:
         raise GraphicsError(f"template {name!r} needs {sorted(missing)}, which nothing supplied")
-    if width <= 0 or height <= 0:
-        raise GraphicsError(f"canvas must be positive, got {width}x{height}")
 
     resolved = {s: values.get(s, meta["default"]) for s, meta in slots.items()}
 
     view_height = round(TEMPLATE_WIDTH * height / width)
+    mid_y = round(view_height * geometry["mid_ratio"])
     filled: dict[str, str] = {
         "width": str(width),
         "height": str(height),
         "view_height": str(view_height),
-        "mid_y": str(round(view_height * 0.44)),
-        "note_y": str(round(view_height * 0.44) + 130),
-        "foot_y": str(view_height - 110),
+        "mid_y": str(mid_y),
+        "note_y": str(mid_y + geometry["note_gap"]),
+        "foot_y": str(view_height - geometry["foot_margin"]),
     }
     for slot, meta in slots.items():
-        if meta["kind"] == "rating" or not spec["slots"].get(slot, {}).get("placed", True):
+        if meta["kind"] == "rating" or not declared_slots.get(slot, {}).get("placed", True):
             continue
         if meta["kind"] == "runs":
-            declared = spec["slots"][slot]
+            declared = declared_slots[slot]
             lines = parse_runs(str(resolved[slot]))
             if flow:
                 lines = flow_runs(
@@ -1178,6 +1288,7 @@ def fill_template(
                     declared,
                     view_height,
                     bool(footer and str(resolved.get(footer, "")).strip()),
+                    geometry,
                 )
             filled[slot] = _runs_markup(
                 lines,
@@ -1209,4 +1320,4 @@ def fill_template(
     def substitute(match: re.Match[str]) -> str:
         return filled[match.group(1)]
 
-    return _PLACEHOLDER.sub(substitute, path.read_text(encoding="utf-8"))
+    return _PLACEHOLDER.sub(substitute, layout["path"].read_text(encoding="utf-8"))

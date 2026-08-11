@@ -2985,6 +2985,15 @@ against the file runs for both.
    file and today's numbers. **The step's test is that every existing card
    renders byte-identical**, which is what makes the mechanism safe to put
    under the twelve records before any of them move.
+
+   **Shipped 2026-08-11.** 60 card/canvas pairs — the twelve real slot tables
+   plus each template, at four canvases — hashed against the pre-change tree
+   and identical, the two known 16:9 refusals included. `ops` needed no change,
+   which is the sign the record survived the mechanism. One guard the note did
+   not ask for and step 3 would have hit: a variant *file* the manifest does
+   not declare is refused, because otherwise authoring one and forgetting the
+   declaration leaves every portrait canvas quietly filling the landscape file.
+   HISTORY.md § Variant resolution.
 2. **Measure the title.** `title` and `note` fit-checked, refusing rather than
    overrunning, at both aspects. Ships a refusal on cards nobody has drawn yet
    and closes a hole that is live today at exit 0.

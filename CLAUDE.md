@@ -299,6 +299,18 @@ installed package or the upstream repo, not your memory.
     [em]perfect[/em] horror` draws as `theperfecthorror` at exit 0.
     `xml:space="preserve"`, once per line — it inherits. Both:
     HISTORY.md § The emphasis-capable quote slot.
+  - **A per-aspect layout is a variant *file*, resolved from the canvas —
+    never a second template name.** `receipt` at a tall canvas draws
+    `receipt.portrait.svg`; a `receipt-portrait` template would make an aspect
+    swap rewrite the recorded template, and the record would stop saying what
+    the card is. A variant declared with no file refuses rather than falling
+    back — the fallback is the pillarboxed card the variant exists to remove,
+    at exit 0 — and a variant file the manifest does not declare refuses too,
+    because nothing would ever draw it and nothing would say so. Its geometry
+    is declared beside it and reaches both the drift guard and the wrap
+    through `_declared_slots`: a portrait file measured against landscape
+    declarations overruns its box at `magick` exit 0. HISTORY.md § Variant
+    resolution.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas)` and `card_reauthor` fills the template again
     at the project canvas. A card with files but no record cannot be

@@ -921,6 +921,131 @@ def test_splitting_a_line_into_runs_does_not_eat_the_spaces_between_them(
     )
 
 
+# -- template variants ------------------------------------------------------
+
+
+@pytest.fixture
+def variant_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The shipped templates, in a directory a test may add a variant to.
+
+    Copied rather than written to the package's own `templates/`, because a
+    test that leaves a stray SVG beside the real ones would trip the very
+    drift guard it is here to exercise — for every later test in the run.
+    """
+    staged = tmp_path / "templates"
+    shutil.copytree(graphics._TEMPLATE_DIR, staged)
+    monkeypatch.setattr(graphics, "_TEMPLATE_DIR", staged)
+    return staged
+
+
+def _declare(monkeypatch: pytest.MonkeyPatch, name: str, spec: dict[str, object]) -> None:
+    """Give `name` a portrait variant for the duration of one test."""
+    monkeypatch.setitem(
+        graphics.TEMPLATES, name, {**graphics.TEMPLATES[name], "variants": {"portrait": spec}}
+    )
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+@pytest.mark.parametrize("canvas", [(1920, 1080), (1920, 816), (1080, 1920), (1080, 1080)])
+def test_a_template_with_no_variant_draws_its_own_file_at_every_canvas(
+    name: str, canvas: tuple[int, int]
+) -> None:
+    """The property that makes the mechanism safe to put under the twelve
+    recorded cards before any of them move.
+
+    Variant resolution ships before the variant files do, so at this step
+    every canvas — portrait included — has to resolve to exactly the file and
+    exactly the numbers the aspect resolved to before it existed. Anything
+    else would be a card silently redrawn by a build that only meant to add a
+    branch.
+    """
+    layout = graphics.template_layout(name, *canvas)
+    assert layout["variant"] is None
+    assert layout["path"] == graphics._TEMPLATE_DIR / f"{name}.svg"
+    assert layout["geometry"] == graphics.BASE_GEOMETRY
+    assert layout["slots"] == graphics.TEMPLATES[name]["slots"]
+
+
+def test_a_declared_variant_with_no_file_refuses_rather_than_falling_back(
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falling back would draw the landscape card into the tall frame — the
+    pillarboxed card the variant exists to replace — at exit 0."""
+    _declare(monkeypatch, "receipt", {})
+    with pytest.raises(GraphicsError, match="declares a 'portrait' variant"):
+        graphics.fill_template("receipt", _required("receipt"), width=1080, height=1920, flow=False)
+
+
+def test_a_variant_file_the_manifest_does_not_declare_is_refused(
+    variant_dir: Path,
+) -> None:
+    """The other direction of the same drift guard `template_slots` runs.
+
+    A file authored and never declared is never drawn, and without this
+    nothing anywhere would say so — the portrait canvas would keep quietly
+    filling the landscape card.
+    """
+    (variant_dir / "receipt.portrait.svg").write_text("<svg/>", encoding="utf-8")
+    with pytest.raises(GraphicsError, match="manifest does not declare"):
+        graphics.template_layout("receipt", 1080, 1920)
+
+
+def test_a_variant_file_is_held_to_the_same_placeholder_agreement(
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It is one manifest entry drawn a second way, so the guard that keeps
+    `{{year}}` off the face of a card runs against both files."""
+    _declare(monkeypatch, "receipt", {})
+    (variant_dir / "receipt.portrait.svg").write_text(
+        '<svg>{{title}}{{nonesuch}}</svg>', encoding="utf-8"
+    )
+    with pytest.raises(GraphicsError, match="receipt.portrait.*nonesuch"):
+        graphics.template_slots("receipt", "portrait")
+
+
+def test_a_variant_declares_its_own_geometry_and_the_fill_uses_it(
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 4: `foot_y = view_height - 110` is a landscape number, and at
+    1080x1920 it puts the wordmark inside the platform's UI band. The variant
+    is what gets to say otherwise, and it has to reach the substitution."""
+    _declare(monkeypatch, "receipt", {"geometry": {"foot_margin": 700}})
+    (variant_dir / "receipt.portrait.svg").write_text(
+        (variant_dir / "receipt.svg").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    filled = graphics.fill_template(
+        "receipt", _required("receipt"), width=1080, height=1920, flow=False
+    )
+    assert 'y="2713"' in filled  # 3413 - 700, not 3413 - 110
+    wide = graphics.fill_template("receipt", _required("receipt"), width=1920, height=816, flow=False)
+    assert 'y="706"' in wide  # the landscape file keeps the landscape margin
+
+
+@needs_magick
+def test_a_variants_declared_slot_geometry_is_what_the_wrap_measures(
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 3 arriving by its second route.
+
+    A portrait file whose quote is set at 96u, measured against the landscape
+    file's 46u declaration, wraps to a box the card has not got — and overruns
+    it at exit 0. So the wrap reads the resolved variant's numbers, not the
+    base's.
+    """
+    _declare(monkeypatch, "receipt", {"slots": {"quote": {"width": 300}}})
+    (variant_dir / "receipt.portrait.svg").write_text(
+        (variant_dir / "receipt.svg").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    quote = "a fairly ordinary sentence that has to wrap somewhere"
+    narrow = graphics.fill_template(
+        "receipt", {**_required("receipt"), "quote": quote}, width=1080, height=1920
+    )
+    base = graphics.fill_template(
+        "receipt", {**_required("receipt"), "quote": quote}, width=1920, height=816
+    )
+    assert narrow.count('xml:space="preserve"') > base.count('xml:space="preserve"')
+
+
 def test_the_viewbox_follows_the_canvas_aspect() -> None:
     """Why a template can be authored once and rendered at any canvas."""
     name = min(graphics.TEMPLATES)

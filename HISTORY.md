@@ -5075,3 +5075,82 @@ because it is a judgement rather than a limit: **a clip that already plays is
 refused**, since a proxy of a file the browser opens directly is a second,
 lower-quality copy of footage nothing needed a copy of. `force` overrides the
 cache, not that.
+
+## Variant resolution — the vertical card layout, step 1 — 2026-08-11
+
+PLAN.md § The vertical card layout — the design note has the four findings and
+the build order. This is step 1: `fill_template` picks *which file* it fills
+from the canvas, and the geometry that goes with it. No variant files yet — the
+step exists so the mechanism is under the twelve recorded cards before any of
+them move.
+
+Shipped: `graphics.VARIANTS`, `graphics.BASE_GEOMETRY`, `graphics.template_layout`,
+`graphics._declared_slots`, a `variant` argument on `template_path` and
+`template_slots`, and an optional `variants` key on a `TEMPLATES` entry.
+`_flow_box` and `_check_fits` take the resolved geometry instead of a
+hard-coded 110.
+
+### The gate was byte-identity, measured against the code it replaced
+
+A step whose whole claim is "nothing changes yet" is worth exactly the check
+behind it. Every one of the twelve real slot tables in `~/lucid-vertical/proj`
+plus each shipped template filled with placeholder values, at four canvases —
+1920x1080, 1920x816, 1080x1920, 1080x1080 — hashed, then `git stash` and hashed
+again on the pre-change tree. **60 pairs, all identical.** The two that refuse
+(`receipt-scream-1996`, `receipt-scream4-2011` at 16:9, the pair the wiki's
+Open items row names) refuse with the same text, so the identity is not the
+vacuous kind where everything errored.
+
+That compare is a one-off and does not survive as a test; what survives is the
+property it proved. `test_a_template_with_no_variant_draws_its_own_file_at_every_canvas`
+asserts, per template per canvas, that the resolved layout is the base file,
+`BASE_GEOMETRY`, and the base slot table — which is the invariant that would
+have to break for a later step to redraw a card it only meant to add a branch
+beside.
+
+### A variant is a file chosen from the canvas, never a second template name
+
+This is the one design decision in the step, and it is forced by the card
+record rather than by taste. `card_new` records `(template, slots, canvas)` and
+`card_reauthor` fills that template again at the project's canvas — the
+record's entire job is to survive an aspect swap. Had portrait been a template
+name, re-authoring after a swap would have to rewrite the recorded template,
+and the record would stop saying what the card *is*. Resolved from the shape of
+the frame instead, every record already on disk keeps meaning what it meant,
+and `card_new`/`card_reauthor`/`ops` needed no change at all.
+
+The grid stays 1920 units wide across variants. x-coordinates, margins and body
+widths keep one language, `render_svg` learns nothing, and the portrait file is
+the same coordinate system with a 3413u-tall viewBox it actually uses.
+
+### Both directions of the declaration are guards
+
+A *declared* variant with no file refuses rather than falling back to the base.
+Falling back is the tempting build and it draws the landscape card into the
+tall frame — the pillarboxed card the whole item exists to remove — at exit 0.
+
+The mirror is the one worth writing down: a variant **file** the manifest does
+not declare is also refused. Without it, authoring `receipt.portrait.svg` and
+forgetting the declaration leaves every portrait canvas quietly filling the
+landscape file, with a correct-looking file sitting right beside it. That is
+the same shape as the drift guard `template_slots` already runs between a
+manifest and its placeholders, pointed the other way, and step 3 is exactly the
+step that would have hit it.
+
+### The geometry table is per-variant because finding 3 arrives twice
+
+`TEMPLATES[name]["slots"][slot]` carries `x`/`y`/`width`/`size`/`line_height`/
+`footer_slot` for the wrap measurement, and those numbers are the landscape
+file's. A portrait file measured against landscape declarations wraps to a box
+the card has not got and overruns it at `magick` exit 0 — which is finding 3's
+silent-overflow failure reached by a second route, without anyone setting a
+bigger title. So `_declared_slots` is one merge shared by the drift guard and
+the fill; a variant that declared its geometry to one and not the other is the
+bug the shared helper exists to make impossible.
+
+The derived numbers move with it. `mid_y`, `note_y` and `foot_y` come from
+`BASE_GEOMETRY` (`mid_ratio` 0.44, `note_gap` 130, `foot_margin` 110 — the
+landscape file's), overridable per variant, and `_flow_box` reads the same
+`foot_margin` rather than its own literal. Finding 4 is why: at 1080x1920,
+`view_height - 110` puts the wordmark 62px from the bottom edge, inside the
+band `goodsometimes/branding.md`'s Shorts row reserves for platform UI.
