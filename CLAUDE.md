@@ -323,8 +323,13 @@ installed package or the upstream repo, not your memory.
     declarations overruns its box at `magick` exit 0. HISTORY.md § Variant
     resolution.
   - So **a card is re-authored, never resized**: `card_new` records
-    `(template, slots, canvas)` and `card_reauthor` fills the template again
-    at the project canvas. A card with files but no record cannot be
+    `(template, slots, canvas, variant)` and `card_reauthor` fills the template
+    again at the project canvas. **The variant is on the record because a
+    variant shipping changes what a canvas draws without changing the canvas**
+    — a canvas-only sweep answered `redrawn: 0` over twelve cards that were all
+    still the old layout, and reported the project up to date. It is additive
+    and optional, so absent means none, which is what every older record meant.
+    HISTORY.md § The portrait cards. A card with files but no record cannot be
     re-authored by anything — it is reported, never guessed at. The twelve in
     `~/lucid-final-cut/proj` have no record, **but their slot tables survive in
     `~/lucid-cards-reauthor/`** — look there before concluding a card is

@@ -1019,6 +1019,28 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             },
         },
         "derived": {"stars": ("stars", "rating", "amber")},
+        # The stack is what changes, not the coordinate system: the grid stays
+        # 1920 wide and the file scales `stars` in its own transform, because
+        # `stars_markup` draws at a fixed radius and a vector scales cleanly.
+        # Sizes are a starting point for the watch, not a derivation — finding
+        # 2 measured the whole 46u–96u band as fitting.
+        "variants": {
+            "portrait": {
+                "geometry": {"foot_margin": 740},
+                "slots": {
+                    "title": {
+                        "size": 176,
+                        "parts": [
+                            {"text": "{title}"},
+                            {"text": "({year})", "gap": 52, "size": 95, "weight": 400},
+                        ],
+                    },
+                    "date_line": {"size": 54},
+                    "quote": {"y": 1140, "line_height": 100, "size": 80},
+                    "mark": {"size": 80},
+                },
+            }
+        },
     },
     "reveal": {
         "description": "A title card on ink, with a footnote — the shape used for each sequel's reveal.",
@@ -1073,6 +1095,24 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             },
         },
         "derived": {},
+        # `mid_ratio` is the whole composition here: 0.44 of a 3413-unit frame
+        # puts a title that is 3.6% of it at the halfway line with nothing
+        # under it, which is finding 1's empty paper. 0.34 reads as a top-third
+        # title with the footer anchoring the bottom.
+        "variants": {
+            "portrait": {
+                "geometry": {"mid_ratio": 0.34, "note_gap": 160, "foot_margin": 740},
+                "slots": {
+                    "title": {
+                        "size": 240,
+                        "parts": [{"text": "{title}"}, {"text": "*", "size": 127}],
+                    },
+                    "note": {"size": 80},
+                    "year": {"size": 68},
+                    "mark": {"size": 80},
+                },
+            }
+        },
     },
     "rerate": {
         "description": "A rating that changed: the old stars, an arrow, the new ones.",
@@ -1124,6 +1164,28 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             },
         },
         "derived": {"comparison": ("comparison", "before", "after")},
+        # Two numbers here are bound rather than chosen. The comparison row is
+        # 1290 units at five stars against five, so it scales to 1.27 and no
+        # further — it is the one element a tall frame cannot enlarge with the
+        # type. And `date_line` stops at 56 because the widest one on the
+        # twelve is `rerate-scream4`'s 1176 units at 42, which reaches the
+        # 1640 box at 58.6. HISTORY.md § The portrait cards.
+        "variants": {
+            "portrait": {
+                "geometry": {"foot_margin": 740},
+                "slots": {
+                    "title": {
+                        "size": 176,
+                        "parts": [
+                            {"text": "{title}"},
+                            {"text": "({year})", "gap": 52, "size": 95, "weight": 400},
+                        ],
+                    },
+                    "date_line": {"size": 46},
+                    "mark": {"size": 80},
+                },
+            }
+        },
     },
 }
 

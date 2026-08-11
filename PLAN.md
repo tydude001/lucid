@@ -3019,10 +3019,26 @@ against the file runs for both.
 3. **Author the three portrait files** — `receipt`, `reveal`, `rerate` — to
    the branding spec: title in the top third, content through the middle,
    bottom clear.
+
+   **Shipped 2026-08-11**, and the mechanism needed nothing new — the grid
+   stays 1920 wide and each file scales its own derived markup in a `<g
+   transform>`. Two sizes came out **bound rather than chosen**: the
+   comparison row is 1290 units at five-against-five so it tops out at 1.27x,
+   and `date_line` caps at 46 while the title went to 176, which is step 2's
+   own prediction arriving. HISTORY.md § The portrait cards.
 4. **Re-author the twelve and watch them.** `card_reauthor` in
    `~/lucid-vertical/proj`, served on `:8797` as a sheet. The watch is what
    settles the type scale, not the measurement — finding 2 says the band
    80u–96u all fits, and which of it reads is Tyler's eye.
+
+   **Built 2026-08-11, served on `:8798`** — `:8797` is still holding the
+   stacked splits. The watch itself is open. What the re-author found is the
+   step's real finding: **the sweep could not see the change and reported the
+   project up to date**, because a variant shipping changes what a canvas
+   draws without changing the canvas. A card record now carries the variant
+   and the sweep compares it. Measured, the receipts' ink moved from ending
+   15–25% down the frame to 30–60%, and the reveal footer out of the bottom
+   20% band (96.9% → 78.5%), which is finding 4 closing.
 
 ### The two calls this note does not make
 

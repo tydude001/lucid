@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="{{width}}" height="{{height}}" viewBox="0 0 1920 {{view_height}}">
+  <rect x="0" y="0" width="1920" height="{{view_height}}" fill="{{paper}}"/>
+  <text x="140" y="560" font-family="{{title_font}}" font-size="176" font-weight="700" fill="{{ink}}">{{title}}<tspan dx="52" font-size="95" font-weight="400" fill="{{muted}}">({{year}})</tspan></text>
+  <g transform="translate(140, 730) scale(1.6)">{{stars}}</g>
+  <text x="140" y="920" font-family="{{body_font}}" font-size="54" fill="{{muted}}">{{date_line}}</text>
+  <text x="140" y="1140" font-family="{{quote_font}}" font-size="80" font-weight="600" fill="{{ink}}">{{quote}}</text>
+  <text x="1780" y="{{foot_y}}" text-anchor="end" font-family="{{body_font}}" font-size="80" font-weight="700" fill="{{muted}}">{{mark}}</text>
+</svg>

@@ -525,12 +525,22 @@ def test_a_card_with_a_wordmark_keeps_clear_of_it() -> None:
 @needs_magick
 def test_the_same_quote_fits_a_taller_canvas() -> None:
     """The box is derived from the canvas, so 9:16 holds more lines. A
-    hard-coded box would refuse a quote that plainly fits."""
-    quote = "a fairly ordinary sentence. " * 40
+    hard-coded box would refuse a quote that plainly fits.
+
+    Sixteen repetitions rather than forty: the portrait variant sets its quote
+    at 80u against the base file's 46u, so the length that demonstrated this
+    at one size overruns at the other. Sixteen is still longer than any of the
+    twelve real cards and still far past what 2.35:1 holds.
+    """
+    quote = "a fairly ordinary sentence. " * 16
     filled = graphics.fill_template(
         "receipt", {**_required("receipt"), "quote": quote}, width=1080, height=1920
     )
     assert filled.count('xml:space="preserve"') > 10
+    with pytest.raises(GraphicsError, match="too many"):
+        graphics.fill_template(
+            "receipt", {**_required("receipt"), "quote": quote}, width=1920, height=816
+        )
 
 
 def test_the_runs_slot_geometry_agrees_with_the_svg_it_is_drawn_in() -> None:
@@ -668,6 +678,17 @@ def test_card_render_names_the_cards_that_do_have_a_source(project: Project) -> 
 # -- templates -------------------------------------------------------------
 
 
+#: Every file lucid ships, as `(template, variant)` — a variant is the same
+#: manifest entry drawn a second way, so every guard over the base runs over
+#: it too. A portrait file measured against landscape declarations overruns
+#: its box at `magick` exit 0, which is the failure the guards exist for.
+DRAWINGS = [
+    (name, variant)
+    for name in sorted(graphics.TEMPLATES)
+    for variant in [None, *sorted(graphics.TEMPLATES[name].get("variants", {}))]
+]
+
+
 def _required(name: str) -> dict[str, object]:
     """Minimal slots for `name`: a value for everything it insists on."""
     return {
@@ -677,21 +698,22 @@ def _required(name: str) -> dict[str, object]:
     }
 
 
-@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
-def test_every_shipped_template_agrees_with_its_manifest(name: str) -> None:
+@pytest.mark.parametrize(("name", "variant"), DRAWINGS)
+def test_every_shipped_template_agrees_with_its_manifest(name: str, variant: str | None) -> None:
     """The drift guard, run against each SVG lucid actually ships.
 
     `template_slots` raises when the placeholders in the file and the slots in
     the manifest disagree either way. A template with a placeholder nothing
     fills would otherwise ship a card with `{{year}}` printed on its face.
     """
-    slots = graphics.template_slots(name)
+    slots = graphics.template_slots(name, variant)
     assert slots, f"{name} declares no slots"
 
 
+@pytest.mark.parametrize("canvas", [(1920, 1080), (1080, 1920)])
 @pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
-def test_every_shipped_template_fills_and_parses(name: str) -> None:
-    filled = graphics.fill_template(name, _required(name), flow=False)
+def test_every_shipped_template_fills_and_parses(name: str, canvas: tuple[int, int]) -> None:
+    filled = graphics.fill_template(name, _required(name), width=canvas[0], height=canvas[1], flow=False)
     assert "{{" not in filled, "a placeholder survived the fill"
     graphics.declared_fonts(filled)  # raises unless the result is well-formed
 
@@ -925,16 +947,16 @@ def test_splitting_a_line_into_runs_does_not_eat_the_spaces_between_them(
 # -- measured single lines --------------------------------------------------
 
 
-def _line_slots(name: str) -> dict[str, dict[str, object]]:
+def _line_slots(name: str, variant: str | None = None) -> dict[str, dict[str, object]]:
     return {
         slot: meta
-        for slot, meta in graphics.TEMPLATES[name]["slots"].items()
+        for slot, meta in graphics._declared_slots(name, variant).items()
         if meta.get("kind") == "line"
     }
 
 
-def _file_line(name: str, placeholder: str) -> str:
-    svg = graphics.template_path(name).read_text(encoding="utf-8")
+def _file_line(name: str, variant: str | None, placeholder: str) -> str:
+    svg = graphics.template_path(name, variant).read_text(encoding="utf-8")
     return next(row for row in svg.splitlines() if placeholder in row)
 
 
@@ -951,7 +973,8 @@ def test_every_placed_text_slot_is_measured_or_drawn_inside_one_that_is(name: st
     spec = graphics.TEMPLATES[name]
     inside = {
         field
-        for meta in _line_slots(name).values()
+        for variant in [None, *spec.get("variants", {})]
+        for meta in _line_slots(name, variant).values()
         for part in meta.get("parts", [])
         for _, field, _, _ in Formatter().parse(str(part["text"]))
         if field
@@ -965,8 +988,10 @@ def test_every_placed_text_slot_is_measured_or_drawn_inside_one_that_is(name: st
         )
 
 
-@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
-def test_every_line_slot_agrees_with_the_svg_it_is_drawn_in(name: str) -> None:
+@pytest.mark.parametrize(("name", "variant"), DRAWINGS)
+def test_every_line_slot_agrees_with_the_svg_it_is_drawn_in(
+    name: str, variant: str | None
+) -> None:
     """The drift guard `quote` has always had, run over the line slots too.
 
     A box read from the manifest and a size read from the file is a
@@ -975,8 +1000,8 @@ def test_every_line_slot_agrees_with_the_svg_it_is_drawn_in(name: str) -> None:
     than believed: a line runs margin to mirror-margin, so an anchor and an
     `x` fix the width and the pair can be checked against each other.
     """
-    for slot, meta in _line_slots(name).items():
-        line = _file_line(name, "{{" + slot + "}}")
+    for slot, meta in _line_slots(name, variant).items():
+        line = _file_line(name, variant, "{{" + slot + "}}")
         assert f'x="{meta["x"]}"' in line, f"{name}.{slot} states an x the file does not"
         assert f'font-size="{meta["size"]}"' in line, f"{name}.{slot} is drawn at another size"
         anchor = meta.get("anchor", "start")
@@ -1094,18 +1119,19 @@ def _declare(monkeypatch: pytest.MonkeyPatch, name: str, spec: dict[str, object]
 
 
 @pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
-@pytest.mark.parametrize("canvas", [(1920, 1080), (1920, 816), (1080, 1920), (1080, 1080)])
-def test_a_template_with_no_variant_draws_its_own_file_at_every_canvas(
+@pytest.mark.parametrize("canvas", [(1920, 1080), (1920, 816), (1920, 1920)])
+def test_a_canvas_no_variant_selects_draws_the_base_file_and_its_numbers(
     name: str, canvas: tuple[int, int]
 ) -> None:
-    """The property that makes the mechanism safe to put under the twelve
-    recorded cards before any of them move.
+    """The half of step 1's inertness gate that outlives the variant files.
 
-    Variant resolution ships before the variant files do, so at this step
-    every canvas — portrait included — has to resolve to exactly the file and
-    exactly the numbers the aspect resolved to before it existed. Anything
-    else would be a card silently redrawn by a build that only meant to add a
-    branch.
+    Step 1 asserted this at *every* canvas, portrait included, because no
+    template had a variant yet. Step 3 authored three, so the enduring claim
+    is the landscape one: a canvas no variant selects resolves to exactly the
+    file and exactly the numbers it resolved to before variants existed.
+    Anything else is a card silently redrawn by a build that only meant to add
+    a branch. The other half — that a template declaring *no* variant is
+    untouched at any canvas — is the test below.
     """
     layout = graphics.template_layout(name, *canvas)
     assert layout["variant"] is None
@@ -1114,18 +1140,43 @@ def test_a_template_with_no_variant_draws_its_own_file_at_every_canvas(
     assert layout["slots"] == graphics.TEMPLATES[name]["slots"]
 
 
+@pytest.mark.parametrize("canvas", [(1920, 1080), (1920, 816), (1080, 1920), (1080, 1080)])
+def test_a_template_declaring_no_variant_draws_its_own_file_at_every_canvas(
+    canvas: tuple[int, int], variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every shipped template declares one now, so the case is staged — the
+    declaration goes and the file goes with it, or the stray-file guard fires
+    instead of the property under test.
+
+    It is still what makes the mechanism safe to sit under a record: a
+    portrait canvas must not invent a variant for a template that never asked
+    for one.
+    """
+    monkeypatch.setitem(
+        graphics.TEMPLATES, "receipt", {**graphics.TEMPLATES["receipt"], "variants": {}}
+    )
+    (variant_dir / "receipt.portrait.svg").unlink()
+    layout = graphics.template_layout("receipt", *canvas)
+    assert layout["variant"] is None
+    assert layout["path"] == variant_dir / "receipt.svg"
+    assert layout["geometry"] == graphics.BASE_GEOMETRY
+
+
 def test_a_declared_variant_with_no_file_refuses_rather_than_falling_back(
     variant_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Falling back would draw the landscape card into the tall frame — the
     pillarboxed card the variant exists to replace — at exit 0."""
     _declare(monkeypatch, "receipt", {})
+    # Step 3 authored the real file; this test is about the state before a
+    # variant has one, so the staged copy loses it.
+    (variant_dir / "receipt.portrait.svg").unlink()
     with pytest.raises(GraphicsError, match="declares a 'portrait' variant"):
         graphics.fill_template("receipt", _required("receipt"), width=1080, height=1920, flow=False)
 
 
 def test_a_variant_file_the_manifest_does_not_declare_is_refused(
-    variant_dir: Path,
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The other direction of the same drift guard `template_slots` runs.
 
@@ -1133,6 +1184,11 @@ def test_a_variant_file_the_manifest_does_not_declare_is_refused(
     nothing anywhere would say so — the portrait canvas would keep quietly
     filling the landscape card.
     """
+    # `receipt` declares a portrait variant since step 3, so the undeclared
+    # state this is about has to be staged: the declaration goes, the file stays.
+    monkeypatch.setitem(
+        graphics.TEMPLATES, "receipt", {**graphics.TEMPLATES["receipt"], "variants": {}}
+    )
     (variant_dir / "receipt.portrait.svg").write_text("<svg/>", encoding="utf-8")
     with pytest.raises(GraphicsError, match="manifest does not declare"):
         graphics.template_layout("receipt", 1080, 1920)

@@ -776,6 +776,12 @@ def card_new(
             f"{name} will show the new one"
         )
 
+    # Which *file* the canvas picked, not just the canvas: a variant shipping
+    # changes what a shape draws without changing the shape, and then
+    # `card_reauthor`'s sweep has nothing to compare and reports the project
+    # up to date. Additive and optional — absent means the record predates
+    # variants, which is the same as none, so it is not a schema bump.
+    variant = graphics.template_layout(template, width, height)["variant"]
     svg = graphics.fill_template(template, dict(slots), width=width, height=height)
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(svg, encoding="utf-8")
@@ -787,12 +793,14 @@ def card_new(
             "template": template,
             "slots": dict(slots),
             "canvas": f"{width}x{height}",
+            **({"variant": variant} if variant else {}),
         },
     )
     return {
         "template": template,
         "canvas": f"{width}x{height}",
         "canvas_from": canvas_from,
+        "variant": variant,
         "recorded": True,
         **rendered,
     }
@@ -867,8 +875,16 @@ def card_reauthor(
     record can feed it.
 
     With no `name` this sweeps: every recorded card whose canvas is not the
-    project's, plus any whose files have gone missing. Named, it redraws that
-    one whatever its canvas — an explicit ask is not second-guessed.
+    project's, whose *layout* is not the one that canvas now resolves to, plus
+    any whose files have gone missing. Named, it redraws that one whatever its
+    canvas — an explicit ask is not second-guessed.
+
+    **The layout half is not redundant with the canvas half**, and the day a
+    variant ships is when that shows. A portrait file appearing changes what
+    1080x1920 draws without changing 1080x1920, so a canvas-only sweep answers
+    `redrawn: 0` over twelve cards that are all still the old layout — the
+    project reads as up to date and every card is wrong. So the record says
+    which file it was drawn from and the sweep compares that too.
 
     **A card with no record is reported, never skipped quietly.** Nothing on
     disk can recover what a card was made from, so the honest output is its
@@ -904,6 +920,8 @@ def card_reauthor(
     for record in records:
         card = record.get("card")
         was = str(record.get("canvas") or "")
+        variant_was = record.get("variant")
+        variant_now = graphics.template_layout(str(record.get("template")), width, height)["variant"]
         svg = project.cards_dir / f"{card}.svg"
         png = project.cards_dir / f"{card}.png"
         missing = [p.name for p in (svg, png) if not p.is_file()]
@@ -913,6 +931,8 @@ def card_reauthor(
             why = "missing " + " and ".join(missing)
         elif was != canvas_now:
             why = f"{was or 'unrecorded canvas'} -> {canvas_now}"
+        elif variant_was != variant_now:
+            why = f"layout {variant_was or 'base'} -> {variant_now or 'base'}"
         else:
             why = ""
         entry: dict[str, Any] = {
@@ -920,6 +940,8 @@ def card_reauthor(
             "template": record.get("template"),
             "canvas_was": was or None,
             "canvas": canvas_now,
+            "variant_was": variant_was,
+            "variant": variant_now,
             "redrawn": bool(why) and not plan,
             "why": why or "already at the project canvas",
         }

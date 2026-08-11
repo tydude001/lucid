@@ -5245,3 +5245,98 @@ idea to hold. Named rather than built.
 A blank slot is not measured. Five line slots on a card and typically two
 filled, so measuring the empties would roughly triple the renders a fill costs
 in order to ask about text nobody wrote.
+
+## The portrait cards — the vertical card layout, steps 3 and 4 — 2026-08-11
+
+`receipt.portrait.svg`, `reveal.portrait.svg` and `rerate.portrait.svg`, the
+twelve re-authored through them in `~/lucid-vertical/proj`, and a sheet on
+**`:8798`** — not `:8797`, which is still holding the stacked splits Tyler owes
+a verdict on.
+
+The mechanism needed nothing new. The grid stays 1920 units wide, so the files
+are the same coordinate system with a taller viewBox; each scales its derived
+markup in its own `<g transform>` (`stars` at 1.6, `comparison` at 1.2), which
+works because `stars_markup` draws at a fixed radius and a vector scales
+cleanly. Nothing in `graphics.py` learned what portrait means beyond three
+entries in the table.
+
+### `card_reauthor` could not see the change, and said the project was fine
+
+The finding of the step, and it fired the first time the command was run. A
+variant shipping **changes what a canvas draws without changing the canvas**,
+so a sweep that compares canvases answered `redrawn: 0` over twelve cards that
+were all still the landscape layout — the project read as up to date and every
+card was wrong. Not a refusal, not a warning: a green report.
+
+The fix is to record which *file* a card was drawn from, not only what shape it
+was drawn at. `card_new` writes `variant` alongside `canvas`, and the sweep
+compares both, reporting `layout base -> portrait` as its reason. It is
+additive and optional: absent means the record predates variants, which is the
+same as none, and is what every record on disk already meant — so it is not a
+schema bump, by the rule `caption_style` and `canvas` set.
+
+### Two of the sizes are bound rather than chosen
+
+The type could not simply scale with the frame, and both places it stopped were
+measured.
+
+- **The comparison row is 1290 units at five stars against five**, in a
+  1640-unit box. That is a ceiling of 1.27x and it sits at 1.2 — the one
+  element a taller frame cannot enlarge along with the type, because its width
+  is set by the rating rather than by the design.
+- **`date_line` caps at 46 on `rerate` and 54 on `receipt`** while the title
+  went 122 → 176. `rerate-scream4`'s date line is the widest single line on any
+  of the twelve, 1176 units at 42, which reaches the box at 58.6.
+
+That second one is step 2's own finding arriving on schedule: it recorded that
+the tightest drawn line on the twelve was that date line at 72% of its box, not
+any title, and that it was where an enlargement would be refused first. It was.
+
+### What the layout moved, measured
+
+Trimming a card needs `-shave 3x3` first. librsvg antialiases the background
+rect at the viewBox edge, so the corner pixel comes back at **alpha 0.91**,
+`-trim` matches nothing against it and hands back the whole frame — 1080x1918,
+which reads as a full-bleed card rather than as a failed measurement. With the
+edge shaved:
+
+| | before | after |
+|---|---|---|
+| receipt ink ends | 15.2–25.3% down the frame | **29.9–59.8%** |
+| reveal block | 39.2% → 96.9% | **28.1% → 78.5%** |
+
+The second row is finding 4 closing: 96.9% is inside the bottom 20% the
+platform's own UI covers, and the year and wordmark were sitting in it.
+
+**The two emptiest cards are the honest limit of a layout fix.**
+`rerate-scream4` at 29.9% and `receipt-scream7-2026` at 33.9% — a short quote
+has nothing to fill a tall frame with, and repositioning the stack cannot
+invent content. Both are on the sheet, labelled, rather than cropped out of it.
+
+### Two tests changed shape, and the change was Tyler's call
+
+Both were step 1's, and both encoded "no variant files exist yet" rather than a
+claim about behaviour — the premise step 3 was always going to remove.
+`test_a_template_with_no_variant_draws_its_own_file_at_every_canvas` split into
+the two properties that outlive it (a canvas no variant selects draws the base
+file and `BASE_GEOMETRY`; a template declaring no variant is untouched at any
+canvas, staged). And `test_the_same_quote_fits_a_taller_canvas` kept its
+assertion and shortened its synthetic quote from forty repetitions to sixteen,
+because the portrait quote is 80u against the base file's 46u and the length
+that demonstrated the claim at one size overruns at the other. Sixteen is still
+longer than any real card and still far past what 2.35:1 holds. Asked rather
+than assumed, per CLAUDE.md.
+
+The two guard tests whose *setup* the new files broke — a declared variant with
+no file, and a variant file the manifest does not declare — kept their
+assertions untouched and had their scenarios restored: the staged copy loses
+the file, or the manifest loses the declaration.
+
+### Left to the watch
+
+The sheet asks three things, two of which the design note reserved and one the
+build added. How much of the bottom the platform eats — 20% is drawn on the
+sheet as an orange band, and everything else was laid out around it. Whether
+the wordmark stays bottom-right, which no card on the sheet can show because
+none of the twelve sets one. And which quote size reads, 80 or 96: both fit,
+80 is shipped, and the sheet puts them side by side.
