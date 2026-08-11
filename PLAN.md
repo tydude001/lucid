@@ -2117,8 +2117,8 @@ to copy** — which is precisely why the wiki row asked for the rule by name.
 **Corrected at build time, 2026-08-11: there is no eviction rule, because the
 premise above is wrong.** "A proxy is a full-resolution H.264 re-encode" was
 assumed, not decided — and a preview proxy has no reason to be full
-resolution. Measured on `~/lucid-vertical/vertical.mp4` (1080x1920, 5.28 Mbps,
-real film footage), one minute transcoded:
+resolution. Measured on the Scream cut's own vertical render (1080x1920,
+5.28 Mbps, real film footage), one minute transcoded:
 
 | | size | encode |
 |---|---|---|
@@ -3029,12 +3029,11 @@ against the file runs for both.
    and `date_line` caps at 46 while the title went to 176, which is step 2's
    own prediction arriving. HISTORY.md § The portrait cards.
 4. **Re-author the twelve and watch them.** `card_reauthor` in
-   `~/lucid-vertical/proj`, served on `:8797` as a sheet. The watch is what
+   `~/lucid-vertical/proj`, served as a sheet. The watch is what
    settles the type scale, not the measurement — finding 2 says the band
    80u–96u all fits, and which of it reads is Tyler's eye.
 
-   **Built 2026-08-11, served on `:8798`** — `:8797` is still holding the
-   stacked splits. The watch itself is open. What the re-author found is the
+   **Built and watched 2026-08-11, on `:8798`.** What the re-author found is the
    step's real finding: **the sweep could not see the change and reported the
    project up to date**, because a variant shipping changes what a canvas
    draws without changing the canvas. A card record now carries the variant
