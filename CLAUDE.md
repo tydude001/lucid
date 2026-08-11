@@ -229,6 +229,12 @@ installed package or the upstream repo, not your memory.
     `picture.display_env()`, which exports both — and note the environment it
     is compensating for is the **MCP stdio transport's**, which passes HOME,
     PATH and little else. HISTORY.md § Rendering through `melt`.
+    - So **a session with no desktop behind it cannot run the four
+      melt-rendering tests in `test_server_stdio.py`** — `export` refuses with
+      "no display for MLT's Qt module to open", correctly, and they fail as a
+      `JSONDecodeError` on the refusal text. Four failures there and nowhere
+      else is the environment, not a regression; confirm by stashing `src/`
+      and re-running, rather than by hunting.
 - **A caption's look is project state (`caption_style`), and ASS is never
   written by hand** — three of its fields mean the opposite of what they read
   as, `\k` is a left-to-right fill rather than a per-word step, and grouping
