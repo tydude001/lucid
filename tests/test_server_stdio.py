@@ -76,6 +76,7 @@ EXPECTED_TOOLS = {
     "check_black",
     "spot_frames",
     "attenuate_noises",
+    "proxy_transcode",
     "speech_overlap",
     "export",
 }
@@ -207,6 +208,7 @@ TOOL_TO_COMMAND = {
     "check_black": "black",
     "spot_frames": "spots",
     "attenuate_noises": "attenuate",
+    "proxy_transcode": "proxy",
     "speech_overlap": "speech-overlap",
     "export": "export",
 }
@@ -3260,6 +3262,85 @@ def test_export_renders_the_attenuated_copy_not_the_original(tmp_path: Path) -> 
     before = energy.envelope(energy.decode(audio))
     after = energy.envelope(energy.decode(render))
     assert _db_at(after, 1.75) == pytest.approx(_db_at(before, 1.75) - 12.0, abs=2.0)
+
+
+def _make_hevc_video(path: Path, *, duration: float = 1.0, size: str = "1280x960") -> None:
+    """An `hev1` MP4 — what the preview shows black and names a reason for."""
+    encoders = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True, check=True
+    ).stdout
+    if " libx265 " not in encoders:
+        pytest.skip("this ffmpeg has no libx265 encoder")
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size={size}:rate=24:duration={duration}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            "-c:v", "libx265", "-tag:v", "hev1", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_proxy_transcode_makes_an_undecodable_clip_playable(tmp_path: Path) -> None:
+    """Over stdio, because a tool body proves nothing about whether it is
+    registered and reachable (CLAUDE.md).
+
+    The verdict is read back off the finished file through the server's own
+    `preview_source`, not off the flags this handed ffmpeg — so what passes is
+    "the preview will play it", which is the only claim the tool makes.
+    """
+    source = tmp_path / "hevc.mp4"
+    _make_hevc_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        record = await client.call("import_media", path=str(project), source=str(source))
+        clip = record["clip_id"]
+        return await client.call("proxy_transcode", path=str(project), clip_id=clip)
+
+    built = anyio.run(_with_server, body)
+
+    assert built["built"] is True
+    assert built["playable"]["playable"] is True
+    assert built["reason"], "the refusal it was built to close should be reported"
+    assert Path(built["proxy"]).is_file()
+    # In the cache, and so nowhere any render resolves through.
+    assert Path(built["proxy"]).parent == Project.open(project).proxy_dir
+    assert "proxy" not in Project.open(project).read_manifest()["clips"][0]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_proxy_transcode_refuses_a_clip_that_already_plays(tmp_path: Path) -> None:
+    """The refusal arrives as a refusal over the wire rather than as a wasted
+    encode — a proxy of a file the browser opens is a second, lower-quality
+    copy of footage nothing needed one of."""
+    source = tmp_path / "fine.mp4"
+    _make_video(source, duration=1.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        record = await client.call("import_media", path=str(project), source=str(source))
+        return await session.call_tool(
+            "proxy_transcode", {"path": str(project), "clip_id": record["clip_id"]}
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result.is_error
+    assert "already plays" in result.content[0].text
+    # Refused before any encode, not after one that then got thrown away.
+    assert list(Project.open(project).proxy_dir.glob("*")) == []
 
 
 @needs_ffprobe

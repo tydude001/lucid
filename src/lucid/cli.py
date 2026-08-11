@@ -771,6 +771,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="show what would be attenuated without writing anything",
     )
 
+    p_proxy = sub.add_parser(
+        "proxy",
+        help="build a browser-playable preview stand-in for footage a <video> cannot decode",
+    )
+    p_proxy.add_argument("clip_id")
+    p_proxy.add_argument(
+        "--force",
+        action="store_true",
+        help="rebuild even when a current proxy exists (for a changed PROXY_HEIGHT/CRF)",
+    )
+
     p_speech = sub.add_parser(
         "speech-overlap",
         help="does a proposed clip placement overlap the VO's speech, once both are mapped through the edit?",
@@ -1291,6 +1302,10 @@ def _cmd_attenuate(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_proxy(args: argparse.Namespace) -> int:
+    return _emit(ops.proxy_transcode(args.project, args.clip_id, force=args.force))
+
+
 def _cmd_speech_overlap(args: argparse.Namespace) -> int:
     return _emit(
         ops.speech_overlap(
@@ -1381,6 +1396,7 @@ _COMMANDS = {
     "black": _cmd_black,
     "spots": _cmd_spots,
     "attenuate": _cmd_attenuate,
+    "proxy": _cmd_proxy,
     "speech-overlap": _cmd_speech_overlap,
     "export": _cmd_export,
     "ping": _cmd_ping,

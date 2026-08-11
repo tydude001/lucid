@@ -1332,6 +1332,31 @@ def attenuate_noises(
     )
 
 
+@_tool()
+def proxy_transcode(path: str, clip_id: str, force: bool = False) -> dict[str, Any]:
+    """Make footage the preview cannot decode playable in the window.
+
+    The other half of what the viewer already reports: an unplayable clip
+    names its reason (hev1, 10-bit, an unopenable container, an undecodable
+    audio track) and shows black. This transcodes a downscaled h264/aac/mp4
+    stand-in into the project's cache so it plays. One ffmpeg pass; a long
+    clip is minutes.
+
+    The result is a *preview* artefact and cannot reach a render: nothing
+    records it in the manifest, so `media_path()` — what export, verify and
+    check_frames all resolve through — has no way to see it. That containment
+    is structural, not a convention to be careful about.
+
+    Skips the work when a current proxy already exists (keyed by the source's
+    size and mtime), so calling it on every unplayable clip in a project is
+    cheap after the first pass. Refuses a clip that already plays, and refuses
+    a file with no decodable streams — that is a broken file, not a codec
+    problem, and it is the one refusal a transcode cannot close. `force`
+    rebuilds a current proxy but does not override either refusal.
+    """
+    return ops.proxy_transcode(path, clip_id, force=force)
+
+
 def serve(root: str | Path | None = None) -> None:
     """Run the server on stdio. Blocks until the client disconnects.
 

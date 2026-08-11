@@ -56,6 +56,14 @@ FRAMES_DIR = "cache/frames"
 SHEET_DIR = "cache/sheets"
 ATTENUATED_DIR = "cache/attenuated"
 WAVEFORM_DIR = "cache/waveform"
+#: Browser-playable stand-ins for footage a `<video>` cannot decode
+#: (PLAN.md § The preview proxy transcode). Cache because it is re-derivable
+#: from the media and *nothing downstream reads it*: no manifest key points
+#: here, `media_path()` has no branch for it, and only the preview side
+#: resolves through `media.preview_path`. One entry per clip, overwritten when
+#: its sidecar key stops describing the resolved source — the same shape
+#: `waveform/` has, and the reason this needs no eviction policy.
+PROXY_DIR = "cache/proxy"
 RENDER_DIR = "renders"
 CARDS_DIR = "assets/cards"
 #: Per-turn thumbs-up/down log for the agent panel (DAYDREAM.md § Agent
@@ -73,6 +81,7 @@ _SUBDIRS = (
     FRAMES_DIR,
     ATTENUATED_DIR,
     WAVEFORM_DIR,
+    PROXY_DIR,
     RENDER_DIR,
     CARDS_DIR,
 )
@@ -218,6 +227,10 @@ class Project:
         return self.root / WAVEFORM_DIR
 
     @property
+    def proxy_dir(self) -> Path:
+        return self.root / PROXY_DIR
+
+    @property
     def cards_dir(self) -> Path:
         return self.root / CARDS_DIR
 
@@ -226,6 +239,26 @@ class Project:
 
     def waveform_path(self, clip_id: str) -> Path:
         return self.waveform_dir / f"{clip_id}.json"
+
+    def proxy_path(self, clip_id: str) -> Path:
+        """The preview stand-in for `clip_id`, whether or not one exists.
+
+        Always `.mp4`: a proxy's whole point is that the container and the
+        codecs are the ones a browser opens, so it does not inherit the
+        source's suffix the way `media/<clip_id><ext>` does.
+        """
+        return self.proxy_dir / f"{clip_id}.mp4"
+
+    def proxy_key_path(self, clip_id: str) -> Path:
+        """The sidecar recording which source file `proxy_path` was made from.
+
+        A separate file rather than a field, because the proxy is an mp4 and
+        `waveform/`'s trick of writing the key into the payload has nowhere to
+        go. Same key, same reason (`ops._cached_waveform`): size and mtime,
+        cheap to check and exactly what a re-import or `attenuate_noises`
+        changes.
+        """
+        return self.proxy_dir / f"{clip_id}.json"
 
     @property
     def thumbs_path(self) -> Path:

@@ -4996,3 +4996,82 @@ faces the panes are two *groups* rather than two people, and they overlap
 enough that both draw much the same wide view. Legal, correct, and probably
 worse than one window — but that is a watch, not a rule, which is the same
 place § Choosing the b-roll ended up.
+
+## The preview proxy — 2026-08-11
+
+PLAN.md § The preview proxy transcode has the design and the corrections. This
+is what shipped, and the two things measuring found that the note had reasoned
+its way past.
+
+Shipped: `project.PROXY_DIR`/`proxy_path`/`proxy_key_path`, `media.make_proxy`,
+`media.preview_path` and `media.proxy_is_current`, `ops.proxy_transcode`,
+`webui.ProxyJob` behind `POST /api/proxy`, `lucid proxy`, and a
+`proxy_transcode` MCP tool. The tier-3 workspace's last open piece.
+
+### The eviction rule dissolved, because its premise was assumed
+
+The note asked for an eviction policy on the grounds that *"a proxy is a
+full-resolution H.264 re-encode, so a project with many unplayable clips grows
+`cache/proxy/` without bound."* Both halves of that are a decision wearing a
+premise's clothes: a proxy plays in a `<video>` in a window, and nothing said
+it had to be full resolution.
+
+Measured on `~/lucid-vertical/vertical.mp4` — real film footage, 1080x1920 at
+5.28 Mbps — one minute costs **24.2 MB at full resolution and 3.2 MB at 720
+tall**, 7.6x, and encodes 2.9x faster. The film's whole 1324s of footage is
+then ~70 MB rather than ~530 MB, which is under what `cache/frames/` already
+holds, and one-entry-per-clip is the *existing* cache convention rather than
+new ground. There is no eviction rule and nothing to hand-clean.
+
+The check that made the downscale safe rather than merely cheap is a negative
+one: `player.js`'s `place()` positions by `timeline_view`'s `dest` rect in
+canvas coordinates with `objectFit: fill` and **never reads
+`videoWidth`/`videoHeight`**, so a uniform downscale draws in exactly the same
+place. Had it read intrinsic size, the whole lever would have been unavailable
+and the eviction rule would have been real.
+
+**The size ratio is a fact about real footage and not about any fixture.** In
+the live run the 4s `testsrc` proxy came out *larger* than its hevc source —
+112,748 against 95,699 bytes — because libx265 compresses a test pattern
+pathologically well. Nothing asserts a size reduction anywhere in the suite,
+deliberately: a test that did would be pinning ffmpeg's opinion of a colour
+bar.
+
+### `media_path()` changed by zero lines, and that is the whole design
+
+The rule the note set is that the proxy never enters the manifest and
+`media_path()` gains no branch, so `export`, `verify` and `check_frames`
+cannot reach a proxy *because they never call the function that resolves one*
+— not because a resolution order was written carefully. It held: `preview_path`
+is a second function with two callers (`ops.preview_source`,
+`webui._send_media`), and `media_path` is untouched.
+
+The load-bearing test is not the transcode. `test_export_never_names_the_proxy`
+builds a proxy, exports, and reads the handoff for the path it referenced,
+because every other test in the file would still pass if the proxy leaked into
+the render path. `attenuate_noises` had the mirror-image bug pointing the other
+way (§ `attenuate_noises`), and a leak in this direction is worse: silently
+delivering a downscaled preview encode as the finished film.
+
+### Verified live, because a passing suite has missed this class before
+
+The suite stubs `ops.proxy_transcode` for the HTTP routing tests, so the real
+service was driven end to end: a 1920x1080 `hev1`/`ac3` clip — two refusal
+classes at once — imported into a scratch project under `lucid web`.
+`/api/preview/scene` reported `playable: false` and named the codec;
+`POST /api/proxy` returned 202; the SSE stream carried `running` then `done`
+with `playable: true`; `/api/preview/scene` then resolved to
+`cache/proxy/scene.mp4` and `/api/media/scene` streamed its 112,748 bytes. A
+`lucid export` taken afterwards named `media/scene.mp4` and nothing under
+`cache/proxy`, and the manifest clip carried no `proxy` key. A second POST
+while one ran returned 409.
+
+### Two refusals, and only one of them is about codecs
+
+`playability()` refuses in four classes and a transcode closes three. The
+fourth — no decodable streams — is a broken file, and it stays a refusal rather
+than becoming a failed job. The other refusal is the one worth writing down
+because it is a judgement rather than a limit: **a clip that already plays is
+refused**, since a proxy of a file the browser opens directly is a second,
+lower-quality copy of footage nothing needed a copy of. `force` overrides the
+cache, not that.

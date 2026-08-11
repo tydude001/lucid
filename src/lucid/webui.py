@@ -151,6 +151,16 @@ class RenderBusyError(WebUIError):
     """
 
 
+class ProxyBusyError(WebUIError):
+    """A second proxy transcode was requested while one was already running.
+
+    Same 409-not-400 reasoning as `RenderBusyError`, and deliberately its own
+    type rather than a shared one: a busy proxy must not be reported as a busy
+    render, since the two jobs have separate slots and the message is what
+    tells a person which to wait for.
+    """
+
+
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     """Read and parse a JSON request body, enforcing the content type.
 
@@ -743,6 +753,77 @@ class RenderJob:
         )
 
 
+class ProxyJob:
+    """One proxy transcode at a time per server (PLAN.md § The preview proxy).
+
+    `RenderJob`'s pattern, deliberately: the lock, the plain `_running` flag
+    rather than `Thread.is_alive()`, everything that can raise computed
+    *before* any job state is touched so a bad asset is a 400 rather than a
+    job that starts only to immediately fail, `_finish()` in a `finally` so a
+    bug cannot latch the slot into a permanent 409, and completion published
+    on the same bus the SSE handler already serves. There is no GET-by-job-id
+    route in this codebase and this adds none.
+
+    **The single slot is a decision the design note left open, taken here and
+    worth stating.** A proxy is keyed by *asset*, not by project, so unlike a
+    render there is a real case for concurrency: a timeline can show several
+    unplayable shots, and one slot means the second one clicked gets a 409
+    while the first encodes. It is taken anyway because nothing measures the
+    alternative — settling it needs a project carrying more than one
+    unplayable asset, which this box does not have — and because a wrong
+    single slot costs a retry while a wrong parallel one costs N concurrent
+    x264 encodes on a box that is also running melt. Revisit with real
+    footage, not with reasoning.
+
+    There is no `/api/proxy/stop`. Cancelling is safe by construction rather
+    than by handling: `ops.proxy_transcode` writes the sidecar key only after
+    ffmpeg returns, so an interrupted job leaves an unkeyed file that
+    `proxy_is_current` reads as no proxy at all.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(self, clip_id: str, *, force: bool = False) -> str:
+        job_id = uuid.uuid4().hex
+        # Resolve before claiming the slot: an unknown clip_id, missing media,
+        # an already-playable file and a streamless one all raise here, on the
+        # request thread, where they become a 400.
+        project = Project.open(self.project_root)
+        media.get_clip(project, clip_id)
+        with self._lock:
+            if self._running:
+                raise ProxyBusyError("a proxy transcode is already running")
+            self._running = True
+        threading.Thread(target=self._run, args=(job_id, clip_id, force), daemon=True).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(self, job_id: str, clip_id: str, force: bool) -> None:
+        self.bus.publish("proxy", {"job_id": job_id, "status": "running", "clip_id": clip_id})
+        try:
+            try:
+                result = ops.proxy_transcode(str(self.project_root), clip_id, force=force)
+            except EXPECTED as exc:
+                # Same rule as `RenderJob._report_error`: only lucid's own
+                # refusals are flattened into an event. Anything else is a bug
+                # and keeps its traceback.
+                self.bus.publish(
+                    "proxy",
+                    {"job_id": job_id, "status": "error", "clip_id": clip_id, "error": str(exc)},
+                )
+                return
+            self.bus.publish("proxy", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `project_root` and `verbose` are set by `make_server`."""
 
@@ -826,6 +907,9 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/render/stop":
             self._handle_render_stop()
             return
+        if url.path == "/api/proxy":
+            self._handle_proxy_start()
+            return
         route = _POST_ROUTES.get(url.path)
         if route is None:
             self._fail(HTTPStatus.NOT_FOUND, f"no such endpoint: {url.path}")
@@ -900,14 +984,16 @@ class Handler(BaseHTTPRequestHandler):
     def _send_media(self, clip_id: str, *, head_only: bool) -> None:
         """Stream a clip's media, honouring Range so the browser can seek.
 
-        Resolution goes through `media.media_path`, which prefers an
-        attenuated copy when one exists (CLAUDE.md). That is right rather than
-        incidental: it is the file every downstream op reads, so the preview
-        is of the audio that will actually be exported.
+        Resolution goes through `media.preview_path`, which is `media_path`
+        — the attenuated copy when one exists, so the preview is of the audio
+        that will actually be exported (CLAUDE.md) — *unless* a current proxy
+        exists, in which case it is that. This is one of the two preview-side
+        callers allowed to resolve that way; nothing that renders is among
+        them (PLAN.md § The preview proxy transcode).
         """
         project = Project.open(self.project_root)
         clip = media.get_clip(project, clip_id)
-        source = media.media_path(project, clip)
+        source = media.preview_path(project, clip)
         if not source.is_file():
             raise WebUIError(f"{clip_id}'s media is missing from disk: {source}")
         self._stream_file(source, head_only=head_only)
@@ -1135,6 +1221,46 @@ class Handler(BaseHTTPRequestHandler):
         job.stop()
         self._send_json({"stopped": True})
 
+    def _handle_proxy_start(self) -> None:
+        """`POST /api/proxy {"clip_id": ..., "force": optional}` — 202.
+
+        Like `/api/render`, the reply only acknowledges; `running` → `done`/
+        `error` arrive as `proxy` events on `/api/events`. The transcode is a
+        job rather than a request because it is minutes of ffmpeg on a long
+        clip, and a request that long is a dead window.
+
+        This handler checks shape only. Whether the clip is *worth* proxying —
+        already playable, or streamless and so unfixable — is
+        `ops.proxy_transcode`'s judgement, reached through `ProxyJob.start`
+        before the slot is claimed, so it still surfaces as a 400 here rather
+        than as an event nobody asked for. The window draws and plays, it does
+        not decide (CLAUDE.md).
+        """
+        try:
+            payload = _json_body(self)
+            clip_id = payload.get("clip_id")
+            if not isinstance(clip_id, str) or not clip_id:
+                raise WebUIError("'clip_id' is required")
+            force = payload.get("force", False)
+            if not isinstance(force, bool):
+                raise WebUIError("'force' must be a boolean")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: ProxyJob = self.server.proxy_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(clip_id, force=force)
+        except ProxyBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
 
 # -- the mutating endpoints ----------------------------------------------
 #
@@ -1322,13 +1448,16 @@ def make_server(
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
-    #: One bus, one agent session, and one render job per server, because one
-    #: server serves one project (§ Multi-project in PLAN.md's open
-    #: questions — unanswered, and this is why: a second project would need a
-    #: second everything here).
+    #: One bus, one agent session, one render job and one proxy job per
+    #: server, because one server serves one project (§ Multi-project in
+    #: PLAN.md's open questions — unanswered, and this is why: a second
+    #: project would need a second everything here). The render and the proxy
+    #: hold *separate* slots: they are different work on different files, and
+    #: sharing one would make an export refuse while a preview transcoded.
     server.bus = EventBus()  # type: ignore[attr-defined]
     server.agent = AgentSession(project.root, server.bus)  # type: ignore[attr-defined]
     server.render_job = RenderJob(project.root, server.bus)  # type: ignore[attr-defined]
+    server.proxy_job = ProxyJob(project.root, server.bus)  # type: ignore[attr-defined]
     return server
 
 

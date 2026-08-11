@@ -30,7 +30,7 @@ import pytest
 
 from lucid import ops, webui
 from lucid import timeline as tl
-from lucid.project import Project
+from lucid.project import Project, ProjectError
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -1744,6 +1744,171 @@ def test_render_stop_with_no_job_running_is_a_no_op(server: str) -> None:
     status, payload = _post(f"{server}/api/render/stop", {})
     assert status == 200
     assert payload["stopped"] is True
+
+
+# -- the proxy transcode job ---------------------------------------------
+#
+# PLAN.md § The preview proxy transcode. `ops.proxy_transcode` is stubbed the
+# way `ops.export` is stubbed above: what these pin is the *route* — 202, the
+# 409 on a busy slot, the completion event, and the refusals that must land
+# before a job is ever claimed. The transcode's own behaviour is real-encode
+# territory and lives in `tests/test_ops_proxy.py`.
+
+
+def _next_proxy_event(events: Iterator[tuple[str, Any]], job_id: str) -> dict[str, Any]:
+    """The first non-`running` `proxy` event for `job_id` off an open stream."""
+    for event, data in events:
+        if event == "proxy" and data.get("job_id") == job_id and data.get("status") != "running":
+            return data
+    raise AssertionError(f"no completion event arrived for proxy {job_id}")
+
+
+def _clip_id(project: Path) -> str:
+    return Project.open(project).read_manifest()["clips"][0]["clip_id"]
+
+
+def test_proxy_accepted_returns_a_job_id_and_completes_on_the_stream(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clip_id = _clip_id(project)
+    monkeypatch.setattr(
+        ops,
+        "proxy_transcode",
+        lambda path, clip, force=False: {"clip_id": clip, "proxy": "/x.mp4", "built": True},
+    )
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/proxy", {"clip_id": clip_id})
+        assert status == 202
+        assert isinstance(payload["job_id"], str) and payload["job_id"]
+
+        found = _next_proxy_event(events, payload["job_id"])
+        assert found["status"] == "done"
+        assert found["clip_id"] == clip_id
+        assert found["built"] is True
+    finally:
+        conn.close()
+
+
+def test_a_second_proxy_while_one_is_running_is_refused(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One slot per server, and 409 rather than 400: the identical request
+    succeeds once the first finishes (`ProxyBusyError`)."""
+    clip_id = _clip_id(project)
+    gate = threading.Event()
+
+    def _stub(path: str, clip: str, force: bool = False) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return {"clip_id": clip, "proxy": "/x.mp4", "built": True}
+
+    monkeypatch.setattr(ops, "proxy_transcode", _stub)
+    try:
+        status, _ = _post(f"{server}/api/proxy", {"clip_id": clip_id})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/proxy", {"clip_id": clip_id})
+        assert status == 409
+        assert "already running" in payload["error"]
+    finally:
+        gate.set()
+
+
+def test_a_render_and_a_proxy_hold_separate_slots(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Different work on different files. Sharing one slot would make an export
+    refuse while a preview transcoded, which is not a conflict anyone asked
+    for."""
+    clip_id = _clip_id(project)
+    gate = threading.Event()
+
+    def _stub(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return {"clip_id": clip_id, "proxy": "/x.mp4", "built": True}
+
+    monkeypatch.setattr(ops, "proxy_transcode", _stub)
+    try:
+        assert _post(f"{server}/api/proxy", {"clip_id": clip_id})[0] == 202
+
+        monkeypatch.setattr(ops, "export", _fast_export_stub)
+        assert _post(f"{server}/api/render", {})[0] == 202
+    finally:
+        gate.set()
+
+
+def test_the_proxy_job_slot_is_released_after_a_refusal(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_finish()` in a `finally`. A refusal that latched the slot would turn
+    one bad request into a permanent 409 until the server restarted."""
+    clip_id = _clip_id(project)
+
+    def _refuse(path: str, clip: str, force: bool = False) -> dict[str, Any]:
+        raise ProjectError("nope")
+
+    monkeypatch.setattr(ops, "proxy_transcode", _refuse)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)
+
+        status, payload = _post(f"{server}/api/proxy", {"clip_id": clip_id})
+        assert status == 202
+        found = _next_proxy_event(events, payload["job_id"])
+        assert found["status"] == "error"
+        assert found["error"] == "nope"
+    finally:
+        conn.close()
+
+    assert _post(f"{server}/api/proxy", {"clip_id": clip_id})[0] == 202
+
+
+def test_an_unknown_clip_is_a_400_before_a_job_starts(server: str) -> None:
+    """Resolved on the request thread, so it is a bad request rather than an
+    error event nobody was watching for."""
+    status, payload = _post(f"{server}/api/proxy", {"clip_id": "no-such-clip"})
+    assert status == 400
+    assert "no-such-clip" in payload["error"]
+
+
+def test_proxy_checks_the_shape_of_its_payload(server: str, project: Path) -> None:
+    for payload in ({}, {"clip_id": ""}, {"clip_id": 3}):
+        status, body = _post(f"{server}/api/proxy", payload)
+        assert status == 400, payload
+        assert "clip_id" in body["error"]
+
+    status, body = _post(f"{server}/api/proxy", {"clip_id": _clip_id(project), "force": "yes"})
+    assert status == 400
+    assert "force" in body["error"]
+
+
+def test_proxy_endpoint_rejects_a_bad_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/proxy",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
+def test_proxy_endpoint_requires_json_content_type(server: str) -> None:
+    status, payload = _post(f"{server}/api/proxy", {}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
 
 
 def test_render_on_an_empty_timeline_is_refused_before_a_job_starts(

@@ -249,6 +249,17 @@ lucid attenuate vo --plan                    # what would be attenuated, and why
 lucid attenuate vo --confirm-suspect         # write it, including the edge cases
 ```
 
+Some footage a browser cannot decode — HEVC, 10-bit, an unopenable container —
+so the preview shows black and says why. `proxy` builds a downscaled H.264
+stand-in for it, in the project's cache and nowhere near a render: nothing
+records it in the manifest, so `export` has no way to reach it and cannot be
+silently taken at preview quality.
+
+```sh
+lucid preview clip-id                        # will a browser play this, and if not, why
+lucid proxy clip-id                          # make it playable in the window
+```
+
 Before laying a clip's own audio over the VO, `speech-overlap` checks whether
 the two would collide, both mapped through the timeline the same way captions
 are:

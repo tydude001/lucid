@@ -2104,6 +2104,37 @@ many unplayable clips grows `cache/proxy/` without bound and nothing in the
 current convention says what deletes one. **This is new ground, not a pattern
 to copy** — which is precisely why the wiki row asked for the rule by name.
 
+**Corrected at build time, 2026-08-11: there is no eviction rule, because the
+premise above is wrong.** "A proxy is a full-resolution H.264 re-encode" was
+assumed, not decided — and a preview proxy has no reason to be full
+resolution. Measured on `~/lucid-vertical/vertical.mp4` (1080x1920, 5.28 Mbps,
+real film footage), one minute transcoded:
+
+| | size | encode |
+|---|---|---|
+| full resolution, CRF 23 | 24.2 MB/min | 5.5 s/min |
+| 720-tall, CRF 26 | **3.2 MB/min** | 1.9 s/min |
+
+7.6x smaller and 2.9x faster, which puts the film's whole 1324s of footage at
+~70 MB — smaller than `cache/frames/` is already allowed to get. One entry per
+clip, invalidated by the key above, is then the *existing* convention rather
+than new ground, and it needs no policy on top.
+
+The downscale is geometrically free, and that had to be checked rather than
+assumed: `player.js`'s `place()` positions the element by `timeline_view`'s
+`dest` rect in **canvas** coordinates with `objectFit: fill`, and never reads
+`videoWidth`/`videoHeight` — so a uniform downscale draws in exactly the same
+place. Nothing else measures a proxy's pixels; the picture-layer readback
+calibration runs against the film's own footage, which is `avc1`/`yuv420p` and
+never proxied.
+
+**The size claim is about real footage and does not hold on a synthetic
+fixture.** In the live check the 4s `testsrc` proxy came out *larger* than its
+source (112,748 vs 95,699 bytes), because libx265 compresses a test pattern
+pathologically well. That is a fact about testsrc, not about the ratio — but
+it is why the measurement above was taken on a real render, and why no test
+asserts a size reduction.
+
 ### The job shape, and the one decision it leaves open
 
 `RenderJob` (`webui.py:555-743`) is the pattern, and it transfers almost
@@ -2125,6 +2156,16 @@ clicked returns 409 while the first encodes. That may be right; it is not
 measured, and the thing that would settle it is a real project carrying more
 than one unplayable asset, which this box does not yet have.
 
+**Taken 2026-08-11: one slot, and its own slot.** Still unmeasured, and taken
+on asymmetry rather than on evidence — a wrong single slot costs a retry, a
+wrong parallel one costs N concurrent x264 encodes on a box also running melt.
+It is a *separate* slot from the render's, though: sharing one would make an
+export refuse while a preview transcoded, which is not a conflict anyone asked
+for. Revisit with real footage. There is also no `/api/proxy/stop`, because
+cancelling is safe by construction rather than by handling — the sidecar key
+is written only after ffmpeg returns, so an interrupted job leaves an unkeyed
+file that reads as no proxy at all.
+
 ### Cost
 
 Roughly: `project.py` +10 (a `PROXY_DIR` constant and a `proxy_path`, mirroring
@@ -2133,6 +2174,11 @@ the transcode primitive; **`media_path()` itself changes by zero lines, which
 is the point**), `ops.py` +60-100, `webui.py` +150-250 against `RenderJob`'s
 own ~190, `cli.py`/`server.py` +30-50. Tests are the largest single piece, as
 they were for the picture layer.
+
+**Built, 2026-08-11** — HISTORY.md § The preview proxy. The structural rule
+held exactly as written and `media_path()` did change by zero lines; what
+moved was the eviction premise above, and the cost, which came in at the low
+end because the job needed no cancellation path.
 
 ## Three uncosted parity items, costed — 2026-08-10
 

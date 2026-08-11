@@ -427,3 +427,130 @@ def original_media_path(project: Project, clip: dict[str, Any]) -> Path:
     """
     local = clip.get("media")
     return (project.root / local) if local else Path(clip["source"])
+
+
+# -- the preview proxy ----------------------------------------------------
+#
+# PLAN.md § The preview proxy transcode. The structural rule, and the whole
+# reason this is a second function rather than a branch inside `media_path()`:
+# **the proxy never enters the manifest, and `media_path()` gains no branch.**
+#
+# `media_path()` prefers the attenuated copy by reading a manifest key, and
+# that is exactly what makes attenuation transparent to `export`, `verify`,
+# `check_frames` and every other downstream op for free. A `proxy` key folded
+# into the same chain would inherit the identical reach, and the thing it would
+# reach is the render: a delivered file at preview quality. So `export` cannot
+# see a proxy because it never calls `preview_path` — not because a resolution
+# order was written carefully.
+
+#: A proxy is for a `<video>` in a browser window, not for delivery, so it is
+#: downscaled. Measured on a 1080x1920 5.28 Mbps render of real footage: full
+#: resolution at CRF 23 costs 24.2 MB/min, this costs 3.2 MB/min and encodes
+#: 2.9x faster. That 7.6x is what lets `cache/proxy/` keep one entry per clip
+#: with no eviction policy — the film's whole footage proxies to ~70 MB.
+#:
+#: Downscaling is geometrically free here and that had to be checked rather
+#: than assumed: `player.js`'s `place()` positions the element by
+#: `timeline_view`'s `dest` rect in *canvas* coordinates with `objectFit:
+#: fill`, and never reads `videoWidth`/`videoHeight`, so a uniform downscale
+#: draws in exactly the same place. Nothing else measures a proxy's pixels.
+PROXY_HEIGHT = 720
+PROXY_CRF = 26
+
+
+def proxy_is_current(project: Project, clip: dict[str, Any]) -> bool:
+    """Does a proxy exist for `clip`, and does it still describe its source?
+
+    Keyed by the resolved source's size and mtime, verbatim from
+    `ops._cached_waveform` — cheap to check (no re-read of a multi-hundred-MB
+    file) and exactly what `attenuate_noises` or a re-import changes. Keyed off
+    `media_path()`'s *result*, so a proxy of the attenuated copy is a different
+    entry from a proxy of the raw original rather than a stale hit.
+    """
+    clip_id = clip["clip_id"]
+    proxy, key = project.proxy_path(clip_id), project.proxy_key_path(clip_id)
+    if not proxy.is_file() or not key.is_file():
+        return False
+    source = media_path(project, clip)
+    try:
+        stat = source.stat()
+        payload = json.loads(key.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return payload.get("size") == stat.st_size and payload.get("mtime_ns") == stat.st_mtime_ns
+
+
+def preview_path(project: Project, clip: dict[str, Any]) -> Path:
+    """What the *preview* should hand a browser for this clip.
+
+    The proxy when a current one exists, else `media_path()`. Its only callers
+    are the preview side — `ops.preview_source`, `webui._send_media` — and that
+    is the containment: see this section's header.
+
+    Falling back rather than raising is deliberate. Most footage is playable
+    and will never have a proxy, so "no proxy" is the ordinary case, not a
+    failure; and a *stale* proxy is treated as no proxy rather than as a file
+    to serve, because serving the previous cut of a re-imported clip is the
+    one wrong answer that looks right.
+    """
+    if proxy_is_current(project, clip):
+        return project.proxy_path(clip["clip_id"])
+    return media_path(project, clip)
+
+
+def make_proxy(
+    source: Path | str,
+    output: Path | str,
+    *,
+    height: int = PROXY_HEIGHT,
+    crf: int = PROXY_CRF,
+) -> Path:
+    """Transcode `source` into a browser-playable `output`. One ffmpeg pass.
+
+    Closes three of `playability()`'s four refusal classes at once — an
+    unopenable container by remuxing to `.mp4`, a codec outside
+    `_PLAYABLE_VIDEO`/`_PLAYABLE_AUDIO` by re-encoding to h264/aac, and a
+    pixel format outside `_PLAYABLE_PIX` by forcing `yuv420p`. The fourth,
+    "no streams at all", is not a codec problem and stays a refusal.
+
+    Grown in the `energy.attenuate` idiom rather than handed to homebase's
+    encoder service, which was checked live and is wrong twice over: it has no
+    per-file API (three routes, a directory-walking batch daemon), and its
+    output is always `libx265` tagged `hvc1`, which `_PLAYABLE_VIDEO` excludes
+    under every tag. It would fail the very gate it was called to satisfy.
+
+    `scale=-2:` and not `-1:` — H.264 needs even dimensions, and an odd width
+    is a hard encoder error rather than a rounded one.
+    """
+    media = Path(source).expanduser()
+    if not media.exists():
+        raise MediaError(f"no media to transcode: {media}")
+
+    destination = Path(output).expanduser()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(media),
+        # Only ever downscale. `min(ih,{height})` keeps an already-small source
+        # at its own size rather than upscaling it into a *larger* proxy than
+        # the file it stands in for.
+        "-vf", f"scale=-2:min(ih\\,{height}):flags=bicubic",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+        str(destination),
+    ]  # fmt: skip
+
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    if completed.returncode != 0:
+        # A partial file is worse than none: `proxy_is_current` would key it
+        # and serve a truncated video as a good one.
+        destination.unlink(missing_ok=True)
+        raise MediaError(
+            f"ffmpeg could not transcode {media.name} for preview: "
+            f"{completed.stderr.strip()[-800:]}"
+        )
+    return destination

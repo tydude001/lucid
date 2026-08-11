@@ -1973,7 +1973,11 @@ def preview_source(path: Path | str, asset: str) -> dict[str, Any]:
             raise ProjectError(f"asset {asset!r} does not name a card")
         source = project.cards_dir / f"{name}.png"
     else:
-        source = media.media_path(project, media.get_clip(project, asset))
+        # `preview_path`, not `media_path`: the proxy when a current one
+        # exists (PLAN.md § The preview proxy transcode). This is one of the
+        # two callers that resolve that way, and `export` is deliberately not
+        # among them — see media.py § the preview proxy.
+        source = media.preview_path(project, media.get_clip(project, asset))
     if not source.is_file():
         raise ProjectError(f"asset {asset!r} resolves to {source}, which does not exist")
 
@@ -1984,6 +1988,85 @@ def preview_source(path: Path | str, asset: str) -> dict[str, Any]:
     verdict = media.playability(source)
     kind = "video" if verdict.get("video_codec") else "audio"
     return {**result, "kind": kind, **verdict}
+
+
+def proxy_transcode(
+    path: Path | str, clip_id: str, *, force: bool = False
+) -> dict[str, Any]:
+    """Build a browser-playable stand-in for footage the preview cannot decode.
+
+    The other half of what `media.playability()` already reports: the viewer
+    names the reason a clip shows black (`hev1`, 10-bit, an unopenable
+    container, an undecodable audio track), and this is what makes it play.
+    One ffmpeg pass, downscaled — a proxy is for a `<video>` in a window, not
+    for delivery, and `media.PROXY_HEIGHT` carries the measurement behind that.
+
+    **The result never enters the manifest**, which is the point rather than an
+    omission: no key here means `media_path()` cannot reach it, so no render,
+    `verify` or `check_frames` can be silently taken at preview quality. Only
+    `media.preview_path` resolves it, and only the preview side calls that.
+
+    Skips the work when a current proxy already exists — keyed by the resolved
+    source's size and mtime — so this is safe to call on every unplayable
+    asset in a project without re-encoding the ones already done. `force`
+    rebuilds anyway, which is for a changed `PROXY_HEIGHT`/`PROXY_CRF` rather
+    than for a changed source, since a changed source invalidates the key on
+    its own.
+
+    Refuses a clip that is already playable rather than transcoding it: a
+    proxy of a file the browser opens directly is pure cost and a second,
+    lower-quality copy of footage nothing needed a copy of. `force` does not
+    override that — it overrides the *cache*, not the judgement.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    source = media.media_path(project, clip)
+    if not source.is_file():
+        raise ProjectError(f"{clip_id}'s media is missing from disk: {source}")
+
+    verdict = media.playability(source)
+    if verdict.get("playable"):
+        raise ProjectError(
+            f"{clip_id} already plays in a browser ({source.name}) — a proxy would be a "
+            "second, lower-quality copy of footage nothing needs one of"
+        )
+    # The one refusal a transcode cannot close: not a codec problem.
+    if not verdict.get("video_codec") and not verdict.get("audio_codec"):
+        raise ProjectError(
+            f"{clip_id} has no decodable streams ({verdict.get('reason')}) — that is a "
+            "broken file, not a codec a transcode can change"
+        )
+
+    proxy = project.proxy_path(clip_id)
+    if not force and media.proxy_is_current(project, clip):
+        return {
+            "clip_id": clip_id,
+            "proxy": str(proxy),
+            "built": False,
+            "reason": verdict.get("reason"),
+            "bytes": proxy.stat().st_size,
+        }
+
+    stat = source.stat()
+    media.make_proxy(source, proxy)
+    # Written *after* the transcode returns, never before: a key that exists
+    # beside a half-written or absent mp4 is a stale hit that reads as current.
+    project.proxy_key_path(clip_id).write_text(
+        json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}),
+        encoding="utf-8",
+    )
+    return {
+        "clip_id": clip_id,
+        "proxy": str(proxy),
+        "built": True,
+        "reason": verdict.get("reason"),
+        "bytes": proxy.stat().st_size,
+        "source_bytes": stat.st_size,
+        # What the preview will now play, read back off the file rather than
+        # assumed from the flags handed to ffmpeg — the same discipline every
+        # render check here follows.
+        "playable": media.playability(proxy),
+    }
 
 
 def _resolve(parsed: tx.Transcript, ranges: Iterable[Sequence[int]]) -> list[tuple[float, float]]:

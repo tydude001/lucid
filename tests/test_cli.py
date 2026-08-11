@@ -469,3 +469,31 @@ def test_reel_span_parses_and_reaches_ops_as_two_arguments(
     assert tail[0] == pytest.approx(8.0)
     assert tail[1] == pytest.approx(planned["source_duration"])
     assert not (tmp_path / "teaser").exists()
+
+
+@needs_ffprobe
+def test_proxy_force_flag_parses_and_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one hop test_server_stdio.py cannot reach: argparse's `store_true`
+    arriving at `ops.proxy_transcode` under the right keyword. The transcode
+    itself is covered by real encodes in test_ops_proxy.py, so this stubs it —
+    what is under test is the wiring, not ffmpeg."""
+    from lucid import cli as cli_module
+
+    seen: dict[str, object] = {}
+
+    def _stub(path: object, clip_id: str, *, force: bool = False) -> dict[str, object]:
+        seen["clip_id"] = clip_id
+        seen["force"] = force
+        return {"clip_id": clip_id, "built": force}
+
+    monkeypatch.setattr(cli_module.ops, "proxy_transcode", _stub)
+
+    assert main(["-C", str(tmp_path / "proj"), "proxy", "some-clip"]) == 0
+    capsys.readouterr()
+    assert seen == {"clip_id": "some-clip", "force": False}
+
+    assert main(["-C", str(tmp_path / "proj"), "proxy", "some-clip", "--force"]) == 0
+    capsys.readouterr()
+    assert seen["force"] is True

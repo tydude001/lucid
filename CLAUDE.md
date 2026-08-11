@@ -189,6 +189,23 @@ installed package or the upstream repo, not your memory.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).
+  - **The preview resolves through `media.preview_path()` instead, and the
+    difference is the containment, not a convenience.** `media_path()` prefers
+    the attenuated copy by reading a *manifest key*, which is what makes
+    attenuation transparent to `export`/`verify`/`check_frames` for free — so a
+    `proxy` key in that chain would inherit the identical reach, and what it
+    would reach is the render. **The proxy therefore never enters the manifest
+    and `media_path()` has no branch for it**: `export` cannot see a proxy
+    because it never calls `preview_path`, which has exactly two callers
+    (`ops.preview_source`, `webui._send_media`). Adding a third is the whole
+    hole. A test pins it by exporting and reading which path the handoff named.
+    HISTORY.md § The preview proxy.
+    - A proxy is **downscaled** (`media.PROXY_HEIGHT`), which is safe only
+      because `player.js`'s `place()` positions by `timeline_view`'s `dest` in
+      canvas coordinates and never reads `videoWidth`/`videoHeight`. Check that
+      before changing how the picture layer places anything. And **its size
+      claim holds on real footage only** — a synthetic `testsrc` fixture
+      proxies *larger* than its hevc source, so never assert a size reduction.
 - **Trust a transcript's word order, never its word durations.** Whisper hides
   a whole retake inside the duration of the word after it. So "did this word
   survive?" is an *overlap* test against the kept ranges, never containment —
