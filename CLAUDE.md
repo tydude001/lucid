@@ -323,20 +323,14 @@ installed package or the upstream repo, not your memory.
     declarations overruns its box at `magick` exit 0. HISTORY.md § Variant
     resolution.
     - **Every slot fitting its box says nothing about whether the layout
-      reads, so a variant is watched before it is called done.** The portrait
-      reveal passed every budget in the note and was wrong: its year sat in
-      the footer, the only ink in the 724px under the note, so it read as a
-      cluster and an orphan where the receipt beside it read as a cluster and
-      a margin. Judge where the ink clusters — an ink-band profile down the
-      frame is the measurement, not the slot table. HISTORY.md § The orphaned
-      year.
-    - **The reserved edges at 9:16 are the bottom fifth *and* the right
-      side**, and only the first is obvious. 384px clears every published
-      bottom overlay (TikTok organic ~324, in-feed ads ~370, Reels ~320,
-      Shorts ~300); the action rail then wants 180–300px up the right below
-      the halfway line, and a 140-unit margin is 79px — which is why the
-      portrait wordmark is bottom **left** and the landscape one is not. The
-      numbers live in `BASE_GEOMETRY`'s comment.
+      reads, so a variant is watched before it is called done**, and the
+      measurement is an ink-band profile down the frame, not the slot table.
+      The portrait reveal passed every budget and drew its year alone in the
+      724px under the note — a cluster and an orphan, where the receipt is a
+      cluster and a margin. **The reserved edges are the bottom fifth *and*
+      the right side**, which is why the portrait wordmark is bottom *left*
+      and the landscape one is not; the platform numbers are in
+      `BASE_GEOMETRY`'s comment. HISTORY.md § The orphaned year.
   - So **a card is re-authored, never resized**: `card_new` records
     `(template, slots, canvas, variant)` and `card_reauthor` fills the template
     again at the project canvas. **The variant is on the record because a

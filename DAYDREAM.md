@@ -431,8 +431,10 @@ So a vertical layout is a per-aspect template variant rather than a scale
 factor — the conclusion survives its reason — and its job is to *compose* into
 the tall frame, with any enlargement an editorial choice on top.
 `goodsometimes/branding.md`'s Shorts row is the only spec: 1080x1920, title in
-the top third, bottom clear for platform UI. Costed 2026-08-11, four findings
-and four build steps, in PLAN.md § The vertical card layout — the design note.
+the top third, bottom clear for platform UI — which is the bottom fifth, and
+the right edge below the halfway line too. **Built and watched 2026-08-11**;
+the design note, its four findings and the watch's own correction are PLAN.md
+§ The vertical card layout.
 
 ### Captions — built, and per-word animation declined on a watch
 

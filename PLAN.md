@@ -3040,34 +3040,27 @@ against the file runs for both.
    15–25% down the frame to 30–60%, and the reveal footer out of the bottom
    20% band (96.9% → 78.5%), which is finding 4 closing.
 
-### The two calls this note does not make
+### The two calls this note deferred — both settled 2026-08-11
 
-- **How much of the bottom is unusable.** Branding says the UI covers it and
-  gives no number. 20% of frame height is the proposal; a wrong one here is
-  invisible in a render and obvious in the feed.
-- **Whether the wordmark stays bottom-right at portrait**, given the above, or
-  moves to the top with the title.
+**The bottom fifth is right.** 384px of 1920 clears every published overlay
+(TikTok organic ~324, in-feed ads ~370, Reels ~320, Shorts ~300), and
+`foot_margin` 740 puts the footer baseline at 78.4%, 31px above the line.
 
-**Both answered 2026-08-11, and the second one was the wrong question.** The
-bottom fifth is 384px and clears every published overlay (TikTok organic ~324,
-in-feed ads ~370, Reels ~320, Shorts ~300), so 20% stands. But the edge that
-was actually covered is the **right** one: TikTok's action rail wants
-180–300px below the halfway line and a 140-unit margin is 79px, so the
-wordmark at `x=1780` sat under the like button. Portrait draws it bottom left.
-Neither number is in a reviewer's head now — they are in `BASE_GEOMETRY`'s
-comment. HISTORY.md § The orphaned year.
+**The wordmark question was the wrong one.** The covered edge is the *right*
+one: the action rail wants 180–300px below the halfway line against a 79px
+margin, so `mark` at `x=1780` sat under the like button. Portrait draws it
+bottom left. Both numbers live in `BASE_GEOMETRY`'s comment rather than in a
+reviewer's head.
 
 ### What the watch found that no measurement did
 
-The note's own budget tables all passed and the reveal still read wrong.
-**Its year was drawn in the footer, the only ink in the 724px between the note
-and the bottom margin** — a cluster and an orphan, where the receipt beside it
-is a cluster and a margin. Both leave half the frame empty; only one puts
-something in the middle of it. The year moved into the block and the reveal
-became the shape the receipt already was.
+Every budget in this note passed and the reveal still read wrong: its year was
+drawn in the footer, **the only ink in the 724px between the note and the
+bottom margin** — a cluster and an orphan, where the receipt beside it is a
+cluster and a margin. Both leave half the frame empty; only one puts something
+in the middle of it.
 
-Worth keeping in the note because it is the counter-example to every measured
-guard this item added: **a layout is judged on where the ink clusters, and a
-slot that fits its box says nothing about that.** The next portrait template
-gets watched before it is called done, not measured. HISTORY.md § The orphaned
-year.
+So the counter-example to every measured guard this item added: **a layout is
+judged on where the ink clusters, and a slot fitting its box says nothing
+about that.** A portrait template gets watched before it is called done.
+HISTORY.md § The orphaned year.
