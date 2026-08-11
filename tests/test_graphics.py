@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from string import Formatter
 
 import pytest
 
@@ -921,6 +922,153 @@ def test_splitting_a_line_into_runs_does_not_eat_the_spaces_between_them(
     )
 
 
+# -- measured single lines --------------------------------------------------
+
+
+def _line_slots(name: str) -> dict[str, dict[str, object]]:
+    return {
+        slot: meta
+        for slot, meta in graphics.TEMPLATES[name]["slots"].items()
+        if meta.get("kind") == "line"
+    }
+
+
+def _file_line(name: str, placeholder: str) -> str:
+    svg = graphics.template_path(name).read_text(encoding="utf-8")
+    return next(row for row in svg.splitlines() if placeholder in row)
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_every_placed_text_slot_is_measured_or_drawn_inside_one_that_is(name: str) -> None:
+    """The rule that keeps the hole closed as templates change.
+
+    A slot nothing measures overruns its margin at `magick` exit 0, so there
+    are exactly two states a placed text slot may be in: it declares
+    `kind: "line"` and is measured, or it is named in another slot's `parts`
+    and measured as part of that line. A third state is a slot someone added
+    without noticing it was never checked, and this is what says so.
+    """
+    spec = graphics.TEMPLATES[name]
+    inside = {
+        field
+        for meta in _line_slots(name).values()
+        for part in meta.get("parts", [])
+        for _, field, _, _ in Formatter().parse(str(part["text"]))
+        if field
+    }
+    for slot, meta in spec["slots"].items():
+        if meta.get("kind") in {"line", "runs", "rating"} or not meta.get("placed", True):
+            continue
+        assert slot in inside, (
+            f"{name}.{slot} is a placed text slot that nothing measures — give it "
+            "kind 'line', or name it in the parts of the slot it is drawn beside"
+        )
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_every_line_slot_agrees_with_the_svg_it_is_drawn_in(name: str) -> None:
+    """The drift guard `quote` has always had, run over the line slots too.
+
+    A box read from the manifest and a size read from the file is a
+    measurement taken at a size the card is not drawn at — it passes, and the
+    line it passed still runs off the card. The box itself is derived rather
+    than believed: a line runs margin to mirror-margin, so an anchor and an
+    `x` fix the width and the pair can be checked against each other.
+    """
+    for slot, meta in _line_slots(name).items():
+        line = _file_line(name, "{{" + slot + "}}")
+        assert f'x="{meta["x"]}"' in line, f"{name}.{slot} states an x the file does not"
+        assert f'font-size="{meta["size"]}"' in line, f"{name}.{slot} is drawn at another size"
+        anchor = meta.get("anchor", "start")
+        if anchor == "start":
+            assert "text-anchor" not in line
+            assert meta["width"] == 1920 - 2 * meta["x"]
+        elif anchor == "end":
+            assert 'text-anchor="end"' in line
+            assert meta["width"] == 2 * meta["x"] - 1920
+        else:
+            assert 'text-anchor="middle"' in line
+            assert meta["x"] == 960
+            assert meta["width"] == 1920 - 2 * graphics.BODY_MARGIN
+        for part in meta.get("parts", []):
+            if part.get("size", meta["size"]) != meta["size"]:
+                assert f'font-size="{part["size"]}"' in line
+            if part.get("gap"):
+                assert f'dx="{part["gap"]}"' in line
+
+
+@needs_magick
+def test_a_title_too_long_for_its_box_is_refused_rather_than_run_off_the_card() -> None:
+    """The hole this step closes, and it was live at exit 0 — a plain
+    substitution has no wrap to fail, so an over-long one simply draws past
+    the margin and `magick` returns success."""
+    with pytest.raises(GraphicsError, match="too many"):
+        graphics.fill_template("reveal", {"title": "Scream " * 12})
+
+
+@needs_magick
+def test_a_title_that_fits_alone_is_refused_once_the_year_is_drawn_beside_it() -> None:
+    """The box is the `<text>` element's, not the slot's.
+
+    `receipt` draws the year inside the title's own element, smaller and
+    after a 36-unit gap, so a title measured by itself is measured against a
+    box something else is already standing in. This title fits alone and does
+    not fit as drawn — and the first assertion is what keeps the test from
+    passing vacuously if the string or the face ever drifts.
+    """
+    title = "The Cabin in the Woods II"
+    declared = graphics.TEMPLATES["receipt"]["slots"]["title"]
+    alone = graphics.measure_line(
+        [{"text": title, "size": declared["size"], "weight": declared["weight"], "gap": 0}],
+        font=graphics.FONTS["title_font"],
+        box=declared["width"],
+    )
+    assert alone <= declared["width"], "the title no longer fits alone; pick a longer one"
+    with pytest.raises(GraphicsError, match="shares its line"):
+        graphics.fill_template("receipt", {**_required("receipt"), "title": title})
+
+
+@needs_magick
+def test_the_gap_before_a_companion_is_inside_the_measurement() -> None:
+    """`dx` is an advance the design asks for, so it is drawn into the
+    scratch document rather than added to the answer afterwards — the same
+    **rendered, not summed** rule the wrap measurement records."""
+    piece = {"text": "Scream", "size": 122, "weight": 700, "gap": 0}
+    year = {"text": "(1996)", "size": 66, "weight": 400}
+    font = graphics.FONTS["title_font"]
+    tight = graphics.measure_line([piece, {**year, "gap": 0}], font=font, box=1640)
+    spaced = graphics.measure_line([piece, {**year, "gap": 36}], font=font, box=1640)
+    assert spaced - tight == pytest.approx(36, abs=2)
+
+
+@needs_magick
+def test_an_empty_line_slot_is_not_measured_and_cannot_be_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Most slots on most cards are empty; measuring them would triple what a
+    fill costs to ask about text nobody wrote. `reveal` has four line slots
+    and this fills one."""
+    calls: list[object] = []
+    real = graphics.measure_line
+
+    def counted(parts: object, **kwargs: object) -> float:
+        calls.append(parts)
+        return real(parts, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(graphics, "measure_line", counted)
+    graphics.fill_template("reveal", {"title": "Scream"})
+    assert len(calls) == 1, "only the slot with a value should have been measured"
+
+
+@needs_magick
+def test_unflowed_does_not_measure_a_line_either() -> None:
+    """`flow=False` is the mode that does not measure, and it stayed that way:
+    it is for callers testing the substitution, and it is the only way to fill
+    a template on a box with no renderer on it."""
+    filled = graphics.fill_template("reveal", {"title": "Scream " * 12}, flow=False)
+    assert "Scream Scream" in filled
+
+
 # -- template variants ------------------------------------------------------
 
 
@@ -1044,6 +1192,31 @@ def test_a_variants_declared_slot_geometry_is_what_the_wrap_measures(
         "receipt", {**_required("receipt"), "quote": quote}, width=1920, height=816
     )
     assert narrow.count('xml:space="preserve"') > base.count('xml:space="preserve"')
+
+
+@needs_magick
+def test_a_variant_may_enlarge_a_line_and_is_held_to_its_own_box(
+    variant_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What step 3 is for, and the check that makes it safe to do.
+
+    Finding 2 says the portrait variant has the room to roughly double its
+    type; finding 3 says an enlarged title walks straight into the slot
+    nothing measured. Both halves land here: the variant states its own size
+    and the fit check is taken at that size, so a title the landscape card
+    holds comfortably is refused by the portrait one that draws it larger.
+    """
+    _declare(monkeypatch, "reveal", {"slots": {"title": {"size": 360}}})
+    (variant_dir / "reveal.portrait.svg").write_text(
+        (variant_dir / "reveal.svg").read_text(encoding="utf-8").replace(
+            'font-size="196"', 'font-size="360"'
+        ),
+        encoding="utf-8",
+    )
+    slots = {"title": "Scream 2022"}
+    graphics.fill_template("reveal", slots, width=1920, height=1080)
+    with pytest.raises(GraphicsError, match="at size 360"):
+        graphics.fill_template("reveal", slots, width=1080, height=1920)
 
 
 def test_the_viewbox_follows_the_canvas_aspect() -> None:

@@ -2946,6 +2946,12 @@ first, or the build ships the failure the quote slot was built to prevent.**
 This is the finding that adds a step, and it is one nothing in the item's
 description predicted.
 
+**The table above measures the slot, and step 2 found the box belongs to the
+`<text>` element** — the reveal title carries a raised asterisk and the
+receipt title the year, so every row is ~185–229 units short and the drawn
+line at 300u is 1957 rather than 1677. Read HISTORY.md § The measured line for
+the budget, not this table.
+
 ### Finding 4 — the footer lands where the platform UI is
 
 `foot_y = view_height - 110` is a landscape number. At 1080x1920 it puts the
@@ -2997,6 +3003,19 @@ against the file runs for both.
 2. **Measure the title.** `title` and `note` fit-checked, refusing rather than
    overrunning, at both aspects. Ships a refusal on cards nobody has drawn yet
    and closes a hole that is live today at exit 0.
+
+   **Shipped 2026-08-11**, over five slots rather than two — `date_line`,
+   `year` and `mark` fail the same way and the marginal cost of each is a
+   table entry, so the rule is the class: a placed text slot is measured or it
+   is drawn inside one that is, and a test holds every template to it. The
+   same 60 pairs hash identical, so nothing on disk moves. Two corrections
+   from the measuring. **The box belongs to the `<text>` element, not the
+   slot, and finding 3's table measured the slot** — the year is a flat 229
+   units of the 1640 box and the reveal asterisk ~183, so `Scream 2022` at
+   300u draws 1957 rather than 1677 and the overflow is 317 units, not 37.
+   And **the tightest line on the twelve is the date line at 72% of its box**,
+   not any title (worst 56%), so that is where step 3's enlargement gets
+   refused first. HISTORY.md § The measured line.
 3. **Author the three portrait files** — `receipt`, `reveal`, `rerate` — to
    the branding spec: title in the top third, content through the middle,
    bottom clear.

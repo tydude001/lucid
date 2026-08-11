@@ -295,6 +295,17 @@ installed package or the upstream repo, not your memory.
     errors** when too small — a clipped line measures narrower and ends the
     wrap early. A slot that overruns its box is **refused; the card never
     grows to fit it.**
+    - **Every placed text slot is measured too, and the unit is the `<text>`
+      element rather than the slot** — a placed slot declares `kind: "line"`
+      or it is named in another slot's `parts`, there is no third state, and
+      a test holds every template to it. The element is the unit because a
+      title is drawn beside things that take width: the year is a flat 229 of
+      `receipt`'s 1640-unit box, so a title measured alone is measured against
+      a box something else is standing in. A line has no wrap to fail, so an
+      unmeasured one runs off the frame at `magick` exit 0 — measured, the ink
+      of one such render spans the full 1920 with both margins gone. The box
+      is derived from the anchor (`1920 - 2x`, `2x - 1920`, or the margins),
+      never declared free-hand. HISTORY.md § The measured line.
   - **Per-run `<tspan>`s eat the whitespace between them**, so `the
     [em]perfect[/em] horror` draws as `theperfecthorror` at exit 0.
     `xml:space="preserve"`, once per line — it inherits. Both:

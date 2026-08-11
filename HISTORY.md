@@ -5154,3 +5154,94 @@ landscape file's), overridable per variant, and `_flow_box` reads the same
 `foot_margin` rather than its own literal. Finding 4 is why: at 1080x1920,
 `view_height - 110` puts the wordmark 62px from the bottom edge, inside the
 band `goodsometimes/branding.md`'s Shorts row reserves for platform UI.
+
+## The measured line — the vertical card layout, step 2 — 2026-08-11
+
+`title` and `note` fit-checked, refusing rather than overrunning. The step
+closes a hole that was live at exit 0 and it is prerequisite rather than
+preparation: the portrait variant wants a bigger title, and a bigger title in
+an unmeasured slot is the failure `flow=True` was built to prevent, shipped a
+second time.
+
+It went wider than the two slots the note named. `date_line`, `year` and
+`mark` are the same kind of plain substitution with the same silent failure,
+and once the mechanism exists the marginal cost of each is a table entry. So
+the rule is the class rather than the instances: **a placed text slot declares
+`kind: "line"` and is measured, or it is named in another slot's `parts` and
+measured as part of that line.** There is no third state, and a test holds
+every shipped template to it — dropping `year` from `receipt`'s title parts
+fails with `receipt.year is a placed text slot that nothing measures`.
+
+### The box belongs to the `<text>` element, and finding 3's numbers were the slot's
+
+The unit that overruns is not the slot. `receipt` draws the year inside the
+title's own element, smaller and after a 36-unit `dx`; `reveal` gives its title
+a raised asterisk and its note a leading one. A title measured by itself is
+measured against a box something else is already standing in.
+
+Measured, the companion is not a rounding error. The year is a flat **229
+units** of a 1640-unit box — 14% of it, gap included — and the reveal
+asterisk is ~183. So the design note's own table, which measured the title
+alone, understates every row:
+
+| reveal title | as the note measured it | as the line is drawn |
+|---|---|---|
+| `Scream VI` at 196u | 861 | **1052** |
+| `Scream 2022` at 196u | 1096 | **1279** |
+| `Scream 2022` at 300u | 1677 | **1957** |
+
+The overflow finding 3 costed at 37 units past the box is **317**. Nothing
+about the conclusion changes — it was already "the title has to become
+measured first" — but the margin the portrait variant has to spend is smaller
+than the note thought, and it is smaller in the direction that fails silently.
+
+`measure_line` therefore draws the whole element on the scratch canvas, `dx`
+included, rather than measuring pieces and adding them: the same **rendered,
+not summed** rule `measure_runs` records, applied to a line whose pieces are
+different sizes. `_measure` is the shared growth-and-clipping loop under both,
+because a clipped measurement is narrow, and narrow means a wrap that ends
+early *and* a fit check that passes the one value that does not fit.
+
+### The hole, watched rather than reasoned about
+
+`reveal` at 1920x1080 with `The Texas Chain Saw Massacre`, filled the way it
+filled yesterday: `magick` exits 0 and the render's ink measures **1920x653 at
+x=0** — the full width of the frame, both 140-unit margins gone, letters cut
+off at each end. The same fill now refuses at 3100 units against a 1640 box,
+and writes nothing: `lucid card new` names the numbers and leaves the assets
+directory alone.
+
+### Nothing on disk moves, and the slot with least room is not the title
+
+The same 60 card/canvas pairs step 1 hashed — the twelve real slot tables plus
+each template, at four canvases — hash identical again, the two known 16:9
+quote refusals included and refusing with the same text. The check is inert on
+everything that exists.
+
+Why it is inert is the more useful number. Measured across the twelve records,
+the tightest drawn line is **`rerate-scream4`'s date line at 72% of its box**
+(1176 of 1640); the widest title is `reveal-screamVI` at 56%, and the notes
+run 16–33%. So the constraint step 3 hits first is not the slot the note is
+about — a date line enlarged the way finding 2 enlarges the quote is refused
+before any title is. It is worth knowing before the portrait files get
+authored rather than after, as a refusal nobody predicted.
+
+### What the box is, and what it still is not
+
+A line runs from one margin to its mirror, so the box is derived from the
+anchor rather than believed: `start` gives `1920 - 2x`, `end` gives
+`2x - 1920`, `middle` fixes `x` at 960 and takes `1920 - 2·BODY_MARGIN`. The
+drift guard checks the pair, so a mis-stated box and a size the file does not
+draw both fail — the same duplication `quote`'s `x`/`y`/`size` has always had,
+now with the arithmetic tying the two ends together.
+
+What it does not check: **two independently anchored elements on one row.**
+`reveal`'s footer draws the year at x=140 and the wordmark ending at 1780, each
+measured against the full 1640, so in principle they could meet without either
+overrunning. On real cards the year is 133 units against a mark of a few
+hundred, so this has never been close, and a row concept would be a fourth
+idea to hold. Named rather than built.
+
+A blank slot is not measured. Five line slots on a card and typically two
+filled, so measuring the empties would roughly triple the renders a fill costs
+in order to ask about text nobody wrote.

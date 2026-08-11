@@ -717,13 +717,10 @@ def measure_runs(runs: Runs, *, font: str, size: float, box: float = 0.0) -> flo
     and `-trim` is a colour test — measuring `dim` at 0.42 would hand back
     the width of whatever survived the fuzz, not the width of the line.
 
-    `box` is the width the answer will be compared against, and it only sizes
-    the scratch canvas: **the canvas is the cost.** The same line measures
-    1622 units on a 20000x400 scratch and 1622 on a 3000x120 one, at 413ms
-    and 38ms — a measurement is rasterisation, so an oversized canvas is
-    paid on every candidate. What it must never do is *clip*, because a
-    clipped line measures narrower and would end the wrap early, so the
-    canvas grows and re-measures rather than trusting the headroom.
+    Every run is one size, which is what separates this from `measure_line`:
+    a `runs` slot is body text at the slot's size and a line is a `<text>`
+    element whose pieces may not be. `box` sizes the scratch canvas and
+    nothing else — `_measure` has why that matters.
     """
     if not any(text.strip() for text, _ in runs):
         return 0.0
@@ -732,6 +729,53 @@ def measure_runs(runs: Runs, *, font: str, size: float, box: float = 0.0) -> flo
         f'<tspan font-weight="{RUN_STYLES[level][0]}" fill="#000">{_escape(text)}</tspan>'
         for text, level in runs
     )
+    return _measure(inner, font=font, size=size, box=box)
+
+
+def measure_line(parts: list[dict[str, Any]], *, font: str, box: float = 0.0) -> float:
+    """The ink width of one *whole drawn line*, companions and gaps included.
+
+    The unit is the `<text>` element, not the slot, and that is the finding
+    this exists for. `receipt`'s title element draws `{{title}}` and then the
+    year, at its own smaller size, after a 36-unit `dx` — so a title measured
+    alone is measured against a box the year is already standing in. Same
+    shape in `reveal`, where the title carries a raised asterisk and the note
+    a leading amber one.
+
+    A part is `{"text", "size", "weight", "gap"}` in template units, drawn in
+    the order given. `gap` is emitted as `dx`, so the advance the design asks
+    for is inside the measurement rather than subtracted from it afterwards —
+    the same **rendered, not summed** rule `measure_runs` records, applied to
+    a line whose pieces are different sizes.
+    """
+    if not any(str(part["text"]).strip() for part in parts):
+        return 0.0
+
+    pieces = []
+    for part in parts:
+        gap = float(part.get("gap", 0) or 0)
+        dx = f' dx="{gap:g}"' if gap else ""
+        pieces.append(
+            f'<tspan{dx} font-size="{float(part["size"]):g}" '
+            f'font-weight="{int(part["weight"])}" fill="#000">'
+            f"{_escape(str(part['text']))}</tspan>"
+        )
+    size = max(float(part["size"]) for part in parts)
+    return _measure("".join(pieces), font=font, size=size, box=box)
+
+
+def _measure(inner: str, *, font: str, size: float, box: float) -> float:
+    """Draw `inner` on a scratch canvas and hand back the width of its ink.
+
+    `box` is the width the answer will be compared against, and it only sizes
+    the scratch canvas: **the canvas is the cost.** The same line measures
+    1622 units on a 20000x400 scratch and 1622 on a 3000x120 one, at 413ms
+    and 38ms — a measurement is rasterisation, so an oversized canvas is
+    paid on every candidate. What it must never do is *clip*, because a
+    clipped line measures narrower: for a wrap it would end the flow early,
+    and for a fit check it would pass the one value that does not fit. So the
+    canvas grows and re-measures rather than trusting the headroom.
+    """
     height = max(int(size * 3), 60)
     canvas = max(int(box * 3), _MEASURE_FLOOR)
     for _ in range(_MEASURE_GROWTHS):
@@ -888,22 +932,58 @@ def _run_attrs(level: str, colours: dict[str, str]) -> str:
     return attrs
 
 
+#: The card's side margin in template units, and the constant the box of
+#: every single-line slot is derived from: a line runs from one margin to its
+#: mirror, so a `start`-anchored slot's box is `1920 - 2x` and an `end`-
+#: anchored one's is `2x - 1920`. Declaring the box instead of deriving it is
+#: what lets the drift guard check the pair.
+BODY_MARGIN = 140
+
 #: What each template asks for. `placed` slots appear in the SVG as
 #: `{{name}}`; the rest feed a `derived` entry, which is markup lucid
 #: generates and the template positions. Descriptions are the tool surface an
 #: agent reads, so they say what the field *is*, not what type it has.
+#:
+#: **A placed text slot declares `kind: "line"` or it is drawn inside another
+#: slot's line** — there is no third state, and a test holds every shipped
+#: template to it. A slot nothing measures overruns its margin at `magick`
+#: exit 0, which is the silent failure `flow=True` closes for the quote;
+#: PLAN.md § The vertical card layout, finding 3.
 TEMPLATES: dict[str, dict[str, Any]] = {
     "receipt": {
         "description": "A film, its rating out of five, when it was watched, and the note written then.",
         "slots": {
-            "title": {"description": "the film's title"},
+            "title": {
+                "kind": "line",
+                "x": 140,
+                "width": 1640,
+                "size": 122,
+                "weight": 700,
+                "font": "title_font",
+                # The year is drawn in this same element, smaller and after a
+                # 36-unit gap, so it is part of what the title's box holds.
+                "parts": [
+                    {"text": "{title}"},
+                    {"text": "({year})", "gap": 36, "size": 66, "weight": 400},
+                ],
+                "description": "the film's title",
+            },
             "year": {"description": "its release year, drawn in brackets after the title"},
             "rating": {
                 "kind": "rating",
                 "placed": False,
                 "description": "stars out of five, to the nearest half (e.g. 4.5)",
             },
-            "date_line": {"default": "", "description": "the line under the stars, e.g. 'watched 20 May 2021'"},
+            "date_line": {
+                "kind": "line",
+                "x": 140,
+                "width": 1640,
+                "size": 42,
+                "weight": 400,
+                "font": "body_font",
+                "default": "",
+                "description": "the line under the stars, e.g. 'watched 20 May 2021'",
+            },
             "quote": {
                 "kind": "runs",
                 "x": 140,
@@ -926,24 +1006,90 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                     "Write [[ for a literal '['."
                 ),
             },
-            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+            "mark": {
+                "kind": "line",
+                "x": 1780,
+                "anchor": "end",
+                "width": 1640,
+                "size": 52,
+                "weight": 700,
+                "font": "body_font",
+                "default": "",
+                "description": "a wordmark for the bottom right corner, if any",
+            },
         },
         "derived": {"stars": ("stars", "rating", "amber")},
     },
     "reveal": {
         "description": "A title card on ink, with a footnote — the shape used for each sequel's reveal.",
         "slots": {
-            "title": {"description": "the title, set large and centred"},
-            "note": {"default": "", "description": "the footnote under it, after an amber asterisk"},
-            "year": {"default": "", "description": "the year, drawn small in the bottom left"},
-            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+            "title": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 196,
+                "weight": 700,
+                "font": "title_font",
+                # The raised asterisk is drawn in the title's own element and
+                # takes width like any other glyph; `dy` is not modelled
+                # because it moves the ink up, not along.
+                "parts": [{"text": "{title}"}, {"text": "*", "size": 104}],
+                "description": "the title, set large and centred",
+            },
+            "note": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 52,
+                "weight": 700,
+                "font": "title_font",
+                "parts": [{"text": "* "}, {"text": "{note}"}],
+                "default": "",
+                "description": "the footnote under it, after an amber asterisk",
+            },
+            "year": {
+                "kind": "line",
+                "x": 140,
+                "width": 1640,
+                "size": 44,
+                "weight": 400,
+                "font": "body_font",
+                "parts": [{"text": "({year})"}],
+                "default": "",
+                "description": "the year, drawn small in the bottom left",
+            },
+            "mark": {
+                "kind": "line",
+                "x": 1780,
+                "anchor": "end",
+                "width": 1640,
+                "size": 52,
+                "weight": 700,
+                "font": "body_font",
+                "default": "",
+                "description": "a wordmark for the bottom right corner, if any",
+            },
         },
         "derived": {},
     },
     "rerate": {
         "description": "A rating that changed: the old stars, an arrow, the new ones.",
         "slots": {
-            "title": {"description": "the film's title"},
+            "title": {
+                "kind": "line",
+                "x": 140,
+                "width": 1640,
+                "size": 122,
+                "weight": 700,
+                "font": "title_font",
+                "parts": [
+                    {"text": "{title}"},
+                    {"text": "({year})", "gap": 36, "size": 66, "weight": 400},
+                ],
+                "description": "the film's title",
+            },
             "year": {"description": "its release year, drawn in brackets after the title"},
             "before": {
                 "kind": "rating",
@@ -955,8 +1101,27 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "placed": False,
                 "description": "the new rating out of five, to the nearest half",
             },
-            "date_line": {"default": "", "description": "the line under the row, e.g. 're-rated 28 Feb 2026'"},
-            "mark": {"default": "", "description": "a wordmark for the bottom right corner, if any"},
+            "date_line": {
+                "kind": "line",
+                "x": 140,
+                "width": 1640,
+                "size": 42,
+                "weight": 400,
+                "font": "body_font",
+                "default": "",
+                "description": "the line under the row, e.g. 're-rated 28 Feb 2026'",
+            },
+            "mark": {
+                "kind": "line",
+                "x": 1780,
+                "anchor": "end",
+                "width": 1640,
+                "size": 52,
+                "weight": 700,
+                "font": "body_font",
+                "default": "",
+                "description": "a wordmark for the bottom right corner, if any",
+            },
         },
         "derived": {"comparison": ("comparison", "before", "after")},
     },
@@ -1200,6 +1365,73 @@ def _check_fits(
     )
 
 
+def line_parts(
+    slot: str, declared: dict[str, Any], resolved: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The pieces of `slot`'s drawn line, filled in and sized.
+
+    A slot that declares no `parts` is its own whole line, which is the
+    common case; one that does names every piece of the `<text>` element it
+    lives in, its own value included and in drawn order. Each piece inherits
+    the slot's size and weight unless it states otherwise, so the declaration
+    stays as short as the file's own markup is.
+    """
+    parts = declared.get("parts") or [{"text": "{" + slot + "}"}]
+    filled = []
+    for part in parts:
+        filled.append(
+            {
+                "text": str(part["text"]).format(**resolved),
+                "size": part.get("size", declared["size"]),
+                "weight": part.get("weight", declared["weight"]),
+                "gap": part.get("gap", 0),
+            }
+        )
+    return filled
+
+
+def _check_line_fits(
+    slot: str,
+    declared: dict[str, Any],
+    resolved: dict[str, Any],
+) -> None:
+    """Refuse a single-line slot that draws wider than its box.
+
+    The counterpart to `_check_fits`, and the same rule: refuse rather than
+    shrink the type or grow the card, because either would be a slot value
+    deciding the design. What it closes is narrower and was live at exit 0 —
+    `title`, `note`, `date_line`, `year` and `mark` are plain substitutions
+    with no wrap to fail, so an over-long one simply runs past the margin and
+    off the card, and `magick` returns success. At the sizes a portrait
+    variant wants, a `reveal` title reaches 1677 units in a 1640-unit box.
+    PLAN.md § The vertical card layout, finding 3.
+
+    A blank slot is not measured. There is nothing to refuse, and skipping it
+    is most of the saving: a card fills five line slots and typically supplies
+    two, so measuring the empty ones would triple the renders a fill costs to
+    ask about text nobody wrote.
+    """
+    if not str(resolved[slot]).strip():
+        return
+    parts = line_parts(slot, declared, resolved)
+    box = float(declared["width"])
+    measured = measure_line(parts, font=str(resolved[declared["font"]]), box=box)
+    if measured <= box:
+        return
+    beside = (
+        " — measured as it is drawn, with what shares its line"
+        if len(parts) > 1
+        else ""
+    )
+    raise GraphicsError(
+        f"slot {slot!r} draws {measured:.0f} units wide at size "
+        f"{float(declared['size']):g}, and its box holds {box:g}{beside}. "
+        f"That is {measured - box:.0f} too many: shorten the text, or draw the "
+        "card at an aspect whose layout gives the line more room. The card "
+        "does not grow to fit its own slot."
+    )
+
+
 def fill_template(
     name: str,
     values: dict[str, Any],
@@ -1297,6 +1529,8 @@ def fill_template(
                 colours={name: str(resolved[name]) for name in PALETTE},
             )
         else:
+            if flow and meta["kind"] == "line":
+                _check_line_fits(slot, declared_slots[slot], resolved)
             filled[slot] = _escape(str(resolved[slot]))
 
     for slot, (builder, *sources) in spec["derived"].items():
