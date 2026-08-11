@@ -4675,3 +4675,89 @@ shot by the window at its `src_start`**, so a window boundary *inside* a
 placement previews as the first of the two. The render steps mid-shot correctly
 — that is what the keyframes are — and `reframe_sheet`'s `windows` count is how
 a placement that crosses one announces itself.
+
+## The framing control, ported off the render and into the source — 2026-08-10
+
+PLAN.md § Per-shot framing, step 5 gates the detector on *"whether it beats the
+15 hand numbers, which is the control that already exists and was watched and
+approved"*, and § Three uncosted parity items' standing rule is that the dumb
+control is **built as a test** rather than remembered. Neither was true yet:
+the numbers were a `CROP` dict in `~/lucid-final-cut/render.py`, addressed in
+*timeline* seconds against a scratch render, which is precisely the address
+space per-shot framing exists to replace. This is the port, and it is now
+`tests/test_framing_control.py`.
+
+### The two address spaces were joined by measurement, not by arithmetic
+
+The obvious move — assume the teaser is the reel `lucid reel` already derives —
+is wrong, and the check that caught it was cheap. A 2fps grayscale fingerprint
+of the approved render against the film's own render put **81 of 88 frames at
++96.0s**; two of the hand shot boundaries then land on the film's own placement
+boundaries at 95.930 and 95.929, which pins the offset to a third of a frame.
+The approved teaser is film **[95.93, 139.85]**.
+
+**Each ported window was then checked on pixels**, because a wrong offset
+produces a plausible file: the source frame cropped at the ported window
+against the approved render's own frame, scored also against a deliberately
+wrong x. All 16 reproduce — RMSE 0.8–1.2 on the 816-tall clips against 29–68
+for the wrong window.
+
+**Sixteen, for fifteen shots.** Shot 9 is the one hand-eased move and the
+series is discrete by design, so the ramp is carried as one step at its middle.
+
+### The reel is not the film's picture, and unpinned cues are why
+
+The finding that made the port a port rather than a copy. `~/lucid-reel/teaser`
+keeps film [92, 136] — a 4s overlap short of the approved teaser's span — but
+the deeper difference is that **its picture is not the film's picture over the
+same seconds.** A reel drops the cues whose words it cut (34 of 38), and
+`plan_picture`'s per-asset cursor therefore starts fresh: every surviving cue is
+unpinned, so each asset replays from its own head. Aligned against the film the
+reel reads +95.5 for its first 20s and +92 after — the tell that picture and
+narration have slid apart by the 3.5s the cursor did not consume.
+
+CLAUDE.md already says a pin is what separates a re-use from a placement. What
+this adds is that **a derivation is where that bites hardest**, because
+derivation is exactly the operation that empties the cursor. Pinning the four
+cues to the film's own in-points reproduces the film's picture exactly, and that
+is what the verification render was built on.
+
+### It renders, and it is the approved framing
+
+`lucid export --render --preset tiktok-reels` over the pinned derivation: 1067
+frames against the timeline's 1067, `agrees: true`, all three control clips in
+`reframed`. Sampled one frame per hand shot, 30% in, and scored against both
+the approved render and the centre crop — **14 of 14 shots are closer to the
+approved framing**, most at RMSE 1.4–2.2 against 18–81 for the centre crop.
+
+Two properties showed up unasked, both of them the design note's own claims
+arriving on real data rather than in a test:
+
+- **Three placements outside the teaser were framed for free.** The same three
+  clips are re-used later in the film, and each picked up the window covering
+  the source range it reads. They are extrapolations rather than approved
+  decisions, and the contact sheet is where they get judged.
+- **The framing survived the derivation intact** — all 16 windows carried into
+  a reel that dropped 34 of 38 cues. Source-addressed state is the half of a
+  project a cut cannot reach, which is the whole argument for the address.
+
+### Shot 9 puts a number on the refused mechanism
+
+The one place the port is an approximation, measured across the move rather
+than asserted: the discrete step holds correctly at both ends (RMSE 3.6–9.5)
+and **for about 0.75s of the 1.3s ramp it is no better than the centre crop** —
+47.3 against 47.3 at the midpoint, and at one sample the crop is nearer.
+
+That is the evidence PLAN.md § Per-shot framing said the *authoring* of
+keyframed moves was waiting for, and it is deliberately not treated as
+settling it: one shot in fifteen, under a second of it, against a 2-in-15
+false-positive rate for wanting a move at all. The mechanism is cheap — MLT's
+default `=` interpolates and the writer already emits keyframes, so what is
+missing is a way to say a window slides. **The call is Tyler's and it does not
+block the framing pass.**
+
+### What is left is the framing
+
+**18 of the film's 25 footage placements are still on the centre crop.** The
+control covers 4 and lends its numbers to 3 more; the rest is choosing windows
+and reviewing them on `reframe_sheet`, which is work rather than a build.

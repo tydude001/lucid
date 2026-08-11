@@ -158,7 +158,11 @@ installed package or the upstream repo, not your memory.
     right for a re-use, a silent wrong-video for a placement. In a shot dict
     the cue's ask is **`src_pin`** and the planner's answer is **`src_start`**;
     one key for both reads as correct in every test that has a pin in it.
-    HISTORY.md § The pinned cue.
+    **A derivation is where this bites hardest, because it empties the
+    cursor**: `reel` drops the cues it cut, so every survivor replays its asset
+    from the head and the reel's picture is *not* the film's picture over the
+    same seconds. Pin them to the film's own in-points to excerpt faithfully.
+    HISTORY.md § The pinned cue, § The framing control.
   - **A description does not choose the clip — `synopsis` does, and lucid does
     not choose at all.** Which footage goes under a sentence is never a lexical
     match: measured against 25 human picks, the description index agreed 2

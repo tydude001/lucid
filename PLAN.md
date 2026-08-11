@@ -492,7 +492,12 @@ timeline being the enabler and the look pass being gated on nothing:
    `reframe_sheet` is how any of it gets reviewed. **What is left is the
    framing itself** — 25 placements on the film, against the 15 hand numbers
    as a control — and then the detector. DAYDREAM.md § Aspect swap carries the
-   detector numbers.
+   detector numbers. **The control is ported and rendered, 2026-08-10**
+   (HISTORY.md § The framing control): the approved numbers are source-
+   addressed project state, they reproduce the approved framing through a real
+   `melt` render, and they are a test. **7 of the 25 placements are framed —
+   4 approved and 3 that inherited windows for free — and 18 are still on the
+   centre crop**, which is what is left.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -2419,6 +2424,14 @@ unswapped project's document byte-identical.
    hand numbers, which is the control that already exists and was watched and
    approved. Not before: § Three uncosted parity items' finding about `reel`
    applies unchanged — build the dumb control first, and build it as a test.
+   **The control is built, 2026-08-10** (HISTORY.md § The framing control):
+   `tests/test_framing_control.py` holds the fifteen numbers re-addressed as
+   `(clip_id, src_start, rect)` and the metric a detector is scored on, and
+   the port was verified end to end through a real `melt` render — 14 of 14
+   shots closer to the approved framing than to the centre crop. The bar it
+   has to beat is now a number rather than a memory: **the centre crop covers
+   0.568 of the approved window on average, is 199px off its centre, and on
+   one shot shares no pixel with it at all.**
 
 ### Refused, with the reasoning
 

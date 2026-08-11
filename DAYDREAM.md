@@ -505,9 +505,11 @@ implies was costed and then built 2026-08-10, and is none of the three things
 the spike guessed**: framing is source-addressed rather than on the cue, the
 render needs no new node, and the detector comes last — behind the 15 hand
 numbers it has to beat. The mechanism ships — store, writer, contact sheet,
-preview — so **what is left is the framing itself**, 25 placements to window;
-the stacked split stays out of scope until one window is insufficient against
-something real. HISTORY.md § Per-shot framing.
+preview — and those 15 numbers are now source-addressed project state, a test,
+and verified through a real render (HISTORY.md § The framing control), so
+**what is left is the framing itself: 18 of the 25 placements are still on the
+centre crop.** The stacked split stays out of scope until one window is
+insufficient against something real. HISTORY.md § Per-shot framing.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing
