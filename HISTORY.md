@@ -5340,3 +5340,75 @@ sheet as an orange band, and everything else was laid out around it. Whether
 the wordmark stays bottom-right, which no card on the sheet can show because
 none of the twelve sets one. And which quote size reads, 80 or 96: both fit,
 80 is shipped, and the sheet puts them side by side.
+
+## The orphaned year — the vertical card layout, the watch — 2026-08-11
+
+Tyler watched `:8798` and answered the three questions the sheet asked, plus
+one it did not: *"the spacing on the reveals is a bit weird but the receipts
+look mostly fine."* That sentence is the whole of this section, because the
+difference between the two cards is one element and the sheet did not name it.
+
+**The reveal drew its year in the footer, and it was the only ink between the
+note and the bottom margin.** Ink bands down the frame, at 1080x1920:
+
+| | bands, top to bottom |
+|---|---|
+| `receipt-scream-1996` | 249 · **75** · 49 · **67** · 55 · **28** · 87 · **200** · 25 · **96** · 989 |
+| `reveal-screamVI`, as watched | 540 · **113** · 58 · **41** · **724** · **30** · 414 |
+| `reveal-screamVI`, now | 540 · **113** · 58 · **41** · 69 · **32** · 1067 |
+
+(Bold is ink, plain is gap.) The receipt is a block and then a margin. The
+reveal was a block, a 724px hole, and a stranded `(2023)` — a cluster and an
+orphan. Both cards leave about half the frame empty; only one of them puts
+something in the middle of it, and that is what reads as wrong. So the fix is
+not more content or a tighter stack: the year moves up into the block, and the
+reveal becomes the shape the receipt already was. Gaps 58 → 69, against the
+receipt's 49/55/87/25.
+
+Worth recording because the sheet asked about *sizes* and *reserves* and the
+answer was about neither. **A layout is judged on where the ink clusters, and
+nothing measured in step 3 would have caught this** — every slot fitted its
+box, every number was inside its budget, and the card was wrong. It took a
+watch, and the watcher named the right card without naming the reason.
+
+### Two answers, one of which changed the layout again
+
+**The bottom reserve: 20% is right, keep it.** 384px of 1920, against the
+published overlays — TikTok organic ~324px, TikTok in-feed ads ~370px (the CTA
+button is what widens it), Reels ~320px, Shorts ~300px. The portrait
+`foot_margin` of 740 puts the footer baseline at 78.4%, 31px clear of the line.
+`goodsometimes/branding.md` says "UI covers bottom" and gives no number; this
+is the number, and it is now in `BASE_GEOMETRY`'s comment rather than in a
+reviewer's head.
+
+**The right edge is the one that was actually broken.** TikTok's action rail —
+like, comment, share — runs 180–300px up the right side below the halfway
+line. A 140-unit margin is **79px**. So `mark` at `x=1780`, which is where the
+landscape file puts it and where all three portrait files inherited it, sat
+under the like button. Portrait draws the wordmark bottom *left*, where the
+requirement is ~60px and it has 79. Nothing measured this either: the card
+fitted its own frame perfectly and the frame was not the whole story.
+
+The wordmark question came back "yeah we can put a watermark i guess?", which
+is not an instruction to write one, so none of the twelve gained a `mark` —
+the sheet shows `G*` rendered into the corner with both zones drawn over it,
+and the write is one pass whenever he says. Two things the sheet flags rather
+than decides: the mark is a plain text slot so its asterisk draws muted rather
+than amber, and `branding.md` files the corner bug under *long-form* while its
+Shorts/TikTok row asks only for the top-third title zone — the doc arguably
+wants no mark here at all.
+
+**Quote size settled at 80**; both read, so the shipped value stands.
+
+### The sweep's next blind spot, named and not built
+
+`card_reauthor` compares the recorded canvas and the recorded variant, which
+is what step 4 added. Neither moved here: same 1080x1920, same `portrait`
+file. **What changed was the file's contents**, so the sweep would have
+answered `redrawn: 0` over twelve cards that are all the old spacing — step
+4's finding one level down. The twelve were redrawn by name, which is what the
+named form is for. Hashing the template into the record would close it and is
+deliberately not built: a template edit is a change to lucid's own code, and
+"run reauthor after you edit a template" is a rule about the dev loop, not
+about a project on disk. It is only worth a paragraph because the shape has
+now bitten twice.

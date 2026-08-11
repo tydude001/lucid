@@ -1015,7 +1015,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "weight": 700,
                 "font": "body_font",
                 "default": "",
-                "description": "a wordmark for the bottom right corner, if any",
+                "description": "a wordmark for the bottom corner, if any",
             },
         },
         "derived": {"stars": ("stars", "rating", "amber")},
@@ -1037,7 +1037,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                     },
                     "date_line": {"size": 54},
                     "quote": {"y": 1140, "line_height": 100, "size": 80},
-                    "mark": {"size": 80},
+                    "mark": {"size": 80, "x": 140, "anchor": "start"},
                 },
             }
         },
@@ -1080,7 +1080,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "font": "body_font",
                 "parts": [{"text": "({year})"}],
                 "default": "",
-                "description": "the year, drawn small in the bottom left",
+                "description": "the year, drawn small under the title",
             },
             "mark": {
                 "kind": "line",
@@ -1091,14 +1091,21 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "weight": 700,
                 "font": "body_font",
                 "default": "",
-                "description": "a wordmark for the bottom right corner, if any",
+                "description": "a wordmark for the bottom corner, if any",
             },
         },
         "derived": {},
         # `mid_ratio` is the whole composition here: 0.44 of a 3413-unit frame
         # puts a title that is 3.6% of it at the halfway line with nothing
         # under it, which is finding 1's empty paper. 0.34 reads as a top-third
-        # title with the footer anchoring the bottom.
+        # title, which is the zone `goodsometimes/branding.md` asks for.
+        #
+        # The year is drawn *in* that block rather than in the footer, and
+        # that is the one thing separating this from `receipt`. Left where
+        # the landscape file has it, it was the only ink in the 724px between
+        # the note and the bottom margin — a cluster and an orphan, where the
+        # receipt is a cluster and a margin. Watched side by side, the reveal
+        # is the one that read wrong. HISTORY.md § The orphaned year.
         "variants": {
             "portrait": {
                 "geometry": {"mid_ratio": 0.34, "note_gap": 160, "foot_margin": 740},
@@ -1108,8 +1115,8 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         "parts": [{"text": "{title}"}, {"text": "*", "size": 127}],
                     },
                     "note": {"size": 80},
-                    "year": {"size": 68},
-                    "mark": {"size": 80},
+                    "year": {"size": 68, "x": 960, "anchor": "middle"},
+                    "mark": {"size": 80, "x": 140, "anchor": "start"},
                 },
             }
         },
@@ -1160,7 +1167,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "weight": 700,
                 "font": "body_font",
                 "default": "",
-                "description": "a wordmark for the bottom right corner, if any",
+                "description": "a wordmark for the bottom corner, if any",
             },
         },
         "derived": {"comparison": ("comparison", "before", "after")},
@@ -1182,7 +1189,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                         ],
                     },
                     "date_line": {"size": 46},
-                    "mark": {"size": 80},
+                    "mark": {"size": 80, "x": 140, "anchor": "start"},
                 },
             }
         },
@@ -1214,6 +1221,15 @@ VARIANTS: dict[str, Callable[[int, int], bool]] = {
 #: especially, since `view_height - 110` puts the wordmark 62px from the bottom
 #: of a 1080x1920 frame, inside the band `goodsometimes/branding.md` reserves
 #: for the platform's own UI.
+#:
+#: That band is the bottom fifth — 384px of 1920, which clears every published
+#: bottom overlay (TikTok organic ~324, TikTok in-feed ads ~370, Reels ~320,
+#: Shorts ~300); the portrait `foot_margin` of 740 puts the footer baseline at
+#: 78.4%, just above it. **The right edge is the one the vertical layouts also
+#: had to move for**: the action rail is 180–300px wide below the halfway
+#: line, and a 140-unit margin is 79px, so a wordmark at `x=1780` sits under
+#: the like button. Portrait draws it bottom *left*. PLAN.md § The vertical
+#: card layout.
 BASE_GEOMETRY: dict[str, float] = {"mid_ratio": 0.44, "note_gap": 130, "foot_margin": 110}
 
 

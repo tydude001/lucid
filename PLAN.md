@@ -3047,3 +3047,27 @@ against the file runs for both.
   invisible in a render and obvious in the feed.
 - **Whether the wordmark stays bottom-right at portrait**, given the above, or
   moves to the top with the title.
+
+**Both answered 2026-08-11, and the second one was the wrong question.** The
+bottom fifth is 384px and clears every published overlay (TikTok organic ~324,
+in-feed ads ~370, Reels ~320, Shorts ~300), so 20% stands. But the edge that
+was actually covered is the **right** one: TikTok's action rail wants
+180–300px below the halfway line and a 140-unit margin is 79px, so the
+wordmark at `x=1780` sat under the like button. Portrait draws it bottom left.
+Neither number is in a reviewer's head now — they are in `BASE_GEOMETRY`'s
+comment. HISTORY.md § The orphaned year.
+
+### What the watch found that no measurement did
+
+The note's own budget tables all passed and the reveal still read wrong.
+**Its year was drawn in the footer, the only ink in the 724px between the note
+and the bottom margin** — a cluster and an orphan, where the receipt beside it
+is a cluster and a margin. Both leave half the frame empty; only one puts
+something in the middle of it. The year moved into the block and the reveal
+became the shape the receipt already was.
+
+Worth keeping in the note because it is the counter-example to every measured
+guard this item added: **a layout is judged on where the ink clusters, and a
+slot that fits its box says nothing about that.** The next portrait template
+gets watched before it is called done, not measured. HISTORY.md § The orphaned
+year.
