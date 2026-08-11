@@ -120,6 +120,28 @@ def _suspect_durations(parsed: tx.Transcript) -> list[dict[str, Any]]:
     return flagged
 
 
+def _overlaps(parsed: tx.Transcript) -> list[dict[str, Any]]:
+    """Flag seams where two words' timings overlap — an invented word's tell.
+
+    The third of the attach-time checks, and it catches what the other two
+    structurally cannot. `_near_duplicates` matches *phrases*, so a splice
+    that invents a single word repeats nothing for it to match
+    (`coincidence incidents`, `guy's guys`, `is genu genuinely`); measured on
+    the Scream VO, 39 of 56 overlapping pairs fall outside every
+    near-duplicate window. `_suspect_durations` looks at one word's length,
+    and a seam's words are ordinary-length — they are merely in two places at
+    once. HISTORY.md § The hand-framed teaser, watched.
+
+    The echo is the point here as much as anywhere else (CLAUDE.md): a seam
+    reads as correct English on its own and the neighbours are what show it
+    is a splice.
+    """
+    seams = tx.find_overlaps(parsed.words)
+    for seam in seams:
+        seam.update(_context(parsed, seam["first_word"], seam["last_word"]))
+    return seams
+
+
 def attach_transcript(
     path: Path | str, clip_id: str, transcript_path: Path | str
 ) -> dict[str, Any]:
@@ -141,6 +163,7 @@ def attach_transcript(
         "duration": parsed.words[-1].end,
         "near_duplicates": _near_duplicates(parsed),
         "suspect_durations": _suspect_durations(parsed),
+        "overlaps": _overlaps(parsed),
     }
 
 
@@ -180,6 +203,7 @@ def transcribe(
         "duration": parsed.words[-1].end,
         "near_duplicates": _near_duplicates(parsed),
         "suspect_durations": _suspect_durations(parsed),
+        "overlaps": _overlaps(parsed),
     }
 
 
@@ -219,6 +243,45 @@ def get_transcript(
         "text": " ".join(w.text for w in words),
         "words": [w.as_dict() for w in words],
     }
+
+
+def transcript_checks(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
+    """Re-run the attach-time transcript checks over what is already attached.
+
+    The three findings `attach_transcript` returns are computed once, at
+    attach, and handed back in that call's result — so a project attached
+    before a check existed can never see it. That is not hypothetical: the
+    Scream VO was attached long before `overlaps`, and its 40 seams were
+    invisible to the project holding it. Re-attaching to surface a finding
+    would mean re-running ASR or hunting down the original whisper JSON, so
+    the checks are addressable on their own.
+
+    Reads only — nothing here writes to the project, which is what makes it
+    safe to run over a finished cut.
+    """
+    project = Project.open(path)
+    if clip_id is not None:
+        wanted = [clip_id]
+    else:
+        wanted = [
+            c["clip_id"]
+            for c in project.read_manifest().get("clips", [])
+            if project.transcript_path(c["clip_id"]).exists()
+        ]
+
+    clips = []
+    for cid in wanted:
+        parsed = _transcript(project, cid)
+        clips.append(
+            {
+                "clip_id": cid,
+                "words": len(parsed),
+                "near_duplicates": _near_duplicates(parsed),
+                "suspect_durations": _suspect_durations(parsed),
+                "overlaps": _overlaps(parsed),
+            }
+        )
+    return {"clips": clips}
 
 
 # -- footage descriptions ---------------------------------------------------

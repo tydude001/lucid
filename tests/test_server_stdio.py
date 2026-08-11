@@ -42,6 +42,7 @@ EXPECTED_TOOLS = {
     "attach_transcript",
     "transcribe",
     "get_transcript",
+    "transcript_checks",
     "describe",
     "describe_ls",
     "card_templates",
@@ -169,6 +170,7 @@ TOOL_TO_COMMAND = {
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
+    "transcript_checks": "transcript-checks",
     "describe": "describe",
     "describe_ls": "describe-ls",
     "card_templates": "card",
@@ -938,6 +940,128 @@ def test_attach_transcript_flags_suspect_word_durations(tmp_path: Path) -> None:
     hit = attached["suspect_durations"][0]
     assert hit["index"] == 3
     assert hit["text"] == "bit"
+
+
+def _overlap_sources(tmp_path: Path) -> tuple[Path, Path]:
+    """A transcript with a retake splice in it, from the Scream VO's own timings.
+
+    `Billy Billions and Stu do spend` — whisper read across the splice and
+    interleaved both takes, inventing `Billions` and `do`.
+    HISTORY.md § The hand-framed teaser, watched.
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 8.0)])
+
+    words = [
+        {"word": "the", "start": 0.0, "end": 0.3},
+        {"word": "point", "start": 0.3, "end": 0.6},
+        {"word": "is", "start": 0.6, "end": 0.9},
+        {"word": "Billy", "start": 1.04, "end": 1.38},
+        {"word": "Billions", "start": 1.08, "end": 1.64},
+        {"word": "and", "start": 1.38, "end": 1.62},
+        {"word": "Stu", "start": 1.62, "end": 1.88},
+        {"word": "spend", "start": 1.96, "end": 2.40},
+        {"word": "the", "start": 2.40, "end": 2.70},
+        {"word": "film", "start": 2.70, "end": 3.00},
+    ]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+@needs_ffprobe
+def test_attach_transcript_flags_overlapping_words(tmp_path: Path) -> None:
+    """Over the wire: a splice whisper read across, reported as one seam.
+
+    The invented words are ordinary-length and repeat no phrase, so neither
+    sibling check can see this — `suspect_durations` looks at one word's
+    length and `near_duplicates` matches phrases.
+    HISTORY.md § The hand-framed teaser, watched.
+    """
+    audio, transcript = _overlap_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        return await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+
+    attached = anyio.run(_with_server, body)
+
+    assert len(attached["overlaps"]) == 1
+    seam = attached["overlaps"][0]
+    assert seam["text"] == "Billy Billions and"
+    assert seam["pairs"] == 2
+    # The neighbours are the point: the seam reads as English without them.
+    assert [w["text"] for w in seam["context_before"]] == ["the", "point", "is"]
+    assert next(w["text"] for w in seam["context_after"]) == "Stu"
+    # And the checks its siblings cannot make are genuinely theirs alone.
+    assert attached["suspect_durations"] == []
+    assert attached["near_duplicates"] == []
+
+
+@needs_ffprobe
+def test_transcript_checks_rechecks_an_already_attached_transcript(tmp_path: Path) -> None:
+    """The finding is computed at attach and returned once, so a project
+    attached before a check existed can never see it — which is exactly the
+    Scream VO's position. This is how it gets asked again, without re-running
+    ASR or hunting for the original whisper JSON.
+    """
+    audio, transcript = _overlap_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        return await client.call("transcript_checks", path=str(project))
+
+    checked = anyio.run(_with_server, body)
+
+    assert len(checked["clips"]) == 1
+    found = checked["clips"][0]
+    assert found["words"] == 10
+    assert [s["text"] for s in found["overlaps"]] == ["Billy Billions and"]
+    # All three findings, not just the new one.
+    assert found["suspect_durations"] == [] and found["near_duplicates"] == []
+
+
+@needs_ffprobe
+def test_transcript_checks_does_not_write_to_the_project(tmp_path: Path) -> None:
+    """It backs a read of a finished cut, so it must not rewrite one — the
+    same property `Project.open` refuses an old manifest to protect.
+    """
+    audio, transcript = _overlap_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> tuple[str, str]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        before = (project / "lucid.json").read_text()
+        await client.call("transcript_checks", path=str(project))
+        return before, (project / "lucid.json").read_text()
+
+    before, after = anyio.run(_with_server, body)
+    assert before == after
 
 
 @needs_ffprobe

@@ -182,8 +182,14 @@ installed package or the upstream repo, not your memory.
     interleaves both takes — **and the tell is that the word starts before the
     one ahead of it ends, never that it reads wrong.** Reading for sense removes
     the nonsense ones and leaves every grammatical one standing; nine were in
-    44s of the Scream VO. Overlap-scan anything derived from a transcript before
-    it is drawn. HISTORY.md § The hand-framed teaser, watched.
+    44s of the Scream VO, and `transcript.find_overlaps` finds **40 seams in the
+    whole film**. Overlap-scan anything derived from a transcript before it is
+    drawn. HISTORY.md § The hand-framed teaser, watched.
+    - It rides both attach paths as `overlaps`; a finding is computed at attach
+      and returned once, so `transcript-checks` is how an older project asks
+      again. **Seams, never pairs, and deliberately unthresholded** — a floor is
+      the obvious improvement and it is wrong twice over. HISTORY.md § The
+      overlap scan.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the

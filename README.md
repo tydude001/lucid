@@ -162,6 +162,20 @@ both — ASS quotes them channel-reversed and alpha-inverted, so a value that
 looks right is routinely a different colour. The window draws the same style
 over the preview and on the CC lane, so what you see is what burns in.
 
+Attaching a transcript checks it against itself and reports three findings —
+`near_duplicates`, phrases said twice back to back; `suspect_durations`, a word
+claiming long enough to hide a swallowed retake; and `overlaps`, where the
+timings say two words were spoken at once. That last one is a retake splice
+whisper read straight across, interleaving both takes and **inventing words
+nobody said** — the tell is the overlap, never the reading, since an invented
+word is usually grammatical. Findings are returned by the attach call, so an
+older project asks for them again:
+
+```sh
+lucid transcript-checks                      # every clip with a transcript
+lucid transcript-checks vo                   # just this one
+```
+
 `verify` closes the loop the other way: it transcribes a finished render and
 diffs it against the words the timeline should play. That catches a class of
 defect nothing else does — a retake still in the picture. Whisper collapses an

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,12 @@ from typing import Any
 
 class TranscriptError(Exception):
     """Raised when a transcript cannot be read or a range makes no sense."""
+
+
+#: Below this, an "overlap" is arithmetic rather than timing: two words sharing
+#: a boundary survive a JSON round-trip and a subtraction as 0.9 against
+#: 0.8999999999999999, which is not a seam and must not be reported as one.
+OVERLAP_EPSILON = 1e-6
 
 
 @dataclass(frozen=True)
@@ -124,6 +131,69 @@ _PUNCT = re.compile(r"[^\w\s']+")
 
 def _normalise(text: str) -> str:
     return _PUNCT.sub("", text).lower().strip()
+
+
+def _seam(words: Sequence[Word], run: Sequence[int]) -> dict[str, Any]:
+    """One splice, as the word range it garbled.
+
+    `end` is the widest end in the range rather than the last word's, because
+    an invented word routinely ends *before* the word it follows — that
+    inversion is the whole finding, so the range's own extent cannot be read
+    off its final member.
+    """
+    first, last = run[0] - 1, run[-1]
+    inside = words[first : last + 1]
+    return {
+        "first_word": first,
+        "last_word": last,
+        "text": " ".join(w.text for w in inside),
+        "start": min(w.start for w in inside),
+        "end": max(w.end for w in inside),
+        "pairs": len(run),
+        "worst": round(max(words[i - 1].end - words[i].start for i in run), 3),
+    }
+
+
+def find_overlaps(words: Sequence[Word]) -> list[dict[str, Any]]:
+    """Find seams where the timings say two words were spoken at once.
+
+    A word cannot begin before the one ahead of it ends, so wherever that
+    happens the transcript is describing something other than one clean take.
+    The mechanism is a retake splice: whisper reads straight *across* it and
+    interleaves words from both takes, inventing words nobody said.
+
+    **The tell is the overlap, never the reading.** Nine invented words were
+    burned to screen in 44s of the Scream teaser; eight were removed by eye in
+    one pass and the ninth survived it, because "Billy and Stu *do* spend the
+    entire film" is grammatical English where "Billy *Billions* and Stu" is
+    not. Reading for sense finds the nonsense ones and is blind to the rest.
+    HISTORY.md § The hand-framed teaser, watched.
+
+    Reported as **seams rather than pairs**: one splice overlaps several words
+    in a row — `Billy Billions and`, `Stu do - spend` — and reporting each
+    pair on its own turns one event into five findings. Same reason
+    `verify.find_adjacent_repeats` collapses its overlapping candidates.
+
+    Deliberately unfiltered, and not a verdict. Whisper quantises its
+    timestamps (0.02s on every transcript measured here), so two ordinary
+    consecutive words can overlap by exactly one step through rounding alone.
+    Those surface as a one-pair seam whose `worst` *is* that step — legible to
+    whoever reads the result, which is who decides. A threshold would instead
+    be lucid silently discarding a real seam it happened to mis-size, and the
+    words a seam invents are drawn on screen.
+    """
+    seams: list[dict[str, Any]] = []
+    run: list[int] = []
+    for i in range(1, len(words)):
+        if words[i].start < words[i - 1].end - OVERLAP_EPSILON:
+            # A run is consecutive pair indices: one splice, not several.
+            if run and i != run[-1] + 1:
+                seams.append(_seam(words, run))
+                run = []
+            run.append(i)
+    if run:
+        seams.append(_seam(words, run))
+    return seams
 
 
 def parse_whisper(payload: dict[str, Any], *, clip_id: str, origin: str | None = None) -> Transcript:

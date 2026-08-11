@@ -95,6 +95,75 @@ def test_load_reports_bad_json(tmp_path) -> None:
         tx.load(bad, clip_id="vo")
 
 
+def _words(*spans: tuple[str, float, float]) -> tuple[tx.Word, ...]:
+    return tuple(
+        tx.Word(index=i, text=t, start=a, end=b) for i, (t, a, b) in enumerate(spans)
+    )
+
+
+def test_find_overlaps_is_silent_on_a_clean_transcript() -> None:
+    """Words that merely touch at a boundary are the normal case, not a seam."""
+    assert tx.find_overlaps(_words(("a", 0.0, 0.5), ("b", 0.5, 1.0), ("c", 1.0, 1.5))) == []
+
+
+def test_find_overlaps_ignores_float_noise_at_a_shared_boundary() -> None:
+    """0.9 against 0.8999999999999999 is arithmetic, not two words at once."""
+    assert tx.find_overlaps(_words(("a", 0.0, 0.9), ("b", 0.8999999999999999, 1.4))) == []
+
+
+def test_find_overlaps_flags_a_word_starting_before_the_last_one_ends() -> None:
+    seams = tx.find_overlaps(_words(("horror", 9.76, 10.12), ("whore", 9.78, 9.98)))
+    assert len(seams) == 1
+    assert seams[0]["first_word"] == 0 and seams[0]["last_word"] == 1
+    assert seams[0]["text"] == "horror whore"
+    assert seams[0]["worst"] == 0.34
+
+
+def test_find_overlaps_reports_one_splice_as_one_seam() -> None:
+    """The Scream VO's `Stu do - spend`: three overlapping pairs, one event.
+
+    Reporting per pair would make five findings out of the two real splices
+    in this fixture, which is the failure `verify.find_adjacent_repeats`
+    already collapses its candidates to avoid.
+    """
+    seams = tx.find_overlaps(
+        _words(
+            ("Billy", 149.04, 149.38),
+            ("Billions", 149.08, 149.64),
+            ("and", 149.38, 149.62),
+            ("Stu", 149.62, 149.88),
+            ("do", 149.64, 149.96),
+            ("-", 149.88, 149.98),
+            ("spend", 149.96, 150.40),
+        )
+    )
+    assert [(s["first_word"], s["last_word"]) for s in seams] == [(0, 2), (3, 6)]
+    assert [s["pairs"] for s in seams] == [2, 3]
+    assert [s["text"] for s in seams] == ["Billy Billions and", "Stu do - spend"]
+
+
+def test_a_seams_extent_is_not_read_off_its_last_word() -> None:
+    """An invented word can end *before* the word it follows — that inversion
+    is the finding, so `end` has to be the widest end in the range."""
+    seam = tx.find_overlaps(_words(("horror", 9.76, 10.12), ("whore", 9.78, 9.98)))[0]
+    assert seam["start"] == 9.76
+    assert seam["end"] == 10.12
+
+
+def test_find_overlaps_handles_a_zero_width_word() -> None:
+    """Whisper emits `start == end` often (CLAUDE.md). One that lands exactly
+    on the previous word's end is not an overlap; one that lands before it is.
+    """
+    assert tx.find_overlaps(_words(("sat", 30.98, 31.28), ("-", 31.28, 31.28))) == []
+    seams = tx.find_overlaps(_words(("sat", 30.98, 31.28), ("-", 30.98, 30.98)))
+    assert len(seams) == 1 and seams[0]["worst"] == 0.3
+
+
+def test_find_overlaps_on_an_empty_or_single_word_transcript() -> None:
+    assert tx.find_overlaps(()) == []
+    assert tx.find_overlaps(_words(("alone", 0.0, 0.5))) == []
+
+
 def test_real_whisper_dump_shape(tmp_path) -> None:
     """The exact keys openai-whisper emits, including the probability field."""
     payload = {

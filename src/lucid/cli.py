@@ -165,6 +165,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tx.add_argument("--last", type=int, help="last word index (inclusive)")
     p_tx.add_argument("--search", help="locate a phrase; returns word ranges")
 
+    p_tx_checks = sub.add_parser(
+        "transcript-checks",
+        help="re-run the attach-time transcript checks over an attached transcript",
+    )
+    p_tx_checks.add_argument(
+        "clip_id", nargs="?", help="one clip; omitted, every clip with a transcript"
+    )
+
     p_describe = sub.add_parser(
         "describe", help="describe a clip's footage in windows, for b-roll search"
     )
@@ -848,6 +856,10 @@ def _cmd_transcript(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_transcript_checks(args: argparse.Namespace) -> int:
+    return _emit(ops.transcript_checks(args.project, args.clip_id))
+
+
 def _cmd_describe_ls(args: argparse.Namespace) -> int:
     return _emit(ops.describe_ls(args.project, args.clip_id, contains=args.contains))
 
@@ -1210,6 +1222,7 @@ _COMMANDS = {
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
+    "transcript-checks": _cmd_transcript_checks,
     "describe": _cmd_describe,
     "describe-ls": _cmd_describe_ls,
     "card": _cmd_card,

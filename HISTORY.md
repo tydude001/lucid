@@ -4405,3 +4405,76 @@ captions over the light cards in § The film had no captions in it. Deepening th
 scrim 62% → 75% took it to 5.2:1 and cost nothing elsewhere, because over dark
 footage the scrim was already invisible. Sampling the opener would have reported
 14:1 and been useless.
+
+## The overlap scan, and what it found in the whole film — 2026-08-10
+
+§ The hand-framed teaser, watched left a rule with nothing enforcing it —
+*"overlap-scan anything derived from a transcript before it is drawn"* — on the
+strength of nine invented words in 44 seconds. This is the scan, and the first
+thing it did was answer whether nine-in-44s was a teaser-sized accident.
+
+It is not. **Run over the whole Scream VO: 56 overlapping pairs in 1150 words,
+which group into 40 seams.** Both hand-found cases are in it at the indices the
+teaser reported — `Billy Billions and` at 349, `Stu do - spend` at 352.
+
+### It catches what the two sibling checks structurally cannot
+
+`attach_transcript` already returned `near_duplicates` and `suspect_durations`,
+so the honest question was whether a third finding is a third *finding*.
+Measured rather than argued: **39 of the 56 pairs fall outside every
+near-duplicate window.** The reason is mechanical — `find_adjacent_repeats`
+matches *phrases*, and a splice that invents one word repeats no phrase for it
+to match. `coincidence incidents`, `guy's guys`, `is genu genuinely`, `Scream
+screen` are invisible to it. `suspect_durations` is blind for a different
+reason: a seam's words are ordinary-length, they are merely in two places at
+once.
+
+### Seams, not pairs — and no threshold
+
+One splice overlaps several words in a row, so the raw pair list reports one
+event five times: 350, 351, 353, 354, 355 are all `Billy Billions and Stu do -
+spend`. Grouping consecutive pairs into a seam is the same collapse
+`find_adjacent_repeats` already does to its candidates, and it takes 56 down to
+40.
+
+**The threshold was the real design question, and the answer was not to have
+one.** Whisper quantises its timestamps — every distinct step in the VO is a
+multiple of 0.02s — so two ordinary consecutive words can overlap by exactly
+one quantum through rounding alone. Eight of the 56 sit at exactly 0.02. The
+tempting move is a floor, and it is wrong twice: it is lucid deciding, on a
+finding whose whole value is that it needs no judgement, and it would discard
+a real seam it happened to mis-size. Grouping makes the noise self-identifying
+instead — a one-pair seam whose `worst` *is* one quantum — so `pairs` and
+`worst` ride along and whoever reads the result decides. Three of the 40 are
+that shape.
+
+Of the eight at one quantum, four (`- spend`, `3 out`, `of 10.`, `and...
+while`) sit immediately beside a seam with real overlap, so a floor would also
+have been trimming the edges off events it kept.
+
+### The finding had nowhere to be asked for
+
+The three checks are computed at attach and handed back in that call's result,
+which means a project attached before a check existed can never see it. That is
+not hypothetical — it is exactly where the Scream VO stood, and re-attaching to
+surface a finding means re-running ASR or hunting down the original whisper
+JSON. So `transcript_checks` (op, CLI `transcript-checks`, MCP tool) re-runs all
+three over what is already on disk, reads only, and is how the 40 above were
+counted.
+
+The detector is `transcript.find_overlaps`, and it went there rather than
+beside its siblings because both of their homes refuse it by their own
+docstrings: `energy.py` is the audio envelope, "the one arbiter a transcript
+cannot outvote", and this needs no audio; `verify.py` is "pure sequence work…
+over *word order*, not timings", and this is nothing but timings. What it
+actually asserts is that the index is self-consistent, which is `transcript.py`'s
+subject.
+
+Two details worth keeping. A seam's `end` is the widest end in its range, not
+its last word's — an invented word routinely ends *before* the word it follows,
+and that inversion is the finding, so the extent cannot be read off the final
+member. And the comparison carries an epsilon: two words sharing a boundary come
+back from JSON and a subtraction as 0.9 against 0.8999999999999999, which is
+arithmetic rather than a splice. A zero-width word (`start == end`, which
+whisper emits often) landing exactly on the previous word's end is correctly
+silent for the same reason, and one landing before it is correctly a seam.

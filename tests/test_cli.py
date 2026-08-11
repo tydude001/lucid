@@ -203,6 +203,36 @@ def test_cut_through_pause_flag_parses_and_reaches_ops(
     assert plain["applied"][0]["source_end"] == pytest.approx(4.9)
 
 
+@needs_ffprobe
+def test_transcript_checks_clip_id_is_optional(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one hop the stdio suite cannot reach: argparse's `nargs="?"`
+    reaching `ops.transcript_checks` as None, which is what makes
+    `lucid transcript-checks` with no argument mean "every clip with a
+    transcript" rather than a missing-argument error.
+    """
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "transcript-checks"]) == 0
+    every = json.loads(capsys.readouterr().out)
+    assert [c["clip_id"] for c in every["clips"]] == [clip_id]
+    assert {"near_duplicates", "suspect_durations", "overlaps"} <= set(every["clips"][0])
+
+    # Naming the clip explicitly reaches the same result.
+    assert main(["-C", str(project), "transcript-checks", clip_id]) == 0
+    named = json.loads(capsys.readouterr().out)
+    assert named == every
+
+
 # -- `restore` --------------------------------------------------------------
 #
 # The op itself is proven end-to-end over the wire in test_server_stdio.py;

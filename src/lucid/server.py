@@ -153,6 +153,11 @@ def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str
     retake `verify` can never catch once both takes are cut into the edit,
     since nothing then disagrees with the timeline. A hit is not a verdict:
     a deliberate callback line looks the same as a swallowed retake here.
+
+    Also reports `suspect_durations` and `overlaps`. An `overlaps` seam is a
+    retake splice whisper read straight across, interleaving both takes and
+    inventing words nobody said — check it before drawing anything derived
+    from this transcript. Use transcript_checks to see all three again later.
     """
     return ops.attach_transcript(path, clip_id, transcript_path)
 
@@ -166,7 +171,8 @@ def transcribe(
     attach_transcript's ASR-driven sibling: use that when the recording
     already has a transcript, this when it needs one made. Takes minutes on a
     long recording — there is no timeout, so let it run. Reports
-    `near_duplicates` the same way attach_transcript does.
+    `near_duplicates`, `suspect_durations` and `overlaps` the same way
+    attach_transcript does.
     """
     return ops.transcribe(path, clip_id, model=model, language=language)
 
@@ -186,6 +192,24 @@ def get_transcript(
     `first`/`last`, returns that window of words. Indices are inclusive.
     """
     return ops.get_transcript(path, clip_id, first=first, last=last, search=search)
+
+
+@_tool()
+def transcript_checks(path: str, clip_id: str | None = None) -> dict[str, Any]:
+    """Re-check an already-attached transcript against itself.
+
+    Returns the same three findings attach_transcript does —
+    `near_duplicates`, `suspect_durations`, `overlaps` — for a transcript
+    attached earlier, whose findings were reported once and are otherwise
+    gone. Omit `clip_id` for every clip that has a transcript.
+
+    Read `overlaps` before anything derived from this transcript is drawn on
+    screen. A seam there is whisper reading across a retake splice and
+    interleaving both takes, which **invents words nobody said** — and they
+    read as ordinary English, so a human proofread finds some and is blind to
+    the rest. Reads only; it never writes.
+    """
+    return ops.transcript_checks(path, clip_id)
 
 
 @_tool()
