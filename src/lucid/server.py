@@ -947,6 +947,7 @@ def reframe(
     path: str,
     clip_id: str | None = None,
     rect: str | None = None,
+    src_start: float | None = None,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -955,7 +956,7 @@ def reframe(
     What makes a swapped canvas fill the frame instead of pillarboxing it.
     A rect is "X,Y,W,H" in that clip's own source pixels — the region kept —
     and the default is a centre crop, which is **wrong whenever the subject
-    is not centred**. Call it with no `clip_id` to read the crop in force for
+    is not centred**. Call it with no `clip_id` to read the crops in force for
     every clip, including how much of each is kept.
 
     An override is a floor rather than a frame: a rect that is not already
@@ -963,12 +964,47 @@ def reframe(
     and the reply gives both `asked` and the `crop` it became. It is stored
     as asked and refit whenever the canvas moves.
 
-    `clip_id` with `reset` drops that clip's override, `reset` alone drops
-    every one, and `plan` resolves without writing. Nothing here analyses the
-    picture to pick a crop — a wrong automatic reframe makes a film with
-    nothing on screen saying so.
+    `src_start` frames a **shot** rather than a clip: seconds into that clip's
+    own source, the rect in force from there until the next window. One clip
+    holds as many windows as it has camera shots, and because the address is
+    the source's own clock, a clip used seven times picks up the right window
+    at each placement with nothing said seven times. Omitted, it is the window
+    from the head of the file — which is what a per-clip crop always was.
+    `clips[].windows` in the reply is the whole series per clip.
+
+    `clip_id` with `reset` drops that clip's overrides — with `src_start`,
+    only the window there — `reset` alone drops every one, and `plan` resolves
+    without writing. Nothing here analyses the picture to pick a crop; a wrong
+    automatic reframe makes a film with nothing on screen saying so.
     """
-    return ops.reframe(path, clip_id, rect=rect, reset=reset, plan=plan)
+    return ops.reframe(path, clip_id, rect=rect, src_start=src_start, reset=reset, plan=plan)
+
+
+@_tool()
+def reframe_sheet(
+    path: str,
+    out: str | None = None,
+    moments: list[float] | None = None,
+) -> dict[str, Any]:
+    """Draw every placement's framing window on its own source frames.
+
+    **A framing decision is unreviewable without this.** The hand-framed
+    teaser had 2 of its 15 windows wrong and neither was visible in motion —
+    a badly-placed window reads as framing, because nothing in the frame says
+    otherwise. Drawn on the whole source frame, the material the window is
+    leaving out sits right beside it.
+
+    Every placement the render shows — the picture lane's shots, or the edit's
+    own segments where there is no lane — sampled at three moments, the window
+    in force at that point in the source drawn in red and labelled with its
+    rect. Placements and not clips: one clip used seven times gets seven rows.
+
+    Returns the montage's path (under `cache/sheets/`, or `out`) and the table
+    behind it, `windows` per row being how many distinct windows that stretch
+    of footage crosses. Stills come back under `skipped` — a card is authored
+    at the canvas and never cropped, so it has no window to review.
+    """
+    return ops.reframe_sheet(path, out=out, moments=moments)
 
 
 @_tool()

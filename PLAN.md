@@ -483,10 +483,16 @@ timeline being the enabler and the look pass being gated on nothing:
    **`tiktok-reels` shipped 2026-08-10** (HISTORY.md § `tiktok-reels`), and
    the stop-and-watch that was to end this item ran instead of ending it:
    **the centre-crop default is refused, and so is letterboxing the footage
-   back in.** What the item is now waiting on is per-*shot* framing, **costed
-   2026-08-10 and unbuilt** — § Per-shot framing — the design note, which moved
-   the answer off the cue and off a new render node both. DAYDREAM.md § Aspect
-   swap carries the detector numbers.
+   back in.** What the item was waiting on is per-*shot* framing, costed
+   2026-08-10 — § Per-shot framing — the design note, which moved the answer
+   off the cue and off a new render node both. **Its steps 1–4 shipped the
+   same day** (HISTORY.md § Per-shot framing): a window is
+   `(clip_id, src_start, rect)` in source seconds, it renders as keyframes on
+   the producer's own clock, the preview places per shot, and
+   `reframe_sheet` is how any of it gets reviewed. **What is left is the
+   framing itself** — 25 placements on the film, against the 15 hand numbers
+   as a control — and then the detector. DAYDREAM.md § Aspect swap carries the
+   detector numbers.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -2377,24 +2383,38 @@ holding every framing decision for that file. The writer's change is that
 entries still emits exactly what it emits today, which is what keeps an
 unswapped project's document byte-identical.
 
-### What to build, in order
+### What to build, in order — steps 1–4 shipped 2026-08-10
 
 1. **The store and the op.** `src_start` on a `reframe` entry, `_stored_reframes`
    returning a series per clip, and `reframe` taking and echoing one. No schema
    bump. Refuse two entries at one `(clip_id, src_start)` the way `cue_add`
-   refuses two cues at one word.
+   refuses two cues at one word. **Shipped**, and it added one refusal the note
+   did not have: a window past the clip's own duration, which would never come
+   into force and would read as framing already dealt with.
 2. **The writer.** `Reframe` as a series; the animated `rect` property; the
    three invariants widened. Verified against a real `melt` render, because the
-   failure it prevents produces a file and exit 0.
+   failure it prevents produces a file and exit 0. **Shipped and verified that
+   way** — end to end through `export --render` on a deliberately *cut* edit,
+   so source time and timeline time differ by five seconds and the step can
+   only land in the right place on the source clock. HISTORY.md § Per-shot
+   framing.
 3. **The contact sheet.** `~/lucid-final-cut/audit.py` is the prototype: every
    shot at three moments, the window drawn in red **on the source frame**.
    § The hand-framed teaser found 2 of 15 hand numbers wrong and **neither was
    visible in motion** — they read as framing, because nothing in the frame
    says otherwise. This is a build item beside the framing, not after it; the
-   output of any framing decision is unreviewable without one.
+   output of any framing decision is unreviewable without one. **Shipped** as
+   `reframe_sheet`, and it earned the "beside, not after" on its first run:
+   two hand-picked windows on the real film, both plainly wrong on the sheet
+   and both invisible in motion.
 4. **The preview.** `timeline_view`'s `reframe[clip].dest` is one rect per clip
    and becomes one per shot — the picture layer already reads `src_start` off
-   the shot (CLAUDE.md), so it has the key it needs.
+   the shot (CLAUDE.md), so it has the key it needs. **Shipped**, and checked
+   on the served page rather than reasoned about. Its one limitation, stated
+   rather than discovered: a shot is placed by the window at its `src_start`,
+   so a boundary *inside* a placement previews as the first of the two while
+   the render steps mid-shot correctly. `reframe_sheet`'s `windows` count is
+   how such a placement announces itself.
 5. **Then, and only then, the detector** — judged on whether it beats the 15
    hand numbers, which is the control that already exists and was watched and
    approved. Not before: § Three uncosted parity items' finding about `reel`

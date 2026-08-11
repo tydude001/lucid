@@ -80,6 +80,7 @@ let pictureVideo = null;
 let pictureStill = null;
 let pictureNote = null;
 let pictureAsset = null; // which asset the picture layer currently holds
+let pictureDest = null; // and the shot's own placement, which the asset does not fix
 let pendingPictureSeek = null; // as pendingSeek, for the picture element
 let shotCursor = 0; // cache for the shot-under-the-playhead scan
 const pictureRefused = new Set(); // assets the browser would not decode
@@ -268,18 +269,24 @@ function layoutFrame() {
     frame.style.height = `${canvas[1] * scale}px`;
   }
   place(media, mediaClip);
-  place(pictureVideo, pictureAsset);
+  place(pictureVideo, pictureAsset, pictureDest);
 }
 
 /* Put one element where the render puts that source. Called whenever either
- * input moves: the element's asset (a seam, a new shot) or the frame's size. */
-function place(el, clipId) {
+ * input moves: the element's asset (a seam, a new shot) or the frame's size.
+ *
+ * `dest` is a rect the caller already has — the picture layer's, because a
+ * shot is framed per shot and the clip's entry is only its head window. With
+ * none, the clip's own entry is the answer, which is what the edit track
+ * wants. */
+function place(el, clipId, dest) {
   if (!el) return;
   const v = view();
   const entry = clipId && v && v.reframe ? v.reframe[clipId] : null;
+  const rect = dest || (entry ? entry.dest : null);
   const canvas = canvasSize();
   const box = frameBox();
-  if (!entry || !canvas || !box.width) {
+  if (!rect || !canvas || !box.width) {
     // Back to the stylesheet's contain — MLT's own answer for anything it
     // emits no filter for.
     el.style.left = el.style.top = el.style.width = el.style.height = "";
@@ -287,7 +294,7 @@ function place(el, clipId) {
     return;
   }
   const scale = box.width / canvas[0];
-  const [x, y, w, h] = entry.dest;
+  const [x, y, w, h] = rect;
   el.style.left = `${x * scale}px`;
   el.style.top = `${y * scale}px`;
   el.style.width = `${w * scale}px`;
@@ -371,10 +378,24 @@ function loadShot(shot) {
     pictureVideo.src = assetURL(shot.asset);
     pendingPictureSeek = shot.src_start;
   }
-  // A still is never placed (the render does not crop one); a clip is placed
-  // where the render puts it, which for a shot is the same rect its own track
-  // would get — the writer emits one filter per node *per role*.
-  place(pictureVideo, shot.is_image ? null : shot.asset);
+  placeShot(shot);
+}
+
+/* A still is never placed (the render does not crop one); a clip goes where
+ * the render puts *that shot*. `shot.dest` and not the clip's entry, because
+ * framing is source-addressed: two shots of one asset can read either side of
+ * a window boundary and so want different rects, with the asset unchanged —
+ * which is why this is called per frame rather than only on a load. */
+function placeShot(shot) {
+  const dest = shot.is_image ? null : shot.dest || null;
+  if (sameRect(dest, pictureDest) && pictureAsset === shot.asset) return;
+  pictureDest = dest;
+  place(pictureVideo, shot.is_image ? null : shot.asset, dest);
+}
+
+function sameRect(a, b) {
+  if (!a || !b) return a === b || (!a && !b);
+  return a.length === b.length && a.every((value, i) => value === b[i]);
 }
 
 function paintPicture(t) {
@@ -388,10 +409,12 @@ function paintPicture(t) {
     picture.hidden = true;
     pictureVideo.pause();
     pictureAsset = null;
+    pictureDest = null;
     return;
   }
   picture.hidden = false;
   if (pictureAsset !== shot.asset) loadShot(shot);
+  else placeShot(shot);
   if (shot.is_image) return;
 
   const target = shot.src_start + Math.max(0, t - shot.start);
@@ -664,6 +687,7 @@ export function update(state) {
   // shot that no longer exists on screen.
   shotCursor = 0;
   pictureAsset = null;
+  pictureDest = null;
   if (picture && !state.shots) picture.hidden = true;
   if (!state.segments.length) return;
   const wanted = state.segments[0].clip_id;

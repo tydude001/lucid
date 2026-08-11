@@ -513,3 +513,94 @@ def test_no_reframe_leaves_the_document_exactly_as_it_was() -> None:
 
     assert plain == empty
     assert "qtblend" not in mlt.reframed_nodes(ET.fromstring(plain))
+
+
+# -- per-shot framing: one node, a window per camera shot ------------------
+#
+# PLAN.md § Per-shot framing. The address is `(clip_id, src_start, rect)` in
+# *source* seconds, and finding 3 measured that this needs no new node: a
+# `qtblend` rect is keyframable and its keyframes run on the producer's own
+# source frames. So one node still carries every window for that file, which
+# is what keeps `reframed_nodes`' one-per-role invariant intact.
+
+LEFT = (0, 0, 459, 816)
+RIGHT = (1461, 0, 459, 816)
+
+
+def test_a_second_window_becomes_discrete_keyframes_in_source_frames() -> None:
+    """Source frames, because that is the clock MLT runs a filter's animation
+    on — measured from both directions in the probe. Discrete (`|=`) because
+    a framing window steps at a camera cut; interpolating would slide the
+    frame across the join."""
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),))
+
+    assert reframe.rect_property(VERTICAL, RATE) == (
+        "0|=0 0 4518 1920 1;300|=-3438 0 4518 1920 1"
+    )
+
+
+def test_one_window_still_writes_the_bare_rect() -> None:
+    """The per-clip reframe is the degenerate case, and its document must not
+    change: an animated string where a plain one used to be would rewrite
+    every project on disk to no effect."""
+    reframe = mlt.Reframe(WIDE, mlt.centre_crop(WIDE, VERTICAL))
+
+    assert reframe.rect_property(VERTICAL, RATE) == "-1718 0 4518 1920 1"
+    assert reframe.rect_property(VERTICAL) == "-1718 0 4518 1920 1"
+
+
+def test_keyframes_need_the_rate_and_say_so() -> None:
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),))
+
+    with pytest.raises(mlt.MLTError, match="source's own frames"):
+        reframe.rect_property(VERTICAL)
+
+
+def test_the_window_in_force_is_the_last_one_started() -> None:
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT), (20.0, LEFT)))
+
+    assert reframe.crop_at(0.0) == LEFT
+    assert reframe.crop_at(9.999) == LEFT
+    assert reframe.crop_at(10.0) == RIGHT
+    assert reframe.crop_at(19.0) == RIGHT
+    assert reframe.crop_at(20.0) == LEFT
+    assert reframe.dest_rect_at(10.0, VERTICAL) == reframe._dest(RIGHT, VERTICAL)
+
+
+def test_a_moving_window_is_never_an_identity() -> None:
+    """The head window can be the exact contain rect while a later one is not;
+    skipping the filter on the strength of the first would render the rest of
+    the file uncropped, at exit 0."""
+    reframe = mlt.Reframe((1920, 1080), (0, 0, 1920, 1080), later=((5.0, (480, 270, 960, 540)),))
+
+    assert reframe.is_identity((1920, 1080)) is False
+
+
+def test_windows_must_be_ordered_distinct_and_after_the_head() -> None:
+    with pytest.raises(mlt.MLTError, match="after the head"):
+        mlt.Reframe(WIDE, LEFT, later=((0.0, RIGHT),))
+    with pytest.raises(mlt.MLTError, match="source order"):
+        mlt.Reframe(WIDE, LEFT, later=((20.0, RIGHT), (10.0, LEFT)))
+    with pytest.raises(mlt.MLTError, match="source order"):
+        mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT), (10.0, LEFT)))
+
+
+def test_every_window_rides_one_node_per_role() -> None:
+    """The whole point of finding 3: per-shot framing did not multiply the
+    nodes, so the readback invariant that catches a half-applied reframe is
+    unchanged."""
+    audio = [mlt.Entry("/media/cold-open.mp4", 0, 60, has_video=True)]
+    lane = mlt.plan_picture(
+        [_shot("cold-open", 60, duration=30.0, path="/media/cold-open.mp4")], RATE
+    )
+    reframe = {"/media/cold-open.mp4": mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),))}
+
+    root = mlt.document(
+        audio=audio, picture=lane, rate=RATE, resolution=VERTICAL, reframe=reframe
+    )
+
+    reframed = mlt.reframed_nodes(root)
+    assert sorted(reframed) == ["chain0", "vchain0"]
+    assert set(reframed.values()) == {"0|=0 0 4518 1920 1;300|=-3438 0 4518 1920 1"}
+    rendered = [n for n in root.findall("chain") if not (n.get("id") or "").startswith("bin")]
+    assert all(len(node.findall("filter")) == 1 for node in rendered)

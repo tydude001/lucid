@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
+from lucid import mlt, ops
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.media import MediaError
@@ -367,3 +367,52 @@ def test_the_lane_reports_a_pin_that_runs_off_its_asset_rather_than_rewinding(
     redrawn = ops.timeline_view(project.root)
     assert redrawn.get("shots_error") is None
     assert redrawn["shots"][0]["src_in"] == 0
+
+
+# -- per-shot framing in the lane ----------------------------------------
+#
+# PLAN.md § Per-shot framing, step 4. The picture layer places its element at
+# the shot's own `dest`, not the clip's: framing is addressed in source
+# seconds, so two placements of one asset can sit under two different windows
+# while the asset — the only thing `loadShot` watches — never changes.
+
+
+def _wide(project: Project) -> None:
+    """Give clipa a real shape and the project a vertical canvas, so there is
+    something to crop and a reason to."""
+    manifest = project.read_manifest()
+    for clip in manifest["clips"]:
+        if clip["clip_id"] == "clipa":
+            clip.update({"width": 1920, "height": 816})
+    project.write_manifest(manifest)
+    ops.canvas(project.root, size="1080x1920")
+
+
+def test_two_shots_of_one_asset_carry_their_own_windows(project: Project) -> None:
+    _wide(project)
+    ops.cue_add(project.root, "vo", 1, "clipa")  # reads clipa from 0.0s
+    ops.cue_add(project.root, "vo", 5, "clipa")  # and again from where that left off
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=1.0)
+
+    shots = ops.timeline_view(project.root)["shots"]
+
+    assert [s["asset"] for s in shots] == ["clipa", "clipa"]
+    assert shots[0]["src_start"] == 0.0 and shots[1]["src_start"] >= 1.0
+    left = mlt.Reframe((1920, 816), (0, 0, 459, 816))
+    right = mlt.Reframe((1920, 816), (1461, 0, 459, 816))
+    assert shots[0]["dest"] == list(left.dest_rect((1080, 1920)))
+    assert shots[1]["dest"] == list(right.dest_rect((1080, 1920)))
+    # And the per-clip entry is the head window, which is the edit track's
+    # answer — reading it for the picture lane is the bug this closes.
+    assert ops.timeline_view(project.root)["reframe"]["clipa"]["dest"] == shots[0]["dest"]
+
+
+def test_a_still_has_no_placement_because_a_card_is_never_cropped(project: Project) -> None:
+    _wide(project)
+    ops.cue_add(project.root, "vo", 1, "card:outro")
+
+    shots = ops.timeline_view(project.root)["shots"]
+
+    assert shots[0]["is_image"] is True
+    assert shots[0]["dest"] is None

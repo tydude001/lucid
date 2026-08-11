@@ -151,19 +151,57 @@ def centre_crop(source: tuple[int, int], resolution: tuple[int, int]) -> tuple[i
 
 @dataclass(frozen=True)
 class Reframe:
-    """A source's size, and the rect of it that survives into the frame.
+    """A source's size, and the rects of it that survive into the frame.
 
     **Geometry in source pixels, never a length** — the same rule a footage
     description follows (CLAUDE.md), and for the same reason: an edit cannot
     invalidate a rect, so no cut has to re-derive one. `source` rides along
     because the placement needs it — MLT is told where the *whole* frame goes,
     and the crop is expressed by letting the rest overflow the profile.
+
+    `crop` is the window from the head of the file onward and `later` holds
+    the rest, each `(src_start seconds, rect)` and in force from that point in
+    the **source** onward. That address is what makes framing per *shot*
+    rather than per clip (PLAN.md § Per-shot framing, finding 1: a cue cannot
+    carry it, because cues and camera cuts are unrelated clocks). Everything
+    the source address buys falls out rather than being engineered: a clip
+    used seven times picks up whichever windows each placement happens to read
+    over, no cut can invalidate one, and none of them is a length.
+
+    A per-clip reframe is the degenerate one-window case, and still writes the
+    same single `rect` string it always did.
     """
 
     source: tuple[int, int]
     crop: tuple[int, int, int, int]
+    later: tuple[tuple[float, tuple[int, int, int, int]], ...] = ()
 
-    def dest_rect(self, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+    def __post_init__(self) -> None:
+        at = [seconds for seconds, _ in self.later]
+        if any(seconds <= 0 for seconds in at):
+            raise MLTError(
+                "a later reframe window starts after the head of the source — "
+                "the window from 0 onward is `crop`"
+            )
+        if at != sorted(set(at)):
+            raise MLTError(f"reframe windows must be in source order and distinct, not {at}")
+
+    def windows(self) -> tuple[tuple[float, tuple[int, int, int, int]], ...]:
+        """Every window in source order, the head one included."""
+        return ((0.0, self.crop), *self.later)
+
+    def crop_at(self, seconds: float) -> tuple[int, int, int, int]:
+        """The window in force at that point in the source."""
+        found = self.crop
+        for start, rect in self.later:
+            if seconds + 1e-9 < start:
+                break
+            found = rect
+        return found
+
+    def _dest(
+        self, crop: tuple[int, int, int, int], resolution: tuple[int, int]
+    ) -> tuple[int, int, int, int]:
         """Where the whole source frame lands, so that `crop` fills the frame.
 
         `qtblend`'s rect is a *destination* in profile pixels, not a crop —
@@ -174,7 +212,7 @@ class Reframe:
         lost off the second axis.
         """
         src_w, src_h = self.source
-        crop_x, crop_y, crop_w, crop_h = self.crop
+        crop_x, crop_y, crop_w, crop_h = crop
         width, height = resolution
         scale = max(width / crop_w, height / crop_h)
         return (
@@ -184,6 +222,14 @@ class Reframe:
             round(src_h * scale),
         )
 
+    def dest_rect(self, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+        """Where the whole source frame lands for the head window."""
+        return self._dest(self.crop, resolution)
+
+    def dest_rect_at(self, seconds: float, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
+        """The same, for whichever window that point in the source reads."""
+        return self._dest(self.crop_at(seconds), resolution)
+
     def is_identity(self, resolution: tuple[int, int]) -> bool:
         """Would this filter tell MLT anything it was not already doing?
 
@@ -191,13 +237,37 @@ class Reframe:
         `fit_rect`. Emitting a filter for that case would change every
         existing document to no effect, so the writer skips it — which is what
         keeps a project with no canvas override byte-identical to the one it
-        exported before any of this existed.
+        exported before any of this existed. **Every** window has to be that
+        rect: one window that moves is a filter worth emitting.
         """
-        return self.dest_rect(resolution) == fit_rect(self.source, resolution)
+        fitted = fit_rect(self.source, resolution)
+        return all(self._dest(crop, resolution) == fitted for _, crop in self.windows())
 
-    def rect_property(self, resolution: tuple[int, int]) -> str:
-        """The `rect` value: `x y w h opacity`, space-separated."""
-        return " ".join(str(value) for value in self.dest_rect(resolution)) + " 1"
+    def rect_property(self, resolution: tuple[int, int], rate: float | None = None) -> str:
+        """The `rect` value: `x y w h opacity`, or MLT's animation of them.
+
+        One window writes the bare string it always wrote. More than one
+        writes keyframes — **discrete (`|=`), because a framing window steps
+        at a camera cut and does not slide into the next one** — numbered in
+        the producer's own **source** frames, which is the clock MLT runs a
+        filter's animation on. That was measured rather than assumed, and
+        refuted from both directions: a step keyed at source frame 310 on a
+        producer read from 300 lands at output frame 10, and one keyed at 20
+        is already up at output frame 0 (PLAN.md § Per-shot framing, finding
+        3). A timeline clock would have shown the opposite of both.
+        """
+        if not self.later:
+            return " ".join(str(value) for value in self.dest_rect(resolution)) + " 1"
+        if not rate:
+            raise MLTError(
+                "a reframe with more than one window needs the frame rate — its "
+                "keyframes are numbered in the source's own frames"
+            )
+        keys = []
+        for seconds, crop in self.windows():
+            values = " ".join(str(value) for value in self._dest(crop, resolution))
+            keys.append(f"{round(seconds * rate)}|={values} 1")
+        return ";".join(keys)
 
 
 def plan_picture(shots: list[dict[str, Any]], rate: float) -> list[Entry]:
@@ -392,18 +462,24 @@ def _transition(parent: ET.Element, transition_id: str, properties: dict[str, st
         _property(node, name, value)
 
 
-def _reframe_filter(node: ET.Element, reframe: Reframe, resolution: tuple[int, int]) -> bool:
+def _reframe_filter(
+    node: ET.Element, reframe: Reframe, resolution: tuple[int, int], rate: float
+) -> bool:
     """Hang the crop-to-fill filter on one timeline producer, if it says anything.
 
     `qtblend` as a *filter* rather than a transition — the same service the
     compositing transitions below use, which is why this needed no new
     dependency and no consumer change (PLAN.md § Aspect swap, finding 3).
+
+    Still **one filter per node however many windows it carries**: the rect is
+    keyframable and the keys run on source frames, so per-shot framing needed
+    no second node and no new service (PLAN.md § Per-shot framing, finding 3).
     """
     if reframe.is_identity(resolution):
         return False
     node_filter = ET.SubElement(node, "filter", {"id": f"filter_{node.get('id')}"})
     _property(node_filter, "mlt_service", "qtblend")
-    _property(node_filter, "rect", reframe.rect_property(resolution))
+    _property(node_filter, "rect", reframe.rect_property(resolution, rate))
     return True
 
 
@@ -451,10 +527,11 @@ def document(
     become a `<blank>` and a long one would extend the render past the audio,
     and both are silent — hence a refusal here rather than a warning.
 
-    `reframe` maps a resource to the rect of it that survives into the frame,
-    and is what turns a swapped canvas from a pillarbox into a filled one. It
-    is applied per *node* rather than per resource, and never to a still: a
-    card is authored at the canvas and re-authored when the canvas moves
+    `reframe` maps a resource to the rects of it that survive into the frame —
+    one, or a window per camera shot — and is what turns a swapped canvas from
+    a pillarbox into a filled one. It is applied per *node* rather than per
+    resource, and never to a still: a card is authored at the canvas and
+    re-authored when the canvas moves
     (`card_reauthor`), so cropping one would be lucid deciding to lose a
     corner of a title it drew itself.
     """
@@ -527,7 +604,7 @@ def document(
         _property(node, "set.test_audio", "0")
         _property(node, "set.test_video", "0" if entry.has_video else "1")
         if entry.has_video and entry.resource in reframe:
-            _reframe_filter(node, reframe[entry.resource], resolution)
+            _reframe_filter(node, reframe[entry.resource], resolution, rate)
         root.append(node)
 
     root.append(_playlist("playlist0", audio, audio_nodes))
@@ -558,7 +635,7 @@ def document(
                 _property(node, "video_index", "0")
                 _property(node, "set.test_audio", "1")
                 if entry.resource in reframe:
-                    _reframe_filter(node, reframe[entry.resource], resolution)
+                    _reframe_filter(node, reframe[entry.resource], resolution, rate)
             root.append(node)
 
         root.append(_playlist("playlist2", picture, picture_nodes))

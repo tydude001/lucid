@@ -4561,3 +4561,117 @@ is on the way out. `_tool()` now takes the selector names (`@_tool("path",
 "dest")`), defaulting to `("path",)` so every other registration is unchanged.
 Named at the registration site rather than checked in the body, for the reason
 the decorator exists at all.
+
+## Per-shot framing — the window is a source address — 2026-08-10
+
+Built as costed: PLAN.md § Per-shot framing, steps 1–4 (store, writer, contact
+sheet, preview). The item the vertical line was waiting on — `tiktok-reels`
+renders, and the centre crop it renders with was refused on a watch — so the
+whole aspect-swap rung has been sitting on an address space that did not exist.
+It exists now: **`(clip_id, src_start, rect)` in source seconds**, the same
+shape a footage description uses, for the same reason.
+
+The design note's three findings all held on the build, which is worth saying
+because the note is the one that moved the answer *off* the two obvious places
+(the cue, and a new render node) before any code was written.
+
+### What shipped
+
+- **The store.** A `reframe` record grows an optional `src_start`. Absent means
+  the window from the head of the file, which is what every rect on disk
+  already meant, so nothing migrates and there is **no schema bump** — and the
+  head record is written back byte-for-byte as it was, so an unwindowed
+  project's manifest is untouched by any of this. One entry per
+  `(clip_id, src_start)`.
+- **The op.** `reframe --at SECONDS` sets a window, `--reset --at` drops one,
+  `--reset` on a clip drops the series. A window past the clip's own duration
+  is refused rather than stored: it would never come into force and would read
+  in the manifest as framing that had been dealt with. Every window is still a
+  *floor* — grown to the canvas's aspect, never shrunk.
+- **The writer.** `Reframe` widened from one rect to a head rect plus a series,
+  and `rect_property` writes MLT's animation when there is more than one:
+  discrete (`|=`, a framing window steps at a camera cut, it does not slide),
+  numbered in the producer's **source** frames. One window still writes the
+  bare string it always wrote.
+- **The contact sheet.** `reframe_sheet` (CLI `lucid reframe-sheet`), a build
+  of `~/lucid-final-cut/audit.py`: every placement at three moments, the window
+  in force drawn on the source frame in red and labelled with its rect, tiled
+  into one montage. Rows are *placements*, not clips — a clip used seven times
+  is seven rows — and stills come back under `skipped`, since a card is
+  authored at the canvas and never cropped.
+- **The preview.** Each shot in `timeline_view` carries its own `dest`, and
+  `player.js`'s picture layer places from that rather than from
+  `reframe[clip].dest`. The per-clip entry is the *head* window, which is the
+  edit track's answer and only accidentally the picture lane's.
+
+### It renders, and the clock is the source's
+
+The failure this guards produces a file and exit 0, so it was settled on
+pixels, end to end through a real `melt` render rather than the isolated probe
+the note used (`~/lucid-pershot-check/check.py`). The edit is **cut** on
+purpose — it keeps source [5s, 20s), so source time and timeline time differ by
+five seconds throughout — and a window stored at source 14s has to appear at
+output 9s. A timeline clock would put it at 14s; a rect applied per resource
+rather than per window would never move at all.
+
+| output | source | window | rmse | against |
+|---|---|---|---|---|
+| 0.50s | 5.50s | x=0 | 592.58 | 17710.60 for x=1461 |
+| 8.50s | 13.50s | x=0 | 471.17 | 9769.85 for x=1461 |
+| 9.50s | 14.50s | x=1461 | 1058.61 | 10419.40 for x=0 |
+| 14.50s | 19.50s | x=1461 | 749.65 | 11122.50 for x=0 |
+
+Scored against ffmpeg's own crop of the source at the source timestamp the
+document claims, and against the wrong window too — an order of magnitude
+apart, so it is an answer rather than a number.
+
+**And the node count did not move.** One `qtblend` filter per node per role,
+carrying every window for that file, which is what keeps the `reframed_nodes`
+readback — the check that catches a reframe cropping one track and letterboxing
+the other — meaning exactly what it meant before.
+
+### The preview was checked on the served page, not reasoned about
+
+Seven placements of `cold-open` in the real film, from **two stored numbers**:
+the placement at source 0.0s draws at `dest` x=0 and the six from 20.4s onward
+at x=-3438. Then the page itself, driven over CDP (geometry, not a capture —
+what changed is which rect the element is put at, so `getBoundingClientRect` is
+the right instrument and the `<video>`-capture trap does not apply): clicking
+the two shots put `#picture-video` at x=0 and x=-1212.8 of a 1593.8px frame,
+each matching its own shot's `dest` scaled by `frame.clientWidth`. Reading the
+clip entry — the old path — would have put both at the first.
+
+The one measurement that disagreed with itself first time was mine: scaling by
+`getBoundingClientRect().width` instead of `clientWidth` moved the expectation
+1.6px and read as a mismatch. The code scales by `clientWidth`; measure with
+what the thing under test uses.
+
+### What the sheet said the moment it existed
+
+Run on the film with two hand-picked windows on `cold-open`, it answers the
+question it was built for immediately and in the wrong direction: **both
+windows are wrong**, and obviously so — the subject is centred and both rects
+sit at an edge. In motion neither would have looked like anything but framing.
+That is the 2-of-15 finding reproduced on the first run of the tool built to
+catch it, and it is the argument for the sheet being a build item beside the
+framing rather than after it.
+
+**Twenty-five rows, thirteen skipped.** The skipped are the cards, and the 25
+are what a framing pass has to decide — against 38 cues. The design note's
+finding 1 said the film needs more windows than it has placements at every
+scene threshold measured; the sheet is where that stops being a table and
+becomes work.
+
+### Not built, and why
+
+The detector stays step 5 and stays after this, unchanged: it is judged against
+the 15 hand numbers, which is a control that already passed a watch. Keyframed
+*moves* remain refused — the mechanism is paid for by the writer now, but the
+authoring waits for evidence, and the evidence so far is one eased move in
+fifteen shots with a 2-in-15 false-positive rate against it.
+
+One limitation worth stating rather than discovering: **the preview places a
+shot by the window at its `src_start`**, so a window boundary *inside* a
+placement previews as the first of the two. The render steps mid-shot correctly
+— that is what the keyframes are — and `reframe_sheet`'s `windows` count is how
+a placement that crosses one announces itself.

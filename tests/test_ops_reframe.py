@@ -381,3 +381,148 @@ def test_a_rect_the_canvas_outgrew_is_reported_rather_than_raised(
     assert view["reframe"] == {}
     assert "cannot be shown whole" in view["reframe_error"]
     assert view["segments"], "the rest of the view still answers"
+
+
+# -- per-shot framing ----------------------------------------------------
+#
+# PLAN.md § Per-shot framing. A cue cannot carry framing — cues and camera
+# cuts are unrelated clocks, and at every scene threshold measured the film
+# needs more windows than it has placements. So a window is addressed the way
+# a footage description is: `(clip_id, src_start, rect)` in *source* seconds,
+# which no cut can invalidate and which a clip used seven times reads seven
+# different answers out of.
+
+
+def test_a_window_stores_its_in_point_and_the_head_one_does_not(project: Project) -> None:
+    """The head record is byte-identical to what a per-clip reframe always
+    wrote — `src_start` absent means "from 0", which is what every rect on
+    disk already meant. That is the whole reason this is not a schema bump."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=4.0)
+
+    assert project.read_manifest()[ops.REFRAME_KEY] == [
+        {"clip_id": "cold-open", "rect": [0, 0, 459, 816]},
+        {"clip_id": "cold-open", "rect": [1461, 0, 459, 816], "src_start": 4.0},
+    ]
+
+
+def test_the_windows_come_back_in_source_order(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=8.0)
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+
+    windows = _clip(ops.reframe(project.root), "cold-open")["windows"]
+
+    assert [w["src_start"] for w in windows] == [0.0, 4.0, 8.0]
+    # Nothing was asked for at the head, so it is still the centre default —
+    # a window that has not started yet cannot frame what comes before it.
+    assert windows[0] == {
+        "src_start": 0.0,
+        "crop": "730,0,459,816",
+        "asked": None,
+        "origin": "centre",
+        "kept": round((459 * 816) / (1920 * 816), 4),
+    }
+    assert [w["origin"] for w in windows[1:]] == ["override", "override"]
+
+
+def test_a_second_rect_at_one_in_point_replaces_it(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=4.0)
+
+    records = project.read_manifest()[ops.REFRAME_KEY]
+
+    assert len(records) == 1, "one entry per (clip_id, src_start)"
+    assert records[0]["rect"] == [1461, 0, 459, 816]
+
+
+def test_a_window_past_the_clip_is_refused(project: Project) -> None:
+    """It would never come into force, and would sit in the manifest reading
+    as framing that had been dealt with."""
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="never come into force"):
+        ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=12.0)
+
+
+def test_reset_at_an_in_point_drops_only_that_window(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=4.0)
+
+    ops.reframe(project.root, "cold-open", src_start=4.0, reset=True)
+
+    assert project.read_manifest()[ops.REFRAME_KEY] == [
+        {"clip_id": "cold-open", "rect": [0, 0, 459, 816]}
+    ]
+
+
+def test_reset_at_an_in_point_with_no_window_there_is_refused(project: Project) -> None:
+    """Silently succeeding would report a window dropped that is still in the
+    render."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+
+    with pytest.raises(ProjectError, match="no reframe window at"):
+        ops.reframe(project.root, "cold-open", src_start=4.0, reset=True)
+
+
+def test_dropping_a_clip_drops_all_of_its_windows(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=4.0)
+
+    ops.reframe(project.root, "cold-open", reset=True)
+
+    assert ops.REFRAME_KEY not in project.read_manifest()
+
+
+def test_an_in_point_needs_a_rect_or_a_reset(project: Project) -> None:
+    with pytest.raises(ProjectError, match="rect to put there"):
+        ops.reframe(project.root, "cold-open", src_start=4.0)
+
+
+def test_a_window_is_still_a_floor_and_is_grown_to_the_canvas(project: Project) -> None:
+    """The same asymmetry as the head window: grown, never shrunk, because
+    shrinking cuts the subject in half."""
+    ops.canvas(project.root, size="1080x1920")
+    result = ops.reframe(project.root, "cold-open", rect="800,300,200,200", src_start=4.0)
+
+    window = next(w for w in _clip(result, "cold-open")["windows"] if w["src_start"] == 4.0)
+
+    assert window["asked"] == "800,300,200,200"
+    assert window["crop"] == "800,222,200,356"
+
+
+def test_the_writer_gets_every_window_the_manifest_holds(project: Project) -> None:
+    """The end-to-end shape: two stored windows become two keyframes on the
+    one node the file already had."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=4.0)
+
+    built = ops._build_mlt(project, ops._load_edit(project), fps=30.0)
+
+    rects = set(mlt.reframed_nodes(built["document"]).values())
+    assert rects == {"0|=0 0 4518 1920 1;120|=-3438 0 4518 1920 1"}
+
+
+def test_two_windows_at_one_in_point_are_reported_not_raised(project: Project) -> None:
+    """Only reachable by hand-editing the manifest — the op refuses the second
+    — and it is reported for `shots_error`'s reason: the table is how a person
+    finds the window to drop."""
+    ops.canvas(project.root, size="1080x1920")
+    manifest = project.read_manifest()
+    manifest[ops.REFRAME_KEY] = [
+        {"clip_id": "cold-open", "rect": [0, 0, 459, 816], "src_start": 4.0},
+        {"clip_id": "cold-open", "rect": [1461, 0, 459, 816], "src_start": 4.0},
+    ]
+    project.write_manifest(manifest)
+
+    entry = _clip(ops.reframe(project.root), "cold-open")
+
+    assert entry["crop"] is None
+    assert "two reframe windows at one in-point" in entry["error"]
+    assert "cannot" not in ops.timeline_view(project.root)["reframe_error"]

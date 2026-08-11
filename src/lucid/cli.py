@@ -589,12 +589,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "canvas's shape if it is not already, so everything named stays on screen",
     )
     p_reframe.add_argument(
+        "--at",
+        type=float,
+        metavar="SECONDS",
+        help="seconds into this clip's own source that the rect applies from, "
+        "until the next window. Omit for the window from the head of the file",
+    )
+    p_reframe.add_argument(
         "--reset",
         action="store_true",
-        help="drop this clip's override, or every one of them with no clip_id",
+        help="drop this clip's overrides, every one of them with no clip_id, or "
+        "just the window named by --at",
     )
     p_reframe.add_argument(
         "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
+    p_sheet = sub.add_parser(
+        "reframe-sheet",
+        help="draw every placement's framing window on its own source frames, for review",
+    )
+    p_sheet.add_argument("--out", help="where to write the montage (default cache/sheets/sheet.png)")
+    p_sheet.add_argument(
+        "--moments",
+        help="comma-separated fractions of each placement to sample (default 0.15,0.5,0.85)",
     )
 
     p_verify = sub.add_parser(
@@ -1144,10 +1162,16 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
             args.project,
             args.clip_id,
             rect=args.rect,
+            src_start=args.at,
             reset=args.reset,
             plan=args.plan,
         )
     )
+
+
+def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
+    moments = [float(part) for part in args.moments.split(",")] if args.moments else None
+    return _emit(ops.reframe_sheet(args.project, out=args.out, moments=moments))
 
 
 def _cmd_synopsis(args: argparse.Namespace) -> int:
@@ -1292,6 +1316,7 @@ _COMMANDS = {
     "canvas": _cmd_canvas,
     "reel": _cmd_reel,
     "reframe": _cmd_reframe,
+    "reframe-sheet": _cmd_reframe_sheet,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,
     "verify": _cmd_verify,

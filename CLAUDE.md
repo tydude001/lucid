@@ -289,7 +289,23 @@ installed package or the upstream repo, not your memory.
     swap, watched.
 - **Footage follows a canvas change by cropping, and the crop is a rect in
   *source* pixels stored as asked** — refit whenever the canvas moves, so
-  neither a cut nor a swap can invalidate one. An override is a **floor**: a
+  neither a cut nor a swap can invalidate one. **A rect is addressed
+  `(clip_id, src_start, rect)`, so framing is per *shot*, not per clip** —
+  `src_start` absent is the window from the head of the file, which is what
+  every older rect meant, so it is not a schema bump. It renders as **discrete
+  (`|=`) keyframes on one `qtblend` filter, numbered in the producer's own
+  source frames** — one node per resource per role still, measured. And the
+  reviewing tool is not optional: a wrong window **reads as framing in
+  motion** (2 of 15 hand numbers, twice now), so judge one on
+  `reframe_sheet`'s drawn-on-the-source-frame tiles, never on a watch.
+  HISTORY.md § Per-shot framing.
+  - Its two asymmetries: the **preview** places a shot by the window at its
+    `src_start`, so a boundary *inside* a placement previews as the first of
+    the two while the render steps mid-shot correctly (`reframe_sheet`'s
+    `windows` count is the tell); and `timeline_view`'s `reframe[clip].dest`
+    is the **head** window, which is the edit track's answer — the picture
+    layer draws the shot's own `dest` and reading the clip entry there is the
+    bug. An override is a **floor**: a
   rect that is not the canvas's shape is grown to it, never shrunk into it,
   because shrinking cuts the subject in half. **A still is never cropped** (a
   card is re-authored) and no filter is emitted where MLT's own placement

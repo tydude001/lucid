@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 import time
 from collections.abc import Iterable, Sequence
@@ -1708,6 +1709,14 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     contain placement — one path draws both, and neither is the front end's
     own arithmetic. A stale stored rect comes back as `reframe_error`, for
     `shots_error`'s reason: the view is how a person finds the rect to fix.
+
+    **Each shot carries its own `dest`, and the picture layer draws that one.**
+    `reframe[clip].dest` is the head window, which is the edit track's answer
+    and only accidentally the picture lane's: framing is addressed in source
+    seconds, so two placements of one clip can sit under two windows (PLAN.md
+    § Per-shot framing). A shot's `dest` is the window its `src_start` reads.
+    It is null for a still, which is contained rather than cropped, and null
+    for every shot while `reframe_error` stands.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -1735,18 +1744,34 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
 
     resolution = _mlt_resolution(project)
     reframe_error: str | None = None
+    entries: dict[str, mlt.Reframe] = {}
     try:
-        placement = {
-            clip_id_: {
-                "source": list(entry.source),
-                "crop": list(entry.crop),
-                "dest": list(entry.dest_rect(resolution)),
-                "crops": not entry.is_identity(resolution),
-            }
-            for clip_id_, entry in _reframe_map(project, resolution).items()
-        }
+        entries = _reframe_map(project, resolution)
     except ProjectError as exc:
-        placement, reframe_error = {}, str(exc)
+        reframe_error = str(exc)
+    placement = {
+        clip_id_: {
+            "source": list(entry.source),
+            "crop": list(entry.crop),
+            "dest": list(entry.dest_rect(resolution)),
+            "crops": not entry.is_identity(resolution),
+        }
+        for clip_id_, entry in entries.items()
+    }
+
+    # A shot carries its *own* placement, because framing is per shot: two
+    # placements of one clip read different parts of its source and so can sit
+    # under different windows. The picture layer draws this rather than the
+    # per-clip `reframe` entry, which is the head window and right only for
+    # the edit's own track. `null` for a still — a card is re-authored at the
+    # canvas, never cropped (`mlt.document`).
+    for shot in shots:
+        found = entries.get(str(shot.get("asset")))
+        shot["dest"] = (
+            None
+            if found is None or shot.get("is_image")
+            else list(found.dest_rect_at(float(shot.get("src_start") or 0.0), resolution))
+        )
 
     result: dict[str, Any] = {
         "project": str(project.root),
@@ -3549,11 +3574,21 @@ def _fit_rect_to_canvas(
     return grown_x, grown_y, grown_w, grown_h
 
 
-def _stored_reframes(project: Project) -> dict[str, tuple[int, int, int, int]]:
-    """Every clip's requested crop rect, as asked for rather than as fitted."""
-    stored = {}
+def _stored_reframes(project: Project) -> dict[str, list[tuple[float, tuple[int, int, int, int]]]]:
+    """Every clip's requested crop rects, as asked for rather than as fitted.
+
+    A series per clip, `(src_start seconds, rect)` in source order. A record
+    with no `src_start` is the window from the head of the file onward, which
+    is what every rect written before per-shot framing existed meant and still
+    means — the key is optional and absent-means-what-it-always-meant, so this
+    is deliberately not a schema bump (CLAUDE.md).
+    """
+    stored: dict[str, list[tuple[float, tuple[int, int, int, int]]]] = {}
     for record in project.read_manifest().get(REFRAME_KEY, []):
-        stored[str(record["clip_id"])] = _parse_rect(record["rect"])
+        at = float(record.get("src_start") or 0.0)
+        stored.setdefault(str(record["clip_id"]), []).append((at, _parse_rect(record["rect"])))
+    for series in stored.values():
+        series.sort(key=lambda entry: entry[0])
     return stored
 
 
@@ -3566,19 +3601,39 @@ def _clip_source(clip: dict[str, Any]) -> tuple[int, int] | None:
 
 def _clip_reframe(
     clip: dict[str, Any],
-    asked: tuple[int, int, int, int] | None,
+    asked: list[tuple[float, tuple[int, int, int, int]]] | None,
     resolution: tuple[int, int],
 ) -> mlt.Reframe | None:
-    """What survives into the frame for one clip, override or centre default."""
+    """What survives into the frame for one clip, overrides or centre default.
+
+    The head window is whichever override sits at 0, else the centre crop —
+    so a clip whose first override starts partway in is centre-cropped up to
+    that point rather than being framed by a window that has not begun.
+    """
     source = _clip_source(clip)
     if source is None:
         return None
+    series = list(asked or [])
+    starts = [start for start, _ in series]
+    if len(set(starts)) != len(starts):
+        # Only reachable by hand-editing the manifest — the op refuses a second
+        # entry at one in-point. Refused as a `ProjectError` so the reading
+        # paths report it (`reframe`'s table, `timeline_view`'s
+        # `reframe_error`) rather than being taken down by it, which is how a
+        # person finds the window to drop.
+        raise ProjectError(
+            f"clip {clip.get('clip_id')!r} has two reframe windows at one in-point "
+            f"({sorted(starts)}) — a window is addressed by where it starts, so one of "
+            "them is unreachable; drop it with `reframe <clip> --at <seconds> --reset`"
+        )
+    head = series.pop(0)[1] if series and series[0][0] <= 0 else None
     crop = (
         mlt.centre_crop(source, resolution)
-        if asked is None
-        else _fit_rect_to_canvas(asked, source, resolution)
+        if head is None
+        else _fit_rect_to_canvas(head, source, resolution)
     )
-    return mlt.Reframe(source=source, crop=crop)
+    later = tuple((when, _fit_rect_to_canvas(rect, source, resolution)) for when, rect in series)
+    return mlt.Reframe(source=source, crop=crop, later=later)
 
 
 def _reframe_map(project: Project, resolution: tuple[int, int]) -> dict[str, mlt.Reframe]:
@@ -3607,6 +3662,7 @@ def reframe(
     clip_id: str | None = None,
     *,
     rect: str | None = None,
+    src_start: float | None = None,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -3621,10 +3677,20 @@ def reframe(
     rect it used for every clip rather than quietly choosing one, and the
     reason there is deliberately no analysis picking a crop for you.
 
-    Called with no arguments it changes nothing and reports the crop in force
-    per clip. `clip_id` with `rect` sets an override; `clip_id` with `reset`
-    drops that clip's; `reset` alone drops every one. `plan` resolves — a
-    rect that cannot fit is refused here either way — without writing.
+    **`src_start` frames a shot rather than a clip.** It is seconds into that
+    clip's own source, and the rect it carries is in force from there onward,
+    until the next window. That address is the source's clock and not the
+    timeline's, so a clip used seven times gets seven correct windows without
+    anything being said seven times, and no cut can invalidate one — the same
+    reason a footage description indexes the source (PLAN.md § Per-shot
+    framing). Omitted, it means the window from the head of the file, which is
+    exactly what a per-clip reframe always meant.
+
+    Called with no arguments it changes nothing and reports the crops in force
+    per clip. `clip_id` with `rect` sets one window; `clip_id` with `reset`
+    drops that clip's windows, or with `src_start` just the one at that point;
+    `reset` alone drops every one. `plan` resolves — a rect that cannot fit is
+    refused here either way — without writing.
 
     An override is a *floor*, not a frame: a rect whose shape is not the
     canvas's is grown to it, so everything asked for stays on screen, and the
@@ -3634,6 +3700,12 @@ def reframe(
         raise ProjectError("pass a rect or `reset`, not both")
     if rect is not None and clip_id is None:
         raise ProjectError("a rect needs a clip_id — a crop indexes one clip's source")
+    if src_start is not None and clip_id is None:
+        raise ProjectError(
+            "an in-point needs a clip_id — a window indexes one clip's own source"
+        )
+    if src_start is not None and rect is None and not reset:
+        raise ProjectError("an in-point needs a rect to put there, or `reset` to drop one")
 
     project = Project.open(path)
     resolution = _mlt_resolution(project)
@@ -3646,20 +3718,58 @@ def reframe(
                 f"clip {clip_id!r} has no picture to crop — a reframe indexes video"
             )
 
+    at = 0.0 if src_start is None else float(src_start)
+    if clip_id is not None and src_start is not None:
+        duration = clips[clip_id].get("duration")
+        if at < 0:
+            raise ProjectError(f"src_start {at} is before the start of clip {clip_id!r}")
+        # A window past the end never applies, and would sit in the manifest
+        # reading as framing that had been dealt with.
+        if duration and at >= float(duration):
+            raise ProjectError(
+                f"src_start {at} is past clip {clip_id!r}'s {float(duration):.3f}s, so "
+                "the window would never come into force"
+            )
+
     asked = _stored_reframes(project)
     if rect is not None:
         # Resolved before it is stored, so an impossible rect is refused at the
         # keyboard rather than at the render an hour later.
         parsed = _parse_rect(rect)
         _fit_rect_to_canvas(parsed, _clip_source(clips[clip_id]), resolution)  # type: ignore[arg-type]
-        asked[str(clip_id)] = parsed
+        series = [entry for entry in asked.get(str(clip_id), []) if entry[0] != at]
+        series.append((at, parsed))
+        asked[str(clip_id)] = sorted(series, key=lambda entry: entry[0])
     elif reset:
-        asked = {} if clip_id is None else {k: v for k, v in asked.items() if k != clip_id}
+        if clip_id is None:
+            asked = {}
+        elif src_start is None:
+            asked.pop(clip_id, None)
+        else:
+            series = [entry for entry in asked.get(clip_id, []) if entry[0] != at]
+            if len(series) == len(asked.get(clip_id, [])):
+                raise ProjectError(
+                    f"clip {clip_id!r} has no reframe window at {at}s — `reframe {clip_id}` "
+                    "lists the ones it has"
+                )
+            if series:
+                asked[clip_id] = series
+            else:
+                asked.pop(clip_id, None)
 
     write = (rect is not None or reset) and not plan
     if write:
         manifest = project.read_manifest()
-        records = [{"clip_id": key, "rect": list(value)} for key, value in sorted(asked.items())]
+        records = []
+        for key, series in sorted(asked.items()):
+            for window_at, window_rect in series:
+                record: dict[str, Any] = {"clip_id": key, "rect": list(window_rect)}
+                # The head window writes the record it wrote before per-shot
+                # framing existed, so an unwindowed project's manifest is
+                # unchanged by any of this.
+                if window_at:
+                    record["src_start"] = window_at
+                records.append(record)
         if records:
             manifest[REFRAME_KEY] = records
         else:
@@ -3682,22 +3792,24 @@ def reframe(
                     "clip_id": key,
                     "source": f"{source[0]}x{source[1]}",
                     "crop": None,
-                    "asked": _rect_text(asked[key]),
+                    "asked": _rect_text(asked[key][0][1]),
                     "origin": "override",
                     "reframes": None,
                     "kept": None,
+                    "windows": None,
                     "error": str(error),
                 }
             )
             continue
         assert entry is not None
+        overrides = dict(asked.get(key, []))
         report.append(
             {
                 "clip_id": key,
                 "source": f"{source[0]}x{source[1]}",
                 "crop": _rect_text(entry.crop),
-                "asked": _rect_text(asked[key]) if key in asked else None,
-                "origin": "override" if key in asked else "centre",
+                "asked": _rect_text(overrides[0.0]) if 0.0 in overrides else None,
+                "origin": "override" if 0.0 in overrides else "centre",
                 # False means the filter is not emitted at all: the clip already
                 # carries the canvas's aspect uncropped, so MLT's own placement
                 # is already the right one.
@@ -3706,6 +3818,23 @@ def reframe(
                     (entry.crop[2] * entry.crop[3]) / (source[0] * source[1]),
                     4,
                 ),
+                # Every window in force, head one included, so the shot-level
+                # table is readable without re-deriving which override applies
+                # where. One entry is the ordinary per-clip case.
+                "windows": [
+                    {
+                        "src_start": window_at,
+                        "crop": _rect_text(window_crop),
+                        "asked": _rect_text(overrides[window_at])
+                        if window_at in overrides
+                        else None,
+                        "origin": "override" if window_at in overrides else "centre",
+                        "kept": round(
+                            (window_crop[2] * window_crop[3]) / (source[0] * source[1]), 4
+                        ),
+                    }
+                    for window_at, window_crop in entry.windows()
+                ],
                 "error": None,
             }
         )
@@ -3717,6 +3846,199 @@ def reframe(
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),
+    }
+
+
+#: Where in each placement the sheet samples. Three, and not at the edges: an
+#: edge frame is the one a seek is least likely to land on and the one a cut
+#: is most likely to have made ambiguous. `~/lucid-final-cut/audit.py`'s own
+#: numbers, which is the prototype this is a build of.
+SHEET_MOMENTS = (0.15, 0.5, 0.85)
+#: Tile width in the montage. The sheet is read on a phone (auto-memory:
+#: review by served page), so three across at this width is a legible row.
+SHEET_TILE_WIDTH = 420
+#: The window, drawn on the source frame. Red because nothing in this footage
+#: is, and thick enough to read once the tile is 420px wide.
+SHEET_STROKE = "#ff3b3b"
+SHEET_LABEL = "#ffcc00"
+
+
+def _sheet_placements(
+    project: Project, resolution: tuple[int, int]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Every stretch of footage the render shows, and what it is framed by.
+
+    The picture lane when there is one — `_picture_plan`'s shots, which is
+    what `export` will actually produce — else the edit's own segments, which
+    is the whole picture for a project with no cues. Stills come back in the
+    second list rather than being dropped silently: a card is authored at the
+    canvas and never cropped, so there is no window to review, and saying so
+    is the difference between "nothing to check" and "not checked".
+    """
+    clips = _clips_by_id(project)
+    reframes = _reframe_map(project, resolution)
+    rate = _export_fps(clips)
+    shots, _ = _picture_plan(project, rate)
+
+    placements: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    if shots:
+        for index, shot in enumerate(shots):
+            if shot.get("is_image"):
+                skipped.append({"index": index, "asset": shot["asset"], "why": "a still is never cropped"})
+                continue
+            placements.append(
+                {
+                    "index": index,
+                    "asset": str(shot["asset"]),
+                    "path": Path(str(shot["asset_path"])),
+                    "src_start": float(shot["src_start"]),
+                    "duration": float(shot["duration"]),
+                    "reframe": reframes.get(str(shot["asset"])),
+                }
+            )
+        return placements, skipped
+
+    for index, seg in enumerate(_placed_segments(_load_edit(project))):
+        clip = clips.get(seg["clip_id"])
+        if clip is None or _clip_source(clip) is None:
+            continue
+        placements.append(
+            {
+                "index": index,
+                "asset": seg["clip_id"],
+                "path": media.media_path(project, clip),
+                "src_start": float(seg["start"]),
+                "duration": float(seg["duration"]),
+                "reframe": reframes.get(seg["clip_id"]),
+            }
+        )
+    return placements, skipped
+
+
+def _draw_window(
+    tile: Path, crop: tuple[int, int, int, int], source: tuple[int, int], label: str
+) -> None:
+    """Draw one window on one extracted frame, in place."""
+    x, y, width, height = crop
+    stroke = max(2, round(source[0] / 240))
+    command = [
+        *graphics.magick_command(), str(tile),
+        "-fill", "none", "-stroke", SHEET_STROKE, "-strokewidth", str(stroke),
+        "-draw", f"rectangle {x},{y} {x + width - 1},{y + height - 1}",
+        "-stroke", "none", "-fill", SHEET_LABEL,
+        "-pointsize", str(max(18, round(source[0] / 36))),
+        "-annotate", f"+{stroke * 3}+{round(source[1] / 12)}", label,
+        str(tile),
+    ]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    if done.returncode != 0:
+        raise graphics.GraphicsError(f"magick could not draw the window on {tile}: {done.stderr[-800:]}")
+
+
+def reframe_sheet(
+    path: Path | str,
+    *,
+    out: str | None = None,
+    moments: Sequence[float] | None = None,
+) -> dict[str, Any]:
+    """Draw every placement's framing window on its own source frames.
+
+    **The output of any framing decision is unreviewable without this**, and
+    that is why it is built beside the framing rather than after it. The hand-
+    framed teaser had 2 of its 15 windows wrong and *neither was visible in
+    motion*: a badly-placed window reads as framing, because nothing in the
+    frame says otherwise. What catches one is the window drawn on the whole
+    source frame, where the part it is leaving out is right there beside it
+    (PLAN.md § Per-shot framing, step 3; `~/lucid-final-cut/audit.py` is the
+    prototype).
+
+    Every placement the render shows — the picture lane's shots, or the edit's
+    own segments where there is no lane — sampled at three moments, with the
+    window in force at that point in the *source* drawn on the frame in red
+    and labelled with the rect. Placements rather than clips, because framing
+    is per shot: one clip used seven times gets seven rows, each showing the
+    window its own stretch of source reads.
+
+    Writes a tile per sample and one montage under `cache/sheets/`, and
+    returns both paths and the table. `out` names the sheet somewhere else;
+    `moments` overrides where in each placement it samples, as fractions.
+    """
+    project = Project.open(path)
+    resolution = _mlt_resolution(project)
+    at = tuple(float(m) for m in (moments or SHEET_MOMENTS))
+    if not at or any(m < 0 or m > 1 for m in at):
+        raise ProjectError(f"sample moments are fractions of a placement, not {list(at)}")
+
+    placements, skipped = _sheet_placements(project, resolution)
+    if not placements:
+        raise ProjectError(
+            "this project has no footage placements to sheet — there is nothing "
+            "framed here to look at"
+        )
+
+    tiles: list[Path] = []
+    rows: list[dict[str, Any]] = []
+    dest_dir = project.sheet_dir
+    shutil.rmtree(dest_dir, ignore_errors=True)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for row, placement in enumerate(placements):
+        entry = placement["reframe"]
+        source = entry.source if entry is not None else None
+        samples = []
+        for moment in at:
+            when = placement["src_start"] + placement["duration"] * moment
+            tile = dest_dir / f"{row:03d}-{moment:.2f}.png"
+            picture.extract_frame(placement["path"], when, tile)
+            crop = entry.crop_at(when) if entry is not None else None
+            if crop is not None and source is not None:
+                _draw_window(
+                    tile,
+                    crop,
+                    source,
+                    f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}",
+                )
+            tiles.append(tile)
+            samples.append({"src_time": round(when, 3), "crop": _rect_text(crop) if crop else None, "png": str(tile)})
+        rows.append(
+            {
+                "row": row,
+                "shot": placement["index"],
+                "asset": placement["asset"],
+                "src_start": round(placement["src_start"], 3),
+                "duration": round(placement["duration"], 3),
+                # How many distinct windows this placement crosses. More than
+                # one means the sampled frames are not all framed alike, which
+                # is the case the sheet exists to make visible.
+                "windows": len(
+                    {sample["crop"] for sample in samples if sample["crop"] is not None}
+                ),
+                "samples": samples,
+            }
+        )
+
+    sheet = Path(out).expanduser() if out else dest_dir / "sheet.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        *graphics.magick_command(), "montage", *[str(tile) for tile in tiles],
+        "-tile", f"{len(at)}x",
+        "-geometry", f"{SHEET_TILE_WIDTH}x+3+3",
+        "-background", "#222",
+        str(sheet),
+    ]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
+    if done.returncode != 0 or not sheet.exists():
+        raise graphics.GraphicsError(f"magick could not montage the sheet: {done.stderr[-800:]}")
+
+    return {
+        "project": str(project.root),
+        "canvas": f"{resolution[0]}x{resolution[1]}",
+        "sheet": str(sheet),
+        "rows": rows,
+        "count": len(rows),
+        "moments": list(at),
+        "skipped": skipped,
     }
 
 

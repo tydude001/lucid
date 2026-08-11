@@ -50,6 +50,10 @@ TRANSCRIPT_DIR = "cache/transcripts"
 HISTORY_DIR = "cache/history"
 VERIFY_DIR = "cache/verify"
 FRAMES_DIR = "cache/frames"
+#: Where `reframe_sheet` puts its tiles and the sheet it montages from them.
+#: Cache because it is re-derivable from the manifest and the media, and
+#: nothing reads it back — a person looks at it.
+SHEET_DIR = "cache/sheets"
 ATTENUATED_DIR = "cache/attenuated"
 WAVEFORM_DIR = "cache/waveform"
 RENDER_DIR = "renders"
@@ -200,6 +204,10 @@ class Project:
     @property
     def frames_dir(self) -> Path:
         return self.root / FRAMES_DIR
+
+    @property
+    def sheet_dir(self) -> Path:
+        return self.root / SHEET_DIR
 
     @property
     def attenuated_dir(self) -> Path:
