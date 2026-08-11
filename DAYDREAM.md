@@ -414,17 +414,25 @@ template stacks from the top, so at 1080x1920 its content sits in the top
 quarter and two-thirds is empty. **A template that fits is not a template that
 composes**, and only the fit was ever measured.
 
-**Refused on a watch 2026-08-10, and the cause is one line of `graphics.py`:
-`view_height = round(TEMPLATE_WIDTH * height / width)` keeps the design grid
-1920 wide always, so a 1080-wide canvas renders every template at 0.5625 while
-the frame grows 1.78x taller.** Type is therefore ~3.2x smaller against the
-frame at 9:16 than at 16:9 — a receipt title falls 11.3% → 3.6% of frame
-height and its body 4.3% → **1.35%, or 26px in a 1920 frame**, which is why
-the cards read as small rather than merely top-heavy. `reveal` is affected too
-(18.2% → 5.7%) and does *not* compose tall unchanged, as this file previously
-claimed. A vertical layout is a per-aspect template variant, not a scale
-factor, and `goodsometimes/branding.md`'s Shorts row is the only spec for it:
-1080x1920, title in the top third, bottom clear for platform UI.
+**Refused on a watch 2026-08-10.** The cause was filed as one line of
+`graphics.py` — `view_height = round(TEMPLATE_WIDTH * height / width)` keeps
+the design grid 1920 wide always, so a 1080-wide canvas renders every template
+at 0.5625 — and type is indeed ~3.2x smaller *against the frame* at 9:16 than
+at 16:9: a receipt title falls 11.3% → 3.57% of frame height, its body 4.26% →
+**1.35%**. **The arithmetic held and the diagnosis did not** (PLAN.md § The
+vertical card layout, finding 1). A 16:9 card is letterboxed to 1080 wide in a
+portrait feed, so it draws its title at the same 68.6px the 9:16 card does —
+ink measured off both rasters is **765x243 either way, pixel-identical on
+screen**. What the swap changes is the field around the type: ink ends at
+17.1% of the vertical frame against 71.4% of the landscape one. The cards read
+as small because they are top-heavy, not instead of it.
+
+So a vertical layout is a per-aspect template variant rather than a scale
+factor — the conclusion survives its reason — and its job is to *compose* into
+the tall frame, with any enlargement an editorial choice on top.
+`goodsometimes/branding.md`'s Shorts row is the only spec: 1080x1920, title in
+the top third, bottom clear for platform UI. Costed 2026-08-11, four findings
+and four build steps, in PLAN.md § The vertical card layout — the design note.
 
 ### Captions — built, and per-word animation declined on a watch
 

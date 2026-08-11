@@ -1246,6 +1246,14 @@ So the ordering is forced, and it is not a preference:
 4. **Stop.** Animation gets its own note, after a watch of a real card-heavy
    cut — the same discipline the layered timeline used.
 
+**The watch that step 4 stopped for happened, and it refused the cards at
+9:16** — not for the reason it was filed under. § The vertical card layout —
+the design note (2026-08-11) carries the four findings: the type is the same
+size on screen at both aspects, the fit constraint that shapes the 16:9
+templates is absent at portrait, an enlarged title walks into the one
+unmeasured slot, and the footer sits in the platform UI band. Animation is
+still parked behind it.
+
 No properties pane and no styling UI: the agent authors and the window
 renders, which is the parity target DAYDREAM.md states. Two things stay
 deliberately unanswered — whether the existing Scream cards get regenerated at
@@ -2856,3 +2864,142 @@ And whether the four are *right*. They are a proposal — `reframe_sheet` draws
 both rects now, dashed for the lower one, which is where that gets settled.
 `s2022-reveal`'s panes overlap heavily (344 and 711, 904 wide apiece), which
 is the case where a split is legal and may still be the worse picture.
+
+## The vertical card layout — the design note — 2026-08-11
+
+The last unbuilt piece of § Motion graphics and templates, and the one thing
+between the vertical cut and a card-heavy watch. DAYDREAM.md § Motion graphics
+states the gap as *"one line of `graphics.py`: `view_height = round(
+TEMPLATE_WIDTH * height / width)` keeps the design grid 1920 wide always, so a
+1080-wide canvas renders every template at 0.5625 while the frame grows 1.78x
+taller"*, and concludes that a vertical layout is a per-aspect template
+variant rather than a scale factor.
+
+**The conclusion is right and the reason given for it is wrong.** The
+arithmetic checks out — a receipt title is 11.30% of frame height at 1920x1080
+and 3.57% at 1080x1920, its body 4.26% against 1.35% — but the frame is not
+what a viewer measures type against, and the control nobody ran says so.
+
+### Finding 1 — the type is not smaller on screen; it is pixel-identical
+
+The same card, rendered at the film's canvas and at the vertical one, ink
+extent measured off both rasters with `magick`:
+
+| canvas | ink box | on a 1080-wide phone |
+|---|---|---|
+| 1920x816 | 1359x432 at (141,151) | x0.5625 → **765x243** |
+| 1080x1920 | 765x243 at (79,85) | x1 → **765x243** |
+
+A 16:9 card in a portrait feed is letterboxed to 1080 wide, so it renders its
+122u title at the same 68.6px the 9:16 card does. The swap changes the type's
+on-screen size by nothing at all.
+
+What it changes is the field around it. **Ink ends at 17.1% of the vertical
+frame against 71.4% of the landscape one** — 83% of the card is empty paper.
+That is what read as small on the watch, and it is a composition fact, not a
+scale one. The distinction is not pedantry: it decides what gets built. A
+scale fix (anchor the grid to the frame's short side, or divide the type by
+the aspect) makes the type bigger and leaves the stack in the top sixth, which
+is the same card with a louder title.
+
+So: a variant, as DAYDREAM concluded — but the variant's job is to **compose
+into the tall frame**, and any enlargement is an editorial choice made on top
+of that rather than the fix itself.
+
+### Finding 2 — fit is not the constraint at portrait; it is the opposite of 16:9
+
+The 16:9 blocker is that two of twelve cards refuse — a 2.35:1 receipt holds
+three lines of quote where a 16:9 one holds seven. Portrait has the reverse
+problem, measured through `flow_runs`' own coder against the twelve real slot
+tables in `~/lucid-vertical/proj`, in the portrait grid's 3413 units:
+
+| quote size | worst card (`receipt-scream4-2011`) | share of frame height |
+|---|---|---|
+| 46u (today) | 6 lines, 348u | 10.2% |
+| 64u | 8 lines, 648u | 19.0% |
+| 80u | 10 lines, 1010u | 29.6% |
+| 96u | 11 lines, 1331u | 39.0% |
+
+**All twelve fit at every size in that band**, including the two that refuse
+at 16:9. The portrait variant is free to roughly double its type and still
+have room; the constraint that shapes the 16:9 templates simply is not present
+here. That is the budget the layout gets to spend, and it is why the answer is
+a composition rather than a compromise.
+
+### Finding 3 — enlarging the type walks into an unmeasured slot
+
+`quote` is a `runs` slot, wrapped and fit-checked since § The emphasis-capable
+quote slot, and that is the only slot in any of the three templates that is
+measured. `title`, `note`, `date_line` and `mark` are plain escaped
+substitutions. Today that is latent: at 196u a `reveal` title fits the 1640u
+body box with room. Measured at the sizes a portrait variant would want:
+
+| reveal title | 196u | 300u | 360u |
+|---|---|---|---|
+| `Scream VI` | 861u | 1318u | 1582u |
+| `Scream 2022` | 1096u | **1677u** | **1986u** |
+
+Past the 1640u box it overruns the margin and **`magick` exits 0**, which is
+the same silent overflow `flow=True` exists to close for the quote. So the
+variant cannot simply set a bigger title: **the title has to become measured
+first, or the build ships the failure the quote slot was built to prevent.**
+This is the finding that adds a step, and it is one nothing in the item's
+description predicted.
+
+### Finding 4 — the footer lands where the platform UI is
+
+`foot_y = view_height - 110` is a landscape number. At 1080x1920 it puts the
+wordmark 62px from the bottom edge, inside the band
+`goodsometimes/branding.md`'s Shorts row reserves — *"Top-third title zone (UI
+covers bottom)"*. Portrait declares its own footer position, and whether the
+mark stays bottom-right at all is a call rather than a derivation.
+
+### The design
+
+**A variant is a file, chosen from the canvas, never a template name.**
+`card_new` records `(template, slots, canvas)` and `card_reauthor` fills the
+template again at the project canvas — the record's entire job is to survive
+an aspect swap. If portrait were a separate template name, re-authoring after
+a swap would have to rewrite the recorded template, and the record would no
+longer say what the card is. So `fill_template` resolves `receipt` +
+`height > width` to `receipt.portrait.svg`, and every existing record keeps
+meaning what it meant.
+
+**The grid stays 1920 units wide.** x-coordinates, margins and body widths keep
+one language across both variants, `render_svg` learns nothing new, and the
+portrait file is the same coordinate system with a 3413u-tall viewBox that it
+actually uses. What differs is the vertical stack and the sizes, which is what
+a variant is for.
+
+**Declared geometry becomes per-variant.** `TEMPLATES[name]["slots"][slot]`
+carries `x`/`y`/`width`/`size`/`line_height`/`footer_slot` for the wrap
+measurement, and those numbers are the landscape file's. A portrait file with
+landscape declarations measures the wrap against the wrong box, which is
+finding 3 arriving by a second route. The existing test that measures declared
+against the file runs for both.
+
+### Build order
+
+1. **Variant resolution, with no variant files yet.** `fill_template` picks a
+   file and a geometry table from the canvas; landscape resolves to today's
+   file and today's numbers. **The step's test is that every existing card
+   renders byte-identical**, which is what makes the mechanism safe to put
+   under the twelve records before any of them move.
+2. **Measure the title.** `title` and `note` fit-checked, refusing rather than
+   overrunning, at both aspects. Ships a refusal on cards nobody has drawn yet
+   and closes a hole that is live today at exit 0.
+3. **Author the three portrait files** — `receipt`, `reveal`, `rerate` — to
+   the branding spec: title in the top third, content through the middle,
+   bottom clear.
+4. **Re-author the twelve and watch them.** `card_reauthor` in
+   `~/lucid-vertical/proj`, served on `:8797` as a sheet. The watch is what
+   settles the type scale, not the measurement — finding 2 says the band
+   80u–96u all fits, and which of it reads is Tyler's eye.
+
+### The two calls this note does not make
+
+- **How much of the bottom is unusable.** Branding says the UI covers it and
+  gives no number. 20% of frame height is the proposal; a wrong one here is
+  invisible in a render and obvious in the feed.
+- **Whether the wordmark stays bottom-right at portrait**, given the above, or
+  moves to the top with the title.
