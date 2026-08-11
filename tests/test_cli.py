@@ -436,3 +436,36 @@ def test_info_on_an_undescribed_project_is_untouched(
 
     assert main(["-C", str(tmp_path / "plain"), "info"]) == 0
     assert json.loads(capsys.readouterr().out)["descriptions"] == []
+
+
+@needs_ffprobe
+def test_reel_span_parses_and_reaches_ops_as_two_arguments(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one hop the stdio suite cannot reach: `reel` takes `START+DURATION`
+    on the command line, because that is how a watch-note is phrased, and the
+    op takes `start=`/`end=` because that is what an agent can pass. Unpacking
+    the pair is CLI-only plumbing, and getting it backwards would read as a
+    correct span right up until the reel came out wrong.
+    """
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "reel", str(tmp_path / "teaser"), "0:03+5", "--plan"]) == 0
+    planned = json.loads(capsys.readouterr().out)
+
+    assert planned["keep"] == pytest.approx([3.0, 8.0]), "a length, not a second timestamp"
+    head, tail = planned["cut"]
+    assert head == pytest.approx([0.0, 3.0])
+    assert tail[0] == pytest.approx(8.0)
+    assert tail[1] == pytest.approx(planned["source_duration"])
+    assert not (tmp_path / "teaser").exists()

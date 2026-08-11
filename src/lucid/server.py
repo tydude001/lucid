@@ -49,15 +49,21 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def _confine(path: str) -> str:
-    """Resolve a tool's `path` argument against the bound project, or refuse it.
+    """Resolve a tool's project-selector argument against the bound project.
 
-    **Only `path` is confined, and that is a deliberate boundary**: `path` is
-    the *project selector*, so leaving it free is what lets an agent panel
-    opened on one project mutate another. The file arguments are not
-    selectors and are left alone — `import_media`'s `source` reads footage
+    **Only a project selector is confined, and that is a deliberate
+    boundary**: `path` is the selector, so leaving it free is what lets an
+    agent panel opened on one project mutate another. The file arguments are
+    not selectors and are left alone — `import_media`'s `source` reads footage
     that lives on the NAS, and `export`/`add_captions` write where the user
     asked. Confining either would break the ordinary workflow while buying
     nothing, since neither can touch a second project's state.
+
+    `reel`'s `dest` is the one argument that is a *second* selector rather
+    than a file: it names a whole project, and an unconfined one would let a
+    bound panel write a project anywhere on disk. It is confined by being
+    named at the registration site (`@_tool("path", "dest")`) rather than by
+    a line in the body, for the reason the decorator exists.
 
     A relative path resolves against the bound root rather than the process
     cwd. For the agent panel the two are the same directory (`webui.py` sets
@@ -80,8 +86,8 @@ def _confine(path: str) -> str:
     return str(resolved)
 
 
-def _tool() -> Callable[[F], F]:
-    """Register a tool, routing its `path` argument through `_confine` first.
+def _tool(*selectors: str) -> Callable[[F], F]:
+    """Register a tool, routing its project-selector arguments through `_confine`.
 
     A decorator rather than a line in each body because the confinement has
     to hold for *every* tool — one body that forgot it would be the whole
@@ -89,17 +95,30 @@ def _tool() -> Callable[[F], F]:
     docstring). `functools.wraps` sets `__wrapped__`, which the SDK's
     `inspect.signature(fn, eval_str=True)` follows, so the advertised schema
     is the undecorated function's and nothing about the tool surface changes.
+
+    Defaults to `path`, which is every tool but one, so `@_tool()` keeps its
+    meaning. Naming more than one is for a tool that addresses a *second*
+    project — `reel`'s `dest` — and an unlisted selector is silently
+    unconfined, exactly the way a tool registered with `mcp.tool()` is, so
+    the list belongs beside the registration where it can be read.
     """
+    names = selectors or ("path",)
 
     def decorator(fn: F) -> F:
         signature = inspect.signature(fn)
-        if "path" not in signature.parameters:
+        present = [name for name in names if name in signature.parameters]
+        if not present:
             return mcp.tool()(fn)
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             bound = signature.bind(*args, **kwargs)
-            bound.arguments["path"] = _confine(bound.arguments["path"])
+            for name in present:
+                # `bind` omits an argument the caller left to its default, and
+                # a selector never has one — but reading it unguarded would
+                # turn "you forgot dest" into a KeyError from the decorator.
+                if name in bound.arguments:
+                    bound.arguments[name] = _confine(bound.arguments[name])
             return fn(*bound.args, **bound.kwargs)
 
         return mcp.tool()(wrapper)
@@ -869,6 +888,58 @@ def canvas(
     use `reframe` to see or change which part of each one is kept.
     """
     return ops.canvas(path, size=size, reset=reset, plan=plan)
+
+
+@_tool("path", "dest")
+def reel(
+    path: str,
+    dest: str,
+    start: float,
+    end: float,
+    canvas: str | None = None,
+    name: str | None = None,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Derive a new project at `dest` holding `[start, end)` of this timeline.
+
+    `start` and `end` are the seconds *an export plays at* — the same numbers
+    cut_by_time takes, read off a watch — and they name the span to **keep**,
+    which is the opposite direction from every other tool here. The head and
+    the tail are what get cut, through cut_by_time.
+
+    Reach for this before setting a vertical `canvas` on a film. The canvas is
+    project state, so reshaping the film to take one reel would leave it
+    reshaped afterwards; deriving is what keeps the film alone. Pass the reel's
+    shape as `canvas` here (e.g. "1080x1920") and it is set on the copy only.
+
+    Media is linked, not copied, so this costs a manifest rather than the
+    footage. Descriptions and reframes come across unchanged and stay valid,
+    because neither stores a timeline position. Cues come across only where
+    the reel still has the word they hang on — read `cues_dropped`, which is
+    one entry per picture the reel will not have. Cards are
+    re-authored at the new canvas; read `cards_unrecorded` in the result,
+    which names any that cannot be, and `over_platform_cap`, which says
+    whether the result still runs longer than a vertical feed will take.
+
+    Refused if either kept edge lands on a word with a suspect duration — one
+    that likely hides a retake, so the reel would open or close on the wrong
+    take — unless `confirm_suspect=True`. Read `suspect_edges` in the result;
+    it is about the reel's own two edges, not everything being cut away.
+
+    `plan=True` resolves the spans and the clips it would link, and creates
+    nothing.
+    """
+    return ops.reel(
+        path,
+        dest,
+        start=start,
+        end=end,
+        canvas=canvas,
+        name=name,
+        confirm_suspect=confirm_suspect,
+        plan=plan,
+    )
 
 
 @_tool()

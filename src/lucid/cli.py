@@ -545,6 +545,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_reel = sub.add_parser(
+        "reel", help="derive a new project holding one span of this one's timeline"
+    )
+    p_reel.add_argument("dest", help="where to put the derived project (must not exist yet)")
+    # The same surface `cut-at` takes, because it is the same kind of number —
+    # seconds an export played at, read off a watch. What differs is the
+    # direction: this one names what to *keep*.
+    p_reel.add_argument(
+        "keep",
+        type=_time_span,
+        metavar="START-END|START+DURATION",
+        help="the span to keep, in the seconds the current export plays at",
+    )
+    p_reel.add_argument(
+        "--canvas",
+        metavar="WIDTHxHEIGHT",
+        help="reshape the derived project only, e.g. 1080x1920. The film is left alone",
+    )
+    p_reel.add_argument("--name", help="project name (default: the destination directory's)")
+    p_reel.add_argument(
+        "--confirm-suspect",
+        action="store_true",
+        help="allow a kept edge that lands on a word with a suspect duration "
+        "(the reel's own two edges — not everything being cut away)",
+    )
+    p_reel.add_argument(
+        "--plan",
+        action="store_true",
+        help="resolve the spans and the clips it would link, and create nothing",
+    )
+
     p_reframe = sub.add_parser(
         "reframe", help="read or set which part of each clip survives into the frame"
     )
@@ -1089,6 +1120,22 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
     return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
 
 
+def _cmd_reel(args: argparse.Namespace) -> int:
+    start, end = args.keep
+    return _emit(
+        ops.reel(
+            args.project,
+            args.dest,
+            start=start,
+            end=end,
+            canvas=args.canvas,
+            name=args.name,
+            confirm_suspect=args.confirm_suspect,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_reframe(args: argparse.Namespace) -> int:
     # Same rule as `canvas` above: the raw `X,Y,W,H` goes through, because
     # `ops._parse_rect` and `ops._fit_rect_to_canvas` own every refusal.
@@ -1243,6 +1290,7 @@ _COMMANDS = {
     "caption-view": _cmd_caption_view,
     "caption-style": _cmd_caption_style,
     "canvas": _cmd_canvas,
+    "reel": _cmd_reel,
     "reframe": _cmd_reframe,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,

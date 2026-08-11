@@ -3467,6 +3467,13 @@ def canvas(
     }
 
 
+#: `reel` takes a `canvas=` argument, which shadows the function above inside
+#: its body — the same collision `describe` and `verify` have with their
+#: modules, and the same fix. Aliased here rather than worked around there, so
+#: the argument keeps the name the CLI flag and the MCP tool use.
+_set_canvas = canvas
+
+
 #: Per-clip crop rects, `[{"clip_id", "rect": [x, y, w, h]}]` in **source
 #: pixels**. Geometry and never a length, so an edit cannot invalidate one
 #: (PLAN.md § Aspect swap) — and the rect stored is the one *asked for*, refit
@@ -4993,3 +5000,404 @@ def verify(
         result["loud_gaps"] = {"error": str(exc)}
 
     return result
+
+
+# -- deriving a project ---------------------------------------------------
+#
+# A reel is a *derived project*: a film, cut down to the span someone watched,
+# at whatever shape the feed wants. PLAN.md § Three uncosted parity items found
+# that the choosing needs nothing built — `cut_by_time` already takes the
+# seconds an export plays at — and that what is missing sits one level up. The
+# canvas is project state and the cuts are destructive, so the copy is
+# mandatory, and it was a `cp -a` done by hand.
+#
+# Almost nothing here is transformation. Descriptions index the source and a
+# reframe is a rect in source pixels refit at render time, so neither a cut
+# nor a canvas change can invalidate one — the roadmap's core property paying
+# out rather than work this op does.
+#
+# Two things do need handling, and both were found by deriving a reel of the
+# real film rather than by reasoning about one. Cards are rasterised rather
+# than derived, so `card_reauthor` runs at the end. And a cue, though it is
+# word-indexed and so cannot be *invalidated* by a cut, can be orphaned by
+# one: a reel removes most of the film, which takes most of the cues' words
+# with it, and `build_shots` refuses a whole projection on a single orphan.
+# `_reel_orphan_cues`.
+
+#: How long a platform will let a vertical post run. Reported beside the
+#: reel's own duration and never enforced: it is why a reel exists at all
+#: (a 5:36 film reaches no feed), and it is exactly the kind of fact that
+#: goes stale in a codebase, so it is a note to whoever is reading rather
+#: than a refusal to be worked around.
+PLATFORM_CAP = 180.0
+
+
+def _reel_media(source: Project, reel: Project, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """Point a derived project's clips at the film's own media bytes.
+
+    Never a copy: a reel of a five-minute film would duplicate every gigabyte
+    that went into making one. Each `media/` and `cache/attenuated/` entry
+    becomes a symlink to the file the *film* resolves, so `media_path()` on the
+    reel and on the film return the same bytes.
+
+    **Both keys, and `attenuated` is the one that matters.** `media_path()`
+    prefers it over `media/` — that is what makes attenuation transparent to
+    every downstream op — so carrying `media/` alone would give the reel a
+    render at full noise with nothing in the manifest saying so, which is the
+    shape of bug `test_export_renders_the_attenuated_copy_not_the_original`
+    exists for pointing the other way.
+
+    Falls back to writing the film's absolute path into the derived manifest
+    where the filesystem will not take a symlink — the NAS case that already
+    makes `media/` optional (wiki `files.md`). `media_path()` reads that
+    correctly without a branch, since a `/`-joined absolute path is itself,
+    and `mutates the manifest it was handed` is the point rather than a side
+    effect. It does not fall back to *dropping* the key: that would resolve
+    through `clip["source"]`, which is the original import path and so the
+    un-attenuated file.
+    """
+    linked: list[dict[str, Any]] = []
+    for clip in manifest.get("clips", []):
+        for key in ("media", "attenuated"):
+            entry = clip.get(key)
+            if not entry:
+                continue
+            target = (source.root / entry).resolve()
+            link = reel.root / entry
+            link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                link.symlink_to(target)
+                how = "symlink"
+            except OSError:
+                clip[key] = str(target)
+                how = "absolute"
+            linked.append(
+                {
+                    "clip_id": clip.get("clip_id"),
+                    "key": key,
+                    "how": how,
+                    "target": str(target),
+                    # Reported rather than refused, the way `media_path()`
+                    # itself does not check: a film with one missing file
+                    # should still derive, and a dangling link that says so
+                    # beats one that does not.
+                    "missing": not target.is_file(),
+                }
+            )
+    return linked
+
+
+def _reel_suspect_edges(
+    project: Project, edit: tl.Edit, start: float, end: float
+) -> list[dict[str, Any]]:
+    """Suspect-duration words at the two edges a reel *keeps*.
+
+    `cut_by_time` flags every suspect word a removed span overlaps. That is
+    right for an ordinary cut, where the span and its boundary are nearly the
+    same thing, and it is useless here: a reel removes most of the film, so
+    one suspect word anywhere in it flags the operation whatever the reel
+    keeps. Measured on the film this was written against — a 44s reel of a
+    5:36 cut flagged fifteen, none of them within a hundred seconds of the
+    reel. A guard that has to be suppressed every time guards nothing.
+
+    The edges that can hide a retake are the two the reel keeps. An inflated
+    duration there is a word that does not end where it claims, so the reel
+    opens or closes on material from the wrong take (HISTORY.md § Suspect word
+    durations). The other two edges are the film's own head and tail, and
+    those hide nothing.
+    """
+    edges: list[tuple[str, float, str, float]] = []
+    if start >= tl.MIN_SEGMENT:
+        clip_id, _, src_end = edit.source_spans(0.0, start)[-1]
+        edges.append((clip_id, src_end, "start", start))
+    if edit.duration - end >= tl.MIN_SEGMENT:
+        clip_id, src_start, _ = edit.source_spans(end, edit.duration)[0]
+        edges.append((clip_id, src_start, "end", end))
+
+    parsed_by_clip: dict[str, tx.Transcript | None] = {}
+    found: list[dict[str, Any]] = []
+    for clip_id, at, which, timeline_at in edges:
+        if clip_id not in parsed_by_clip:
+            try:
+                parsed_by_clip[clip_id] = _transcript(project, clip_id)
+            except tx.TranscriptError:
+                parsed_by_clip[clip_id] = None
+        parsed = parsed_by_clip[clip_id]
+        if parsed is None:
+            continue
+        for item in _suspect_durations(parsed):
+            word = parsed.words[item["index"]]
+            # An *instant* test, so both ends count: an edge landing exactly on
+            # a word's own boundary is the case this is looking for, and the
+            # half-open rule the spans use would call it a miss (CLAUDE.md).
+            if word.start <= at <= word.end:
+                found.append(
+                    {
+                        **item,
+                        "clip_id": clip_id,
+                        "edge": which,
+                        "timeline_at": timeline_at,
+                        "source_at": at,
+                    }
+                )
+    return found
+
+
+def _reel_orphan_cues(
+    project: Project, edit: tl.Edit, start: float, end: float
+) -> list[dict[str, Any]]:
+    """Cues whose word the derivation leaves off the timeline.
+
+    A cue says "from this word onward, show this asset", so a cue whose word
+    is gone points at nothing, and `build_shots` refuses the *whole*
+    projection on one — rightly, since in a film that is someone having cut
+    the line a picture was hung on. A reel cuts most of the film on purpose,
+    so it orphans nearly every cue: on the real one, keeping 44s of 5:36 left
+    30-odd of them and the derived project could not project shots at all.
+    It passed every check and was unrenderable.
+
+    So the derived cue table is the surviving cues, and this names the rest —
+    quietly dropping them would be dropping a picture the reel was going to
+    have. Resolved against the *film's* timeline, before any cut, which is the
+    same question one asked afterwards: what survives the two cuts is exactly
+    what mapped into `[start, end)` to begin with.
+    """
+    parsed_by_clip: dict[str, tx.Transcript | None] = {}
+    orphans: list[dict[str, Any]] = []
+    for cue in project.read_manifest().get("cues", []):
+        clip_id = cue["clip_id"]
+        if clip_id not in parsed_by_clip:
+            try:
+                parsed_by_clip[clip_id] = _transcript(project, clip_id)
+            except tx.TranscriptError:
+                parsed_by_clip[clip_id] = None
+        parsed = parsed_by_clip[clip_id]
+        if parsed is None:
+            # Nothing to resolve the word index against. Left in place rather
+            # than guessed at: `build_shots` owns that refusal and names it
+            # better than a guess here would.
+            continue
+        word = parsed.words[cue["word_index"]]
+        span = edit.timeline_span(clip_id, word.start, word.end)
+        if span is None or not (span[0] < end and span[1] > start):
+            orphans.append({**cue, "text": word.text})
+    return orphans
+
+
+def reel(
+    path: Path | str,
+    dest: Path | str,
+    *,
+    start: float,
+    end: float,
+    canvas: str | None = None,
+    name: str | None = None,
+    confirm_suspect: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Derive a new project holding `[start, end)` of this one's timeline.
+
+    The times are the seconds *an export plays at* — what a human reports
+    after a watch — and they are the span to **keep**, which is the only place
+    in lucid that reads that way round. Everything else here cuts; a reel is
+    named by what survives, so the head and the tail are what get removed,
+    through `cut_by_time` and therefore through the same `Edit.remove` path
+    every other cut takes. Nothing new decides anything about the timeline.
+
+    `canvas` reshapes the derived project only, which is why deriving is what
+    makes a reel safe: `canvas` is project state, so setting it on the film to
+    take one vertical render would leave the film swapped after a render
+    nobody kept — the same failure `tiktok-reels` refuses at one level down
+    (HISTORY.md § `tiktok-reels`). The copy is the fix, not a convenience.
+
+    The media is linked rather than copied (`_reel_media`), so a reel costs
+    its manifest and its transcripts rather than its footage. What comes with
+    it is what indexes the *source* — the transcripts, and the cards as they
+    stand. What stays behind is everything that described the film's own
+    renders or its undo stack: `cache/verify/`, `cache/frames/`,
+    `cache/history/`, `renders/`. `cache/waveform/` stays behind too, being the
+    one derived thing that rebuilds itself from media that has not changed.
+
+    The derived cue table is the cues whose word the reel still has.
+    `cues_dropped` names the rest, and each one is a picture the reel will not
+    have; without the pruning the derived project cannot project shots at all,
+    since `build_shots` refuses the whole projection on one orphan.
+
+    Cards are re-authored at the end because they are the only project state a
+    canvas change cannot re-derive (PLAN.md § Aspect swap, finding 5). A card
+    with no record cannot be re-authored by anything, so `cards_unrecorded`
+    rides in the result: on the film this was written against, that list is
+    twelve long, and a reel of it is correct in every other respect while its
+    cards are still 16:9.
+
+    The suspect-duration guard is applied at the two edges the reel keeps
+    rather than over everything it removes (`_reel_suspect_edges`), and
+    `confirm_suspect` answers *that* question. This is the one place a reel
+    does not simply defer to `cut_by_time`, and the reason is measured rather
+    than argued.
+
+    `plan=True` resolves the whole thing — the spans, the clips that would be
+    linked, what the cut would remove — and creates nothing.
+    """
+    source = Project.open(path)
+    edit = _load_edit(source)
+    duration = edit.duration
+    start, end = float(start), float(end)
+
+    if start < 0:
+        raise tl.TimelineError(f"a reel starts inside the timeline, not at {start}")
+    if end <= start:
+        raise tl.TimelineError(f"a reel keeps [start, end) and {start} is not before {end}")
+    if end > duration + tl.MIN_SEGMENT:
+        raise tl.TimelineError(
+            f"this timeline is {duration:.3f}s long, so it has nothing at {end}s to keep. "
+            "The times are the seconds an export plays at — check them against "
+            "`info`'s timeline_duration, or against the render you watched"
+        )
+    end = min(end, duration)
+
+    # The head and the tail, resolved together against the timeline as it
+    # stands: `cut_by_time` applies a list of spans against the pre-cut state,
+    # which is exactly what makes two ends of one watch stay valid together.
+    # A sliver shorter than a segment is dropped rather than asked for, since
+    # `Edit.remove` would decline it and the arithmetic would then disagree.
+    cuts: list[list[float]] = []
+    if start >= tl.MIN_SEGMENT:
+        cuts.append([0.0, start])
+    if duration - end >= tl.MIN_SEGMENT:
+        cuts.append([end, duration])
+
+    # Both resolved against the film, before anything is created, so a refusal
+    # leaves nothing behind.
+    orphans = _reel_orphan_cues(source, edit, start, end)
+    # Checked here rather than left to `cut_by_time`, at the granularity a reel
+    # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
+    # is reported and never refused, which is `cut_by_time`'s own convention
+    # for the same finding.
+    suspect_edges = _reel_suspect_edges(source, edit, start, end)
+    if suspect_edges and not (plan or confirm_suspect):
+        hit = suspect_edges[0]
+        raise tl.TimelineError(
+            f"the reel's {hit['edge']} lands on word {hit['index']} ({hit['text']!r}) "
+            f"in clip {hit['clip_id']!r}, which claims {hit['duration']}s — more than "
+            f"{hit['limit']}s, so it likely hides a retake rather than ending where it "
+            "claims (PLAN.md § Suspect word durations). A reel that opens or closes on "
+            "the wrong take reads as an editing choice, so check it and retry with "
+            "confirm_suspect=True (CLI: --confirm-suspect), or move the edge"
+        )
+
+    dest_root = Path(dest).expanduser().resolve()
+    existed = dest_root.exists()
+    # Before the emptiness check rather than after it: a film is never empty,
+    # so this one would otherwise only ever be reached as "that directory has
+    # something in it", which is true and unhelpful.
+    if dest_root == source.root:
+        raise ProjectError(
+            "a reel is derived *from* a project, so it cannot be that project — "
+            "name a different directory"
+        )
+    if existed and any(dest_root.iterdir()):
+        raise ProjectError(
+            f"{dest_root} already has something in it, and a reel is a new project — "
+            "name a path that does not exist yet"
+        )
+
+    report: dict[str, Any] = {
+        "project": str(source.root),
+        "reel": str(dest_root),
+        "keep": [start, end],
+        "cut": cuts,
+        "source_duration": duration,
+        # What the reel should come out at. The cut's own `duration_after` is
+        # the measured answer and replaces this below; under `plan` there is
+        # no cut to measure, so the arithmetic is the honest one to report.
+        "duration": round(end - start, 3),
+        "canvas": canvas,
+        # The one to read. `cut_plan`'s own `suspect_boundaries` is every
+        # suspect word in everything being removed, which for a reel is most
+        # of the film and almost never about the reel.
+        "suspect_edges": suspect_edges,
+        # Each one is a picture the reel will not have, so they are named
+        # rather than counted.
+        "cues_dropped": orphans,
+        "plan": bool(plan),
+    }
+    report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
+    report["platform_cap"] = PLATFORM_CAP
+
+    if plan:
+        report["would_link"] = [
+            {"clip_id": clip.get("clip_id"), "key": key}
+            for clip in source.read_manifest().get("clips", [])
+            for key in ("media", "attenuated")
+            if clip.get(key)
+        ]
+        # The one call the real path makes, so what is planned is what would
+        # run: `cut_by_time` resolves a whole list against the pre-cut
+        # timeline, and planning them one at a time would resolve the tail
+        # against a timeline the head had not been taken out of.
+        report["cut_plan"] = cut_by_time(source.root, spans=cuts, plan=True) if cuts else None
+        return report
+
+    reel_project = Project.create(dest_root, name=name or dest_root.name)
+    try:
+        manifest = source.read_manifest()
+        manifest["name"] = name or reel_project.root.name
+        orphaned = {(cue["clip_id"], cue["word_index"]) for cue in orphans}
+        manifest["cues"] = [
+            cue
+            for cue in manifest.get("cues", [])
+            if (cue["clip_id"], cue["word_index"]) not in orphaned
+        ]
+        # Provenance, and the answer to the question a hand-made scratch copy
+        # could not answer once already: which film is this, and which seconds
+        # of it (HISTORY.md § The VO the project was holding). Additive and
+        # optional, so no schema bump — the `canvas`/`caption_style` shape.
+        manifest["derived_from"] = {
+            "project": str(source.root),
+            "keep": [start, end],
+            "source_duration": duration,
+        }
+        report["linked"] = _reel_media(source, reel_project, manifest)
+        reel_project.write_manifest(manifest)
+
+        shutil.copy2(source.timeline_path, reel_project.timeline_path)
+        # A transcript indexes the source, so it is as true of the reel as of
+        # the film and costs ASR minutes to rebuild. The cards come as they
+        # stand, to be re-authored below.
+        for src_dir, dst_dir in (
+            (source.transcript_dir, reel_project.transcript_dir),
+            (source.cards_dir, reel_project.cards_dir),
+        ):
+            if src_dir.is_dir():
+                shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+
+        if cuts:
+            # Always confirmed, because the decision was already made above at
+            # the granularity a reel has boundaries at. Passing the caller's
+            # flag through instead would re-ask the wrong question and refuse
+            # on a suspect word two hundred seconds from either edge.
+            cut = cut_by_time(reel_project.root, spans=cuts, confirm_suspect=True)
+            report["removed"] = cut["removed"]
+            report["duration"] = cut["duration_after"]
+            report["segments"] = cut["segments"]
+            report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
+
+        if canvas is not None:
+            report["canvas_set"] = _set_canvas(reel_project.root, size=canvas)
+
+        cards = card_reauthor(reel_project.root)
+        report["cards_redrawn"] = cards["redrawn"]
+        report["cards_unrecorded"] = cards["unrecorded"]
+        report["cards"] = cards["cards"]
+    except Exception:
+        # Only what this call created, and only when there was nothing there
+        # before it: `Project.create` will happily adopt an existing empty
+        # directory, and removing one the caller had made is not this op's to
+        # do. A half-derived project left behind is worse than no reel — it
+        # opens, it reads as a film, and its timeline is the uncut one.
+        if not existed:
+            shutil.rmtree(reel_project.root, ignore_errors=True)
+        raise
+
+    return report

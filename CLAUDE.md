@@ -168,6 +168,20 @@ installed package or the upstream repo, not your memory.
     plus the narration to whatever is reading — which writes back through
     `cue_add`. **A second reviewing pass was measured and is worse (13 → 10);
     do not add one.** HISTORY.md § Choosing the b-roll.
+- **A cut cannot invalidate a cue and can still orphan one, and `build_shots`
+  refuses the whole projection on a single orphan.** Word-indexing is what
+  keeps a cue *valid* across cuts; it does not keep the word on the timeline.
+  Ordinarily that refusal is right — someone cut the line a picture hung on —
+  but anything removing material wholesale hits it at scale: `reel` orphaned 34
+  of 38 cues, and the derived project opened, passed `status` and rendered
+  nothing. So a derivation prunes and **names** what it pruned (`cues_dropped`),
+  each entry being a picture the result will not have. HISTORY.md § `lucid
+  reel`.
+  - Its sibling: **`cut_by_time` flags every suspect-duration word a removed
+    span overlaps, not the ones at the boundary.** Right for an ordinary cut,
+    noise for a wholesale one — 15 flags on a reel, none near either edge — so
+    `reel` asks about the edges it *keeps* instead. A guard that has to be
+    suppressed every time is the thing to fix, not to document.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

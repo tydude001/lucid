@@ -317,6 +317,27 @@ actually draw — **a card naming a font this machine lacks renders
 pixel-identically to one naming a font it has**, so `font_warnings` is the only
 place that substitution is visible.
 
+None of that should happen to the film itself, though, and a vertical cut is
+usually a *second* deliverable rather than a replacement — a 5:36 essay does not
+reach a feed that stops at 3:00. So the reel is a derived project:
+
+```sh
+lucid -C myproject reel ../teaser 1:32+44 --plan     # what it would keep and drop
+lucid -C myproject reel ../teaser 1:32+44 --canvas 1080x1920
+```
+
+The span is what to **keep**, in the seconds the current export plays at — the
+same numbers `cut-at` takes, read off a watch — and the head and tail are what
+get cut. The canvas is set on the copy only, which is the point: reshaping the
+film to take one render leaves it reshaped afterwards, and nothing reports that.
+Media is linked rather than copied, so a reel costs its manifest and its
+transcripts instead of its footage.
+
+Two things are reported rather than done quietly. `cues_dropped` names every cue
+whose word the reel cut — each one is a picture the reel will not have — and
+`suspect_edges` flags a kept edge landing on a word that likely hides a retake,
+which is the reel opening or closing on the wrong take.
+
 To find the b-roll to cue in the first place, describe it:
 
 ```sh

@@ -2153,6 +2153,16 @@ are destructive, so the copy is mandatory and is currently a `cp -a` done by
 hand. `lucid reel <start> <end>` — copy, two cuts, canvas, refit, re-author
 cards — is the real shape, and it is small.
 
+**Built, 2026-08-10** — HISTORY.md § `lucid reel`, the project-derivation op.
+It was small, and two of its three real findings were only reachable by
+deriving a reel of the actual film: the suspect-duration guard fires on
+everything a reel removes rather than on the edges it keeps, and a reel
+orphans nearly every cue, which `build_shots` refuses a whole projection on.
+The second made the derived project pass every check and render nothing. The
+44s control renders at 1080x1920 and is mis-framed exactly as § Aspect swap
+measured, which is the argument for the framing item below rather than a fault
+of this one.
+
 The *selection* itself is the `synopsis` precedent, not a new algorithm.
 § Choosing the b-roll measured that lexical matching does not choose footage
 and that lucid should not choose at all — one line per clip handed to whatever

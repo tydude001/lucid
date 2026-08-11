@@ -65,6 +65,7 @@ EXPECTED_TOOLS = {
     "caption_view",
     "caption_style",
     "canvas",
+    "reel",
     "reframe",
     "synopsis",
     "broll_brief",
@@ -193,6 +194,7 @@ TOOL_TO_COMMAND = {
     "caption_view": "caption-view",
     "caption_style": "caption-style",
     "canvas": "canvas",
+    "reel": "reel",
     "reframe": "reframe",
     "synopsis": "synopsis",
     "broll_brief": "broll-brief",
@@ -4845,6 +4847,109 @@ def test_a_bound_server_refuses_an_escape_by_parent_or_symlink(tmp_path: Path) -
 
     for message in anyio.run(_with_server, body, _bound(project)):
         assert str(other) in message
+
+
+def test_a_bound_server_confines_the_reel_destination(tmp_path: Path) -> None:
+    """`dest` is the one argument in the whole surface that is a *second*
+    project selector rather than a file, so an unconfined one would let an
+    agent panel opened on one project write a whole project anywhere on disk.
+    `path` being confined is no help: the escape is on the way out."""
+    project, other = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(
+            session, "reel", path=str(project), dest=str(other / "teaser"), start=0.0, end=1.0
+        )
+
+    message = anyio.run(_with_server, body, _bound(project))
+    assert str(project) in message and str(other) in message
+
+
+@needs_ffprobe
+def test_a_bound_server_takes_a_reel_destination_inside_its_project(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The other half of the same rule — confinement that refused the ordinary
+    case would just mean nobody could derive a reel from the agent panel.
+
+    Seeded over the unbound server first because binding happens at start-up:
+    a server bound to a directory that is not there yet exits rather than
+    waiting for one to appear.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def seed(session: ClientSession) -> Any:
+        return await _seeded(Client(session), project, audio, transcript)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call(
+            "reel", path=".", dest="reels/teaser", start=2.0, end=6.0
+        )
+
+    anyio.run(_with_server, seed)
+    result = anyio.run(_with_server, body, _bound(project))
+
+    assert result["reel"] == str(project / "reels" / "teaser")
+    assert (project / "reels" / "teaser" / "lucid.json").is_file()
+
+
+@needs_ffprobe
+def test_reel_derives_a_project_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The whole recipe through the real server: the derived project holds the
+    span, and the film it came from is untouched — which is the point, since
+    the alternative is setting a vertical canvas on the film to take one render
+    and leaving it swapped afterwards."""
+    audio, transcript = sources
+    project, teaser = tmp_path / "proj", tmp_path / "teaser"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        before = await client.call("timeline_status", path=str(project))
+        derived = await client.call(
+            "reel", path=str(project), dest=str(teaser), start=3.0, end=8.0, canvas="1080x1920"
+        )
+        return {
+            "before": before,
+            "derived": derived,
+            "reel_status": await client.call("timeline_status", path=str(teaser)),
+            "film_after": await client.call("timeline_status", path=str(project)),
+            "film_canvas": await client.call("canvas", path=str(project)),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["derived"]["cut"] == [[0.0, 3.0], [8.0, 12.0]]
+    assert out["reel_status"]["timeline_duration"] == pytest.approx(5.0, abs=0.01)
+    assert out["derived"]["canvas_set"]["canvas"] == "1080x1920"
+    assert out["film_after"]["timeline_duration"] == pytest.approx(
+        out["before"]["timeline_duration"]
+    ), "the film kept its own timeline"
+    assert out["film_canvas"]["source"] != "override", "and its own shape"
+
+
+@needs_ffprobe
+def test_reel_plan_creates_nothing_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project, teaser = tmp_path / "proj", tmp_path / "teaser"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        return await client.call(
+            "reel", path=str(project), dest=str(teaser), start=3.0, end=8.0, plan=True
+        )
+
+    planned = anyio.run(_with_server, body)
+
+    assert planned["plan"] is True
+    assert planned["duration"] == pytest.approx(5.0)
+    assert not teaser.exists()
 
 
 def test_an_unbound_server_still_reaches_any_project(tmp_path: Path) -> None:

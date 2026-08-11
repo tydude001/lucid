@@ -4478,3 +4478,86 @@ back from JSON and a subtraction as 0.9 against 0.8999999999999999, which is
 arithmetic rather than a splice. A zero-width word (`start == end`, which
 whisper emits often) landing exactly on the previous word's end is correctly
 silent for the same reason, and one landing before it is correctly a seam.
+
+## `lucid reel`, the project-derivation op — 2026-08-10
+
+PLAN.md § Three uncosted parity items costed reel selection and found there was
+nothing to build for the *choosing*: `cut_by_time` already takes spans in the
+seconds an export plays at, converts them through `Edit.source_spans` and cuts
+through the same `Edit.remove` path everything else uses. What was missing sat
+one level up — **the canvas is project state and the cuts are destructive, so
+the copy is mandatory, and it was a `cp -a` done by hand.** That is this op:
+copy, two cuts, canvas, re-author cards, one command.
+
+The reason deriving is the safe shape rather than a convenience is the failure
+`tiktok-reels` already refuses one level down. Setting a vertical canvas on the
+film to take one render leaves the film swapped afterwards, and nothing reports
+it. A reel names what to **keep**, which is the only thing in lucid that reads
+that way round; the head and the tail are what get cut.
+
+Media is linked, never copied — a reel of a five-minute film would duplicate
+every gigabyte that went into making one. The `media/` entry and the
+`cache/attenuated/` entry both, and the second is the one that matters:
+`media_path()` prefers `attenuated`, which is what makes attenuation
+transparent downstream, so carrying `media/` alone would give the reel a render
+at full noise with nothing in the manifest saying so.
+
+### Both real bugs were invisible to the tests and to reasoning
+
+Twenty-one tests passed, including one asserting the film is left byte-identical
+and one asserting the reel resolves the film's own bytes. Deriving a 44s reel of
+the actual 5:36 Scream cut found two things neither the suite nor the design
+note saw, and the second made the artifact unusable.
+
+**The suspect-duration guard was firing on everything being removed.**
+`cut_by_time` flags every suspect word a removed span *overlaps*, which is right
+for an ordinary cut — the span and its boundary are nearly the same thing — and
+useless for a reel, which removes most of the film. The first real run flagged
+**fifteen, none within a hundred seconds of either edge**, so `--confirm-suspect`
+would have been mandatory on every reel of every film, which is a guard that
+guards nothing. The edges that can actually hide a retake are the two the reel
+*keeps*: an inflated duration there means the reel opens or closes on material
+from the wrong take. `_reel_suspect_edges` asks that question instead, and the
+same film goes 15 → 0 while the guard still fires on a planted edge case.
+
+**The cue table orphaned, and `build_shots` refuses a whole projection on one
+orphan.** A cue is word-indexed, so a cut cannot *invalidate* one — that much
+was reasoned correctly and is why the design note said cues survive by
+construction. What a cut can do is take the word away, and a reel takes 87% of
+them: 34 of the film's 38 cues pointed at words the reel no longer had. The
+derived project opened, read as a film, passed `status`, and `shots` refused
+with `cue at 'vo' word 18 ('The') was cut from the edit`. **It was correct in
+every check and unrenderable.** So the derived cue table is the surviving cues,
+and `cues_dropped` names the rest — one entry per picture the reel will not
+have, because dropping them quietly is dropping pictures quietly.
+
+Both are the same lesson in different clothes, and it is the standing one:
+neither was reachable by inspection, and both took one run against real data.
+
+### It renders
+
+The 44s reel at 1080x1920 through `melt`: 1056 frames against the timeline's
+1056, `check_frames` `agrees: true` with `delta: 0`, `check_black` `clean:
+true`. The reel directory is 1.3 MB — its manifest, its transcripts and the
+twelve card PNGs — against a film whose footage it shares by symlink.
+
+The frames are also **mis-framed exactly as § The vertical cut, made native
+measured**: the centre crop puts a head half out of frame. That is not this op's
+problem and it is worth stating plainly, because it is the whole argument for
+what comes next — a reel is a *derivation*, and per-shot framing is a separate
+address space that does not exist yet. Read the other way: the derivation makes
+the framing question the only one left, which is what a control is for.
+
+### Two smaller things
+
+**`cards_unrecorded` came back twelve long, as CLAUDE.md says it would.** The
+reel is correct in every other respect while its cards are still 16:9. Nothing
+here changes that; it is reported at the moment it starts mattering.
+
+**`dest` is the first second project-selector in the tool surface**, and an
+unconfined one would let an agent panel bound to one project write a whole
+project anywhere on disk — `path` being confined is no help, because the escape
+is on the way out. `_tool()` now takes the selector names (`@_tool("path",
+"dest")`), defaulting to `("path",)` so every other registration is unchanged.
+Named at the registration site rather than checked in the body, for the reason
+the decorator exists at all.
