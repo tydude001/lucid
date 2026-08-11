@@ -497,9 +497,12 @@ timeline being the enabler and the look pass being gated on nothing:
    addressed project state, they reproduce the approved framing through a real
    `melt` render, and they are a test. **All 25 placements are framed as of
    2026-08-11** — 55 windows over 9 clips, the detector's 39 alongside the
-   hand 16 — so what is left is not framing but *reviewing* it: none of the 39
-   has been judged on `reframe_sheet`, and § The auto-framing detector is why
-   that is not a formality.
+   hand 16 — and **all 39 were reviewed on 2026-08-11, which cleared the
+   detector and indicted its coverage**: every window is right for the shot it
+   was placed on, and about a third of the film's placed footage is framed by a
+   window placed for a *different* one. What is left is the two mechanisms
+   behind that, neither of them the placement rule. HISTORY.md § The thirty-nine
+   windows, reviewed.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the

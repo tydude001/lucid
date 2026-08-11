@@ -368,6 +368,10 @@ installed package or the upstream repo, not your memory.
   motion** (2 of 15 hand numbers, twice now), so judge one on
   `reframe_sheet`'s drawn-on-the-source-frame tiles, never on a watch.
   HISTORY.md § Per-shot framing.
+  - **But the sheet samples *placements*, so it cannot see every window** —
+    three fractions of each missed 14 of the vertical's 55, eight of them
+    hand-approved. Sample the window, at the midpoint of the stretch each
+    placement shows of it. HISTORY.md § The thirty-nine windows, reviewed.
   - Its two asymmetries: the **preview** places a shot by the window at its
     `src_start`, so a boundary *inside* a placement previews as the first of
     the two while the render steps mid-shot correctly (`reframe_sheet`'s
@@ -395,6 +399,10 @@ installed package or the upstream repo, not your memory.
     on 4 of the film's 59 windows; **`reframe_detect`'s `faces` is detections
     summed over the sampled frames and is not a subject count** (33 is eleven
     people), `subjects` is. HISTORY.md § The stacked split, built.
+    - **Judge a split on how much its panes overlap each other**: the film's
+      four separate at 23–24% (distinct groups) against 52–59%, where the same
+      face is in both halves and stacking shows it twice. HISTORY.md § The
+      thirty-nine windows, reviewed.
   - **An export preset never sets the canvas — `tiktok-reels` *checks* it and
     refuses.** The obvious build is the wrong one: a flag that reshapes the
     project is an export argument rewriting project state, the same failure as
@@ -420,17 +428,26 @@ installed package or the upstream repo, not your memory.
     window and 2 of 15 hand numbers were wrong invisibly — judge it on
     `reframe_sheet`. It never writes over an existing override, and it is the
     *third* subprocess-behind-an-interpreter (`LUCID_FACE`, with
-    `_face_worker.py` shipped to be run and never imported). Two traps, both
-    found by running it on the film rather than by a test:
+    `_face_worker.py` shipped to be run and never imported). Its placement rule
+    is sound — reviewed one window at a time, all 39 on the film are right for
+    the shot they were placed on — and **every defect found is coverage**:
     - **"Is this window already framed?" is a frame, never an epsilon.** ffmpeg
       reports a cut at 0.834167 where the manifest holds 0.8342, so exact match
       called 15 of 16 hand windows unframed *and printed both as `0.8342`*.
     - **A refused window is not a centre-cropped one.** Nothing is written for
       it, so whatever is in force carries over — at a clip's head the centre
       crop, anywhere else **the previous shot's framing**, which is worse than
-      the default because a stale window looks deliberate (4 of the film's 8).
-      `falls_back_to` names which; never infer it from `refused`.
-    HISTORY.md § The auto-framing detector, built.
+      the default because a stale window looks deliberate. Not an edge: it is
+      13.6s of `cold-open`, one rect held across four camera setups, Casey's
+      framing sitting over trees and a stovetop. `falls_back_to` names which;
+      never infer it from `refused`, and nothing surfaces either today.
+    - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
+      cut with no window is one the framing walks through, so the floor's miss
+      rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are
+      real, and dropping the floor to 0.15 moves the film's stale share from
+      10% to 32%.
+    HISTORY.md § The auto-framing detector, built; § The thirty-nine windows,
+    reviewed.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

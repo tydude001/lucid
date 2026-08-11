@@ -5487,3 +5487,65 @@ prose over-read them.
 Worth keeping because the sheet is the review instrument: it draws the sampled
 moments, and a reader — including the one who wrote it — will generalise from
 them. Recommendations off a sample say which moment they are off.
+
+## The thirty-nine windows, reviewed — 2026-08-11
+
+The detector's 39 windows on the vertical cut, judged one at a time on the
+source frame each was placed against. **All 39 are correct for the shot they
+were placed on** — faces centred, lead room the right way, no repeat of the
+hand pass's two-of-fifteen-wrong-invisibly. The placement rule is not what
+needs work, which is the opposite of what the item was watching for.
+
+**What the review found instead is coverage.** Of 245.7s of placed footage,
+24.4s carries a window placed for a *different* camera shot at the shipped cut
+floor, and 77.6s — about a third — once the floor is right. Two mechanisms,
+and they want different fixes.
+
+**One: a refused window carries the previous shot's framing, and it is not a
+rare edge.** `cold-open`'s window at 44.461 holds for 21.4s of screen time
+across four camera setups. It is exactly right for Casey on the phone and then
+sits, unchanged, over a stand of trees and a pan of popcorn on a gas ring. The
+cuts at 52.260 and 63.062 scored 0.278 and 0.228 — *above* threshold, so
+windows were proposed and refused, there being no face in a tree. Nothing is
+written for a refusal, so 13.6s of one clip in a 5:36 film is framed by a rect
+chosen for a shot that ended long before. § The auto-framing detector, built
+recorded the mechanism from a count of refusals; this is what it costs in
+seconds, and nothing in the manifest, `status` or the sheet says it happened.
+
+**Two: `SCENE_THRESHOLD` was pinned on three clips and this cut draws on
+nine.** Six cuts scoring 0.155–0.188 inside placed footage, sampled a quarter
+second either side: **six of six are real camera cuts**, a different setup and
+a different subject each time. A cut with no window is one the framing walks
+straight through, so the floor's own miss rate is a framing number. Re-scored,
+the film's stale share is 10% at 0.30, 10% at the shipped 0.20, and 32% at
+0.15 — a 53-second cliff in one step. Whether every cut in that band is real is
+unproven; the six that were checked all were.
+
+**The instrument has the same blind spot as the thing it reviews.**
+`reframe_sheet` samples each *placement* at three fractions, which on this
+project never looks at 14 of the 55 windows — **eight of them hand-approved**.
+And where it does sample it draws the window in force, so the tree frame above
+tiles up looking like a composition somebody chose. Reviewing this needed a
+tile per window, sampled at the midpoint of the stretch each placement actually
+shows of it; the sheet's own unit cannot see a quarter of the project.
+
+**A stacked split's panes are worth measuring against each other.** The four
+splits separate cleanly by how much of one pane the other covers: 23.1% and
+24.1% for the two on `s4-overexposed`, which hold distinct groups, against
+52.3% on `vi-bailey` and 59.4% on `s2022-reveal`, where the same face is in
+both halves and stacking shows it twice. That is a line, not an opinion, and it
+answers the open question about `s2022-reveal` — it is split unasked, and it is
+the duplicating kind.
+
+**Five shots open or close on a flash of the wrong picture**, worst a
+three-frame head on `vi-richie`'s shot 7 that jumps 568px once the source's own
+cut arrives. Both windows are right for what they hold; the placement's
+in-point sits the wrong side of a camera cut. An edit fault the framing merely
+made visible — nudging the in-point fixes it and touching the framing would
+not.
+
+The measurement walked into this file's own trap on the way: matching ffmpeg's
+cut times to window starts *exactly* reported 20 stale stretches where there
+are 6, because ffmpeg says 5.588 where the manifest holds 5.5889. A frame of
+tolerance, never an epsilon — the same rule § The auto-framing detector, built
+already carried, arrived at from the other side.

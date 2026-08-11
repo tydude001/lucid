@@ -332,7 +332,9 @@ because it is still a quarter of a window's width out on average and a wrong
 automatic reframe makes a film with nothing on screen saying so. A window with
 no face in it is *named* rather than guessed at, and the reply says what will
 cover it instead, which is not the centre crop but whatever window is already
-in force.
+in force. That naming lives only in the reply — nothing records it, and on the
+vertical cut it leaves 13.6s of one clip framed for a shot that ended long
+before.
 
 `--pane` draws that window as a **stacked split** — two half-height panes, the
 rect on top and the pane below, each keeping about twice the width one crop
@@ -344,9 +346,12 @@ is rare on purpose: 4 of the 59 windows on the film it was measured against.
 `--at` is seconds into that clip's own source, so framing is per **shot**
 rather than per clip: a clip used seven times picks up whichever window each
 placement reads over, from one table. **Judge windows on `reframe-sheet`, never
-on a watch** — it draws each one on three of that placement's own source
-frames, and a badly-placed window is invisible in motion because nothing in
-the frame contradicts it.
+on a watch** — it draws them on three of each placement's own source frames,
+and a badly-placed window is invisible in motion because nothing in the frame
+contradicts it. It samples *placements*, though, so a window a placement only
+glances off gets no tile at all — 14 of the 55 on the vertical cut, eight of
+them hand-approved. Read a clean sheet as covering what it sampled, not the
+project.
 
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders
