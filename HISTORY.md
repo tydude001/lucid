@@ -5412,3 +5412,78 @@ deliberately not built: a template edit is a change to lucid's own code, and
 "run reauthor after you edit a template" is a rule about the dev loop, not
 about a project on disk. It is only worth a paragraph because the shape has
 now bitten twice.
+
+## The brand mark on a line slot — 2026-08-11
+
+Tyler approved a wordmark on the twelve vertical cards and then, shown three
+renderings of it, picked the one lucid could not draw. `branding.md` locks the
+mark as **Zilla Slab Bold with an amber asterisk** — `G*` where the `G` is ink
+and the `*` is the accent. A card's `mark` is a `kind: "line"` slot, and a line
+slot was a plain substitution: one `font-family`, one `fill`, escaped and
+dropped into the template. Two colours in one word was outside what it could
+say, and the two shipped-in-error alternatives are worth naming because both
+looked fine: the mark drew in **Outfit**, the body face, because the slot
+declared `"font": "body_font"`; and the asterisk drew muted grey, because the
+`<text>` element has one fill and nothing overrode it. Neither is an error any
+check would raise — the card rasterises, `magick` exits 0, every slot fits its
+box.
+
+**The fix was not new machinery.** The flowing slots have carried an inline
+vocabulary since § The emphasis-capable quote slot — `[em]…[/em]` is amber at
+weight 700, `[dim]` is ink at 0.42, `[key]` is plain — and `[em]` is exactly
+what an accented asterisk is. So line slots got the same vocabulary, and the
+mark is now authored as `G[em]*[/em]`: the brand stays in the brand's document
+and lucid learns nothing about Good\*.
+
+Three things had to be true for that to be additive rather than a restyle.
+
+1. **A value with no marker in it takes the old path exactly.** `has_runs`
+   gates it, and the reason is `card_reauthor`: if adding the vocabulary
+   changed the bytes of every card that never used it, the next canvas sweep
+   would report twelve cards redrawn on a release that changed none of them,
+   and the sweep would stop meaning anything. A test holds the property.
+2. **Unmarked text inside a marked value states nothing.** `_runs_markup`
+   names weight and fill on every run, which is right for a flowing slot whose
+   element sets neither; a line slot's element sets both, so `line_markup`
+   emits a bare `<tspan>` for unmarked runs and lets them inherit. Declaring
+   them would silently re-ink the `G` while fixing the `*`. There is also no
+   positional `<tspan x= dy=>`: half these elements are `text-anchor="end"`,
+   where an explicit `x` opens a second text chunk and moves the line.
+   `xml:space="preserve"` is still owed, for the reason that section records.
+3. **A marked run measures at the run's weight.** This is the half a drawn
+   card cannot show and the only one that could ship wrong quietly. `[em]` is
+   a weight change as well as a colour, so `line_parts` expanding the markers
+   away without carrying the weight would under-measure exactly the fragment
+   the author emphasised — the fragment most likely to be why the line got
+   long — and `_check_line_fits` is a line slot's only guard.
+
+The slot's face moved with it: `mark` now declares `title_font`, held by a
+test that checks the spec and the six SVG files agree, because the measurement
+reads the slot's `font` and the raster reads the file's `font-family`, and a
+drift between them measures in one face and draws in another at exit 0.
+
+Settled by reading the render, not the manifest: the finished 336.3s vertical
+cut has 112 amber pixels in the mark corner of a receipt at 21.5s and 106 on a
+reveal at 156.5s. A grep of the SVG would have said the same thing about a
+document librsvg could have quietly declined to draw.
+
+## Keeping the split the sheet argued against — 2026-08-11
+
+The stacked-split sheet asked two questions and recommended dropping back to
+one window on the car scene's second, three-face window: sampled at 9.9s the
+two panes were near-duplicates of each other, and a stacked frame framing
+nobody looks deliberate. Tyler kept it, for the whole scene.
+
+**The watch says he was right, and the sheet's evidence was a sampling
+artefact.** At 333.5s of the render the top pane holds the back-seat passenger
+alone and the bottom holds the driver and the front passenger — two distinct
+groups, not one wide view twice. The 9.9s sample happened to catch the moment
+the three converge. That is the same failure mode § The auto-framing detector,
+built recorded from the other side: three sampled frames decide whether a
+window is a split, and a frame is not the shot. Here it did not produce a wrong
+window, only a wrong *recommendation* — the sheet's tiles were accurate and the
+prose over-read them.
+
+Worth keeping because the sheet is the review instrument: it draws the sampled
+moments, and a reader — including the one who wrote it — will generalise from
+them. Recommendations off a sample say which moment they are off.

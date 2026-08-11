@@ -1381,3 +1381,83 @@ def test_card_templates_lists_every_template_with_its_slots() -> None:
         assert set(entry["style"]) == set(graphics.STYLE_SLOTS)
         assert not set(entry["slots"]) & set(graphics.STYLE_SLOTS)
         assert all(not meta["required"] for meta in entry["style"].values())
+
+
+# -- inline runs on a single line -------------------------------------------
+
+
+def _file_row(drawn: str, needle: str) -> str:
+    """The one row of a filled document containing `needle`."""
+    return next(row for row in drawn.splitlines() if needle in row)
+
+
+def test_an_unmarked_line_slot_is_still_a_plain_substitution() -> None:
+    """The property that makes the vocabulary additive rather than a restyle.
+
+    Every card on disk was authored before line slots could carry runs, and
+    a re-author has to produce the same document — otherwise `card_reauthor`
+    reports twelve cards redrawn on a release that changed none of them, and
+    the sweep stops meaning anything. So a value with no marker in it must
+    not gain a `<tspan>`.
+    """
+    drawn = graphics.fill_template(
+        "reveal", {"title": "Scream 2", "mark": "Good Sometimes"}, width=1080, height=1920
+    )
+    assert ">Good Sometimes</text>" in drawn
+    assert "tspan" not in _file_row(drawn, "Good Sometimes")
+
+
+def test_a_marked_line_slot_draws_its_run_in_the_runs_ink() -> None:
+    """`G[em]*[/em]` is one word in two colours, which is the whole point.
+
+    A wordmark whose asterisk is the accent cannot be expressed by a slot
+    that has one fill, and hard-coding the asterisk into the template would
+    put a brand inside lucid. The vocabulary the note already has is the
+    answer; unmarked text states nothing so it keeps inheriting the
+    element's own ink.
+    """
+    drawn = graphics.fill_template(
+        "reveal", {"title": "Scream 2", "mark": "G[em]*[/em]"}, width=1080, height=1920
+    )
+    row = _file_row(drawn, "<tspan>G</tspan>")
+    assert 'xml:space="preserve"' in row
+    assert f'fill="{graphics.PALETTE["amber"]}"' in row
+    assert "[em]" not in drawn
+
+
+def test_a_line_slot_refuses_a_marked_value_carrying_a_line_break() -> None:
+    """A newline is not a break here and never was — refuse, don't collapse."""
+    with pytest.raises(graphics.GraphicsError, match="single-line slot"):
+        graphics.fill_template(
+            "reveal", {"title": "Scream 2", "mark": "G\n[em]*[/em]"}, width=1080, height=1920
+        )
+
+
+def test_a_marked_line_measures_its_emphasis_at_the_emphasis_weight() -> None:
+    """The half of this that a drawn card cannot show.
+
+    `[em]` is a weight change as well as a colour, so measuring the markers
+    away and not the weight under-measures exactly the fragment the author
+    emphasised — and a line slot's only guard is that measurement. The
+    declared weight here is below `em`'s, so the two answers differ.
+    """
+    declared = dict(_line_slots("reveal", "portrait")["mark"], weight=400)
+    resolved = {**dict(graphics.PALETTE), "mark": "G[em]*[/em]"}
+    parts = graphics.line_parts("mark", declared, resolved)
+    assert [(p["text"], p["weight"]) for p in parts] == [
+        ("G", 400),
+        ("*", graphics.RUN_STYLES["em"][0]),
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+def test_the_wordmark_is_drawn_in_title_type(name: str) -> None:
+    """It is a logo, not body copy, and branding names a display face for it.
+
+    Held here rather than left to the SVGs because the measurement reads the
+    slot's `font` and the raster reads the file's `font-family`: if those two
+    drift the mark measures in one face and draws in another, at exit 0.
+    """
+    for variant in (None, "portrait"):
+        assert graphics._declared_slots(name, variant)["mark"]["font"] == "title_font"
+        assert "{{title_font}}" in _file_line(name, variant, "{{mark}}")

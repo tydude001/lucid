@@ -3,5 +3,5 @@
   <text x="140" y="232" font-family="{{title_font}}" font-size="122" font-weight="700" fill="{{ink}}">{{title}}<tspan dx="36" font-size="66" font-weight="400" fill="{{muted}}">({{year}})</tspan></text>
   <g transform="translate(140, 378)">{{comparison}}</g>
   <text x="140" y="510" font-family="{{body_font}}" font-size="42" fill="{{muted}}">{{date_line}}</text>
-  <text x="1780" y="{{foot_y}}" text-anchor="end" font-family="{{body_font}}" font-size="52" font-weight="700" fill="{{muted}}">{{mark}}</text>
+  <text x="1780" y="{{foot_y}}" text-anchor="end" font-family="{{title_font}}" font-size="52" font-weight="700" fill="{{muted}}">{{mark}}</text>
 </svg>

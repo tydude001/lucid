@@ -3052,6 +3052,14 @@ margin, so `mark` at `x=1780` sat under the like button. Portrait draws it
 bottom left. Both numbers live in `BASE_GEOMETRY`'s comment rather than in a
 reviewer's head.
 
+**And the mark that goes in that corner was one lucid could not draw.** The
+brand's is two-tone — an amber asterisk on ink letters — against a line slot
+with one `fill` and the body face. Line slots now take the flowing slots' own
+`[em]` vocabulary and `mark` declares `title_font`, so `G[em]*[/em]` is
+authored in the brand's document and lucid learns nothing about the brand.
+HISTORY.md § The brand mark on a line slot has the three properties that kept
+it additive.
+
 ### What the watch found that no measurement did
 
 Every budget in this note passed and the reveal still read wrong: its year was

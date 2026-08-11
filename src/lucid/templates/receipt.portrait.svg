@@ -4,5 +4,5 @@
   <g transform="translate(140, 730) scale(1.6)">{{stars}}</g>
   <text x="140" y="920" font-family="{{body_font}}" font-size="54" fill="{{muted}}">{{date_line}}</text>
   <text x="140" y="1140" font-family="{{quote_font}}" font-size="80" font-weight="600" fill="{{ink}}">{{quote}}</text>
-  <text x="140" y="{{foot_y}}" font-family="{{body_font}}" font-size="80" font-weight="700" fill="{{muted}}">{{mark}}</text>
+  <text x="140" y="{{foot_y}}" font-family="{{title_font}}" font-size="80" font-weight="700" fill="{{muted}}">{{mark}}</text>
 </svg>

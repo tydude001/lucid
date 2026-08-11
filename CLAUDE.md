@@ -310,6 +310,17 @@ installed package or the upstream repo, not your memory.
     [em]perfect[/em] horror` draws as `theperfecthorror` at exit 0.
     `xml:space="preserve"`, once per line — it inherits. Both:
     HISTORY.md § The emphasis-capable quote slot.
+    - **A `line` slot takes the same vocabulary, and its two rules are the
+      opposite of a flowing slot's**: a value with no marker takes the plain
+      path byte-for-byte (or a sweep reports every card redrawn), and an
+      unmarked run inside a marked value declares nothing, because the
+      `<text>` element already sets fill and weight. Emit no positional
+      `x`/`dy` — half of them are `text-anchor="end"`, where an `x` opens a
+      second chunk and moves the line. And **`line_parts` carries the run's
+      weight into the measurement**: `[em]` is a weight change too, so
+      stripping markers without it under-measures the emphasised fragment,
+      which is a line slot's only guard. HISTORY.md § The brand mark on a
+      line slot.
   - **A per-aspect layout is a variant *file*, resolved from the canvas —
     never a second template name.** `receipt` at a tall canvas draws
     `receipt.portrait.svg`; a `receipt-portrait` template would make an aspect

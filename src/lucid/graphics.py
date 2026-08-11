@@ -932,6 +932,54 @@ def _run_attrs(level: str, colours: dict[str, str]) -> str:
     return attrs
 
 
+def has_runs(value: str) -> bool:
+    """Whether a value carries inline markup at all.
+
+    The gate that keeps the vocabulary additive on the single-line slots: a
+    value with no marker in it takes the plain-substitution path it has
+    always taken, so every card already on disk re-authors to the same bytes
+    and the drift the escape hatch exists to catch stays visible.
+    """
+    return bool(_RUN_MARKER.search(value)) or "[[" in value
+
+
+def line_markup(value: str, colours: dict[str, str]) -> str:
+    """One single-line slot's value, with its inline runs drawn.
+
+    The same `[em]`/`[dim]`/`[key]` vocabulary the flowing slots have, on the
+    slots that are one line — which is what lets a wordmark carry the brand's
+    amber asterisk without the template hard-coding a brand into lucid.
+
+    Two things differ from `_runs_markup`, and both are what make it additive
+    rather than a restyle. **Unmarked text states nothing** and inherits the
+    `<text>` element's own fill and weight, where a flowing run always names
+    both; a line slot's look is set by the template around it, so declaring
+    it here would silently re-ink every value that never asked for markup.
+    And there is no positional `<tspan x= dy=>`: half these elements are
+    `text-anchor="end"`, where an explicit `x` opens a second text chunk and
+    moves the line. `xml:space="preserve"` is still owed, for the reason
+    `_runs_markup` records — per-run tspans eat the whitespace between them.
+
+    A newline is refused rather than collapsed. It is not a line break in a
+    line slot and never has been, so a marked value carrying one is asking
+    for something the slot cannot draw.
+    """
+    lines = parse_runs(value)
+    if len(lines) > 1:
+        raise GraphicsError(
+            "a single-line slot cannot take a line break — it draws one line, "
+            "and a newline in it is not a break but a space. Split the value "
+            "across slots, or use a slot that flows."
+        )
+    inner = "".join(
+        f"<tspan>{_escape(text)}</tspan>"
+        if level == RUN_DEFAULT
+        else f"<tspan{_run_attrs(level, colours)}>{_escape(text)}</tspan>"
+        for text, level in lines[0]
+    )
+    return f'<tspan xml:space="preserve">{inner}</tspan>'
+
+
 #: The card's side margin in template units, and the constant the box of
 #: every single-line slot is derived from: a line runs from one margin to its
 #: mirror, so a `start`-anchored slot's box is `1920 - 2x` and an `end`-
@@ -1013,9 +1061,13 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "width": 1640,
                 "size": 52,
                 "weight": 700,
-                "font": "body_font",
+                "font": "title_font",
                 "default": "",
-                "description": "a wordmark for the bottom corner, if any",
+                "description": (
+                    "a wordmark for the bottom corner, if any. Takes the same "
+                    "[em]…[/em] emphasis the note does, which is how a mark whose "
+                    "asterisk is a different colour from its letters gets drawn"
+                ),
             },
         },
         "derived": {"stars": ("stars", "rating", "amber")},
@@ -1089,9 +1141,13 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "width": 1640,
                 "size": 52,
                 "weight": 700,
-                "font": "body_font",
+                "font": "title_font",
                 "default": "",
-                "description": "a wordmark for the bottom corner, if any",
+                "description": (
+                    "a wordmark for the bottom corner, if any. Takes the same "
+                    "[em]…[/em] emphasis the note does, which is how a mark whose "
+                    "asterisk is a different colour from its letters gets drawn"
+                ),
             },
         },
         "derived": {},
@@ -1165,9 +1221,13 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "width": 1640,
                 "size": 52,
                 "weight": 700,
-                "font": "body_font",
+                "font": "title_font",
                 "default": "",
-                "description": "a wordmark for the bottom corner, if any",
+                "description": (
+                    "a wordmark for the bottom corner, if any. Takes the same "
+                    "[em]…[/em] emphasis the note does, which is how a mark whose "
+                    "asterisk is a different colour from its letters gets drawn"
+                ),
             },
         },
         "derived": {"comparison": ("comparison", "before", "after")},
@@ -1457,14 +1517,29 @@ def line_parts(
     parts = declared.get("parts") or [{"text": "{" + slot + "}"}]
     filled = []
     for part in parts:
-        filled.append(
-            {
-                "text": str(part["text"]).format(**resolved),
-                "size": part.get("size", declared["size"]),
-                "weight": part.get("weight", declared["weight"]),
-                "gap": part.get("gap", 0),
-            }
-        )
+        text = str(part["text"]).format(**resolved)
+        size = part.get("size", declared["size"])
+        weight = part.get("weight", declared["weight"])
+        gap = part.get("gap", 0)
+        if not has_runs(text):
+            filled.append({"text": text, "size": size, "weight": weight, "gap": gap})
+            continue
+        # A marked piece measures as its runs, because `[em]` is a weight
+        # change as well as a colour: measuring the markers away and not the
+        # weight under-measures exactly the fragment the author emphasised,
+        # which is the one most likely to be the reason the line got long.
+        # Unmarked text keeps the piece's own weight rather than the runs'
+        # default, for the reason `line_markup` states — it is inherited ink.
+        runs = [run for line in parse_runs(text) for run in line]
+        for index, (run_text, level) in enumerate(runs):
+            filled.append(
+                {
+                    "text": run_text,
+                    "size": size,
+                    "weight": weight if level == RUN_DEFAULT else RUN_STYLES[level][0],
+                    "gap": gap if index == 0 else 0,
+                }
+            )
     return filled
 
 
@@ -1609,7 +1684,12 @@ def fill_template(
         else:
             if flow and meta["kind"] == "line":
                 _check_line_fits(slot, declared_slots[slot], resolved)
-            filled[slot] = _escape(str(resolved[slot]))
+            value = str(resolved[slot])
+            filled[slot] = (
+                line_markup(value, {name: str(resolved[name]) for name in PALETTE})
+                if meta["kind"] == "line" and has_runs(value)
+                else _escape(value)
+            )
 
     for slot, (builder, *sources) in spec["derived"].items():
         if builder == "stars":
