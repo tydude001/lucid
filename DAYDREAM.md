@@ -484,8 +484,7 @@ per-*clip*: `s2022-reveal` wants a left crop at 92s (Amber frame-left) and a
 right one at 180s (Richie centre-right), from one clip. **5 of 9 clips
 contradict themselves this way**, so no single rect per clip can frame the
 film and `reframe`'s existing shape cannot express the answer. Per-*shot*
-framing is a real build, and the natural home is the cue — a cue already pins
-`src_start`, and framing is the same kind of per-placement fact.
+framing is a real build.
 
 Scope makes it unavoidable rather than unlucky: the sources are 1920x816, so a
 9:16 crop **keeps 23.9% of the picture width**. Measured over all 25 footage
@@ -502,10 +501,13 @@ stacked panes**, each cropping 918 source pixels against the solo window's 459.
 Above three subjects a split frames nobody and it reverts to one window. 11.6%
 has no detectable face and stays a guess. A working spike measured all of this
 outside lucid (HISTORY.md § The vertical cut, made native). **The build it
-implies was costed 2026-08-10 and is none of the three things the spike
-guessed**: framing is source-addressed rather than on the cue, the render needs
-no new node, and the detector comes last — behind the 15 hand numbers it has to
-beat. PLAN.md § Per-shot framing — the design note.
+implies was costed and then built 2026-08-10, and is none of the three things
+the spike guessed**: framing is source-addressed rather than on the cue, the
+render needs no new node, and the detector comes last — behind the 15 hand
+numbers it has to beat. The mechanism ships — store, writer, contact sheet,
+preview — so **what is left is the framing itself**, 25 placements to window;
+the stacked split stays out of scope until one window is insufficient against
+something real. HISTORY.md § Per-shot framing.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing

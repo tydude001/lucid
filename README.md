@@ -299,9 +299,11 @@ say, and the default is a centre crop, **which is wrong whenever the subject
 is not centred**:
 
 ```sh
-lucid -C myproject reframe                          # the crop in force per clip
+lucid -C myproject reframe                          # every crop in force
 lucid -C myproject reframe cold-open --rect 1400,0,459,816
+lucid -C myproject reframe cold-open --rect 0,0,459,816 --at 20.4   # from there on
 lucid -C myproject reframe cold-open --reset        # back to the centre
+lucid -C myproject reframe-sheet                    # every window, drawn, for review
 ```
 
 A rect is in that clip's own source pixels, so no cut can invalidate one, and
@@ -311,6 +313,13 @@ everything named stays on screen — and one that cannot be shown whole is
 refused with the largest rect that can. Nothing here analyses the picture to
 pick a crop: a wrong automatic reframe makes a film with nothing on screen
 saying so.
+
+`--at` is seconds into that clip's own source, so framing is per **shot**
+rather than per clip: a clip used seven times picks up whichever window each
+placement reads over, from one table. **Judge windows on `reframe-sheet`, never
+on a watch** — it draws each one on three of that placement's own source
+frames, and a badly-placed window is invisible in motion because nothing in
+the frame contradicts it.
 
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders
