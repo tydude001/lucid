@@ -2453,12 +2453,14 @@ single upstream cut invalidates wholesale; in source frames the same move is
 edit-invariant, and MLT's default `=` interpolates for free. The mechanism is
 already paid for by step 2 — it is the *authoring* that waits for evidence.
 
-**The stacked two-pane split is out of scope**, and both reasons expired on
-2026-08-11 — § The stacked split has the measurements. It is *not* a new render
-path (a second node, no new service), and it is no longer unreachable: Tyler
-reviewed the 39 proposed windows and named the two-handers. What was right here
-is that it had to wait for single-window framing to be insufficient against
-something real, which is exactly how it got unblocked.
+**The stacked two-pane split was out of scope**, both reasons expired on
+2026-08-11, and it shipped the same day — § The stacked split for the
+measurements, HISTORY.md § The stacked split, built for what went in. It is
+*not* a new render path (a second node, no new service), and it stopped being
+unreachable when Tyler reviewed the 39 proposed windows and named the
+two-handers. What was right here is that it had to wait for single-window
+framing to be insufficient against something real, which is exactly how it got
+unblocked.
 
 ## The auto-framing detector — the design note — 2026-08-11
 
@@ -2761,18 +2763,50 @@ error of one pixel spikes the max at every edge — which is what the
 neighbouring source frames do (max 145), so the low max is also what identifies
 the frame.
 
-### What is not measured, and must not be inherited
+### Finding 4 — how often it fires, measured on the film's own windows
 
-**The 24.8%-of-shot-seconds figure is the spike's, and it is the wrong pass.**
-It was measured outside lucid, on 64 shots found by its own cut detection,
-before `reframe_detect` existed. How many of the **39 windows actually
-proposed** are two-handers is unknown, and `detect-apply.json` will not answer
-it: its `faces` count is detections summed over three sampled frames, so
-`s1996-randy`'s 33 is one CRT crowd and a `faces=3` is one person seen three
-times. Distinct subjects per window is a different measurement and it comes
-first — the threshold that decides split-vs-solo cannot be set on a number
-from a different detector run.
+**The spike's 24.8%-of-shot-seconds was the wrong pass and was nearly
+inherited.** It came from outside lucid, on 64 shots found by its own cut
+detection, before `reframe_detect` existed. Re-run over the 59 windows the
+detector actually proposes — same footage, same timestamps, boxes kept this
+time — the answer is a *quarter* of it, and the rule is what moves it:
 
-Also unbuilt and deliberately unnamed here: which cluster goes in the **top**
-pane. The spike ordered them left-to-right in the source; whether that reads
-correctly against a cut is an editorial question and a watch, not a rule.
+| what counts as a split | windows | of 245.7s | share |
+|---|---|---|---|
+| median frame holds 2+ faces | 13 | 43.0s | 17.5% |
+| …that one crop cannot hold | 12 | 42.0s | 17.1% |
+| …and is not a crowd | 10 | 36.4s | 14.8% |
+| **every sampled frame agrees** | 5 | 15.6s | **6.3%** |
+| …and at least 1s long — what shipped | 4 | 15.1s | **6.2%** |
+
+**`reframe_detect`'s `faces` field is detections summed over the sampled
+frames, and reading it as a subject count is wrong twice**: one face reads as
+3, and `s1996-randy`'s 33 is eleven people in a room watching a television.
+The per-frame median is now reported as `subjects` beside it.
+
+The row that matters is the fourth. On 4 of the 10 candidates one sampled
+frame of three disagrees — a figure crossing frame, a face turning away — and
+a split whose panes are wrong for a third of its length is worse than the
+single window it replaces, because a stacked frame framing nobody is
+unmistakably deliberate. Requiring all three frames is not a tightening of the
+rule, it *is* the rule. Two more refusals fall out of the same table: a crowd
+(2 windows, 9 and 11 subjects) gets no split because two panes would frame two
+people at random, and a pair that **does** fit one window is not a split — 1
+of the 13 multi-subject windows is that case, at a 401px span against a 450px
+crop, and one window is the better picture whenever it is possible.
+
+The minimum duration is nearly free and worth having: 3 of the 10 candidates
+are under 1.2s and they are 1.7s of the 36.4s, so excluding them costs almost
+no coverage and removes every window where the second pane would flash for
+under thirty frames.
+
+### What is still not measured
+
+Which cluster goes in the **top** pane. The spike ordered them left-to-right
+in the source and the build kept that; whether it reads correctly against a
+cut is an editorial question and a watch, not a rule.
+
+And whether the four are *right*. They are a proposal — `reframe_sheet` draws
+both rects now, dashed for the lower one, which is where that gets settled.
+`s2022-reveal`'s panes overlap heavily (344 and 711, 904 wide apiece), which
+is the case where a split is legal and may still be the worse picture.

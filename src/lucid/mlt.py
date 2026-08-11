@@ -20,9 +20,16 @@ render rather than an error:
 
 - **`<blank>`.** A playlist shorter than its neighbours pads with blank, which
   is runtime every cue downstream of it is blind to — the cut positions still
-  say what they said and the picture is now late. Nothing here ever emits a
+  say what they said and the picture is now late. No *lane* here ever emits a
   `<blank>`: both playlists are contiguous by construction, and `document()`
-  refuses a picture lane whose frames do not sum to exactly the audio's.
+  refuses a picture lane whose frames do not sum to exactly the audio's. The
+  one place a blank is written is a **split pane's** overlay playlist, where
+  it is the point rather than an accident — the pane covers the stretches its
+  clip is split over and nothing else, and a blank on an overlay track shows
+  the track below. That is the opposite case from the one this rule guards:
+  the danger is a lane *silently* becoming short, and a pane track is short
+  deliberately and by the same frame arithmetic as the lane it sits over,
+  which `document()` checks.
 - **The declared lengths.** melt renders to the *longest* declared length in
   the document, not to the playlist, so a stale one pads the render out with
   a frozen frame and still exits 0. There are four of them (the two track
@@ -149,6 +156,24 @@ def centre_crop(source: tuple[int, int], resolution: tuple[int, int]) -> tuple[i
     return ((src_w - crop_w) // 2, (src_h - crop_h) // 2, crop_w, crop_h)
 
 
+def pane_boxes(resolution: tuple[int, int]) -> tuple[tuple[int, int, int, int], ...]:
+    """Where the two panes of a stacked split sit inside the frame.
+
+    Full width, half height each, the remainder going to the lower pane so
+    the two always tile the canvas exactly — an odd height would otherwise
+    leave a one-pixel seam of background showing between them.
+
+    **Stacked rather than side by side, and that is not a preference.** The
+    canvas this exists for is 9:16; two panes beside each other would be
+    540x1920 apiece, taller than they are wide by nearly 4:1, and a face in
+    one is a sliver. Stacked they are 1080x960 — wider than the 459px window
+    a single crop of this footage gets, which is the whole gain.
+    """
+    width, height = resolution
+    half = height // 2
+    return ((0, 0, width, half), (0, half, width, height - half))
+
+
 @dataclass(frozen=True)
 class Reframe:
     """A source's size, and the rects of it that survive into the frame.
@@ -170,11 +195,18 @@ class Reframe:
 
     A per-clip reframe is the degenerate one-window case, and still writes the
     same single `rect` string it always did.
+
+    `panes` is the **second** rect of a stacked split, addressed by the same
+    source in-point as the window it belongs to: a window carrying one is
+    drawn as two half-height panes, this series holding the lower one and the
+    ordinary window series the upper. Empty on every project that has no
+    split, which is what keeps their documents byte-identical.
     """
 
     source: tuple[int, int]
     crop: tuple[int, int, int, int]
     later: tuple[tuple[float, tuple[int, int, int, int]], ...] = ()
+    panes: tuple[tuple[float, tuple[int, int, int, int]], ...] = ()
 
     def __post_init__(self) -> None:
         at = [seconds for seconds, _ in self.later]
@@ -185,10 +217,50 @@ class Reframe:
             )
         if at != sorted(set(at)):
             raise MLTError(f"reframe windows must be in source order and distinct, not {at}")
+        pane_at = [seconds for seconds, _ in self.panes]
+        if pane_at != sorted(set(pane_at)):
+            raise MLTError(f"split panes must be in source order and distinct, not {pane_at}")
+        # A pane is the *other half* of a window, never a window of its own —
+        # one without a partner would render as half a frame over whatever the
+        # governing window happens to be, which is a picture nobody asked for.
+        starts = {seconds for seconds, _ in self.windows()}
+        orphans = [seconds for seconds in pane_at if seconds not in starts]
+        if orphans:
+            raise MLTError(
+                f"a split pane at {orphans} has no window of its own to pair with — "
+                "a pane is the lower half of a window, so both halves are addressed "
+                "by the same source in-point"
+            )
 
     def windows(self) -> tuple[tuple[float, tuple[int, int, int, int]], ...]:
         """Every window in source order, the head one included."""
         return ((0.0, self.crop), *self.later)
+
+    def pane_at(self, seconds: float) -> tuple[int, int, int, int] | None:
+        """The lower pane of the window starting exactly here, if it is a split.
+
+        Keyed on the window's own start rather than "in force from here",
+        because that is what a pane is: the other half of one window. Asking
+        which pane covers an arbitrary moment is `crop_at`'s question, and the
+        answer for the lower half is found by looking up that window's start.
+        """
+        for start, rect in self.panes:
+            if abs(start - seconds) < 1e-9:
+                return rect
+        return None
+
+    def window_start(self, seconds: float) -> float:
+        """Where the window in force at this point in the source begins."""
+        start = 0.0
+        for at, _ in self.later:
+            if seconds + 1e-9 < at:
+                break
+            start = at
+        return start
+
+    def is_split(self, seconds: float) -> bool:
+        """Is the window in force at this point in the source a stacked split?"""
+        return self.pane_at(self.window_start(seconds)) is not None
 
     def crop_at(self, seconds: float) -> tuple[int, int, int, int]:
         """The window in force at that point in the source."""
@@ -200,35 +272,71 @@ class Reframe:
         return found
 
     def _dest(
-        self, crop: tuple[int, int, int, int], resolution: tuple[int, int]
+        self,
+        crop: tuple[int, int, int, int],
+        resolution: tuple[int, int],
+        box: tuple[int, int, int, int] | None = None,
     ) -> tuple[int, int, int, int]:
-        """Where the whole source frame lands, so that `crop` fills the frame.
+        """Where the whole source frame lands, so that `crop` fills `box`.
 
         `qtblend`'s rect is a *destination* in profile pixels, not a crop —
         which is why this returns something much larger than the profile and
         with a negative origin. Scale is `max` of the two ratios (fill), and
-        the crop's centre is put on the frame's centre; when the crop already
-        carries the canvas's aspect the two ratios are equal and nothing is
+        the crop's centre is put on the box's centre; when the crop already
+        carries the box's aspect the two ratios are equal and nothing is
         lost off the second axis.
+
+        `box` is the whole frame for an ordinary window and one half of it for
+        a pane of a stacked split. The profile does the clipping either way —
+        nothing is masked and no crop filter is involved — which is why a pane
+        needs a crop of *exactly* the pane's aspect to stay inside it. That is
+        `ops` refitting each pane against `pane_boxes`, and it is the one thing
+        holding the two panes apart. Measured rather than assumed: a pane
+        window spans the full source height by construction, so the scaled
+        frame is exactly the pane's height and cannot reach the other half.
         """
         src_w, src_h = self.source
         crop_x, crop_y, crop_w, crop_h = crop
-        width, height = resolution
-        scale = max(width / crop_w, height / crop_h)
+        box_x, box_y, box_w, box_h = box if box is not None else (0, 0, *resolution)
+        scale = max(box_w / crop_w, box_h / crop_h)
         return (
-            round(width / 2 - (crop_x + crop_w / 2) * scale),
-            round(height / 2 - (crop_y + crop_h / 2) * scale),
+            round(box_x + box_w / 2 - (crop_x + crop_w / 2) * scale),
+            round(box_y + box_h / 2 - (crop_y + crop_h / 2) * scale),
             round(src_w * scale),
             round(src_h * scale),
         )
 
     def dest_rect(self, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
         """Where the whole source frame lands for the head window."""
-        return self._dest(self.crop, resolution)
+        return self.dest_rect_at(0.0, resolution)
 
     def dest_rect_at(self, seconds: float, resolution: tuple[int, int]) -> tuple[int, int, int, int]:
-        """The same, for whichever window that point in the source reads."""
-        return self._dest(self.crop_at(seconds), resolution)
+        """The same, for whichever window that point in the source reads.
+
+        A split window answers with its **upper** pane, because that is what
+        this reframe's own node draws there — a preview taking the whole-canvas
+        rect instead would place the shot at more than twice the render's
+        scale and show one person where the film shows two.
+        """
+        upper, _lower = pane_boxes(resolution)
+        box = upper if self.is_split(seconds) else None
+        return self._dest(self.crop_at(seconds), resolution, box)
+
+    def pane_dest_at(
+        self, seconds: float, resolution: tuple[int, int]
+    ) -> tuple[int, int, int, int] | None:
+        """Where the *lower* pane's source frame lands, or None if not a split.
+
+        The second half of what `dest_rect_at` answers, and the two together
+        are the whole of what the render draws — which is what a preview has to
+        have to draw the same picture rather than half of it.
+        """
+        start = self.window_start(seconds)
+        pane = self.pane_at(start)
+        if pane is None:
+            return None
+        _upper, lower = pane_boxes(resolution)
+        return self._dest(pane, resolution, lower)
 
     def is_identity(self, resolution: tuple[int, int]) -> bool:
         """Would this filter tell MLT anything it was not already doing?
@@ -239,7 +347,13 @@ class Reframe:
         keeps a project with no canvas override byte-identical to the one it
         exported before any of this existed. **Every** window has to be that
         rect: one window that moves is a filter worth emitting.
+
+        A split is never identity whatever its rects say — half the frame is
+        being handed to a second node, which is not something MLT was already
+        doing.
         """
+        if self.panes:
+            return False
         fitted = fit_rect(self.source, resolution)
         return all(self._dest(crop, resolution) == fitted for _, crop in self.windows())
 
@@ -255,8 +369,14 @@ class Reframe:
         producer read from 300 lands at output frame 10, and one keyed at 20
         is already up at output frame 0 (PLAN.md § Per-shot framing, finding
         3). A timeline clock would have shown the opposite of both.
+
+        A window that is a split writes the *upper* pane here — the same rect
+        against a half-height box — so this node keeps drawing the whole way
+        through and only its destination changes. The lower pane is a second
+        node, `pane_rect_property`.
         """
-        if not self.later:
+        upper, _ = pane_boxes(resolution)
+        if not self.later and not self.panes:
             return " ".join(str(value) for value in self.dest_rect(resolution)) + " 1"
         if not rate:
             raise MLTError(
@@ -265,7 +385,41 @@ class Reframe:
             )
         keys = []
         for seconds, crop in self.windows():
-            values = " ".join(str(value) for value in self._dest(crop, resolution))
+            box = upper if self.pane_at(seconds) is not None else None
+            values = " ".join(str(value) for value in self._dest(crop, resolution, box))
+            keys.append(f"{round(seconds * rate)}|={values} 1")
+        return ";".join(keys)
+
+    def pane_rect_property(self, resolution: tuple[int, int], rate: float) -> str:
+        """The lower pane's own `rect`, on its own node — off where there is no split.
+
+        **The pane is hidden by opacity, never by moving it off-canvas.** Both
+        render byte-identical frames (the probe behind PLAN.md § The stacked
+        split rendered the pair), and opacity is the one to write because a
+        rect parked at -9999 reads as a bug to whoever opens the document next
+        and invites being "fixed" into view.
+
+        Keyed at every window boundary rather than only at the splits: a step
+        that is not written is a value that carries on, so a pane left at
+        opacity 1 past the end of its split would draw the following shot's
+        footage into the bottom half of the frame. `melt` would exit 0.
+        """
+        if not self.panes:
+            raise MLTError("this reframe has no split panes, so there is no second node")
+        if not rate:
+            raise MLTError(
+                "a split pane needs the frame rate — its keyframes are numbered "
+                "in the source's own frames"
+            )
+        _, lower = pane_boxes(resolution)
+        parked = " ".join(str(value) for value in fit_rect(self.source, resolution))
+        keys = []
+        for seconds, crop in self.windows():
+            pane = self.pane_at(seconds)
+            if pane is None:
+                keys.append(f"{round(seconds * rate)}|={parked} 0")
+                continue
+            values = " ".join(str(value) for value in self._dest(pane, resolution, lower))
             keys.append(f"{round(seconds * rate)}|={values} 1")
         return ";".join(keys)
 
@@ -456,6 +610,42 @@ def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> 
     return playlist
 
 
+def _pane_playlist(
+    playlist_id: str, entries: list[Entry], nodes: dict[str, str], split: set[str]
+) -> ET.Element:
+    """A split pane's overlay track: the lane's own entries, blanked where it is not split.
+
+    The deliberate `<blank>` this module's docstring carves out. The frame
+    arithmetic is the lane's, entry for entry, so this track is exactly as
+    long as the one it sits over and the run of blanks is what lets the lower
+    half of the frame show the picture underneath.
+
+    Consecutive blanks are merged, which is cosmetic and worth it: an
+    unsplit film of 400 shots would otherwise write 400 one-shot blanks.
+    """
+    playlist = ET.Element("playlist", {"id": playlist_id})
+    pending = 0
+    for entry in entries:
+        if entry.resource not in split:
+            pending += entry.frames
+            continue
+        if pending:
+            ET.SubElement(playlist, "blank", {"length": str(pending)})
+            pending = 0
+        ET.SubElement(
+            playlist,
+            "entry",
+            {
+                "producer": nodes[entry.resource],
+                "in": str(entry.src_in),
+                "out": str(entry.src_out),
+            },
+        )
+    if pending:
+        ET.SubElement(playlist, "blank", {"length": str(pending)})
+    return playlist
+
+
 def _transition(parent: ET.Element, transition_id: str, properties: dict[str, str]) -> None:
     node = ET.SubElement(parent, "transition", {"id": transition_id})
     for name, value in properties.items():
@@ -481,6 +671,20 @@ def _reframe_filter(
     _property(node_filter, "mlt_service", "qtblend")
     _property(node_filter, "rect", reframe.rect_property(resolution, rate))
     return True
+
+
+def _pane_filter(
+    node: ET.Element, reframe: Reframe, resolution: tuple[int, int], rate: float
+) -> None:
+    """The same filter on a split's second node, carrying the lower pane.
+
+    A second *node*, not a second service: the split needed no new MLT
+    machinery at all, which the probe behind PLAN.md § The stacked split
+    settled against the plan's own claim that it was a new render path.
+    """
+    node_filter = ET.SubElement(node, "filter", {"id": f"filter_{node.get('id')}"})
+    _property(node_filter, "mlt_service", "qtblend")
+    _property(node_filter, "rect", reframe.pane_rect_property(resolution, rate))
 
 
 def reframed_nodes(root: ET.Element) -> dict[str, str]:
@@ -534,6 +738,11 @@ def document(
     re-authored when the canvas moves
     (`card_reauthor`), so cropping one would be lucid deciding to lose a
     corner of a title it drew itself.
+
+    A reframe carrying **split panes** grows the document by a track per lane
+    that has one: a second node of the same resource, a playlist holding that
+    lane's entries with everything unsplit blanked out, and one more compositing
+    transition. Nothing else changes — no new service, no mask, no crop filter.
     """
     if not audio:
         raise MLTError("an MLT document needs at least one entry on the edit's track")
@@ -594,6 +803,20 @@ def document(
         and not reframe[entry.resource].is_identity(resolution)
     }
 
+    def _split_in(lane: list[Entry]) -> dict[str, Entry]:
+        """The resources on this lane that are drawn as a stacked split.
+
+        Ordered by first appearance, so a document's pane nodes are numbered
+        the way its ordinary ones are and a rebuild is byte-identical.
+        """
+        found: dict[str, Entry] = {}
+        for entry in lane:
+            if entry.is_image or not entry.has_video:
+                continue
+            if entry.resource in reframe and reframe[entry.resource].panes:
+                found.setdefault(entry.resource, entry)
+        return found
+
     audio_nodes: dict[str, str] = {}
     for entry in audio:
         if entry.resource in audio_nodes:
@@ -618,6 +841,31 @@ def document(
     hide = {} if audio_has_video else {"hide": "video"}
     for playlist_id in ("playlist0", "playlist1"):
         ET.SubElement(edit_track, "track", {"producer": playlist_id, **hide})
+
+    # The split's second half, one overlay track per lane that has one. Its
+    # node is a *silent* copy of the lane's — `audio_index=-1` for the picture
+    # lane's own reason, and here it also stops the edit's sound being mixed
+    # in twice, which is a doubled VO at exit 0.
+    edit_panes: dict[str, str] = {}
+    for resource, entry in _split_in(audio).items():
+        node_id = f"pchain{len(edit_panes)}"
+        edit_panes[resource] = node_id
+        node = _source_node(node_id, entry, bin_ids[resource], rate)
+        _property(node, "audio_index", "-1")
+        _property(node, "video_index", "0")
+        _property(node, "set.test_audio", "1")
+        _pane_filter(node, reframe[resource], resolution, rate)
+        root.append(node)
+    if edit_panes:
+        root.append(_pane_playlist("playlist4", audio, edit_panes, set(edit_panes)))
+        root.append(ET.Element("playlist", {"id": "playlist5"}))
+        edit_pane_track = ET.SubElement(
+            root, "tractor", {"id": "tractor3", "in": "0", "out": str(total_frames - 1)}
+        )
+        _property(edit_pane_track, "kdenlive:timeline_active", "1")
+        _property(edit_pane_track, "kdenlive:track_name", "Edit split")
+        for playlist_id in ("playlist4", "playlist5"):
+            ET.SubElement(edit_pane_track, "track", {"producer": playlist_id, "hide": "audio"})
 
     picture_nodes: dict[str, str] = {}
     if picture:
@@ -648,6 +896,27 @@ def document(
         for playlist_id in ("playlist2", "playlist3"):
             ET.SubElement(picture_track, "track", {"producer": playlist_id, "hide": "audio"})
 
+    picture_panes: dict[str, str] = {}
+    for resource, entry in _split_in(picture).items():
+        node_id = f"pvchain{len(picture_panes)}"
+        picture_panes[resource] = node_id
+        node = _source_node(node_id, entry, bin_ids[resource], rate)
+        _property(node, "audio_index", "-1")
+        _property(node, "video_index", "0")
+        _property(node, "set.test_audio", "1")
+        _pane_filter(node, reframe[resource], resolution, rate)
+        root.append(node)
+    if picture_panes:
+        root.append(_pane_playlist("playlist6", picture, picture_panes, set(picture_panes)))
+        root.append(ET.Element("playlist", {"id": "playlist7"}))
+        picture_pane_track = ET.SubElement(
+            root, "tractor", {"id": "tractor4", "in": "0", "out": str(total_frames - 1)}
+        )
+        _property(picture_pane_track, "kdenlive:timeline_active", "1")
+        _property(picture_pane_track, "kdenlive:track_name", "Picture split")
+        for playlist_id in ("playlist6", "playlist7"):
+            ET.SubElement(picture_pane_track, "track", {"producer": playlist_id, "hide": "audio"})
+
     # A deterministic uuid: the same project rebuilt twice should produce the
     # same document, so a diff of two exports shows what actually changed.
     sequence_uuid = f"{{{uuid.uuid5(uuid.NAMESPACE_URL, f'lucid:{name}')}}}"
@@ -656,10 +925,19 @@ def document(
     )
     _property(sequence, "kdenlive:uuid", sequence_uuid)
     _property(sequence, "kdenlive:clipname", name)
-    ET.SubElement(sequence, "track", {"producer": "producer0"})
-    ET.SubElement(sequence, "track", {"producer": "tractor0"})
+    # Bottom to top: the black background, the edit, its split's second pane,
+    # the picture lane, and that lane's second pane. A pane sits directly over
+    # the track it is half of and under everything that was already above it,
+    # so adding one cannot change what covers what.
+    stack = ["producer0", "tractor0"]
+    if edit_panes:
+        stack.append("tractor3")
     if picture:
-        ET.SubElement(sequence, "track", {"producer": "tractor1"})
+        stack.append("tractor1")
+    if picture_panes:
+        stack.append("tractor4")
+    for producer in stack:
+        ET.SubElement(sequence, "track", {"producer": producer})
 
     # Without transitions a tractor renders its first track and drops the
     # rest, silently (HISTORY.md § 4) — the sound needs an additive mix and
@@ -676,14 +954,20 @@ def document(
             "sum": "1",
         },
     )
+    # `b_track` is an index into the track list just written, which is why the
+    # order above and the order here are one loop and not two lists that have
+    # to be kept in step. The edit is the only track that can be soundless
+    # picture-less audio; every other one carries video by construction.
     blended = 0
-    if audio_has_video:
+    for index, producer in enumerate(stack):
+        if index == 0 or (producer == "tractor0" and not audio_has_video):
+            continue
         _transition(
             sequence,
-            "transition1",
+            f"transition{blended + 1}",
             {
                 "a_track": "0",
-                "b_track": "1",
+                "b_track": str(index),
                 "mlt_service": "qtblend",
                 "internal_added": "237",
                 "always_active": "1",
@@ -691,19 +975,6 @@ def document(
             },
         )
         blended += 1
-    if picture:
-        _transition(
-            sequence,
-            f"transition{blended + 1}",
-            {
-                "a_track": "0",
-                "b_track": "2",
-                "mlt_service": "qtblend",
-                "internal_added": "237",
-                "always_active": "1",
-                "disable": "0",
-            },
-        )
 
     # The bin. `xml_retain` keeps this playlist out of the render — it is the
     # project's media list, not a track — and every timeline producer points
@@ -733,7 +1004,7 @@ def document(
     expected = {
         (audio_nodes if role == "edit" else picture_nodes)[resource]
         for role, resource in wants_reframe
-    }
+    } | set(edit_panes.values()) | set(picture_panes.values())
     found = set(reframed_nodes(root))
     if expected != found:
         raise MLTError(

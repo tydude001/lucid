@@ -35,7 +35,7 @@
  *                    seekWord(w)   seek to a word's timeline_start, if present
  *
  * player.js owns #viewer, #frame (with #frame-note), #media, #visualizer,
- * #picture (with #picture-video,
+ * #picture (with #picture-video, #picture-pane,
  * #picture-still, #picture-note), #caption-layer (with #caption-line),
  * #transport, #play, #clock, #playhint and touches no other pane's DOM. Every animation frame it emits
  * a 'playhead' event `{now, total}` on the shared bus, and a 'playing-word'
@@ -77,11 +77,16 @@ let wordCursor = 0; // cache for the playing-word scan
 
 let picture = null; // the V2 layer, or null before init
 let pictureVideo = null;
+let picturePane = null;
 let pictureStill = null;
 let pictureNote = null;
 let pictureAsset = null; // which asset the picture layer currently holds
 let pictureDest = null; // and the shot's own placement, which the asset does not fix
+let picturePaneDest = null; // the lower half of a stacked split, null on every other shot
 let pendingPictureSeek = null; // as pendingSeek, for the picture element
+let pendingPaneSeek = null; // and its own for the split's lower pane, which
+// loads independently: one variable would be cleared by whichever element
+// happened to fire `loadedmetadata` first, leaving the other at zero
 let shotCursor = 0; // cache for the shot-under-the-playhead scan
 const pictureRefused = new Set(); // assets the browser would not decode
 
@@ -270,6 +275,7 @@ function layoutFrame() {
   }
   place(media, mediaClip);
   place(pictureVideo, pictureAsset, pictureDest);
+  place(picturePane, pictureAsset, picturePaneDest);
 }
 
 /* Put one element where the render puts that source. Called whenever either
@@ -369,6 +375,8 @@ function loadShot(shot) {
   if (shot.is_image) {
     pictureVideo.hidden = true;
     pictureVideo.pause();
+    picturePane.hidden = true;
+    picturePane.pause();
     pictureStill.hidden = false;
     pictureStill.src = assetURL(shot.asset);
   } else {
@@ -376,7 +384,19 @@ function loadShot(shot) {
     pictureStill.removeAttribute("src");
     pictureVideo.hidden = false;
     pictureVideo.src = assetURL(shot.asset);
+    // The split's second producer is the *same file* — which is exactly what
+    // `mlt.document` emits, so loading it twice here is the preview being the
+    // same shape as the render rather than an approximation of it.
+    if (shot.dest_pane) {
+      picturePane.hidden = false;
+      picturePane.src = assetURL(shot.asset);
+    } else {
+      picturePane.hidden = true;
+      picturePane.pause();
+      picturePane.removeAttribute("src");
+    }
     pendingPictureSeek = shot.src_start;
+    pendingPaneSeek = shot.src_start;
   }
   placeShot(shot);
 }
@@ -388,9 +408,16 @@ function loadShot(shot) {
  * which is why this is called per frame rather than only on a load. */
 function placeShot(shot) {
   const dest = shot.is_image ? null : shot.dest || null;
-  if (sameRect(dest, pictureDest) && pictureAsset === shot.asset) return;
+  const pane = shot.is_image ? null : shot.dest_pane || null;
+  if (sameRect(dest, pictureDest) && sameRect(pane, picturePaneDest) && pictureAsset === shot.asset)
+    return;
   pictureDest = dest;
+  picturePaneDest = pane;
   place(pictureVideo, shot.is_image ? null : shot.asset, dest);
+  // Never the clip's own entry as a fallback: that is the *head* window, and
+  // for a pane it would place the lower half by a rect belonging to another
+  // shot. A shot with no pane is not a split, and the element is hidden.
+  place(picturePane, null, pane);
 }
 
 function sameRect(a, b) {
@@ -408,8 +435,10 @@ function paintPicture(t) {
     if (picture.hidden) return;
     picture.hidden = true;
     pictureVideo.pause();
+    picturePane.pause();
     pictureAsset = null;
     pictureDest = null;
+    picturePaneDest = null;
     return;
   }
   picture.hidden = false;
@@ -420,15 +449,37 @@ function paintPicture(t) {
   const target = shot.src_start + Math.max(0, t - shot.start);
   if (pictureVideo.readyState === 0) {
     pendingPictureSeek = target;
+    pendingPaneSeek = target;
     return;
   }
   if (media.paused) {
     if (!pictureVideo.paused) pictureVideo.pause();
     if (Math.abs(pictureVideo.currentTime - target) > PICTURE_EPS) pictureVideo.currentTime = target;
+    followPane(target, true);
     return;
   }
   if (Math.abs(pictureVideo.currentTime - target) > PICTURE_DRIFT) pictureVideo.currentTime = target;
   if (pictureVideo.paused) pictureVideo.play().catch(() => {});
+  followPane(target, false);
+}
+
+/* The split's lower pane, held to the same clock as the upper one.
+ *
+ * Against `target` rather than against `pictureVideo.currentTime`: `now()` is
+ * the only clock in this window, and slaving one element to another compounds
+ * their two drifts into one visible tear straight down the middle of the frame
+ * — the two halves are the same footage a fraction of a second apart, which
+ * reads as a decoder fault rather than as a split.
+ */
+function followPane(target, paused) {
+  if (!picturePane || picturePane.hidden || picturePane.readyState === 0) return;
+  if (paused) {
+    if (!picturePane.paused) picturePane.pause();
+    if (Math.abs(picturePane.currentTime - target) > PICTURE_EPS) picturePane.currentTime = target;
+    return;
+  }
+  if (Math.abs(picturePane.currentTime - target) > PICTURE_DRIFT) picturePane.currentTime = target;
+  if (picturePane.paused) picturePane.play().catch(() => {});
 }
 
 /* -- the caption layer: what the burn-in will put on the frame -----------
@@ -688,6 +739,7 @@ export function update(state) {
   shotCursor = 0;
   pictureAsset = null;
   pictureDest = null;
+  picturePaneDest = null;
   if (picture && !state.shots) picture.hidden = true;
   if (!state.segments.length) return;
   const wanted = state.segments[0].clip_id;
@@ -703,6 +755,7 @@ export function init(passedCtx) {
   vizCtx = visualizer.getContext("2d");
   picture = $("picture");
   pictureVideo = $("picture-video");
+  picturePane = $("picture-pane");
   pictureStill = $("picture-still");
   pictureNote = $("picture-note");
   captionLayer = $("caption-layer");
@@ -719,6 +772,15 @@ export function init(passedCtx) {
     if (pendingPictureSeek !== null) {
       pictureVideo.currentTime = pendingPictureSeek;
       pendingPictureSeek = null;
+    }
+  });
+
+  // The pane has its own pending seek, because it loads independently of the
+  // upper half and can arrive after `paintPicture` has stopped asking.
+  picturePane.addEventListener("loadedmetadata", () => {
+    if (pendingPaneSeek !== null) {
+      picturePane.currentTime = pendingPaneSeek;
+      pendingPaneSeek = null;
     }
   });
 

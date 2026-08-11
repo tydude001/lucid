@@ -604,3 +604,157 @@ def test_every_window_rides_one_node_per_role() -> None:
     assert set(reframed.values()) == {"0|=0 0 4518 1920 1;300|=-3438 0 4518 1920 1"}
     rendered = [n for n in root.findall("chain") if not (n.get("id") or "").startswith("bin")]
     assert all(len(node.findall("filter")) == 1 for node in rendered)
+
+
+# -- the stacked split: a second node, half a frame each --------------------
+#
+# PLAN.md § The stacked split, whose whole finding is that this needed no new
+# render path. The mechanism was probed before it was built and the writer's
+# own output was then rendered through melt and diffed against ffmpeg's two-
+# pane composite of the same source frame — mean |diff| 1.59 against 66.6 for
+# the solo crop it replaces, with the seam rows clean. That is HISTORY.md
+# § The stacked split, built; it cannot live here, because melt is inside a
+# flatpak that cannot see the `/tmp` `tmp_path` hands out.
+
+#: A pane of a 1080x1920 canvas is 1080x960, so a pane window of a 1920x816
+#: source is 816 * 1080/960 = 918 wide — twice the 459 one 9:16 crop gets.
+PANE_LEFT = (0, 0, 918, 816)
+PANE_RIGHT = (1002, 0, 918, 816)
+
+
+def test_the_panes_tile_the_canvas_with_no_seam() -> None:
+    """An odd height would otherwise leave a row of background showing
+    between them, which reads as a hairline crack down the middle."""
+    upper, lower = mlt.pane_boxes(VERTICAL)
+
+    assert upper == (0, 0, 1080, 960)
+    assert lower == (0, 960, 1080, 960)
+    assert upper[3] + lower[3] == VERTICAL[1]
+    odd_upper, odd_lower = mlt.pane_boxes((1080, 1921))
+    assert odd_upper[3] + odd_lower[3] == 1921
+
+
+def test_a_split_window_scales_each_pane_to_exactly_its_half() -> None:
+    """The one thing holding the halves apart: no mask and no crop filter is
+    involved anywhere, so a pane that scaled to more than 960 tall would draw
+    into the other one. A pane window spans the full source height by
+    construction, which makes the scaled frame exactly a pane tall."""
+    reframe = mlt.Reframe(WIDE, PANE_LEFT, panes=((0.0, PANE_RIGHT),))
+
+    upper, lower = mlt.pane_boxes(VERTICAL)
+    top = reframe._dest(PANE_LEFT, VERTICAL, upper)
+    bottom = reframe._dest(PANE_RIGHT, VERTICAL, lower)
+
+    assert top[3] == 960 and bottom[3] == 960, "each scaled frame is one pane tall"
+    assert top[1] == 0 and bottom[1] == 960, "and lands on its own half"
+
+
+def test_a_split_writes_the_upper_pane_on_the_ordinary_node() -> None:
+    """The primary node keeps drawing the whole way through and only its
+    destination changes — which is why a split needs no `<blank>` on the lane
+    itself and cannot leave a hole where it starts."""
+    reframe = mlt.Reframe(WIDE, PANE_LEFT, panes=((0.0, PANE_RIGHT),))
+
+    assert reframe.rect_property(VERTICAL, RATE) == "0|=0 0 2259 960 1"
+    assert reframe.pane_rect_property(VERTICAL, RATE) == "0|=-1179 960 2259 960 1"
+
+
+def test_the_pane_is_switched_off_by_opacity_at_every_other_window() -> None:
+    """The failure this closes: a step that is not written is a value that
+    carries on, so a pane left at opacity 1 past the end of its split draws
+    the *next* shot's footage into the bottom half of the frame — at exit 0.
+    Rendered rather than reasoned: solo/split/solo came back matching its own
+    reference at each of the three, and 61 and 70 away from a pane still on."""
+    reframe = mlt.Reframe(
+        WIDE, LEFT, later=((2.0, PANE_LEFT), (5.0, RIGHT)), panes=((2.0, PANE_RIGHT),)
+    )
+
+    keys = reframe.pane_rect_property(VERTICAL, RATE).split(";")
+
+    assert [key.split("|=")[0] for key in keys] == ["0", "60", "150"]
+    assert keys[0].endswith(" 0") and keys[2].endswith(" 0"), "off either side"
+    assert keys[1].endswith(" 1"), "and on for its own window"
+
+
+def test_a_pane_needs_a_window_of_its_own_to_pair_with() -> None:
+    """A pane addressed anywhere but at a window's own in-point would render
+    as half a frame over whatever framing happened to be in force."""
+    with pytest.raises(mlt.MLTError, match="no window of its own"):
+        mlt.Reframe(WIDE, LEFT, later=((5.0, RIGHT),), panes=((3.0, PANE_RIGHT),))
+    with pytest.raises(mlt.MLTError, match="source order"):
+        mlt.Reframe(WIDE, LEFT, panes=((0.0, PANE_RIGHT), (0.0, PANE_LEFT)))
+
+
+def test_a_split_is_never_an_identity() -> None:
+    """Half the frame is being handed to a second node, which is not something
+    MLT was already doing however innocent the rects look."""
+    square = mlt.Reframe((1920, 1080), (0, 0, 1920, 1080), panes=((0.0, (0, 0, 1920, 1080)),))
+
+    assert square.is_identity((1920, 1080)) is False
+
+
+def test_a_split_grows_the_document_by_one_node_and_one_track() -> None:
+    """A second *node*, not a second service. The pane track sits directly
+    over the lane it is half of, so nothing that was already above it moves."""
+    audio = [mlt.Entry("/media/vo.wav", 0, 60)]
+    lane = mlt.plan_picture(
+        [_shot("cold-open", 60, duration=30.0, path="/media/cold-open.mp4")], RATE
+    )
+    reframe = {"/media/cold-open.mp4": mlt.Reframe(WIDE, PANE_LEFT, panes=((0.0, PANE_RIGHT),))}
+
+    root = mlt.document(
+        audio=audio, picture=lane, rate=RATE, resolution=VERTICAL, reframe=reframe
+    )
+
+    assert sorted(mlt.reframed_nodes(root)) == ["pvchain0", "vchain0"]
+    sequence = [t for t in root.findall("tractor") if t.find("property[@name='kdenlive:uuid']") is not None]
+    stack = [track.get("producer") for track in sequence[0].findall("track")]
+    assert stack == ["producer0", "tractor0", "tractor1", "tractor4"]
+    # b_track is an index into that list, and a pane composites like any other
+    # picture track — over the black background, above the lane it halves.
+    blends = [
+        t.find("property[@name='b_track']").text
+        for t in sequence[0].findall("transition")
+        if t.find("property[@name='mlt_service']").text == "qtblend"
+    ]
+    assert blends == ["2", "3"]
+
+
+def test_the_pane_track_is_blanked_wherever_its_clip_is_not_split() -> None:
+    """The one deliberate `<blank>` in this module. Its frame arithmetic is the
+    lane's, entry for entry, so the pane track is exactly as long as the track
+    it sits over — which `declared_frames` then checks."""
+    audio = [mlt.Entry("/media/vo.wav", 0, 90)]
+    lane = mlt.plan_picture(
+        [
+            _shot("card:title", 30, is_image=True, path="/cards/title.png"),
+            _shot("cold-open", 30, duration=30.0, path="/media/cold-open.mp4"),
+            _shot("card:end", 30, is_image=True, path="/cards/end.png"),
+        ],
+        RATE,
+    )
+    reframe = {"/media/cold-open.mp4": mlt.Reframe(WIDE, PANE_LEFT, panes=((0.0, PANE_RIGHT),))}
+
+    root = mlt.document(
+        audio=audio, picture=lane, rate=RATE, resolution=VERTICAL, reframe=reframe
+    )
+
+    pane_playlist = root.find("playlist[@id='playlist6']")
+    assert pane_playlist is not None
+    shape = [(child.tag, child.get("length") or child.get("producer")) for child in pane_playlist]
+    assert shape == [("blank", "30"), ("entry", "pvchain0"), ("blank", "30")]
+    assert sum(int(c.get("length")) for c in pane_playlist if c.tag == "blank") + 30 == 90
+
+
+def test_the_edit_lanes_split_pane_is_silent() -> None:
+    """It is a second producer of the same file — with its audio left on, the
+    edit's own sound would be mixed in twice, at exit 0."""
+    audio = [mlt.Entry("/media/talk.mp4", 0, 60, has_video=True)]
+    reframe = {"/media/talk.mp4": mlt.Reframe(WIDE, PANE_LEFT, panes=((0.0, PANE_RIGHT),))}
+
+    root = mlt.document(audio=audio, rate=RATE, resolution=VERTICAL, reframe=reframe)
+
+    pane = root.find("chain[@id='pchain0']")
+    assert pane is not None
+    assert pane.find("property[@name='audio_index']").text == "-1"
+    assert pane.find("property[@name='set.test_audio']").text == "1"

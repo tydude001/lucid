@@ -417,3 +417,130 @@ def test_a_stored_window_a_whole_shot_away_is_a_different_window(
 
     assert [w["current"] for w in result["windows"]] == ["centre", "centre"]
     assert result["applied"] == 2
+
+
+# -- the stacked split ------------------------------------------------------
+#
+# PLAN.md § The stacked split. The threshold here was measured on the film's
+# own 59 windows rather than inherited from the spike, and the measurement is
+# the reason the rule is this strict: a *median*-frame rule calls 10 windows
+# splits (14.8% of the picture-seconds) and 4 of those 10 have one sampled
+# frame of three that disagrees. Requiring every frame takes it to 5 windows
+# and 6.3%. The spike's 24.8% is neither number and was nearly inherited.
+
+
+def _pair(left: float, right: float) -> list[dict[str, Any]]:
+    """Two faces far enough apart that no 459px window holds them both."""
+    return [_face(left), _face(right)]
+
+
+@needs_ffmpeg
+def test_a_two_hander_no_window_can_hold_comes_back_as_a_split(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case `faces.py` says the rule cannot solve — every face is a true
+    positive and only one of them is the shot. Two panes keep both."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: _pair(400.0, 1500.0))
+
+    window = ops.reframe_detect(project.root)["windows"][0]
+
+    # A pane of a 1080x1920 canvas is 1080x960, so a pane window of this
+    # 1920x816 source is 918 wide — twice the 459 one crop gets.
+    assert window["pane"] is not None
+    assert window["rect"].endswith(",0,918,816") and window["pane"].endswith(",0,918,816")
+    assert window["subjects"] == 2
+    assert int(window["rect"].split(",")[0]) < int(window["pane"].split(",")[0])
+
+
+@needs_ffmpeg
+def test_a_pair_one_window_can_hold_is_not_a_split(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One window is the better picture whenever it is possible — 1 of the
+    film's 13 multi-subject windows is this case, at a 401px span against a
+    450px crop."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: _pair(900.0, 1100.0))
+
+    window = ops.reframe_detect(project.root)["windows"][0]
+
+    assert window["pane"] is None
+    assert window["rect"].endswith(",0,459,816"), "the ordinary proposal"
+    assert window["subjects"] == 2
+
+
+@needs_ffmpeg
+def test_a_crowd_gets_no_split_because_two_panes_would_frame_two_of_them(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two of the film's windows are crowds — nine and eleven subjects, a
+    party and a room watching a television. A split there frames nobody."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: [_face(x) for x in (200.0, 600.0, 1000.0, 1400.0, 1800.0)])
+
+    window = ops.reframe_detect(project.root)["windows"][0]
+
+    assert window["pane"] is None
+    assert window["subjects"] == 5
+    assert window["faces"] == 15, "detections summed over three frames — not subjects"
+
+
+@needs_ffmpeg
+def test_one_disagreeing_frame_is_enough_to_refuse_a_split(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finding the whole threshold rests on. A split whose panes are wrong
+    for a third of its length is worse than the window it replaces, because a
+    stacked frame framing nobody is unmistakably deliberate."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: _pair(400.0, 1500.0))
+
+    # `_stub` answers per *window*; this window needs an answer per frame,
+    # because the whole finding is that the three samples disagree.
+    def fake_detect(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out = []
+        for job in jobs:
+            frames = []
+            for i, ts in enumerate(job["timestamps"]):
+                frames.append({"ts": ts, "faces": [_face(400.0)] if i == 1 else _pair(400.0, 1500.0)})
+            out.append({"index": job["index"], "frames": frames})
+        return out
+
+    monkeypatch.setattr(faces, "detect", fake_detect)
+
+    window = ops.reframe_detect(project.root)["windows"][0]
+
+    assert window["pane"] is None
+    assert window["rect"] is not None, "still framed, just not split"
+
+
+@needs_ffmpeg
+def test_no_split_turns_the_offer_off(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: _pair(400.0, 1500.0))
+
+    window = ops.reframe_detect(project.root, split=False)["windows"][0]
+
+    assert window["pane"] is None
+    assert window["rect"].endswith(",0,459,816")
+
+
+@needs_ffmpeg
+def test_applying_a_split_stores_both_halves(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through `ops.reframe` like every other proposal — a fourth client,
+    never a fourth implementation."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: _pair(400.0, 1500.0))
+
+    result = ops.reframe_detect(project.root, apply=True)
+
+    assert result["splits"] >= 1
+    records = project.read_manifest()["reframe"]
+    assert any("pane" in record for record in records)
+    entry = ops._reframe_map(project, (1080, 1920))["clipa"]
+    assert entry.panes, "and it reaches the writer as a split"

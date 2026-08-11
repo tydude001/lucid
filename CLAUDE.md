@@ -318,6 +318,18 @@ installed package or the upstream repo, not your memory.
   role**, so a reframe applied per resource crops a file on one track and
   letterboxes it on the other, in the same frame, at exit 0. HISTORY.md § The
   MLT reframe.
+  - **A window can hold a second rect (`pane`), and then it draws as a stacked
+    split** — two half-height panes, a second node of the same resource,
+    nothing new in MLT. **Both rects are grown to the *full source height*,
+    never merely to the pane's aspect**: nothing masks a pane, so a crop
+    shorter than the source scales the frame past its own pane and into the
+    other one at exit 0. That full height is the only thing holding the halves
+    apart. The pane node is switched off by **opacity 0 keyed at every window
+    boundary** — a step not written is a value that carries on — and the sheet
+    draws the lower rect dashed, which is where a split gets judged. It fires
+    on 4 of the film's 59 windows; **`reframe_detect`'s `faces` is detections
+    summed over the sampled frames and is not a subject count** (33 is eleven
+    people), `subjects` is. HISTORY.md § The stacked split, built.
   - **An export preset never sets the canvas — `tiktok-reels` *checks* it and
     refuses.** The obvious build is the wrong one: a flag that reshapes the
     project is an export argument rewriting project state, the same failure as

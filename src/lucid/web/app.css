@@ -676,6 +676,7 @@ textarea {
 /* `hidden` has to beat the `display` above, and does not on its own. */
 #picture[hidden],
 #picture-video[hidden],
+#picture-pane[hidden],
 #picture-still[hidden] {
   display: none;
 }

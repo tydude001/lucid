@@ -512,11 +512,12 @@ centre crop.** The detector that would frame them is costed against those
 numbers, 2026-08-11 (PLAN.md § The auto-framing detector) — faces beat the
 centre crop and the spike's own "no detectable face" share is **7 of the 35
 windows those 18 placements imply**, so a fifth of them get named rather than
-framed. **The stacked split's gate opened 2026-08-11** — the 39 windows were
-reviewed and the two-handers named — and its mechanism is measured: a second
-node with a second `qtblend` rect, not the new render path this page assumed
-(PLAN.md § The stacked split). What it waits on is how many of those 39 windows
-hold two *subjects*, which nobody has measured. HISTORY.md § Per-shot framing.
+framed. **The stacked split shipped 2026-08-11** — a second node with a second
+`qtblend` rect, not the new render path this page assumed — and it fires on 4
+of the film's 59 windows, 6.2% of the picture-seconds against the 24.8% the
+spike claimed. What is left on it is a watch: whether the four are right, and
+whether a three-face window should split at all. HISTORY.md § The stacked
+split, built; PLAN.md § The stacked split.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing

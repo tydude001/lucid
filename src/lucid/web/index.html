@@ -90,6 +90,10 @@
                  playhead in here, muted: the audio is always the transport's. -->
             <div id="picture" hidden>
               <video id="picture-video" preload="metadata" muted playsinline></video>
+              <!-- The lower half of a stacked split: a second producer of the
+                   same file, which is exactly what the MLT writer emits for
+                   one. Hidden on every ordinary shot. -->
+              <video id="picture-pane" preload="metadata" muted playsinline hidden></video>
               <img id="picture-still" alt="">
               <p id="picture-note" class="picture-note" hidden></p>
             </div>

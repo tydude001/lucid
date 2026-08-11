@@ -416,3 +416,35 @@ def test_a_still_has_no_placement_because_a_card_is_never_cropped(project: Proje
 
     assert shots[0]["is_image"] is True
     assert shots[0]["dest"] is None
+
+def test_a_split_shot_carries_both_halves(project: Project) -> None:
+    """A preview reading only `dest` would place the shot at more than twice
+    the render's scale and show one person where the film shows two — so the
+    view carries the lower pane as well, and `dest` is already the upper one
+    rather than the whole-canvas rect it is for every other shot."""
+    _wide(project)
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,918,816", pane="1002,0,918,816")
+
+    view = ops.timeline_view(project.root)
+    shot = view["shots"][0]
+
+    split = mlt.Reframe((1920, 816), (0, 0, 918, 816), panes=((0.0, (1002, 0, 918, 816)),))
+    assert shot["dest"] == list(split.dest_rect_at(0.0, (1080, 1920)))
+    assert shot["dest_pane"] == list(split.pane_dest_at(0.0, (1080, 1920)))
+    assert shot["dest"][3] == 960 and shot["dest_pane"][3] == 960, "one pane tall each"
+    assert shot["dest"][1] == 0 and shot["dest_pane"][1] == 960, "and on its own half"
+    assert view["reframe"]["clipa"]["pane"] == shot["dest_pane"]
+
+
+def test_an_ordinary_shot_has_no_pane(project: Project) -> None:
+    """Null rather than absent: the picture layer branches on it, and a missing
+    key would read as a split on a shot that is not one."""
+    _wide(project)
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+
+    view = ops.timeline_view(project.root)
+
+    assert view["shots"][0]["dest_pane"] is None
+    assert view["reframe"]["clipa"]["pane"] is None

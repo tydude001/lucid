@@ -589,6 +589,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "canvas's shape if it is not already, so everything named stays on screen",
     )
     p_reframe.add_argument(
+        "--pane",
+        metavar="X,Y,W,H",
+        help="draw this window as a stacked split: --rect on top, this below, "
+        "each pane getting twice the width one 9:16 crop gets. For the "
+        "two-hander one window cannot frame",
+    )
+    p_reframe.add_argument(
         "--at",
         type=float,
         metavar="SECONDS",
@@ -631,6 +638,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the proposals through `reframe`, leaving any window that is "
         "already framed by hand alone. Off by default: look at `reframe-sheet` first",
+    )
+    p_detect.add_argument(
+        "--no-split",
+        dest="split",
+        action="store_false",
+        help="never offer a stacked split, however many subjects a window holds. "
+        "On by default, and rare: 3 of the film's 59 windows",
     )
 
     p_sheet = sub.add_parser(
@@ -1190,6 +1204,7 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
             args.project,
             args.clip_id,
             rect=args.rect,
+            pane=args.pane,
             src_start=args.at,
             reset=args.reset,
             plan=args.plan,
@@ -1202,6 +1217,7 @@ def _cmd_reframe_detect(args: argparse.Namespace) -> int:
         ops.reframe_detect(
             args.project,
             clip_id=args.clip_id,
+            split=args.split,
             threshold=args.threshold,
             frames=args.frames,
             apply=args.apply,

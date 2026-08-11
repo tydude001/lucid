@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import statistics
 import subprocess
 import tempfile
 import time
@@ -1764,6 +1765,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
             "source": list(entry.source),
             "crop": list(entry.crop),
             "dest": list(entry.dest_rect(resolution)),
+            # The lower half when the head window is a stacked split. Both
+            # halves or the preview draws one person where the film draws two.
+            "pane": (
+                list(entry.pane_dest_at(0.0, resolution))
+                if entry.pane_dest_at(0.0, resolution)
+                else None
+            ),
             "crops": not entry.is_identity(resolution),
         }
         for clip_id_, entry in entries.items()
@@ -1777,11 +1785,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     # canvas, never cropped (`mlt.document`).
     for shot in shots:
         found = entries.get(str(shot.get("asset")))
-        shot["dest"] = (
-            None
-            if found is None or shot.get("is_image")
-            else list(found.dest_rect_at(float(shot.get("src_start") or 0.0), resolution))
-        )
+        drawn = found is not None and not shot.get("is_image")
+        at = float(shot.get("src_start") or 0.0)
+        shot["dest"] = list(found.dest_rect_at(at, resolution)) if drawn else None
+        # A shot the render draws as two half-height panes carries both, and
+        # `dest` above is already the upper one. Null is the ordinary case.
+        pane = found.pane_dest_at(at, resolution) if drawn else None
+        shot["dest_pane"] = list(pane) if pane else None
 
     result: dict[str, Any] = {
         "project": str(project.root),
@@ -3584,19 +3594,34 @@ def _fit_rect_to_canvas(
     return grown_x, grown_y, grown_w, grown_h
 
 
-def _stored_reframes(project: Project) -> dict[str, list[tuple[float, tuple[int, int, int, int]]]]:
+#: One stored window: where in the source it starts, the rect asked for, and
+#: the second rect when that window is drawn as a stacked split.
+StoredWindow = tuple[float, tuple[int, int, int, int], tuple[int, int, int, int] | None]
+
+
+def _stored_reframes(project: Project) -> dict[str, list[StoredWindow]]:
     """Every clip's requested crop rects, as asked for rather than as fitted.
 
-    A series per clip, `(src_start seconds, rect)` in source order. A record
-    with no `src_start` is the window from the head of the file onward, which
-    is what every rect written before per-shot framing existed meant and still
-    means — the key is optional and absent-means-what-it-always-meant, so this
-    is deliberately not a schema bump (CLAUDE.md).
+    A series per clip, `(src_start seconds, rect, pane)` in source order. A
+    record with no `src_start` is the window from the head of the file onward,
+    which is what every rect written before per-shot framing existed meant and
+    still means — the key is optional and absent-means-what-it-always-meant, so
+    this is deliberately not a schema bump (CLAUDE.md).
+
+    `pane` is the same for the stacked split: absent means the window is one
+    rect, which is what every window written before the split existed was. It
+    rides on the *same record* rather than in a series of its own precisely so
+    it cannot drift from the window it is the other half of — a pane with no
+    window would render as half a frame over whatever framing happened to be
+    in force.
     """
-    stored: dict[str, list[tuple[float, tuple[int, int, int, int]]]] = {}
+    stored: dict[str, list[StoredWindow]] = {}
     for record in project.read_manifest().get(REFRAME_KEY, []):
         at = float(record.get("src_start") or 0.0)
-        stored.setdefault(str(record["clip_id"]), []).append((at, _parse_rect(record["rect"])))
+        pane = record.get("pane")
+        stored.setdefault(str(record["clip_id"]), []).append(
+            (at, _parse_rect(record["rect"]), _parse_rect(pane) if pane else None)
+        )
     for series in stored.values():
         series.sort(key=lambda entry: entry[0])
     return stored
@@ -3609,9 +3634,50 @@ def _clip_source(clip: dict[str, Any]) -> tuple[int, int] | None:
     return int(clip["width"]), int(clip["height"])
 
 
+def _fit_pane_rect(
+    rect: tuple[int, int, int, int],
+    source: tuple[int, int],
+    pane: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    """Grow a requested rect to a pane of the canvas — **full source height**.
+
+    The pane's aspect alone is not enough, and that is the whole of this
+    function. Nothing masks or crops a pane: `mlt.Reframe._dest` places the
+    *entire* source frame so the rect fills the pane, and the profile does the
+    clipping. So a rect of the pane's shape but only part of the source's
+    height scales the frame up until it overruns the pane and draws into the
+    other one — a two-hander with the other person's chin across the middle,
+    at exit 0. A caught-by-a-test bug rather than a reasoned one: growing to
+    9:8 alone turned a 200px-tall ask into a 4.8x zoom.
+
+    Full height makes the scaled frame exactly one pane tall for any source
+    shape, which is the only thing holding the two halves apart. The width
+    follows from it, so the ask moves the window sideways and nothing else —
+    which is what a framing decision is here.
+    """
+    src_w, src_h = source
+    pane_w, pane_h = pane
+    width = round(src_h * pane_w / pane_h)
+    if width > src_w:
+        raise ProjectError(
+            f"a {src_w}x{src_h} source cannot be shown whole in a {pane_w}x{pane_h} "
+            f"pane — a pane window is the full source height, so it would be "
+            f"{width} wide against the source's {src_w}. This footage is too tall "
+            "to stack; frame it with one window instead"
+        )
+    x, _y, ask_w, _ask_h = rect
+    if x + ask_w > src_w:
+        raise ProjectError(
+            f"crop rect {rect[0]},{rect[1]},{rect[2]},{rect[3]} runs past the "
+            f"source's {src_w}x{src_h}"
+        )
+    left = min(max(round(x + ask_w / 2 - width / 2), 0), src_w - width)
+    return (left, 0, width, src_h)
+
+
 def _clip_reframe(
     clip: dict[str, Any],
-    asked: list[tuple[float, tuple[int, int, int, int]]] | None,
+    asked: list[StoredWindow] | None,
     resolution: tuple[int, int],
 ) -> mlt.Reframe | None:
     """What survives into the frame for one clip, overrides or centre default.
@@ -3619,12 +3685,18 @@ def _clip_reframe(
     The head window is whichever override sits at 0, else the centre crop —
     so a clip whose first override starts partway in is centre-cropped up to
     that point rather than being framed by a window that has not begun.
+
+    **A split's two rects are fitted to the pane, not to the canvas** — and to
+    the full source height, which is `_fit_pane_rect`'s whole argument: the
+    geometry is the only thing holding the two halves off each other, there
+    being no mask and no crop filter anywhere in this (`mlt.Reframe._dest`).
+    A source too tall to carry a pane is refused there, at the keyboard.
     """
     source = _clip_source(clip)
     if source is None:
         return None
     series = list(asked or [])
-    starts = [start for start, _ in series]
+    starts = [start for start, *_ in series]
     if len(set(starts)) != len(starts):
         # Only reachable by hand-editing the manifest — the op refuses a second
         # entry at one in-point. Refused as a `ProjectError` so the reading
@@ -3636,14 +3708,25 @@ def _clip_reframe(
             f"({sorted(starts)}) — a window is addressed by where it starts, so one of "
             "them is unreachable; drop it with `reframe <clip> --at <seconds> --reset`"
         )
-    head = series.pop(0)[1] if series and series[0][0] <= 0 else None
-    crop = (
-        mlt.centre_crop(source, resolution)
-        if head is None
-        else _fit_rect_to_canvas(head, source, resolution)
+    upper, _lower = mlt.pane_boxes(resolution)
+    pane_shape = (upper[2], upper[3])
+
+    def fit(at: float, rect: tuple[int, int, int, int], pane: object) -> tuple[int, int, int, int]:
+        if pane:
+            return _fit_pane_rect(rect, source, pane_shape)
+        return _fit_rect_to_canvas(rect, source, resolution)
+
+    # The head window is addressed as 0.0 whatever it was stored as, so that a
+    # pane on it pairs with the window `Reframe` calls `crop`.
+    head = (0.0, *series.pop(0)[1:]) if series and series[0][0] <= 0 else None
+    crop = mlt.centre_crop(source, resolution) if head is None else fit(*head)
+    later = tuple((when, fit(when, rect, pane)) for when, rect, pane in series)
+    panes = tuple(
+        (when, _fit_pane_rect(pane, source, pane_shape))
+        for when, _rect, pane in ([head] if head else []) + series
+        if pane is not None
     )
-    later = tuple((when, _fit_rect_to_canvas(rect, source, resolution)) for when, rect in series)
-    return mlt.Reframe(source=source, crop=crop, later=later)
+    return mlt.Reframe(source=source, crop=crop, later=later, panes=panes)
 
 
 def _reframe_map(project: Project, resolution: tuple[int, int]) -> dict[str, mlt.Reframe]:
@@ -3672,6 +3755,7 @@ def reframe(
     clip_id: str | None = None,
     *,
     rect: str | None = None,
+    pane: str | None = None,
     src_start: float | None = None,
     reset: bool = False,
     plan: bool = False,
@@ -3705,9 +3789,24 @@ def reframe(
     An override is a *floor*, not a frame: a rect whose shape is not the
     canvas's is grown to it, so everything asked for stays on screen, and the
     reply names both `asked` and the `crop` it became.
+
+    **`pane` makes that window a stacked split**: two half-height panes, `rect`
+    on top and `pane` below, each getting a window of the source twice the
+    width a single 9:16 crop of this footage gets. It is for the shot one
+    window cannot frame — a two-hander where every face is a true positive and
+    only one of them is the shot (`faces.py`), so choosing between them is
+    losing one. Both rects are grown to the *pane's* shape rather than the
+    canvas's, and a source too tall to carry it is refused here rather than
+    rendering as two halves bleeding into each other. Measured before it was
+    built: PLAN.md § The stacked split.
     """
     if rect is not None and reset:
         raise ProjectError("pass a rect or `reset`, not both")
+    if pane is not None and rect is None:
+        raise ProjectError(
+            "a split's lower pane needs an upper one — pass `rect` as well, since "
+            "a pane is half of a window rather than a window of its own"
+        )
     if rect is not None and clip_id is None:
         raise ProjectError("a rect needs a clip_id — a crop indexes one clip's source")
     if src_start is not None and clip_id is None:
@@ -3745,10 +3844,20 @@ def reframe(
     if rect is not None:
         # Resolved before it is stored, so an impossible rect is refused at the
         # keyboard rather than at the render an hour later.
+        source = _clip_source(clips[clip_id])  # type: ignore[arg-type]
         parsed = _parse_rect(rect)
-        _fit_rect_to_canvas(parsed, _clip_source(clips[clip_id]), resolution)  # type: ignore[arg-type]
+        parsed_pane = _parse_rect(pane) if pane is not None else None
+        upper, _lower = mlt.pane_boxes(resolution)
+        # A split's rects are fitted against the pane, an ordinary window's
+        # against the canvas. Both refuse an impossible rect here rather than
+        # at the render an hour later.
+        if parsed_pane is not None:
+            _fit_pane_rect(parsed, source, (upper[2], upper[3]))  # type: ignore[arg-type]
+            _fit_pane_rect(parsed_pane, source, (upper[2], upper[3]))  # type: ignore[arg-type]
+        else:
+            _fit_rect_to_canvas(parsed, source, resolution)  # type: ignore[arg-type]
         series = [entry for entry in asked.get(str(clip_id), []) if entry[0] != at]
-        series.append((at, parsed))
+        series.append((at, parsed, parsed_pane))
         asked[str(clip_id)] = sorted(series, key=lambda entry: entry[0])
     elif reset:
         if clip_id is None:
@@ -3772,13 +3881,16 @@ def reframe(
         manifest = project.read_manifest()
         records = []
         for key, series in sorted(asked.items()):
-            for window_at, window_rect in series:
+            for window_at, window_rect, window_pane in series:
                 record: dict[str, Any] = {"clip_id": key, "rect": list(window_rect)}
                 # The head window writes the record it wrote before per-shot
                 # framing existed, so an unwindowed project's manifest is
-                # unchanged by any of this.
+                # unchanged by any of this. Same for `pane`: absent is what
+                # every window written before the split existed meant.
                 if window_at:
                     record["src_start"] = window_at
+                if window_pane is not None:
+                    record["pane"] = list(window_pane)
                 records.append(record)
         if records:
             manifest[REFRAME_KEY] = records
@@ -3812,7 +3924,7 @@ def reframe(
             )
             continue
         assert entry is not None
-        overrides = dict(asked.get(key, []))
+        overrides = {when: rect for when, rect, _pane in asked.get(key, [])}
         report.append(
             {
                 "clip_id": key,
@@ -3839,8 +3951,24 @@ def reframe(
                         if window_at in overrides
                         else None,
                         "origin": "override" if window_at in overrides else "centre",
+                        # The lower half when this window is a stacked split,
+                        # and the reason `kept` is the two of them together:
+                        # a split keeps *more* of the source than the window it
+                        # replaces, which is the whole point of drawing one.
+                        "pane": _rect_text(entry.pane_at(window_at))
+                        if entry.pane_at(window_at)
+                        else None,
                         "kept": round(
-                            (window_crop[2] * window_crop[3]) / (source[0] * source[1]), 4
+                            (
+                                window_crop[2] * window_crop[3]
+                                + (
+                                    entry.pane_at(window_at)[2] * entry.pane_at(window_at)[3]
+                                    if entry.pane_at(window_at)
+                                    else 0
+                                )
+                            )
+                            / (source[0] * source[1]),
+                            4,
                         ),
                     }
                     for window_at, window_crop in entry.windows()
@@ -3927,15 +4055,40 @@ def _sheet_placements(
 
 
 def _draw_window(
-    tile: Path, crop: tuple[int, int, int, int], source: tuple[int, int], label: str
+    tile: Path,
+    crop: tuple[int, int, int, int],
+    source: tuple[int, int],
+    label: str,
+    pane: tuple[int, int, int, int] | None = None,
 ) -> None:
-    """Draw one window on one extracted frame, in place."""
+    """Draw one window on one extracted frame, in place.
+
+    A stacked split draws **both** of its rects, because half a split judged
+    on its own is the same failure the whole sheet exists to catch: the upper
+    pane alone reads as a badly-centred single window, and whether the pair is
+    right is a question about the pair. The lower one is dashed, so which half
+    is which is legible in a montage rather than only in the label.
+    """
     x, y, width, height = crop
     stroke = max(2, round(source[0] / 240))
+    panes = [
+        "-draw", f"rectangle {x},{y} {x + width - 1},{y + height - 1}",
+    ]  # fmt: skip
+    if pane is not None:
+        px, py, pw, ph = pane
+        # The dash array is an MVG primitive inside `-draw`, not a command-line
+        # option: `-strokedasharray` is ImageMagick 6's spelling and `magick`
+        # rejects it outright — which at least fails loudly, unlike most of
+        # what this file guards against.
+        dashed = (
+            f"stroke-dasharray {stroke * 4} {stroke * 3} "
+            f"rectangle {px},{py} {px + pw - 1},{py + ph - 1}"
+        )
+        panes += ["-draw", dashed]
     command = [
         *graphics.magick_command(), str(tile),
         "-fill", "none", "-stroke", SHEET_STROKE, "-strokewidth", str(stroke),
-        "-draw", f"rectangle {x},{y} {x + width - 1},{y + height - 1}",
+        *panes,
         "-stroke", "none", "-fill", SHEET_LABEL,
         "-pointsize", str(max(18, round(source[0] / 36))),
         "-annotate", f"+{stroke * 3}+{round(source[1] / 12)}", label,
@@ -4002,15 +4155,24 @@ def reframe_sheet(
             tile = dest_dir / f"{row:03d}-{moment:.2f}.png"
             picture.extract_frame(placement["path"], when, tile)
             crop = entry.crop_at(when) if entry is not None else None
+            pane = entry.pane_at(entry.window_start(when)) if entry is not None else None
             if crop is not None and source is not None:
-                _draw_window(
-                    tile,
-                    crop,
-                    source,
-                    f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}",
-                )
+                label = f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}"
+                if pane is not None:
+                    label += f" + {_rect_text(pane)} (split)"
+                _draw_window(tile, crop, source, label, pane)
             tiles.append(tile)
-            samples.append({"src_time": round(when, 3), "crop": _rect_text(crop) if crop else None, "png": str(tile)})
+            samples.append(
+                {
+                    "src_time": round(when, 3),
+                    "crop": _rect_text(crop) if crop else None,
+                    # Named rather than folded into `crop`, so a page built on
+                    # this table can say which tiles are splits without parsing
+                    # a label back apart.
+                    "pane": _rect_text(pane) if pane else None,
+                    "png": str(tile),
+                }
+            )
         rows.append(
             {
                 "row": row,
@@ -4022,8 +4184,15 @@ def reframe_sheet(
                 # one means the sampled frames are not all framed alike, which
                 # is the case the sheet exists to make visible.
                 "windows": len(
-                    {sample["crop"] for sample in samples if sample["crop"] is not None}
+                    {
+                        (sample["crop"], sample["pane"])
+                        for sample in samples
+                        if sample["crop"] is not None
+                    }
                 ),
+                # Whether any sampled frame of this placement is drawn as a
+                # stacked split, which is what a review page filters on.
+                "split": any(sample["pane"] for sample in samples),
                 "samples": samples,
             }
         )
@@ -4128,6 +4297,7 @@ def reframe_detect(
     threshold: float = SCENE_THRESHOLD,
     frames: int = DETECT_FRAMES,
     apply: bool = False,
+    split: bool = True,
 ) -> dict[str, Any]:
     """Propose a framing window per camera shot, from where the faces are.
 
@@ -4159,6 +4329,16 @@ def reframe_detect(
     crop, and anywhere else it is the *previous shot's* framing. That is worse
     than the default rather than equal to it, because a stale window looks
     deliberate. On the film 4 of the 8 refusals inherit one that way.
+
+    **A window one crop cannot hold is proposed as a stacked split**, which is
+    the answer to the case the paragraph below names: two faces, both true
+    positives, only one of them the shot. Two half-height panes hold both, at
+    twice the width. `split` turns the offer off; the rule behind it is
+    `faces.split_centres`, and it is deliberately strict — every sampled frame
+    must hold two or three faces that one window cannot, which on the film is
+    3 windows of 59 and 5.7% of the picture-seconds against the 14.8% a
+    median-frame rule would have claimed. The count that would have been
+    inherited from the spike, 24.8%, is neither.
 
     Nothing here chooses the *subject*: an oracle picking which detected face to
     frame on scores 0.863 to this rule's 0.755, and no property of the boxes says
@@ -4240,10 +4420,12 @@ def reframe_detect(
     # reframe is emitted as keyframes numbered in the producer's own source
     # frames (CLAUDE.md § The MLT reframe).
     same_window = 1.0 / _export_fps(_clips_by_id(project))
+    _upper, _lower = mlt.pane_boxes(resolution)
+    pane_shape = (_upper[2], _upper[3])
     report: list[dict[str, Any]] = []
     for index, window in enumerate(windows):
         source = window["source"]
-        held = [at for at, _ in stored.get(window["clip_id"], [])]
+        held = [at for at, *_ in stored.get(window["clip_id"], [])]
         current = (
             "override"
             if any(abs(at - window["src_start"]) <= same_window for at in held)
@@ -4259,8 +4441,15 @@ def reframe_detect(
             "sampled": [round(ts, 3) for ts in jobs[index]["timestamps"]],
             "faces": 0,
             "frames_with_faces": 0,
+            # **Subjects, not detections.** `faces` above sums the boxes over
+            # every sampled frame, so one face reads as 3 and a room watching a
+            # television reads as 33. That number is the wrong one to set a
+            # split threshold from and was nearly used as it: this is the
+            # per-frame count, medianed, which makes the same window 11.
+            "subjects": 0,
             "current": current,
             "rect": None,
+            "pane": None,
             "applied": False,
             "refused": None,
             "falls_back_to": None,
@@ -4273,6 +4462,9 @@ def reframe_detect(
         sampled = found["frames"]
         entry["faces"] = sum(len(frame["faces"]) for frame in sampled)
         entry["frames_with_faces"] = sum(1 for frame in sampled if frame["faces"])
+        entry["subjects"] = int(
+            statistics.median([len(frame["faces"]) for frame in sampled] or [0])
+        )
         centre = faces.window_centre(sampled)
         if centre is None:
             entry["refused"] = f"no face in any of the {len(sampled)} frames sampled"
@@ -4284,6 +4476,29 @@ def reframe_detect(
         # it and the rect stored is the rect proposed.
         _x, y, width, height = mlt.centre_crop(source, resolution)
         entry["rect"] = _rect_text((faces.window_x(centre, source[0], width), y, width, height))
+
+        # A window one crop cannot hold, offered as a stacked split. The pane
+        # rects are the *pane's* geometry — full source height, so the scaled
+        # frame is exactly one pane tall — which is the same rect
+        # `_fit_pane_rect` would produce, so what is proposed is what gets
+        # stored.
+        seconds = window["src_end"] - window["src_start"]
+        centres = (
+            faces.split_centres(sampled, width)
+            if split and seconds >= faces.MIN_SPLIT_SECONDS
+            else None
+        )
+        if centres is not None:
+            pane_width = round(source[1] * pane_shape[0] / pane_shape[1])
+            if pane_width <= source[0]:
+                near, far = (
+                    faces.window_x(value, source[0], pane_width) for value in centres
+                )
+                # Two panes clamped to the same column are one window drawn
+                # twice — the split gains nothing and costs half the height.
+                if near != far:
+                    entry["rect"] = _rect_text((near, 0, pane_width, source[1]))
+                    entry["pane"] = _rect_text((far, 0, pane_width, source[1]))
         report.append(entry)
 
     # **A refused window is not a centre-cropped one, and saying so was wrong.**
@@ -4301,7 +4516,7 @@ def reframe_detect(
         if entry["current"] == "override":
             entry["falls_back_to"] = "the override already at this in-point"
             continue
-        covering = [at for at, _ in stored.get(entry["clip_id"], [])] + [
+        covering = [at for at, *_ in stored.get(entry["clip_id"], [])] + [
             other["src_start"]
             for other in report
             if other["clip_id"] == entry["clip_id"]
@@ -4330,6 +4545,7 @@ def reframe_detect(
                 project.root,
                 entry["clip_id"],
                 rect=entry["rect"],
+                pane=entry["pane"],
                 src_start=entry["src_start"] or None,
             )
             entry["applied"] = True
@@ -4349,6 +4565,10 @@ def reframe_detect(
         "count": len(report),
         "proposed": sum(1 for entry in report if entry["rect"] is not None),
         "refused": sum(1 for entry in report if entry["rect"] is None),
+        # Of the proposals, how many are stacked splits. On the film this is 3
+        # of 51 — a rule this strict is meant to be rare, and a run where it
+        # is not is the signal to look at `reframe_sheet` before applying.
+        "splits": sum(1 for entry in report if entry["pane"] is not None),
         "placements": len({shot for entry in report for shot in entry["shots"]}),
         "applied": written,
         "written": bool(written),

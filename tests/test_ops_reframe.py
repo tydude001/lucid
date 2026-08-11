@@ -422,6 +422,7 @@ def test_the_windows_come_back_in_source_order(project: Project) -> None:
         "crop": "730,0,459,816",
         "asked": None,
         "origin": "centre",
+        "pane": None,
         "kept": round((459 * 816) / (1920 * 816), 4),
     }
     assert [w["origin"] for w in windows[1:]] == ["override", "override"]
@@ -526,3 +527,136 @@ def test_two_windows_at_one_in_point_are_reported_not_raised(project: Project) -
     assert entry["crop"] is None
     assert "two reframe windows at one in-point" in entry["error"]
     assert "cannot" not in ops.timeline_view(project.root)["reframe_error"]
+
+
+# -- the stacked split ------------------------------------------------------
+#
+# PLAN.md § The stacked split. For the shot one window cannot frame: a
+# two-hander, where every face is a true positive and only one of them is the
+# shot, so choosing between them loses one. Measured before it was built —
+# 10 of the film's 59 windows hold more subjects than one crop can hold, and
+# 3 of those hold them in every frame sampled.
+
+#: A pane of a 1080x1920 canvas is 1080x960, so a pane window of this 1920x816
+#: source is 918 wide against the 459 a single 9:16 crop gets.
+PANE_LEFT = "0,0,918,816"
+PANE_RIGHT = "1002,0,918,816"
+
+
+def test_a_pane_makes_that_window_a_split(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+
+    ops.reframe(project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT)
+
+    record = project.read_manifest()[ops.REFRAME_KEY][0]
+    assert record["rect"] == [0, 0, 918, 816]
+    assert record["pane"] == [1002, 0, 918, 816]
+    window = _clip(ops.reframe(project.root), "cold-open")["windows"][0]
+    assert window["crop"] == "0,0,918,816"
+    assert window["pane"] == "1002,0,918,816"
+    # A split keeps *more* of the source than the window it replaces — which
+    # is the whole reason to draw one.
+    assert window["kept"] > round((459 * 816) / (1920 * 816), 4)
+
+
+def test_an_unsplit_window_still_writes_the_record_it_always_did(project: Project) -> None:
+    """`pane` is absent-means-what-every-older-window-meant, so this is
+    deliberately not a schema bump (CLAUDE.md)."""
+    ops.canvas(project.root, size="1080x1920")
+
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816")
+
+    assert project.read_manifest()[ops.REFRAME_KEY] == [
+        {"clip_id": "cold-open", "rect": [0, 0, 459, 816]}
+    ]
+
+
+def test_a_pane_rect_is_grown_to_the_full_source_height(project: Project) -> None:
+    """Growing to the pane's 9:8 alone is not enough, and this is the test that
+    caught it: nothing masks a pane, so a rect of the right shape but a
+    fraction of the height scales the frame up until it overruns its pane and
+    draws into the other one. Full height makes the scaled frame exactly one
+    pane tall, so the ask moves the window sideways and nothing else."""
+    ops.canvas(project.root, size="1080x1920")
+
+    ops.reframe(project.root, "cold-open", rect="400,300,200,200", pane=PANE_RIGHT)
+
+    window = _clip(ops.reframe(project.root), "cold-open")["windows"][0]
+    assert window["asked"] == "400,300,200,200"
+    assert window["crop"] == "41,0,918,816"
+    assert window["pane"] == "1002,0,918,816"
+
+
+def test_a_source_too_tall_to_carry_a_pane_is_refused(project: Project) -> None:
+    """And refused at the keyboard rather than rendering as two halves
+    bleeding into each other, which melt would have exited 0 on."""
+    manifest = project.read_manifest()
+    manifest["clips"] = [{**WIDE, "width": 800, "height": 816}, VO]
+    project.write_manifest(manifest)
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="cannot be shown whole"):
+        ops.reframe(project.root, "cold-open", rect="0,0,800,816", pane="0,0,800,816")
+
+
+def test_a_pane_on_its_own_is_refused(project: Project) -> None:
+    """A pane is half of a window rather than a window of its own."""
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="needs an upper one"):
+        ops.reframe(project.root, "cold-open", pane=PANE_RIGHT)
+
+
+def test_a_canvas_the_split_cannot_survive_is_reported_not_raised(project: Project) -> None:
+    """Stored as asked like every other rect, so a swap cannot invalidate one —
+    but it can make one impossible: a 1920x540 pane of a landscape canvas needs
+    2901 columns of an 1920-wide source. Reported rather than raised, for the
+    reason every other outgrown rect is: reading the table is how someone finds
+    out which window to fix, and `export` is where it is refused."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT)
+
+    ops.canvas(project.root, size="1920x1080")
+
+    entry = _clip(ops.reframe(project.root), "cold-open")
+    assert entry["windows"] is None
+    assert entry["asked"] == "0,0,918,816", "the ask itself is untouched"
+    assert "too tall to stack" in entry["error"]
+
+
+def test_a_split_reaches_the_document_as_a_second_node(project: Project) -> None:
+    """The end of the chain: what `reframe` stores has to arrive at the writer
+    as panes, or the manifest says split and the render says otherwise."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT, src_start=4.0)
+
+    entry = ops._reframe_map(project, (1080, 1920))["cold-open"]
+
+    assert entry.panes == ((4.0, (1002, 0, 918, 816)),)
+    assert entry.is_split(5.0) is True
+    assert entry.is_split(1.0) is False
+    assert entry.pane_rect_property((1080, 1920), 24.0).split(";")[0].endswith(" 0")
+
+
+def test_resetting_a_window_takes_its_pane_with_it(project: Project) -> None:
+    """The pane rides the same record precisely so it cannot outlive the
+    window it is half of."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT, src_start=4.0)
+
+    ops.reframe(project.root, "cold-open", src_start=4.0, reset=True)
+
+    assert ops.REFRAME_KEY not in project.read_manifest()
+
+
+def test_a_rect_at_the_same_in_point_replaces_a_split_with_a_solo(project: Project) -> None:
+    """Changing one's mind about a split is setting the window again without
+    a pane — not a second op, and not a leftover half."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT, src_start=4.0)
+
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+
+    records = project.read_manifest()[ops.REFRAME_KEY]
+    assert len(records) == 1
+    assert "pane" not in records[0]

@@ -4915,3 +4915,84 @@ sixteen samples, no second signal for the screen-within-a-frame, no auto-apply,
 and keyframed moves still a call for Tyler. `apply` being off by default is the
 opposite of `cut --plan` and deliberately so — the pass is 114px out on a 459px
 window, and 2 of the 15 hand numbers were wrong in a way no watch showed.
+
+## The stacked split, built — 2026-08-11
+
+PLAN.md § The stacked split has the mechanism and the numbers. This is what
+went in, and the two things the build found that the probes had not.
+
+Shipped: `mlt.Reframe.panes` and `mlt.pane_boxes`, a second node per split lane
+in `mlt.document`, `pane` on a stored reframe record, `reframe --pane`,
+`reframe_detect`'s split proposal behind `faces.split_centres`, both rects on
+`reframe_sheet`'s tiles, and both halves in `timeline_view` and the preview.
+Review page: `~/lucid-split-review/`, served on 8797.
+
+### The number was a quarter of the one about to be inherited
+
+The spike's 24.8%-of-shot-seconds came from a different pass on differently
+found shots. Re-measured over the 59 windows `reframe_detect` actually proposes
+— same footage, same sampled timestamps, boxes kept — a split fires on **4
+windows, 15.1s, 6.2%** of the picture-seconds. The full table is in PLAN.md;
+what matters here is that the rule moves the answer by 2.4x within the same
+data, from 14.8% (median frame) to 6.3% (every frame), so *"how often does this
+fire"* has no answer until the rule is fixed.
+
+It also found that **`reframe_detect`'s `faces` field cannot be read as a
+subject count** and was about to be: it sums detections over the three sampled
+frames, so one face reads as 3 and `s1996-randy`'s 33 is eleven people watching
+a television. `subjects` — the per-frame median — is now reported beside it.
+
+### The pane's aspect is not enough; it needs the full source height
+
+Found by a test rather than by reasoning, and it would have rendered rather
+than raised. `_fit_rect_to_canvas` grows a rect to the target *aspect*, so
+fitting a pane against a 1080x960 box turned a `400,300,200,200` ask into
+`225x200` — correctly 9:8, and a 4.8x zoom. Nothing masks a pane: `_dest`
+places the **whole** source frame so the rect fills the pane and the profile
+clips it, so a crop that is a fraction of the source's height scales the frame
+up until it overruns its own pane and draws into the other one. Two halves
+bleeding into each other, at exit 0.
+
+`_fit_pane_rect` forces the full source height and derives the width from it,
+which makes the scaled frame exactly one pane tall for any source shape — the
+disjointness PLAN.md § finding 2 claims, now enforced where it is claimed. The
+ask moves the window sideways and nothing else, which is what a framing
+decision is here. A source too tall to carry a pane refuses at the keyboard,
+and a canvas swap that makes an existing split impossible is *reported* rather
+than raised, for the reason every other outgrown rect is.
+
+### `-strokedasharray` is ImageMagick 6's spelling
+
+The sheet draws the lower pane dashed. `magick` rejects the option outright —
+the dash array is an MVG primitive inside `-draw`. Noted only because it is the
+rare graphics failure in this repo that is loud.
+
+### Verified by two renders, not by the suite
+
+melt cannot see the `/tmp` a `tmp_path` hands out, so the evidence is here.
+Both documents came out of `mlt.document` itself, not hand-written like the
+probes':
+
+- **Geometry.** The car scene at the canvas, diffed against ffmpeg's own
+  two-pane composite of the same source frame: mean |diff| **1.59**, max 19 —
+  against **66.55** for the solo centre crop it replaces. The seam rows either
+  side of the join are 1.48, so the panes do not bleed.
+- **The off switch.** One clip with three windows, solo → split → solo, on the
+  picture lane (so the `pvchain` node and the blank-padded overlay playlist are
+  what is under test). Each of the three matches its own reference — 1.81,
+  1.14, 2.12 — and the two solo frames are **61 and 70** away from what a pane
+  left switched on would have drawn. That is the failure the keyframe at every
+  window boundary exists to close: a step that is not written is a value that
+  carries on, and melt exits 0.
+
+The detector then found the car scene unprompted and proposed `323` and `1006`
+where the hand-built probe had used `322` and `1006`.
+
+### What it is still waiting on
+
+Tyler's judgement on the four, which is what the review page is for. The
+three-face window at `s4-overexposed` 7.632s is the doubtful one: with three
+faces the panes are two *groups* rather than two people, and they overlap
+enough that both draw much the same wide view. Legal, correct, and probably
+worse than one window — but that is a watch, not a rule, which is the same
+place § Choosing the b-roll ended up.

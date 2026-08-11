@@ -947,6 +947,7 @@ def reframe(
     path: str,
     clip_id: str | None = None,
     rect: str | None = None,
+    pane: str | None = None,
     src_start: float | None = None,
     reset: bool = False,
     plan: bool = False,
@@ -972,12 +973,21 @@ def reframe(
     from the head of the file — which is what a per-clip crop always was.
     `clips[].windows` in the reply is the whole series per clip.
 
+    `pane` makes that window a **stacked split**: two half-height panes, `rect`
+    on top and `pane` below, each cropping about twice the width one 9:16
+    window gets. It is for the shot one window cannot frame — a two-hander,
+    where every face is a true positive and only one of them is the shot, so
+    picking between them loses one. Both rects are grown to the pane's shape
+    rather than the canvas's, and a source too tall to carry it is refused.
+
     `clip_id` with `reset` drops that clip's overrides — with `src_start`,
     only the window there — `reset` alone drops every one, and `plan` resolves
     without writing. Nothing here analyses the picture to pick a crop; a wrong
     automatic reframe makes a film with nothing on screen saying so.
     """
-    return ops.reframe(path, clip_id, rect=rect, src_start=src_start, reset=reset, plan=plan)
+    return ops.reframe(
+        path, clip_id, rect=rect, pane=pane, src_start=src_start, reset=reset, plan=plan
+    )
 
 
 @_tool()
@@ -987,6 +997,7 @@ def reframe_detect(
     threshold: float = ops.SCENE_THRESHOLD,
     frames: int = ops.DETECT_FRAMES,
     apply: bool = False,
+    split: bool = True,
 ) -> dict[str, Any]:
     """Propose a framing window per camera shot, from where the faces are.
 
@@ -1013,9 +1024,18 @@ def reframe_detect(
     clip is the centre crop and anywhere else is the **previous shot's**
     framing. Nothing here chooses the *subject* either — in a two-hander every
     face is a true positive and only one of them is the shot.
+
+    **A window one crop cannot hold comes back as a stacked split**: `rect` and
+    `pane`, two half-height panes holding both subjects at twice the width.
+    That is the answer to the two-hander above, and `split=False` turns the
+    offer off. The rule is strict on purpose — every sampled frame must hold
+    two or three faces that one window cannot — which on the film is 3 windows
+    of 59. `subjects` is the per-frame count, and the one to read: `faces` sums
+    detections over the sampled frames, so it calls one face 3 and a room
+    watching a television 33.
     """
     return ops.reframe_detect(
-        path, clip_id=clip_id, threshold=threshold, frames=frames, apply=apply
+        path, clip_id=clip_id, threshold=threshold, frames=frames, apply=apply, split=split
     )
 
 

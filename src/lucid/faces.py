@@ -240,6 +240,102 @@ def window_centre(frames: list[dict[str, Any]]) -> float | None:
     return statistics.median(centres) if centres else None
 
 
+#: More faces than a two-pane split can hold. Above this a split frames
+#: nobody, so the window falls back to one. Measured on the film: two windows
+#: of fifty-nine are crowds (nine and eleven subjects, a party and a room
+#: watching a television), and both are inside `s1996-randy`.
+CROWD = 3
+
+#: A split shorter than this flashes rather than reads. Nearly free, and that
+#: is why it is here: of the ten windows on the film that hold more subjects
+#: than one crop can, three are under 1.2s and they are 1.7s of the 36.4s
+#: total. Excluding them costs almost no coverage and removes every window
+#: where the second pane would be on screen for under thirty frames.
+MIN_SPLIT_SECONDS = 1.0
+
+
+def frame_span(faces: list[dict[str, Any]]) -> float | None:
+    """How wide the faces in one frame sit, edge to edge, or None if there are none.
+
+    The outside edges rather than the centres, because the question this
+    answers is whether one window can *hold* them all — a centre-to-centre
+    span calls a pair that half-fits a fit.
+    """
+    if not faces:
+        return None
+    lefts = [float(face["box"][0]) for face in faces]
+    rights = [float(face["box"][2]) for face in faces]
+    return max(rights) - min(lefts)
+
+
+def _cluster(faces: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split one frame's faces into two groups at their largest horizontal gap.
+
+    The gap rather than a k-means or a fixed midpoint: a two-hander is two
+    people with the frame's widest empty space between them, and with three
+    faces the pair that belong together are the pair that are close. There is
+    no identity in these boxes to cluster on — this is geometry only, which is
+    the same limit `frame_centre` runs into and for the same reason.
+    """
+    ordered = sorted(faces, key=lambda face: (float(face["box"][0]) + float(face["box"][2])) / 2)
+    gaps = [
+        float(ordered[i + 1]["box"][0]) - float(ordered[i]["box"][2])
+        for i in range(len(ordered) - 1)
+    ]
+    at = gaps.index(max(gaps)) + 1
+    return ordered[:at], ordered[at:]
+
+
+def split_centres(
+    frames: list[dict[str, Any]], window_width: int, crowd: int = CROWD
+) -> tuple[float, float] | None:
+    """Where a stacked split's two panes should sit, or None if this is not one.
+
+    **Every sampled frame has to agree**, and that is the whole of the rule
+    rather than a tightening of it. Measured against the film's own proposals:
+    ten windows hold subjects one `window_width` crop cannot hold, but on four
+    of them one of the three sampled frames disagrees — a figure crossing
+    frame, a face turning away — and a split whose panes are wrong for a third
+    of its length is worse than the single window it replaces, because a
+    stacked frame that is framing nobody is unmistakably deliberate. Requiring
+    all three takes it from ten windows to five, and from 14.8% of the film's
+    picture-seconds to 6.3%.
+
+    Two more refusals, both from the same measurement:
+
+    * a **crowd** (`crowd` faces or more) gets no split, because two panes
+      cannot hold nine people and would frame two of them at random;
+    * a pair that *does* fit one window is not a split — one window is the
+      better picture whenever it is possible, and 1 of the film's 13
+      multi-subject windows is that case, at a 401px span against a 450px
+      crop.
+
+    The centres come back as the median across frames, `frame_centre`'s
+    aggregation and for its reason: one sampled moment can land on a seek
+    artefact, and a median does not let it move the window.
+    """
+    if not frames:
+        return None
+    lefts: list[float] = []
+    rights: list[float] = []
+    for frame in frames:
+        found = frame.get("faces") or []
+        if not 2 <= len(found) <= crowd:
+            return None
+        span = frame_span(found)
+        if span is None or span <= window_width:
+            return None
+        near, far = _cluster(found)
+        if not near or not far:  # pragma: no cover — two faces always split
+            return None
+        left, right = frame_centre(near), frame_centre(far)
+        if left is None or right is None:  # pragma: no cover — non-empty by here
+            return None
+        lefts.append(left)
+        rights.append(right)
+    return statistics.median(lefts), statistics.median(rights)
+
+
 def window_x(centre: float, source_width: int, window_width: int) -> int:
     """Where a window of `window_width` sits when centred on `centre`.
 
