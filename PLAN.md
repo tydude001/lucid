@@ -483,8 +483,10 @@ timeline being the enabler and the look pass being gated on nothing:
    **`tiktok-reels` shipped 2026-08-10** (HISTORY.md § `tiktok-reels`), and
    the stop-and-watch that was to end this item ran instead of ending it:
    **the centre-crop default is refused, and so is letterboxing the footage
-   back in.** What the item is now waiting on is per-*shot* framing, measured
-   but unbuilt — DAYDREAM.md § Aspect swap carries the numbers and the shape.
+   back in.** What the item is now waiting on is per-*shot* framing, **costed
+   2026-08-10 and unbuilt** — § Per-shot framing — the design note, which moved
+   the answer off the cue and off a new render node both. DAYDREAM.md § Aspect
+   swap carries the detector numbers.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -2251,3 +2253,166 @@ behaviour change to every prior project's output, and nothing is stored
 per-project until overridden. And it is settled by measuring a render's
 pixels, never by `fc-match`, per § The emphasis-capable quote slot: `fc-match`
 answers "is the family present", not "which face drew".
+
+## Per-shot framing — the design note — 2026-08-10
+
+The item the vertical line is waiting on, and the wiki row states its gap as
+*"per-shot framing has nowhere to live (`reframe` is per clip)."* **That is
+true and it is the smaller half.** Two measurements taken for this note move
+the answer somewhere else entirely: the address space is not the cue, and the
+render needs no new node.
+
+The item is justified by a cut that can be distributed. § Three uncosted
+parity items settled that a teaser is the only vertical output that reaches
+the feed — the film is 5:36 against a 3:00 cap — and HISTORY.md § `lucid reel`
+delivered the derivation, which renders at 1080x1920 with `check_frames`
+delta 0 and is mis-framed in exactly the way § Aspect swap measured. The
+centre crop leaves a subject **outside the frame entirely in 59.8%** of the
+seconds that hold one. Framing is the only thing left between the reel and a
+watchable one.
+
+### Finding 1 — a cue cannot carry it: cues and camera cuts are unrelated clocks
+
+A cue is addressed by a **word in the narration**. A camera cut is a fact
+about the **footage**. Nothing aligns them, and the gap is not marginal.
+
+The 44s teaser reel carries **4 cues**. The hand-framed teaser that was
+watched and approved needed **15 windows** (`~/lucid-final-cut/render.py`,
+`CROP`). Scene detection over the source range each of those 4 placements
+actually reads — `_picture_plan`'s `src_start`, never `build_shots` alone —
+finds camera cuts *inside* 2 of the 4.
+
+Over the whole film, 25 footage placements, counted at five thresholds:
+
+| scene threshold | cuts inside placements | windows to choose |
+|---|---|---|
+| 0.10 | 65 | 90 |
+| 0.15 | 54 | 79 |
+| 0.20 | 34 | 59 |
+| 0.30 | 13 | 38 |
+| 0.40 | 4 | 29 |
+
+**The count is a tuning choice, not a fact** — 3.2× across an ordinary band,
+and § Aspect swap's own "64 distinct camera shots" sits at about 0.18 rather
+than being independent of one. Any detector build inherits this parameter, and
+it changes the answer by more than a factor of three; that is a thing to state
+in its output, not to pick quietly.
+
+**What is threshold-robust is the direction, and that is what the design turns
+on: at every threshold in the band the film needs more windows than it has
+placements** — 16% more at the most conservative setting, 3.6× at the loosest.
+So a number hung on the cue cannot reach the shots that need one, at any
+setting. Subdividing a placement by adding cues is not the way out either: it
+would quantise a camera cut to the nearest VO word and write editorially
+meaningless cues whose only purpose is to carry a crop.
+
+### Finding 2 — framing is source-addressed, and it is the `describe` shape
+
+Once the cue is out, the home is the one every other durable fact in this repo
+already uses. A footage description is `(clip_id, src_start, src_end, text)` in
+**source** seconds so that no edit can invalidate one (CLAUDE.md). A reframe
+rect is "geometry in source pixels, never a length" for the same reason. A
+camera cut is a source fact at a fixed source timestamp, forever.
+
+So framing is **`(clip_id, src_start, rect)`** — the window that applies from
+that point in the source onward. Every property this repo defends falls out
+rather than being engineered:
+
+- **No cut can invalidate one**, so `reel` derives without pruning framing the
+  way it must prune cues (HISTORY.md § `lucid reel`).
+- **A clip used seven times gets seven correct windows for free**, because each
+  placement reads a different source range and picks up whatever entries lie in
+  it. `cold-open` is used 7 times; nothing has to be said seven times.
+- **It carries no length**, so it cannot repeat the music-bed failure that
+  § The property everything below defends exists to prevent.
+
+It is additive and **optional** on the existing `reframe` entries — `src_start`
+absent means "from 0 onward", which is exactly what every stored rect means
+today. By CLAUDE.md's own rule that is **not a schema bump**: absent-means-what-
+every-older-manifest-meant, and a bump would make `open` refuse every project
+on disk to gain nothing. Today's per-clip reframe becomes the degenerate
+one-entry case of the general thing.
+
+**The existing rect format already expresses the hand-framing address space,
+and is strictly wider than it.** `render.py` fixed `W, H = 459, 816` — the
+full-height window, which on a 1920x816 source is the largest 9:16 rect there
+is — so its table is scalars: one `x` per shot, no zoom. A stored rect is not
+constrained that way. `_fit_rect_to_canvas` grows an ask to the canvas *aspect*
+but not to the source's full height, so a smaller ask stays smaller and scales
+up further: the format carries `x`, `y` and zoom where the hand table carried
+only `x`. Nothing new is needed to hold the hand numbers, and the extra freedom
+costs nothing until something asks for it.
+
+### Finding 3 — the render needs no new node, and this was measured
+
+The obvious blocker is that `mlt.document` writes **one node per distinct
+resource per role** (`if entry.resource in picture_nodes: continue`), so a clip
+used seven times has one node and one `qtblend` filter hung on it. Per-shot
+framing looks like it forces one node per entry, which would collide with
+`reframed_nodes`, the `wants_reframe` invariant, and the byte-identical
+property.
+
+It does not. `qtblend`'s `rect` is `type: rect, animation: yes` — keyframable —
+and **its keyframes run on the producer's own source frames**, which is the
+clock source-addressed framing needs and the one MLT would have rendered either
+way at exit 0. Measured rather than assumed, and refuted from both directions
+(`~/lucid-framing-probe/probe.py`): one clip read from `src_in=300` for 90
+frames, a discrete `|=` step between two known windows, scored by pixel readback
+against ffmpeg's own crop at the source timestamp the document claims —
+
+- step keyframed at frame **310** → the window changes at **output frame 10**,
+  which is `310 − 300`. A timeline clock would have shown no step at all.
+- step keyframed at frame **20** → the new window is up from **output frame 0**;
+  both keys were consumed before the read began. A timeline clock would have
+  stepped at output frame 20.
+
+Separation was an order of magnitude (440–1160 RMSE for the winner against
+10,300–14,900 for the loser), so the readback is an answer rather than a
+number — § Aspect swap's rule about the wrong hypothesis, applied.
+
+So one node per resource per role **stays**, and it carries an animated rect
+holding every framing decision for that file. The writer's change is that
+`Reframe` widens from one rect to a source-keyed series, and `is_identity`,
+`reframed_nodes` and `wants_reframe` widen with it. A clip with no framing
+entries still emits exactly what it emits today, which is what keeps an
+unswapped project's document byte-identical.
+
+### What to build, in order
+
+1. **The store and the op.** `src_start` on a `reframe` entry, `_stored_reframes`
+   returning a series per clip, and `reframe` taking and echoing one. No schema
+   bump. Refuse two entries at one `(clip_id, src_start)` the way `cue_add`
+   refuses two cues at one word.
+2. **The writer.** `Reframe` as a series; the animated `rect` property; the
+   three invariants widened. Verified against a real `melt` render, because the
+   failure it prevents produces a file and exit 0.
+3. **The contact sheet.** `~/lucid-final-cut/audit.py` is the prototype: every
+   shot at three moments, the window drawn in red **on the source frame**.
+   § The hand-framed teaser found 2 of 15 hand numbers wrong and **neither was
+   visible in motion** — they read as framing, because nothing in the frame
+   says otherwise. This is a build item beside the framing, not after it; the
+   output of any framing decision is unreviewable without one.
+4. **The preview.** `timeline_view`'s `reframe[clip].dest` is one rect per clip
+   and becomes one per shot — the picture layer already reads `src_start` off
+   the shot (CLAUDE.md), so it has the key it needs.
+5. **Then, and only then, the detector** — judged on whether it beats the 15
+   hand numbers, which is the control that already exists and was watched and
+   approved. Not before: § Three uncosted parity items' finding about `reel`
+   applies unchanged — build the dumb control first, and build it as a test.
+
+### Refused, with the reasoning
+
+**Keyframed moves are not in step 1.** `render.py` used one eased move in
+fifteen shots, and the two shots that *looked* like they wanted one wanted a
+different static x instead — "the window was not moving too little, it was
+parked in the wrong place." One in fifteen, with a 2-in-15 false-positive rate
+against it, does not justify the mechanism up front. When it is built, note
+that `render.py` wrote its keyframes in **absolute timeline seconds**, which a
+single upstream cut invalidates wholesale; in source frames the same move is
+edit-invariant, and MLT's default `=` interpolates for free. The mechanism is
+already paid for by step 2 — it is the *authoring* that waits for evidence.
+
+**The stacked two-pane split is out of scope.** § Aspect swap measured it at
+24.8% of shot-seconds and it is a genuinely new render path. It is also
+unreachable until single-window framing exists to be insufficient *against*,
+and the whole 15-number teaser was watched and approved without one.

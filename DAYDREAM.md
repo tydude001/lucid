@@ -501,9 +501,11 @@ subjects' spread exceeds one 9:16 window — 24.8% — the frame **splits into t
 stacked panes**, each cropping 918 source pixels against the solo window's 459.
 Above three subjects a split frames nobody and it reverts to one window. 11.6%
 has no detectable face and stays a guess. A working spike measured all of this
-outside lucid; the build it implies is a detector subprocess (the
-`describe`/`LUCID_VLM` shape), framing on the cue, and a stacked path in
-`mlt.py`. HISTORY.md § The vertical cut, made native.
+outside lucid (HISTORY.md § The vertical cut, made native). **The build it
+implies was costed 2026-08-10 and is none of the three things the spike
+guessed**: framing is source-addressed rather than on the cue, the render needs
+no new node, and the detector comes last — behind the 15 hand numbers it has to
+beat. PLAN.md § Per-shot framing — the design note.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing
