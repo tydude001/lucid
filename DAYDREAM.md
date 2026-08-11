@@ -508,7 +508,11 @@ numbers it has to beat. The mechanism ships — store, writer, contact sheet,
 preview — and those 15 numbers are now source-addressed project state, a test,
 and verified through a real render (HISTORY.md § The framing control), so
 **what is left is the framing itself: 18 of the 25 placements are still on the
-centre crop.** The stacked split stays out of scope until one window is
+centre crop.** The detector that would frame them is costed against those
+numbers, 2026-08-11 (PLAN.md § The auto-framing detector) — faces beat the
+centre crop and the spike's own "no detectable face" share is **7 of the 35
+windows those 18 placements imply**, so a fifth of them get named rather than
+framed. The stacked split stays out of scope until one window is
 insufficient against something real. HISTORY.md § Per-shot framing.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a

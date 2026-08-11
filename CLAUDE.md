@@ -333,7 +333,10 @@ installed package or the upstream repo, not your memory.
     dark scene and then opening credits on black, and a black *source* reads
     exactly like a black *bar*. Settle frame geometry by comparing against
     ffmpeg's own crop of the source, and against the wrong hypothesis too:
-    0.9 vs 20.8 of 255 is an answer, either number alone is not.
+    0.9 vs 20.8 of 255 is an answer, either number alone is not. **As a
+    *framing* signal it is worse than not asking** — scored against the
+    approved windows the luma centroid loses to the centre crop it would
+    replace (0.551 against 0.568). PLAN.md § The auto-framing detector.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

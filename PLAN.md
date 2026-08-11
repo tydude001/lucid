@@ -2432,6 +2432,12 @@ unswapped project's document byte-identical.
    has to beat is now a number rather than a memory: **the centre crop covers
    0.568 of the approved window on average, is 199px off its centre, and on
    one shot shares no pixel with it at all.**
+   **The detector is costed against it, 2026-08-11** — § The auto-framing
+   detector — the design note. Faces clear the bar (0.755 / 111.6, and never
+   the lost subject the centre crop has), the threshold this item flagged as a
+   3.2× tuning risk is pinned at 0.20 by the control, and the ceiling turns out
+   not to be detection: an oracle allowed only to pick *which* face reaches
+   0.863. So the pass proposes and `reframe_sheet` disposes.
 
 ### Refused, with the reasoning
 
@@ -2449,3 +2455,202 @@ already paid for by step 2 — it is the *authoring* that waits for evidence.
 24.8% of shot-seconds and it is a genuinely new render path. It is also
 unreachable until single-window framing exists to be insufficient *against*,
 and the whole 15-number teaser was watched and approved without one.
+
+## The auto-framing detector — the design note — 2026-08-11
+
+§ Per-shot framing, step 5 gates this on one thing: *"judged on whether it
+beats the 15 hand numbers, which is the control that already exists and was
+watched and approved."* That control is now `tests/test_framing_control.py`
+and the bar is a number — **0.568 mean overlap, 199.4px displacement, one
+approved subject entirely outside the frame** (HISTORY.md § The framing
+control). Everything below is measured against it. The probes are
+`~/lucid-framing-detect/`.
+
+The headline: **a face detector beats the bar comfortably, the naive signal
+loses to it, and the ceiling is not detection.**
+
+### Finding 1 — the threshold this note was told to worry about is pinned by the control
+
+§ Per-shot framing measured the scene threshold as a 3.2× swing across an
+ordinary band and concluded it "changes the answer by more than a factor of
+three; that is a thing to state in its output, not to pick quietly." Scored
+against the approved boundaries rather than counted in the abstract, it stops
+being a free parameter:
+
+| threshold | cuts found | approved boundaries hit | recall | precision |
+|---|---|---|---|---|
+| 0.05 | 27 | 12 / 15 | 0.80 | 0.44 |
+| 0.10 | 21 | 12 / 15 | 0.80 | 0.57 |
+| 0.15 | 19 | 12 / 15 | 0.80 | 0.63 |
+| **0.20** | **16** | **12 / 15** | **0.80** | **0.75** |
+| 0.25 | 12 | 8 / 15 | 0.53 | 0.67 |
+| 0.30 | 7 | 5 / 15 | 0.33 | 0.71 |
+| 0.40 | 1 | 1 / 15 | 0.07 | 1.00 |
+
+Recall is **flat** from 0.05 to 0.20 and precision climbs monotonically across
+the same span, then recall collapses. **0.20 is the setting**, and the control
+picked it rather than a preference. Everything below 0.20 buys false positives
+and no boundaries.
+
+**And the three "misses" are not detector failures**, which is the finding that
+matters:
+
+- `s1996-billy-stu` 0.5012 — no visual event at all. Luma is flat at 75–77
+  across the whole first second, so nothing was there to detect; the human
+  simply began the window twelve frames in. As a *boundary* it is the head of
+  the placement.
+- `s4-reveal` 3.6703 — **is** placement 10's own `src_start`. The edit supplies
+  it for free.
+- `s4-reveal` 7.3428 — the midpoint of the single hand-eased move, carried in
+  the control as one discrete step. By construction there is no cut there.
+
+So: **no camera cut in the control is missed.** Twelve of twelve are found at
+0.20, and the remaining three come from the edit or from the mechanism
+§ Per-shot framing deliberately refused. The boundary half of a detector is
+essentially free.
+
+### Finding 2 — faces clear the bar, and the obvious alternative is worse than doing nothing
+
+Every rule scored over the same 16 windows, aggregating per-frame answers by
+median, with the control's own metric:
+
+| rule | overlap | displacement | lost | worst |
+|---|---|---|---|---|
+| centre crop — **the bar** | 0.568 | 199.4 | **1** | 0.000 |
+| luma centroid | 0.551 | 203.6 | 0 | 0.098 |
+| largest face | 0.749 | 114.2 | 0 | 0.407 |
+| **area-weighted faces** | **0.755** | **111.6** | **0** | **0.480** |
+| mean face | 0.750 | 113.6 | 0 | 0.480 |
+
+Two things fall out, and the second is the one that saves work.
+
+**The luma centroid is worse than the centre crop.** CLAUDE.md's standing
+warning is that "a brightness bbox answers 'where is the bright part', never
+'where is the frame'," recorded after it misread the same render twice. Here it
+has a number: as a framing signal it is *below* not asking at all. It was
+measured precisely because a saliency-flavoured rule is what anyone would reach
+for first, and § Three uncosted parity items' rule is to build the dumb control
+rather than remember it.
+
+**The three face rules are within 0.006 of each other.** Largest face, mean
+face and area-weighted faces are the same answer. So **the aggregation rule is
+not a lever and must not be tuned** — the signal is doing all the work, and
+time spent on the rule is time spent on noise.
+
+The metric a watch would notice is `lost`: the centre crop puts one approved
+subject **entirely outside** the vertical frame, and no face rule ever does.
+That column, not the mean, is what the centre crop was refused for.
+
+### Finding 3 — the ceiling is selection, not detection
+
+An oracle allowed to pick *which* detected face to frame on, and permitted
+nothing else — no new signal, no rule, no look-room:
+
+| | overlap | displacement | lost | worst |
+|---|---|---|---|---|
+| centre crop | 0.568 | 199.4 | 1 | 0.000 |
+| area-weighted faces | 0.755 | 111.6 | 0 | 0.480 |
+| **oracle: best available face** | **0.863** | **62.1** | **0** | **0.584** |
+
+Of the centre crop's 199px error, **faces remove 88px with no judgement at
+all, knowing which face removes another 50, and 62px survive both.**
+
+That middle term is this repo's own b-roll finding arriving in a new place. A
+description does not choose the clip — `synopsis` does, and lucid does not
+choose at all (CLAUDE.md; HISTORY.md § Choosing the b-roll). **A face detector
+does not choose the subject.** In a two-hander every face is a true positive
+and only one of them is the shot, and no property of the boxes says which.
+
+### Finding 4 — what the last 62px is, looked at rather than reasoned about
+
+The four windows where even the best available face is wrong, each drawn on
+its own source frame with the approved window in red and every detection in
+yellow (`~/lucid-framing-detect/look.png`) — because § Per-shot framing step 3
+is that a framing decision is unreviewable in motion:
+
+- **`s4-reveal` 11.053 — the human framed a two-shot.** One face, and the
+  approved window holds both it and the over-the-shoulder figure a
+  face-centred window cuts. The subject of the shot is the conversation.
+- **`s4-reveal` 8.800 and `s1996-billy-stu` 0.501 — look-room.** One face
+  each, every detection agreeing within 20px and 168px respectively, and the
+  human still put the face off-centre rather than in the middle of the window.
+  Not a different subject; a different composition.
+- **`s1996-randy` 0.834 — zero faces, and the subject is a screen.** A woman
+  on a CRT playing inside the shot. RetinaFace sees nothing, the rule falls
+  back to the centre crop, and it is 170px wrong. A screen-within-a-frame is a
+  hole no face detector closes.
+
+**No look-room rule is fitted to these.** Sixteen windows are the only approved
+ground truth in existence; a rule tuned on them would score well on them and
+mean nothing, and this repo has a standing rule against exactly that shape of
+result. A composition rule needs a *second* approved set before it is anything.
+
+### Finding 5 — what the pass would actually produce, on the film
+
+Run over the 18 placements still on the centre crop, at threshold 0.20, with a
+three-frame face probe per window:
+
+- **35 windows**, against 18 placements — 1.9×, which is § Per-shot framing's
+  threshold-robust claim (*"at every threshold the film needs more windows than
+  it has placements"*) arriving on real data rather than in a table.
+- **A face is found in 28 of the 35 (80%).** Seven windows arrive with no
+  signal at all, and `s2022-reveal` [6.34, 16.77] is a whole placement with
+  none.
+
+So the pass serves four windows in five and **must name the fifth rather than
+quietly centre-cropping it** — a silent fallback is indistinguishable in the
+output from a framing decision, which is the failure mode every item in this
+section exists to prevent.
+
+### What to build
+
+1. **`reframe_detect`, plan-only.** It proposes and never writes, the shape
+   `cut --plan` established. Per window it echoes the boundary and **where the
+   boundary came from** (cut score, placement head), the proposed rect, the
+   face count behind it, and the threshold — § Per-shot framing's "state it in
+   its output, not pick quietly", now that the control says which number to
+   state.
+2. **Windows with no signal are named, never guessed.** They come back as
+   refusals with their reason, the way a card with no record is reported rather
+   than reconstructed. The centre crop is not a fallback; it is the thing being
+   replaced.
+3. **It writes through `ops.reframe`.** Same function the CLI, MCP and web UI
+   already call — the detector is a fourth client, never a fourth
+   implementation.
+4. **It is scored as a test**, extending `tests/test_framing_control.py`: the
+   detector must beat 0.568/199.4 on the control and must never return
+   `lost > 0`. The control existed before the detector did, which is the whole
+   reason it is worth anything.
+5. **Review on `reframe_sheet`, then approve.** The detector proposes, the
+   sheet disposes, and nothing reaches a render unlooked-at. 2 of 15 hand
+   numbers were wrong and neither was visible in motion; a detector's numbers
+   get no more trust than a human's.
+
+**The subprocess shape is the third instance of a pattern this repo already
+has.** whisper is a binary (`asr`), the vision model is an interpreter
+(`describe`, `_vlm_worker.py`), and lucid's venv holds neither torch nor
+onnxruntime and should not start now. insightface, onnxruntime and the
+`buffalo_l` RetinaFace weights are all resident on this box in genstack's venv.
+So: an interpreter named by an env var, a worker shipped in the package and
+never imported, and a refusal naming both when it does not resolve.
+
+**One open question, deliberately not taken here.** `describe` resolves
+`LUCID_VLM` to vaultmedia's `.venv-tag`; the face detector needs genstack's
+`.venv`, which is a *different* interpreter. Whether that is a second variable
+(`LUCID_FACE`) or one "vision sidecar" resolver with two capabilities is a real
+call, and it wants the second consumer to exist before it is answered. A second
+variable is the smaller, more reversible move.
+
+### Refused, with the reasoning
+
+- **No look-room or composition rule**, per finding 4 — it would be fitted to
+  the only ground truth that could test it.
+- **No second signal for the screen-within-a-frame case.** One in sixteen, and
+  it is precisely the case where a human looking at the sheet is cheap and
+  correct.
+- **No auto-apply, at any score.** The pass beats the bar on every column and
+  is still 111px out on a 459px window — 24% of its width. That is a first
+  pass to be reviewed, not a framing.
+- **Keyframed moves stay refused**, unchanged. Shot 9 put a number on the
+  mechanism (HISTORY.md § The framing control) and the call is Tyler's; the
+  detector proposes discrete windows either way.
