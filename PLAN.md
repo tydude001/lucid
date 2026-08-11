@@ -495,9 +495,11 @@ timeline being the enabler and the look pass being gated on nothing:
    detector numbers. **The control is ported and rendered, 2026-08-10**
    (HISTORY.md § The framing control): the approved numbers are source-
    addressed project state, they reproduce the approved framing through a real
-   `melt` render, and they are a test. **7 of the 25 placements are framed —
-   4 approved and 3 that inherited windows for free — and 18 are still on the
-   centre crop**, which is what is left.
+   `melt` render, and they are a test. **All 25 placements are framed as of
+   2026-08-11** — 55 windows over 9 clips, the detector's 39 alongside the
+   hand 16 — so what is left is not framing but *reviewing* it: none of the 39
+   has been judged on `reframe_sheet`, and § The auto-framing detector is why
+   that is not a formality.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the

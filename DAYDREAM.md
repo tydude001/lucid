@@ -516,18 +516,19 @@ the spike guessed**: framing is source-addressed rather than on the cue, the
 render needs no new node, and the detector comes last — behind the 15 hand
 numbers it has to beat. The mechanism ships — store, writer, contact sheet,
 preview — and those 15 numbers are now source-addressed project state, a test,
-and verified through a real render (HISTORY.md § The framing control), so
-**what is left is the framing itself: 18 of the 25 placements are still on the
-centre crop.** The detector that would frame them is costed against those
-numbers, 2026-08-11 (PLAN.md § The auto-framing detector) — faces beat the
-centre crop and the spike's own "no detectable face" share is **7 of the 35
-windows those 18 placements imply**, so a fifth of them get named rather than
-framed. **The stacked split shipped 2026-08-11** — a second node with a second
+and verified through a real render (HISTORY.md § The framing control). The
+detector that frames the rest was costed against those numbers and built
+2026-08-11 (PLAN.md § The auto-framing detector), and **all 25 placements are
+now framed** — 55 windows over 9 clips, of which 39 are the detector's and
+**none has been reviewed one by one on `reframe_sheet`**, which is the
+outstanding risk, because a wrong window reads as deliberate framing.
+**The stacked split shipped 2026-08-11** — a second node with a second
 `qtblend` rect, not the new render path this page assumed — and it fires on 4
 of the film's 59 windows, 6.2% of the picture-seconds against the 24.8% the
-spike claimed. What is left on it is a watch: whether the four are right, and
-whether a three-face window should split at all. HISTORY.md § The stacked
-split, built; PLAN.md § The stacked split.
+spike claimed. Tyler approved all four on a watch, three-face window included:
+the sheet's own recommendation against that one was drawn from a single sampled
+frame where the three converge. HISTORY.md § The stacked split, built,
+§ Keeping the split the sheet argued against; PLAN.md § The stacked split.
 
 **It stopped being only a parity nicety on 2026-08-08:** it is what a
 `tiktok-reels` export preset is waiting on (§ Export presets), the first thing
