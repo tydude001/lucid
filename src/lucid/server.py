@@ -982,8 +982,9 @@ def reframe(
 
     `clip_id` with `reset` drops that clip's overrides — with `src_start`,
     only the window there — `reset` alone drops every one, and `plan` resolves
-    without writing. Nothing here analyses the picture to pick a crop; a wrong
-    automatic reframe makes a film with nothing on screen saying so.
+    without writing. Nothing *here* analyses the picture: `reframe_detect` is
+    the tool that proposes crops, and it writes through this one rather than
+    framing anything itself.
     """
     return ops.reframe(
         path, clip_id, rect=rect, pane=pane, src_start=src_start, reset=reset, plan=plan

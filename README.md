@@ -302,7 +302,9 @@ is not centred**:
 lucid -C myproject reframe                          # every crop in force
 lucid -C myproject reframe cold-open --rect 1400,0,459,816
 lucid -C myproject reframe cold-open --rect 0,0,459,816 --at 20.4   # from there on
+lucid -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
 lucid -C myproject reframe cold-open --reset        # back to the centre
+lucid -C myproject reframe-detect                   # propose a window per shot
 lucid -C myproject reframe-sheet                    # every window, drawn, for review
 ```
 
@@ -310,9 +312,23 @@ A rect is in that clip's own source pixels, so no cut can invalidate one, and
 it is stored as asked and refit whenever the canvas moves. A rect that is not
 already the canvas's shape is *grown* to it rather than shrunk into it —
 everything named stays on screen — and one that cannot be shown whole is
-refused with the largest rect that can. Nothing here analyses the picture to
-pick a crop: a wrong automatic reframe makes a film with nothing on screen
-saying so.
+refused with the largest rect that can.
+
+`reframe-detect` will propose one window per camera shot from where the faces
+are — it beats the centre crop on every measure against fifteen hand-framed
+windows — but **it proposes and never frames**: `--apply` is off by default,
+because it is still a quarter of a window's width out on average and a wrong
+automatic reframe makes a film with nothing on screen saying so. A window with
+no face in it is *named* rather than guessed at, and the reply says what will
+cover it instead, which is not the centre crop but whatever window is already
+in force.
+
+`--pane` draws that window as a **stacked split** — two half-height panes, the
+rect on top and the pane below, each keeping about twice the width one crop
+gets. It is for the shot one window cannot frame, a two-hander where every face
+is a true positive and only one of them is the shot. `reframe-detect` offers
+one where every sampled frame holds subjects a single window cannot hold, which
+is rare on purpose: 4 of the 59 windows on the film it was measured against.
 
 `--at` is seconds into that clip's own source, so framing is per **shot**
 rather than per clip: a clip used seven times picks up whichever window each

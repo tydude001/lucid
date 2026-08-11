@@ -3768,8 +3768,9 @@ def reframe(
     and it is stored exactly as asked and refit to whatever canvas is in force
     when the project renders. The default is a centre crop, which is *wrong
     whenever the subject is not centred*: that is the reason this reports the
-    rect it used for every clip rather than quietly choosing one, and the
-    reason there is deliberately no analysis picking a crop for you.
+    rect it used for every clip rather than quietly choosing one. Analysis
+    that picks a crop lives in `reframe_detect` and **proposes** through here
+    rather than framing — this op still never chooses anything by itself.
 
     **`src_start` frames a shot rather than a clip.** It is seconds into that
     clip's own source, and the rect it carries is in force from there onward,
