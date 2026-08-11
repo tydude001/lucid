@@ -605,6 +605,34 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_detect = sub.add_parser(
+        "reframe-detect",
+        help="propose a framing window per camera shot, from where the faces are",
+    )
+    p_detect.add_argument(
+        "clip_id", nargs="?", help="only this clip's placements. Omit for every one"
+    )
+    p_detect.add_argument(
+        "--threshold",
+        type=float,
+        default=ops.SCENE_THRESHOLD,
+        metavar="SCORE",
+        help=f"scene score above which a change of picture is a cut "
+        f"(default {ops.SCENE_THRESHOLD}, picked by the framing control)",
+    )
+    p_detect.add_argument(
+        "--frames",
+        type=int,
+        default=ops.DETECT_FRAMES,
+        help=f"frames sampled per window (default {ops.DETECT_FRAMES})",
+    )
+    p_detect.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the proposals through `reframe`, leaving any window that is "
+        "already framed by hand alone. Off by default: look at `reframe-sheet` first",
+    )
+
     p_sheet = sub.add_parser(
         "reframe-sheet",
         help="draw every placement's framing window on its own source frames, for review",
@@ -1169,6 +1197,18 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_reframe_detect(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.reframe_detect(
+            args.project,
+            clip_id=args.clip_id,
+            threshold=args.threshold,
+            frames=args.frames,
+            apply=args.apply,
+        )
+    )
+
+
 def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
     moments = [float(part) for part in args.moments.split(",")] if args.moments else None
     return _emit(ops.reframe_sheet(args.project, out=args.out, moments=moments))
@@ -1316,6 +1356,7 @@ _COMMANDS = {
     "canvas": _cmd_canvas,
     "reel": _cmd_reel,
     "reframe": _cmd_reframe,
+    "reframe-detect": _cmd_reframe_detect,
     "reframe-sheet": _cmd_reframe_sheet,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,

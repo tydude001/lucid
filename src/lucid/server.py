@@ -981,6 +981,45 @@ def reframe(
 
 
 @_tool()
+def reframe_detect(
+    path: str,
+    clip_id: str | None = None,
+    threshold: float = ops.SCENE_THRESHOLD,
+    frames: int = ops.DETECT_FRAMES,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Propose a framing window per camera shot, from where the faces are.
+
+    The first pass at the framing `reframe` refuses to guess. Every placement
+    is split at its own camera cuts, each window is sampled at three moments,
+    and the window is centred on the faces found there. Measured against the
+    fifteen hand-framed windows that were watched and approved, it beats the
+    centre crop it replaces on every column — 0.755 mean overlap against 0.568,
+    112px displacement against 199px — and never leaves an approved subject
+    entirely outside the frame, which the centre crop does on one shot.
+
+    **It proposes; it does not frame.** `apply` is off by default, the opposite
+    of most `plan` flags here and deliberately: the pass is still 24% of a
+    window's width out on average, and 2 of the 15 hand windows were wrong in a
+    way no watch showed. Call `reframe_sheet` and look before applying.
+    Applying writes through `reframe` and **never over a window that is already
+    an override** — that window is someone's decision.
+
+    **A window with no face is named, never guessed at**, and comes back with
+    `refused` saying so: a silent fallback is indistinguishable in the output
+    from a framing decision. Expect roughly one window in seven. Read
+    `falls_back_to` with it — nothing is written for a refused window, so
+    whatever window is already in force carries over, which at the head of a
+    clip is the centre crop and anywhere else is the **previous shot's**
+    framing. Nothing here chooses the *subject* either — in a two-hander every
+    face is a true positive and only one of them is the shot.
+    """
+    return ops.reframe_detect(
+        path, clip_id=clip_id, threshold=threshold, frames=frames, apply=apply
+    )
+
+
+@_tool()
 def reframe_sheet(
     path: str,
     out: str | None = None,

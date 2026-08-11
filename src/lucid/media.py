@@ -19,6 +19,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -167,6 +168,71 @@ def count_frames(path: Path | str) -> dict[str, Any]:
         "duration": float(duration) if duration is not None else None,
         "has_video": True,
     }
+
+
+#: The floor `scene_cuts` decodes at. Not the threshold anything is judged on —
+#: scores come back and the caller thresholds them, because the expensive half
+#: is the decode and re-deciding the number must not cost another pass. Below
+#: this, ffmpeg's own scene score is noise.
+SCENE_FLOOR = 0.05
+
+
+def scene_cuts(
+    path: Path | str, *, floor: float = SCENE_FLOOR, until: float | None = None
+) -> list[dict[str, float]]:
+    """Every place ffmpeg thinks the picture changed, with its score.
+
+    A list of `{"src_time", "score"}` in source seconds, ascending — scored, not
+    thresholded. Which threshold is right is not a preference here: scored
+    against the sixteen approved framing boundaries, recall is flat from 0.05 to
+    0.20 while precision climbs monotonically, then recall collapses, so **0.20
+    is picked by the control** and lives with the thing that applies it
+    (`ops.SCENE_THRESHOLD`). PLAN.md § The auto-framing detector, finding 1.
+
+    `until` stops the decode early, and it is the only cost knob: a 730s clip
+    the film reads 71.8s of has no reason to be walked to the end.
+
+    A file with no detectable change returns an empty list. That is an answer —
+    a single continuous shot — and not a failure.
+    """
+    media = Path(path).expanduser()
+    if not media.exists():
+        raise MediaError(f"no such media file: {media}")
+
+    with tempfile.TemporaryDirectory(prefix="lucid-scene-") as tmp:
+        # `metadata=print` to a *file*, not to stdout: bare `metadata=print`
+        # writes nothing anywhere ffmpeg's own `-v error` leaves readable, which
+        # reads exactly like a clip with no cuts in it.
+        report = Path(tmp) / "scenes.txt"
+        command = [
+            "ffmpeg", "-nostdin", "-v", "error",
+            *(("-t", f"{float(until):.3f}") if until else ()),
+            "-i", str(media),
+            "-vf", f"select='gt(scene,{floor})',metadata=print:file={report}",
+            "-an", "-f", "null", "-",
+        ]  # fmt: skip
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+        if completed.returncode != 0:
+            raise MediaError(
+                f"ffmpeg could not scan {media} for cuts: {completed.stderr.strip()[-800:]}"
+            )
+        text = report.read_text(encoding="utf-8") if report.exists() else ""
+
+    cuts: list[dict[str, float]] = []
+    when: float | None = None
+    for line in text.splitlines():
+        stamp = re.search(r"pts_time:([0-9.]+)", line)
+        if stamp:
+            when = float(stamp.group(1))
+            continue
+        score = re.search(r"lavfi\.scene_score=([0-9.]+)", line)
+        if score and when is not None:
+            cuts.append({"src_time": when, "score": float(score.group(1))})
+            when = None
+    return cuts
 
 
 # -- what a browser will actually play ------------------------------------

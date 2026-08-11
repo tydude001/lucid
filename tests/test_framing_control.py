@@ -4,9 +4,10 @@ PLAN.md § Per-shot framing, step 5: *"then, and only then, the detector —
 judged on whether it beats the 15 hand numbers, which is the control that
 already exists and was watched and approved"*, and § Three uncosted parity
 items' standing rule that the dumb control gets **built as a test** rather
-than remembered. This is that test. It holds no detector, because there is
-none; what it holds is the control and the metric, so that whatever is built
-next is measured against a number that existed before it did.
+than remembered. This is that test: the control, the metric, and — written
+afterwards and scored on both — the detector. The order is the point. The bar
+existed before the thing being judged against it did, so it could not have been
+set to fit.
 
 **Provenance.** The control is `~/lucid-final-cut/render.py`'s `CROP` table —
 one 9:16 window per shot of the 44s teaser that was framed by hand, watched
@@ -26,6 +27,14 @@ ported window against the approved render's own frame, scored also against a
 deliberately wrong x so the number is an answer rather than a number. All
 sixteen reproduce.
 
+**The detector is now scored against it**, at the bottom of this file, which is
+the point of having written the control down first: `faces.window_centre` and
+`faces.window_x` are the shipped placement rule and they are measured on
+`data/framing_detections.json` — the detector's own raw boxes over these
+sixteen windows, sampled exactly as `ops.reframe_detect` samples them. The
+fixture is checked in so the gate runs without insightface, an ONNX session or
+the footage; regenerating it needs all three (`~/lucid-framing-detect/`).
+
 **Sixteen, for fifteen shots.** Shot 9 is the one hand-eased move, and
 lucid's series is discrete by design (a window steps at a camera cut, it does
 not slide), so the ramp is carried as one step at its own midpoint. That is
@@ -35,11 +44,15 @@ named here rather than smoothed over.
 
 from __future__ import annotations
 
+import json
+import statistics
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from lucid import ops
+from lucid import describe as dsc
+from lucid import faces, ops
 from lucid import timeline as tl
 from lucid.project import Project
 
@@ -220,3 +233,151 @@ def test_a_control_window_at_the_head_stays_a_bare_entry(project: Project) -> No
         r for r in project.read_manifest()["reframe"] if r["clip_id"] == "s1996-randy"
     ]
     assert records == [{"clip_id": "s1996-randy", "rect": [830, 0, 459, 816]}]
+
+
+# -- the detector, scored against the control -----------------------------
+#
+# PLAN.md § The auto-framing detector, item 4: *"the detector must beat
+# 0.568/199.4 on the control and must never return `lost > 0`."* Everything
+# below is that gate. It scores `lucid.faces`' own two functions rather than a
+# re-derivation of them, because a test that re-implements the rule it is
+# checking passes whatever the shipped code does.
+
+DETECTIONS = Path(__file__).parent / "data" / "framing_detections.json"
+
+
+def _fixture() -> dict[tuple[str, float], dict[str, Any]]:
+    """The detector's raw boxes over the sixteen control windows, by address."""
+    windows = json.loads(DETECTIONS.read_text(encoding="utf-8"))
+    return {(w["clip"], w["src_start"]): w for w in windows}
+
+
+def _place(centre: float | None, clip_id: str) -> int | None:
+    """One centre through the shipped placement rule, or None for a refusal."""
+    if centre is None:
+        return None
+    return faces.window_x(centre, SOURCES[clip_id][0], window_width(clip_id))
+
+
+def _detector() -> tuple[dict[tuple[str, float], int], list[tuple[str, float]]]:
+    """What the pass proposes per control window, and which ones it refuses.
+
+    A refusal is scored **as the centre crop**, because that is what the film
+    actually gets there: the pass declines to frame the window and the default
+    stands. Scoring it as a miss would flatter the rule and scoring it as a hit
+    would invent one; scoring it as what ships is the only honest accounting.
+    """
+    fixture = _fixture()
+    candidate, refused = {}, []
+    for clip_id, src_start, _x in CONTROL:
+        window = fixture[(clip_id, src_start)]
+        proposed = _place(faces.window_centre(window["frames"]), clip_id)
+        if proposed is None:
+            refused.append((clip_id, src_start))
+            proposed = centre_x(clip_id)
+        candidate[(clip_id, src_start)] = proposed
+    return candidate, refused
+
+
+def test_the_fixture_is_the_sampling_the_pass_actually_uses() -> None:
+    """Three frames per window, at `describe.frame_times`' offsets.
+
+    A gate measured at a denser sampling than the code takes is a gate on
+    something that does not ship. The earlier probe sampled up to sixteen
+    frames a window; this pins the fixture to `ops.DETECT_FRAMES` and to the
+    same timestamps `reframe_detect` asks for.
+    """
+    fixture = _fixture()
+    assert set(fixture) == {(c, s) for c, s, _x in CONTROL}
+    for (clip_id, src_start), window in fixture.items():
+        assert window["source"] == list(SOURCES[clip_id])
+        assert len(window["frames"]) == ops.DETECT_FRAMES
+        want = dsc.frame_times(src_start, window["src_end"], ops.DETECT_FRAMES)
+        assert [f["ts"] for f in window["frames"]] == [round(t, 4) for t in want]
+
+
+def test_the_detector_beats_the_centre_crop_on_every_column() -> None:
+    """The gate. Better on the mean, better on the displacement, and — the
+    column a watch would notice — it never leaves an approved subject entirely
+    outside the frame, which the centre crop does on one shot of fifteen."""
+    got = score(_detector()[0])
+    bar = score(CENTRE)
+
+    assert got["overlap"] > bar["overlap"]
+    assert got["displacement"] < bar["displacement"]
+    assert got["lost"] == 0 < bar["lost"]
+    assert got["worst"] > bar["worst"]
+
+    # Pinned, so a regression is a failure rather than a slightly worse pass
+    # that still clears a bar set by the dumbest possible rule.
+    assert got["overlap"] == pytest.approx(0.750, abs=0.01)
+    assert got["displacement"] == pytest.approx(114.0, abs=2.0)
+
+
+def test_the_luma_centroid_is_worse_than_not_asking() -> None:
+    """The negative control, and the reason it is in the suite.
+
+    A saliency-flavoured signal is what anyone reaches for first, and this one
+    scores **below the centre crop it would replace** — CLAUDE.md's standing
+    warning that a brightness bbox answers "where is the bright part", never
+    "where is the frame", with a number on it. Measured on the same frames as
+    the faces above, so the comparison is the signal and not the sampling.
+    """
+    fixture = _fixture()
+    luma = {
+        (clip_id, src_start): _place(
+            statistics.median(f["luma_cx"] for f in fixture[(clip_id, src_start)]["frames"]),
+            clip_id,
+        )
+        for clip_id, src_start, _x in CONTROL
+    }
+    got, bar = score(luma), score(CENTRE)
+    assert got["overlap"] < bar["overlap"]
+    assert got["displacement"] > bar["displacement"]
+    # And it loses a subject too, so there is no column on which it is the
+    # better answer. Nothing in lucid picks a framing this way.
+    assert got["lost"] >= bar["lost"]
+
+
+def test_the_window_with_no_face_is_refused_and_not_quietly_centred() -> None:
+    """One window in sixteen has no signal, and it must arrive as a refusal.
+
+    `s1996-randy` 0.834 is a woman on a CRT playing inside the shot — the
+    subject is a screen, RetinaFace sees nothing, and a fallback to the centre
+    crop would be 170px wrong while reading in the output exactly like a
+    framing decision. `window_centre` returns None so the caller has to say so.
+    """
+    _candidate, refused = _detector()
+    assert refused == [("s1996-randy", 0.8342)]
+
+    frames = _fixture()[("s1996-randy", 0.8342)]["frames"]
+    assert all(f["faces"] == [] for f in frames)
+    assert faces.window_centre(frames) is None
+
+
+def test_the_placement_rule_clamps_into_the_source() -> None:
+    """A face near the edge of frame cannot be centred, and the window stops at
+    the edge rather than hanging off the source for `reframe` to refuse later."""
+    width, source_width = window_width("s4-reveal"), SOURCES["s4-reveal"][0]
+    assert faces.window_x(10.0, source_width, width) == 0
+    assert faces.window_x(source_width - 10.0, source_width, width) == source_width - width
+    assert faces.window_x(source_width / 2, source_width, width) == centre_x("s4-reveal")
+
+
+def test_the_aggregation_rule_is_area_weighted() -> None:
+    """The near face in a two-shot pulls harder than the far one.
+
+    Not a tuning knob — largest, mean and area-weighted land within 0.006 of
+    each other on the control — but it is the rule the numbers above were
+    measured with, so it is pinned rather than left to drift.
+    """
+    near = {"box": [100.0, 0.0, 300.0, 200.0]}   # 200x200, centred on 200
+    far = {"box": [1000.0, 0.0, 1050.0, 50.0]}   # 50x50, centred on 1025
+    got = faces.frame_centre([near, far])
+    assert got == pytest.approx(248.5, abs=0.5)
+    # The unweighted mean of the two centres is 612.5, so the weighting is
+    # doing the work rather than riding along: sixteen times the area pulls the
+    # window sixteen times as hard, and the far figure barely moves it.
+    assert got < statistics.fmean([200.0, 1025.0])
+    assert faces.frame_centre([near]) == 200.0
+    assert faces.frame_centre([]) is None

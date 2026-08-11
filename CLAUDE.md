@@ -336,7 +336,24 @@ installed package or the upstream repo, not your memory.
     0.9 vs 20.8 of 255 is an answer, either number alone is not. **As a
     *framing* signal it is worse than not asking** — scored against the
     approved windows the luma centroid loses to the centre crop it would
-    replace (0.551 against 0.568). PLAN.md § The auto-framing detector.
+    replace (0.545 against 0.568), and loses a subject too. Faces are what
+    beats it. PLAN.md § The auto-framing detector.
+  - **`reframe_detect` proposes and never frames**: `apply` is off by default,
+    the opposite of `cut --plan`, because the pass is 114px out on a 459px
+    window and 2 of 15 hand numbers were wrong invisibly — judge it on
+    `reframe_sheet`. It never writes over an existing override, and it is the
+    *third* subprocess-behind-an-interpreter (`LUCID_FACE`, with
+    `_face_worker.py` shipped to be run and never imported). Two traps, both
+    found by running it on the film rather than by a test:
+    - **"Is this window already framed?" is a frame, never an epsilon.** ffmpeg
+      reports a cut at 0.834167 where the manifest holds 0.8342, so exact match
+      called 15 of 16 hand windows unframed *and printed both as `0.8342`*.
+    - **A refused window is not a centre-cropped one.** Nothing is written for
+      it, so whatever is in force carries over — at a clip's head the centre
+      crop, anywhere else **the previous shot's framing**, which is worse than
+      the default because a stale window looks deliberate (4 of the film's 8).
+      `falls_back_to` names which; never infer it from `refused`.
+    HISTORY.md § The auto-framing detector, built.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.

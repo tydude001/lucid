@@ -4761,3 +4761,157 @@ block the framing pass.**
 **18 of the film's 25 footage placements are still on the centre crop.** The
 control covers 4 and lends its numbers to 3 more; the rest is choosing windows
 and reviewing them on `reframe_sheet`, which is work rather than a build.
+
+## The auto-framing detector, built — 2026-08-11
+
+PLAN.md § The auto-framing detector costed this the day before and § Per-shot
+framing, step 5 gated it on one thing: beat the fifteen hand numbers. This is
+the build. `faces.py` and `_face_worker.py` (the detector, behind an
+interpreter), `media.scene_cuts` (the boundaries), `ops.reframe_detect` (the
+pass), a CLI subcommand and an MCP tool, and two test files. All five of the
+note's build items landed as written, which is not the interesting part — the
+interesting part is the two numbers that moved.
+
+### The gate is scored at the sampling that ships, and it is not 0.755
+
+The design note's 0.755 / 111.6 came off the costing probe, which sampled every
+0.5s up to sixteen frames a window. `reframe_detect` samples **three**, through
+`describe.frame_times`, for that module's own reason: a window boundary is where
+a cut is most likely to be, so the samples sit off both edges. Rescoring the
+shipped rule on three frames:
+
+| | overlap | displacement | lost | worst |
+|---|---|---|---|---|
+| centre crop — the bar | 0.568 | 199.4 | **1** | 0.000 |
+| luma centroid, 3 frames | 0.545 | 207.6 | **1** | 0.000 |
+| faces, 16 frames (the costing) | 0.755 | 111.6 | 0 | 0.480 |
+| **faces, 3 frames (what ships)** | **0.750** | **114.0** | **0** | **0.480** |
+
+Five thousandths and 2.4px. **The sampling is not a lever either** — which is
+the same shape as finding 2's result about the aggregation rule, arriving in a
+second place: the signal is doing all the work. The luma centroid was
+re-measured on the same three frames so the comparison is the signal rather than
+the density, and it is *still* below the centre crop, and at this density it
+loses a subject too. There is no column on which it is the better answer.
+
+The gate is `tests/test_framing_control.py`, extended, and it scores
+`faces.window_centre` and `faces.window_x` themselves rather than a
+re-derivation — a test that re-implements the rule it checks passes whatever the
+code does. The detections are checked in at `tests/data/framing_detections.json`
+so the gate runs with no insightface, no ONNX session and no footage.
+
+**A refusal is scored as the centre crop**, because that is what the film gets
+there: the pass declines and the default stands. Scoring it as a miss would
+flatter the rule; scoring it as a hit would invent one.
+
+### The film found the bug the tests could not
+
+The one thing the note did not anticipate. Run against `~/lucid-vertical/proj`,
+the pass reported **fifteen of the sixteen hand-approved windows as unframed**,
+which would have made `--apply` write a duplicate beside each one.
+
+ffmpeg reports the cut at **0.834167**. The manifest holds **0.8342** — the
+control was ported by hand through a timeline offset, the scan reads raw
+presentation times, and the two disagree by 33 microseconds about the same cut.
+Three more windows disagreed by 0.7ms. An exact-match test (`< 1e-6`) called all
+of them different windows, and *the display rounded both to four places*, so the
+plan printed `0.8342` beside `0.8342` and labelled it `centre`.
+
+The fix is that **two boundaries inside one source frame are one window**. Not a
+tolerance for slop: it is the resolution the render has, since a reframe is
+emitted as keyframes numbered in the producer's own source frames (CLAUDE.md
+§ The MLT reframe). `same_window_within` is reported rather than assumed,
+because it is the number deciding whether `apply` leaves a hand-framed shot
+alone.
+
+With the frame in place, **14 of 16 are recognised**, and the two that are not
+are exactly the two the costing predicted: `s1996-billy-stu` 0.5012, where the
+human began the window twelve frames into a placement with no visual event at
+all, and `s4-reveal` 7.3428, the midpoint of the eased move, where by
+construction there is no cut. Neither is a miss — both are addresses no detector
+was ever going to find.
+
+Worth naming as a pattern: **the stubs could not have caught this**, because a
+stub agrees with whatever address the code asks for. What caught it was running
+the pass against a project whose windows came from somewhere else.
+
+### What it produces on the film
+
+59 windows against 25 placements — **2.4×**, against the costing's forecast of
+1.9× over the 18 unframed placements, and § Per-shot framing's threshold-robust
+claim that the film needs more windows than it has placements holds on real data
+at a third measurement. 34 of the 59 boundaries are camera cuts and 25 are
+placement heads, which the edit supplies for free.
+
+**A face is found in 51 of 59 (86%)**, better than the forecast's 80%. The other
+eight come back refused and named — `cold-open` [0, 6.631] and [52.260, 65.815],
+`s1996-randy` [0.834, 1.960] (the CRT, the case finding 4 looked at), `s3-reveal`
+[0, 2.211] and [16.058, 18.060], `s4-reveal` [18.727, 21.730]. None of them is
+centre-cropped quietly; each says so.
+
+Applied to a copy, 39 windows were written and **all 16 hand windows survive
+byte-identical** — the other 12 proposals landed on windows already framed and
+were declined with a reason, which is the rule that `apply` never writes over
+someone's decision. The project reads back with no `reframe` errors on any of
+its nine clips.
+
+### On the sheet, the two-hander is the visible failure
+
+`~/lucid-framing-detect/sheet-detected.png`, 25 rows. Spot-checking the tiles
+rather than the table, because that is the whole point of the sheet:
+
+`cold-open` @36.77s frames Casey on the phone correctly — the window lands on
+her, and the half of frame it drops is a dark doorway. `s4-overexposed` @1.75s
+is the interesting one. Two women in a car, driver left and passenger right, and
+the area-weighted rule lands **between** them at 1068 — far enough right to be
+obviously the passenger's shot, and close enough to the middle that it **clips
+the right side of her head**. That is finding 3's ceiling arriving as a picture:
+every face is a true positive, only one of them is the shot, and no property of
+the boxes says which. An oracle picking the passenger alone would frame it.
+
+The refused windows draw the centre crop, as they should: `cold-open`'s head
+window is labelled 730, which is exactly `(1920-459)//2`, and the *next* window
+along is 732. Nothing about the refusal is hidden in the picture — it just looks
+like the default, which is why it has to be named in the output.
+
+### And a second wrong claim, caught by building the review page
+
+Reviewing is where the *last* mistake surfaced, which is the whole argument for
+`reframe_sheet` existing. The refusal message read *"this window is unframed,
+not centre-cropped"*, and that is false. **Nothing is written for a refused
+window, so whatever window is already in force simply carries over.** At the
+head of a clip that is the centre crop. Everywhere else it is the previous
+shot's framing:
+
+| refused window | what actually renders there |
+|---|---|
+| `cold-open` [0, 6.631] | the centre crop |
+| `cold-open` [52.260, 65.815] — three windows | **the window from 44.461s** |
+| `s1996-randy` [0.834, 1.960] | the hand override already at that in-point |
+| `s3-reveal` [0, 2.211] | the centre crop |
+| `s3-reveal` [16.058, 18.060] | **the window from 9.051s** |
+| `s4-reveal` [18.727, 21.730] | the hand override already at that in-point |
+
+**Four of the eight inherit a different shot's window**, and that is worse than
+the centre crop rather than equal to it: a default reads as a default, while a
+stale window reads as a decision. Exactly the failure this item exists to
+prevent, arriving through the one path nobody was watching.
+
+So `falls_back_to` names what will actually cover each refusal, resolved as if
+the proposals were applied — which is the question a plan is read to answer. The
+message no longer claims anything about the centre crop, and the test that
+asserted the old wording was corrected with the code and gained an assertion
+rather than losing one.
+
+Both bugs in this build have the same shape, worth naming: **a stub agrees with
+whatever the code asks it for.** The frame-tolerance bug needed a project whose
+windows were addressed by someone else; this one needed the pictures drawn and
+looked at. Neither was reachable from the test suite that covers them now.
+
+### Refused, unchanged
+
+Everything the design note refused stays refused: no look-room rule fitted to
+sixteen samples, no second signal for the screen-within-a-frame, no auto-apply,
+and keyframed moves still a call for Tyler. `apply` being off by default is the
+opposite of `cut --plan` and deliberately so — the pass is 114px out on a 459px
+window, and 2 of the 15 hand numbers were wrong in a way no watch showed.

@@ -22,7 +22,17 @@ from math import gcd
 from pathlib import Path
 from typing import Any
 
-from lucid import asr, autoeditor, captions, energy, graphics, media, mlt, picture
+from lucid import (
+    asr,
+    autoeditor,
+    captions,
+    energy,
+    faces,
+    graphics,
+    media,
+    mlt,
+    picture,
+)
 
 # `describe` is also the name of the op below — the same collision `verify`
 # has, and the same fix.
@@ -4038,6 +4048,310 @@ def reframe_sheet(
         "rows": rows,
         "count": len(rows),
         "moments": list(at),
+        "skipped": skipped,
+    }
+
+
+#: The scene score above which a change of picture is a camera cut. **Pinned by
+#: the control, not chosen**: over the sixteen approved framing boundaries
+#: recall is flat from 0.05 to 0.20 while precision climbs monotonically, and
+#: above it recall collapses. § Per-shot framing flagged this as a 3.2× tuning
+#: risk and it stopped being one the moment it was scored rather than counted.
+#: PLAN.md § The auto-framing detector, finding 1.
+SCENE_THRESHOLD = 0.20
+#: Frames sampled per window, and `describe.FRAMES_PER_WINDOW`'s number for
+#: `describe.frame_times`' reason: a window boundary is where a cut is most
+#: likely to be, so samples sit off both edges. Three is what finding 5 was
+#: measured with.
+DETECT_FRAMES = 3
+
+
+def _detect_windows(
+    placements: list[dict[str, Any]], threshold: float
+) -> list[dict[str, Any]]:
+    """Split every placement at its own camera cuts, and merge the duplicates.
+
+    A window is `(clip_id, src_start)` — the same address a stored rect uses —
+    running to the next cut inside the same placement, or to the placement's
+    end. Cuts come from the *source*, so the boundaries are the footage's own
+    and no edit can move one.
+
+    Two placements reading the same stretch of a clip produce the same window
+    twice, and it is one window: they would write to one address, and framing
+    it twice from two samplings is how the second silently wins. Merged, it
+    keeps every shot it serves and the widest span either placement showed, so
+    the sampling covers what both of them put on screen.
+    """
+    windows: dict[tuple[str, int], dict[str, Any]] = {}
+    for placement in placements:
+        start = placement["src_start"]
+        end = start + placement["duration"]
+        inside = [
+            cut
+            for cut in placement["cuts"]
+            if cut["score"] >= threshold and start < cut["src_time"] < end
+        ]
+        edges = [{"src_time": start, "score": None}, *inside]
+        for index, edge in enumerate(edges):
+            stop = edges[index + 1]["src_time"] if index + 1 < len(edges) else end
+            # Millisecond keys, because two placements of one clip agree on a
+            # cut to ffmpeg's own precision and not to a float's.
+            key = (placement["asset"], round(edge["src_time"] * 1000))
+            found = windows.get(key)
+            if found is None:
+                windows[key] = {
+                    "clip_id": placement["asset"],
+                    "path": placement["path"],
+                    "source": placement["source"],
+                    "src_start": edge["src_time"],
+                    "src_end": stop,
+                    "boundary": "placement" if edge["score"] is None else "cut",
+                    "scene_score": edge["score"],
+                    "shots": [placement["index"]],
+                }
+                continue
+            found["src_end"] = max(found["src_end"], stop)
+            found["shots"].append(placement["index"])
+            # A window that is one placement's head and another's cut is both;
+            # "placement" is the truthful label because the edit supplies it
+            # for free and no detector had to find it.
+            if edge["score"] is None:
+                found["boundary"] = "placement"
+                found["scene_score"] = None
+    return sorted(windows.values(), key=lambda w: (w["clip_id"], w["src_start"]))
+
+
+def reframe_detect(
+    path: Path | str,
+    *,
+    clip_id: str | None = None,
+    threshold: float = SCENE_THRESHOLD,
+    frames: int = DETECT_FRAMES,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Propose a framing window per camera shot, from where the faces are.
+
+    **The first pass at the framing `reframe` deliberately refuses to guess**
+    (PLAN.md § The auto-framing detector). Every placement is split at its own
+    camera cuts, each window is sampled at three moments, and the window is
+    centred on the faces found there — which beats the centre crop it replaces
+    on every column of the control: 0.755 mean overlap against 0.568, 111.6px
+    displacement against 199.4, and **never the approved subject left entirely
+    outside the frame** that the centre crop has on one shot of fifteen.
+
+    **It proposes; it does not frame.** `apply` is off by default, which is the
+    opposite of `cut --plan` and deliberately so: the pass is still 111px out on
+    a 459px window — 24% of its width — and 2 of the 15 hand-framed windows were
+    wrong in a way *no watch showed*. `reframe_sheet` is how either gets caught,
+    so the flow is detect, sheet, apply. Applying writes through `ops.reframe`
+    one window at a time, the same function the CLI, MCP and web UI call — this
+    is a fourth client, never a fourth implementation — and it **never writes
+    over a window that is already an override**, because that window is
+    someone's decision and this has no way to know it is the worse one.
+
+    **A window with no face is named, never guessed at.** Eight of the film's
+    fifty-nine windows have no signal at all, and a silent fallback is
+    indistinguishable in the output from a framing decision. They come back with
+    `refused` saying so, the way a card with no record is reported rather than
+    reconstructed — and with `falls_back_to`, which is the half that is easy to
+    get wrong. Nothing is written for a refused window, so **whatever window is
+    already in force carries over**: at the head of a clip that is the centre
+    crop, and anywhere else it is the *previous shot's* framing. That is worse
+    than the default rather than equal to it, because a stale window looks
+    deliberate. On the film 4 of the 8 refusals inherit one that way.
+
+    Nothing here chooses the *subject*: an oracle picking which detected face to
+    frame on scores 0.863 to this rule's 0.755, and no property of the boxes says
+    which face is the shot. `faces.py` has that finding and the reason it is not
+    a fixable one.
+    """
+    if not 0 < threshold <= 1:
+        raise ProjectError(f"a scene threshold is a score between 0 and 1, not {threshold}")
+    if frames < 1:
+        raise ProjectError(f"a window needs at least one frame sampled, not {frames}")
+
+    project = Project.open(path)
+    resolution = _mlt_resolution(project)
+
+    # Asked before the scene scan, because the scan is minutes of decoding and
+    # a missing interpreter is a refusal that should arrive now.
+    detector = faces.available()
+    if not detector["available"]:
+        raise faces.FaceError(str(detector["why"]))
+
+    placements, skipped = _sheet_placements(project, resolution)
+    if clip_id is not None:
+        clips = {str(clip.get("clip_id")) for clip in project.read_manifest().get("clips", [])}
+        if clip_id not in clips:
+            raise ProjectError(f"no clip {clip_id!r} in this project")
+        placements = [p for p in placements if p["asset"] == clip_id]
+    for placement in list(placements):
+        entry = placement["reframe"]
+        if entry is None:
+            # No registered geometry, so there is no rect to express and no
+            # centre crop being replaced. Named rather than dropped.
+            skipped.append(
+                {
+                    "index": placement["index"],
+                    "asset": placement["asset"],
+                    "why": "this clip has no registered picture size to crop against",
+                }
+            )
+            placements.remove(placement)
+            continue
+        placement["source"] = entry.source
+    if not placements:
+        raise ProjectError(
+            "this project has no footage placements to frame — there is nothing "
+            "here a window would apply to"
+        )
+
+    # One scan per clip, stopped at the last frame any placement of it reads:
+    # a 730s cold open the film uses 71.8s of has no reason to be walked to the
+    # end, and the decode is the whole cost of this half.
+    scans: dict[str, list[dict[str, float]]] = {}
+    for asset in {p["asset"] for p in placements}:
+        used = [p for p in placements if p["asset"] == asset]
+        scans[asset] = media.scene_cuts(
+            used[0]["path"], until=max(p["src_start"] + p["duration"] for p in used)
+        )
+    for placement in placements:
+        placement["cuts"] = scans[placement["asset"]]
+
+    windows = _detect_windows(placements, threshold)
+    jobs = [
+        {
+            "index": index,
+            "media": str(window["path"]),
+            "timestamps": dsc.frame_times(window["src_start"], window["src_end"], frames),
+        }
+        for index, window in enumerate(windows)
+    ]
+    detections = {result["index"]: result for result in faces.detect(jobs)}
+
+    stored = _stored_reframes(project)
+    # **A frame, not an epsilon.** ffmpeg reports this cut at 0.834167 and the
+    # manifest holds 0.8342, because a stored window was addressed by hand
+    # through a timeline offset while the scan reads raw presentation times —
+    # 33µs apart, the same cut, and an exact-match test called fifteen of the
+    # sixteen hand windows unframed and would have written a duplicate beside
+    # each one. Two boundaries inside one source frame are one window: that is
+    # not a tolerance for slop, it is the resolution the render has, since a
+    # reframe is emitted as keyframes numbered in the producer's own source
+    # frames (CLAUDE.md § The MLT reframe).
+    same_window = 1.0 / _export_fps(_clips_by_id(project))
+    report: list[dict[str, Any]] = []
+    for index, window in enumerate(windows):
+        source = window["source"]
+        held = [at for at, _ in stored.get(window["clip_id"], [])]
+        current = (
+            "override"
+            if any(abs(at - window["src_start"]) <= same_window for at in held)
+            else "centre"
+        )
+        entry: dict[str, Any] = {
+            "clip_id": window["clip_id"],
+            "src_start": round(window["src_start"], 4),
+            "src_end": round(window["src_end"], 4),
+            "boundary": window["boundary"],
+            "scene_score": round(window["scene_score"], 3) if window["scene_score"] else None,
+            "shots": sorted(set(window["shots"])),
+            "sampled": [round(ts, 3) for ts in jobs[index]["timestamps"]],
+            "faces": 0,
+            "frames_with_faces": 0,
+            "current": current,
+            "rect": None,
+            "applied": False,
+            "refused": None,
+            "falls_back_to": None,
+        }
+        found = detections[index]
+        if "error" in found:
+            entry["refused"] = f"the detector could not read this window: {found['error']}"
+            report.append(entry)
+            continue
+        sampled = found["frames"]
+        entry["faces"] = sum(len(frame["faces"]) for frame in sampled)
+        entry["frames_with_faces"] = sum(1 for frame in sampled if frame["faces"])
+        centre = faces.window_centre(sampled)
+        if centre is None:
+            entry["refused"] = f"no face in any of the {len(sampled)} frames sampled"
+            report.append(entry)
+            continue
+        # The centre crop's own shape, moved. Taking the rect from
+        # `mlt.centre_crop` rather than deriving one means the proposal is
+        # already the canvas's aspect, so `reframe`'s grow-to-fit is a no-op on
+        # it and the rect stored is the rect proposed.
+        _x, y, width, height = mlt.centre_crop(source, resolution)
+        entry["rect"] = _rect_text((faces.window_x(centre, source[0], width), y, width, height))
+        report.append(entry)
+
+    # **A refused window is not a centre-cropped one, and saying so was wrong.**
+    # Nothing is written for it, so whatever window is already in force simply
+    # carries over — which at the head of a clip is the centre crop and
+    # everywhere else is *the previous shot's framing*. On the film 4 of the 8
+    # refusals inherit a different shot's window that way, and that is worse
+    # than the default rather than equal to it: a stale window looks deliberate.
+    # So each refusal names what will actually cover it — resolved as if these
+    # proposals were applied, which is the question being asked even in a plan,
+    # since a plan is read to decide whether to apply it.
+    for entry in report:
+        if entry["rect"] is not None:
+            continue
+        if entry["current"] == "override":
+            entry["falls_back_to"] = "the override already at this in-point"
+            continue
+        covering = [at for at, _ in stored.get(entry["clip_id"], [])] + [
+            other["src_start"]
+            for other in report
+            if other["clip_id"] == entry["clip_id"]
+            and other["rect"] is not None
+            and other["current"] == "centre"
+        ]
+        earlier = [at for at in covering if at <= entry["src_start"] - same_window]
+        entry["falls_back_to"] = (
+            f"the window from {max(earlier):.3f}s — a different shot's framing"
+            if earlier
+            else "the centre crop"
+        )
+
+    written = 0
+    if apply:
+        for entry in report:
+            if entry["rect"] is None:
+                continue
+            if entry["current"] == "override":
+                entry["refused"] = (
+                    "left alone — this window is already framed by hand, and a proposal "
+                    "has no way to know it is the better one"
+                )
+                continue
+            reframe(
+                project.root,
+                entry["clip_id"],
+                rect=entry["rect"],
+                src_start=entry["src_start"] or None,
+            )
+            entry["applied"] = True
+            written += 1
+
+    return {
+        "project": str(project.root),
+        "canvas": f"{resolution[0]}x{resolution[1]}",
+        "threshold": threshold,
+        "frames_per_window": frames,
+        # How close a stored window has to be for this one to be the same
+        # window. Reported rather than assumed, because it is the number that
+        # decides whether `apply` leaves a hand-framed shot alone.
+        "same_window_within": round(same_window, 5),
+        "detector": detector,
+        "windows": report,
+        "count": len(report),
+        "proposed": sum(1 for entry in report if entry["rect"] is not None),
+        "refused": sum(1 for entry in report if entry["rect"] is None),
+        "placements": len({shot for entry in report for shot in entry["shots"]}),
+        "applied": written,
+        "written": bool(written),
         "skipped": skipped,
     }
 

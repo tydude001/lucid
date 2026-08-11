@@ -2432,12 +2432,14 @@ unswapped project's document byte-identical.
    has to beat is now a number rather than a memory: **the centre crop covers
    0.568 of the approved window on average, is 199px off its centre, and on
    one shot shares no pixel with it at all.**
-   **The detector is costed against it, 2026-08-11** — § The auto-framing
-   detector — the design note. Faces clear the bar (0.755 / 111.6, and never
-   the lost subject the centre crop has), the threshold this item flagged as a
-   3.2× tuning risk is pinned at 0.20 by the control, and the ceiling turns out
-   not to be detection: an oracle allowed only to pick *which* face reaches
-   0.863. So the pass proposes and `reframe_sheet` disposes.
+   **The detector is built, 2026-08-11** — § The auto-framing detector, and
+   HISTORY.md § The auto-framing detector, built. `reframe_detect` clears the
+   bar at the sampling it actually ships (0.750 / 114.0, never the lost subject
+   the centre crop has), the threshold this item flagged as a 3.2× tuning risk
+   is pinned at 0.20 by the control, and the ceiling turns out not to be
+   detection: an oracle allowed only to pick *which* face reaches 0.863. So the
+   pass proposes and `reframe_sheet` disposes, which is why `apply` is off by
+   default. **Step 5 is closed; what is left is looking at the sheet.**
 
 ### Refused, with the reasoning
 
@@ -2654,3 +2656,40 @@ variable is the smaller, more reversible move.
 - **Keyframed moves stay refused**, unchanged. Shot 9 put a number on the
   mechanism (HISTORY.md § The framing control) and the call is Tyler's; the
   detector proposes discrete windows either way.
+
+### Built, 2026-08-11 — and the one thing the note had wrong
+
+`faces.py`, `_face_worker.py`, `media.scene_cuts` and `ops.reframe_detect`,
+with the CLI and MCP tools beside them. All five build items landed as written.
+HISTORY.md § The auto-framing detector, built has the account; two things
+belong here because they change what the note claims.
+
+**The gate is scored at the sampling that ships, and it is a different number.**
+Finding 2's 0.755 / 111.6 was measured on the probe's dense sampling — up to
+sixteen frames a window. `reframe_detect` takes three. Rescored on three:
+**0.750 / 114.0, `lost` still 0, worst still 0.480.** The conclusion is
+unchanged and the reason is worth keeping: like the aggregation rule, the
+sampling is not a lever either. `tests/test_framing_control.py` gates on the
+three-frame number, because a gate measured at a density the code does not use
+is a gate on something that does not ship.
+
+**Two things the note did not anticipate, and the film found both rather than
+the tests.** The second is that **a refused window is not a centre-cropped
+one**: nothing is written for it, so whatever is in force carries over, which
+anywhere but a clip's head is *the previous shot's framing* — 4 of the film's 8
+refusals. That is worse than the default rather than equal to it, and the
+refusal message claimed the opposite until the review page was built and looked
+at. `falls_back_to` now names it. The first:
+
+**"Is this window already framed?" is a frame, not an epsilon.** ffmpeg
+reports a cut at 0.834167; the manifest holds 0.8342, because a hand window was
+addressed through a timeline offset while the scan reads raw presentation times.
+33µs apart, the same cut. An exact-match test called **fifteen of the sixteen**
+approved windows unframed, and `--apply` would have written a duplicate beside
+each one. Two boundaries inside one *source frame* are one window, which is not
+a tolerance for slop but the resolution the render has — a reframe is emitted as
+keyframes numbered in the producer's own source frames. With the frame in place
+14 of 16 are recognised, and the two that are not are exactly the two finding 1
+predicted: the window a human began twelve frames into a placement with no
+visual event, and the midpoint of the eased move, where by construction there is
+no cut.
