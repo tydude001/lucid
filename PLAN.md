@@ -2453,10 +2453,12 @@ single upstream cut invalidates wholesale; in source frames the same move is
 edit-invariant, and MLT's default `=` interpolates for free. The mechanism is
 already paid for by step 2 — it is the *authoring* that waits for evidence.
 
-**The stacked two-pane split is out of scope.** § Aspect swap measured it at
-24.8% of shot-seconds and it is a genuinely new render path. It is also
-unreachable until single-window framing exists to be insufficient *against*,
-and the whole 15-number teaser was watched and approved without one.
+**The stacked two-pane split is out of scope**, and both reasons expired on
+2026-08-11 — § The stacked split has the measurements. It is *not* a new render
+path (a second node, no new service), and it is no longer unreachable: Tyler
+reviewed the 39 proposed windows and named the two-handers. What was right here
+is that it had to wait for single-window framing to be insufficient against
+something real, which is exactly how it got unblocked.
 
 ## The auto-framing detector — the design note — 2026-08-11
 
@@ -2693,3 +2695,84 @@ keyframes numbered in the producer's own source frames. With the frame in place
 predicted: the window a human began twelve frames into a placement with no
 visual event, and the midpoint of the eased move, where by construction there is
 no cut.
+
+## The stacked split — the mechanism, measured — 2026-08-11
+
+§ Per-shot framing calls the stacked two-pane split *"a genuinely new render
+path"* and puts it out of scope on a gate: *"unreachable until single-window
+framing exists to be insufficient against."* **Both halves of that moved on
+2026-08-11.** The gate opened — Tyler reviewed the 39 proposed windows and
+named the two-handers, the car scene by name — and the render path turns out
+not to be new. The probes are `~/lucid-split-probe/`.
+
+### Finding 1 — it is a second node, not a new service
+
+The spike that measured the split built it in an ffmpeg filtergraph
+(`split`/`crop`/`pad`/`overlay`) and concluded a build would need *"a stacked
+render path in `mlt.py`"*. It needs no such thing. Two `chain` nodes of one
+resource, a `qtblend` filter on each with a different `rect`, and the
+compositing transition the tractor already carries — every piece is machinery
+the writer has written since the aspect swap. No new service, no crop filter,
+no mask, and no `<blank>`.
+
+This is § Per-shot framing's own finding 3 arriving a second time: that note
+also expected a new node and found the rect keyframable instead. **The
+mechanism keeps being cheaper than the treatment sounds**, because `qtblend`'s
+rect is a destination and the profile does the clipping.
+
+### Finding 2 — the panes are disjoint by construction, not by luck
+
+A pane window spans the **full source height** — that is what makes it a pane
+rather than a crop — so its width is fixed at `src_h * pane_w / pane_h`, and
+the scale that fills the pane's width is `pane_w / that`. The scaled source
+height is then `src_h * pane_h / src_h`, which is `pane_h` exactly, for **any
+source shape**. The top pane cannot reach the bottom half however wide the
+footage is; the horizontal overflow is clipped by the profile as usual.
+
+Worth stating because the obvious defensive build — crop each pane first, or
+mask it — is buying a guarantee the geometry already gives. The one shape that
+fails is a source *taller* than 8:9, where the pane window is wider than the
+frame; that refuses and falls back to one window.
+
+### Finding 3 — the pane node hides on the rect it already animates
+
+A clip carries solo windows and split ones, and the second node exists for the
+whole clip either way, so it has to draw nothing during the solo stretches.
+`mlt.py` emits no `<blank>`, ever, so the answer has to live in the rect
+animation per-shot framing already writes. Both candidates were rendered —
+**opacity 0 on the keyframe, and a rect parked below the profile** — on a clip
+running solo → split → solo, and they produce **byte-identical frames**.
+Opacity is what to build: an off-canvas rect is a real geometry that happens
+to miss, and the next person to read it cannot tell that from a bug.
+
+### What the render was checked against
+
+A picture that looks right is not evidence, so the split was diffed against
+ffmpeg's own two-pane crop of the same source frame **and** against the
+treatment it replaces:
+
+| melt's split, against | mean \|diff\| | max |
+|---|---|---|
+| ffmpeg's two-pane crop | **9.4** | 33 |
+| the solo centre crop it replaces | 68.0 | — |
+
+9.4 at a max of 33 is Qt's scaler against lanczos, spread smoothly. A geometry
+error of one pixel spikes the max at every edge — which is what the
+neighbouring source frames do (max 145), so the low max is also what identifies
+the frame.
+
+### What is not measured, and must not be inherited
+
+**The 24.8%-of-shot-seconds figure is the spike's, and it is the wrong pass.**
+It was measured outside lucid, on 64 shots found by its own cut detection,
+before `reframe_detect` existed. How many of the **39 windows actually
+proposed** are two-handers is unknown, and `detect-apply.json` will not answer
+it: its `faces` count is detections summed over three sampled frames, so
+`s1996-randy`'s 33 is one CRT crowd and a `faces=3` is one person seen three
+times. Distinct subjects per window is a different measurement and it comes
+first — the threshold that decides split-vs-solo cannot be set on a number
+from a different detector run.
+
+Also unbuilt and deliberately unnamed here: which cluster goes in the **top**
+pane. The spike ordered them left-to-right in the source; whether that reads
+correctly against a cut is an editorial question and a watch, not a rule.
