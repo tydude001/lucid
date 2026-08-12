@@ -5920,3 +5920,46 @@ rather than as words vanishing from a caption file.
 Nine marked on the teaser, and the caption track now reads what the render
 says: *"Billy and Stu spend the entire film explaining the rules of a horror
 movie to you."*
+
+## The tile that made a wrong window look right — 2026-08-12
+
+The re-cut teaser went back for a second watch and came back with one note:
+the first shot is *"a bit too far to the left, like if we panned a little bit
+to the right we would see more of his face."* He is right by 184 pixels, and
+what is worth writing down is not the number but why a review had already
+passed it.
+
+`s1996-billy-stu`'s opening window is `220,0,459,816` — a 459-wide crop
+centred on 450. A face detector over twelve moments of the shot puts Stu's
+face centre at a **median of 634**, never below 557 and as far right as 739.
+The crop's right edge, 679, runs down the middle of his face for most of the
+five seconds. It is not a jump at the top of the shot — § The teaser, re-cut
+found and fixed a *separate* defect there, a window beginning 0.5s into a
+continuous take, and correcting that only made the whole five seconds
+consistently wrong instead of wrong-then-wrong-differently. Fixed at
+`405,0,459,816`, which is `faces.window_x` of the detector's own median.
+
+**That window was hand-approved off a `reframe_sheet`, and the sheet drew it.**
+This is not the known coverage gap (§ The thirty-nine windows, reviewed —
+windows a sheet never samples). The sheet sampled the placement at 0.15 / 0.50
+/ 0.85, the placement spans two windows, and exactly one tile — src **1.714** —
+landed inside the bad one. At 1.714 the face sits at 452–714 against a crop of
+220–679: 35 pixels of far cheek clipped, a tile that reads as tight and fine.
+It is the *least wrong* moment in the shot. The error there is 122px; at the
+median it is 184px and at src 4.0 it is 289px.
+
+So the general shape: **a static rect over a moving subject has a best moment
+and a worst moment, and three fixed fractions have no reason to find either.**
+The sheet is still the right instrument — a watch cannot tell you a crop is
+184px out — but a tile is evidence about the instant it draws, and a window is
+a claim about a span. What would actually settle one is sampling where the
+subject is *extreme* rather than where the clock is round.
+
+Two asymmetries worth keeping in view. The detector had the right answer all
+along: `reframe_detect`'s own head window for this clip in the full-length
+vertical is 366, within 39px of the corrected number, while the approved hand
+number is 185px out — the third case now of a hand window being wrong
+invisibly (§ The auto-framing detector, built). And the same wrong rect is
+still in `~/lucid-vertical/proj` at `src_start` 0.5012, because the teaser
+inherited its framing from that cut; the teaser was re-rendered and the
+vertical was not.

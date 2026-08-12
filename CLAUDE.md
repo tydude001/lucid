@@ -403,6 +403,14 @@ installed package or the upstream repo, not your memory.
     three fractions of each missed 14 of the vertical's 55, eight of them
     hand-approved. Sample the window, at the midpoint of the stretch each
     placement shows of it. HISTORY.md § The thirty-nine windows, reviewed.
+    - **And a window it *does* sample can still pass while badly wrong**, so a
+      clean sheet is not an approval of the span: a rect is a claim about a
+      stretch, a tile is evidence about one instant, and a static rect over a
+      moving subject has a best instant. The teaser's opening window was 184px
+      out at the median and its one tile landed at 122px — the shot's least
+      wrong moment, which reads as tight and fine. Sample where the subject is
+      extreme, not where the clock is round. HISTORY.md § The tile that made a
+      wrong window look right.
   - Its two asymmetries: the **preview** places a shot by the window at its
     `src_start`, so a boundary *inside* a placement previews as the first of
     the two while the render steps mid-shot correctly (`reframe_sheet`'s
