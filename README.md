@@ -176,6 +176,21 @@ lucid transcript-checks                      # every clip with a transcript
 lucid transcript-checks vo                   # just this one
 ```
 
+Finding one is not removing it, and the removing is settled by the render
+rather than by reading — nine invented words in 44 seconds of the Scream VO,
+one of which reads as perfect English. `unspoken` marks a word the recording
+never said; captions, `caption-view` and `verify` all stop expecting it, and
+the transcript file is untouched, so word indices never move under a cue:
+
+```sh
+lucid unspoken detect render.mp4             # propose; writes nothing
+lucid unspoken detect render.mp4 --apply     # ...or write the marks
+lucid unspoken ls                            # what is marked, and what went stale
+```
+
+`detect` takes its candidates from a seam and from a word a cut left a sliver
+of, then asks the render's own transcription which of them nobody said.
+
 `verify` closes the loop the other way: it transcribes a finished render and
 diffs it against the words the timeline should play. That catches a class of
 defect nothing else does — a retake still in the picture. Whisper collapses an
@@ -337,7 +352,10 @@ in force. That naming lives only in the reply, so `reframe-coverage` asks the
 same of a project on disk: which placed seconds a camera cut has stranded under
 a window chosen before it. On the vertical cut that is 15.6s, three of the four
 stretches on one clip. It is scene cuts against stored geometry, so unlike
-`reframe-detect` it needs no face detector.
+`reframe-detect` it needs no face detector. It asks which *cuts have no
+window*, and nothing yet asks the mirror — which windows have no cut — so a
+boundary inside a continuous take steps the frame sideways and reads clean
+here; check that a clip is framed from its first shown frame by eye.
 
 `--pane` draws that window as a **stacked split** — two half-height panes, the
 rect on top and the pane below, each keeping about twice the width one crop
