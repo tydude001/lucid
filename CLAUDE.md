@@ -440,7 +440,15 @@ installed package or the upstream repo, not your memory.
       the default because a stale window looks deliberate. Not an edge: it is
       13.6s of `cold-open`, one rect held across four camera setups, Casey's
       framing sitting over trees and a stovetop. `falls_back_to` names which;
-      never infer it from `refused`, and nothing surfaces either today.
+      never infer it from `refused`.
+      - **`reframe_detect` answers that of a proposal, `reframe_coverage` of
+        the project on disk** — scene cuts against stored geometry, so it needs
+        no face detector. **Its unit is the placement, not the cut**: a
+        placement can *begin* downstream of the cut that stranded it and hold
+        no cut at all, so walking each placement's own cuts misses exactly
+        those — 6.0 of `cold-open`'s 13.6 stale seconds. Read `stale_seconds`
+        (an override held across a cut), never `default_seconds` beside it (the
+        centre crop, a different thing). HISTORY.md § `reframe_coverage`.
     - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
       cut with no window is one the framing walks through, so the floor's miss
       rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are

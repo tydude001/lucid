@@ -647,6 +647,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "On by default, and rare: 3 of the film's 59 windows",
     )
 
+    p_coverage = sub.add_parser(
+        "reframe-coverage",
+        help="which placed seconds are framed by a window chosen for an earlier shot",
+    )
+    p_coverage.add_argument(
+        "clip_id", nargs="?", help="only this clip's placements. Omit for every one"
+    )
+    p_coverage.add_argument(
+        "--threshold",
+        type=float,
+        default=ops.SCENE_THRESHOLD,
+        metavar="SCORE",
+        help=f"scene score above which a change of picture is a cut "
+        f"(default {ops.SCENE_THRESHOLD}, picked by the framing control)",
+    )
+
     p_sheet = sub.add_parser(
         "reframe-sheet",
         help="draw every placement's framing window on its own source frames, for review",
@@ -1236,6 +1252,12 @@ def _cmd_reframe_detect(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_reframe_coverage(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.reframe_coverage(args.project, clip_id=args.clip_id, threshold=args.threshold)
+    )
+
+
 def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
     moments = [float(part) for part in args.moments.split(",")] if args.moments else None
     return _emit(ops.reframe_sheet(args.project, out=args.out, moments=moments))
@@ -1388,6 +1410,7 @@ _COMMANDS = {
     "reel": _cmd_reel,
     "reframe": _cmd_reframe,
     "reframe-detect": _cmd_reframe_detect,
+    "reframe-coverage": _cmd_reframe_coverage,
     "reframe-sheet": _cmd_reframe_sheet,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,

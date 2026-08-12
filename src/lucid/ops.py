@@ -4138,6 +4138,7 @@ def _sheet_placements(
                     "path": Path(str(shot["asset_path"])),
                     "src_start": float(shot["src_start"]),
                     "duration": float(shot["duration"]),
+                    "timeline_start": float(shot["start"]),
                     "reframe": reframes.get(str(shot["asset"])),
                 }
             )
@@ -4154,6 +4155,7 @@ def _sheet_placements(
                 "path": media.media_path(project, clip),
                 "src_start": float(seg["start"]),
                 "duration": float(seg["duration"]),
+                "timeline_start": float(seg["timeline_start"]),
                 "reframe": reframes.get(seg["clip_id"]),
             }
         )
@@ -4678,6 +4680,198 @@ def reframe_detect(
         "placements": len({shot for entry in report for shot in entry["shots"]}),
         "applied": written,
         "written": bool(written),
+        "skipped": skipped,
+    }
+
+
+def reframe_coverage(
+    path: Path | str,
+    *,
+    clip_id: str | None = None,
+    threshold: float = SCENE_THRESHOLD,
+) -> dict[str, Any]:
+    """Which placed seconds are framed by a window chosen for an earlier shot.
+
+    **The question `reframe_detect` cannot answer, because it is about the
+    project as it stands rather than about a proposal.** A detect run reports
+    `falls_back_to` for the windows it is refusing *this call*, and then throws
+    it away; nothing is written for a refusal, so a project on disk has no way
+    to say that 13.6s of one clip is held by a rect chosen for a shot that
+    ended long before. The manifest, `status` and `reframe_sheet` were all
+    clean over exactly that (HISTORY.md § The thirty-nine windows, reviewed).
+
+    **One observable, two mechanisms, and this deliberately does not separate
+    them** — because the render cannot. A window the detector refused writes
+    nothing; a camera cut scoring under `threshold` is never offered a window
+    at all. What reaches the film either way is one rect held across a cut, so
+    what is measured is the cut with no window at it and the stretch of
+    footage downstream of it.
+
+    Every placement is walked against its own source's scene cuts. A cut with
+    no window boundary within a frame of it opens a **stale stretch**, running
+    to the next boundary or to the placement's end, and the whole stretch is
+    framed by whatever was in force before the cut. Which is one of two things,
+    and the distinction is the point: an **override** held across a cut is
+    worse than the default, since a stale window looks deliberate, while the
+    **centre crop** walking through one is only the default doing what it
+    always did. `stale_seconds` counts the first; `default_seconds` the second.
+
+    **A frame of tolerance, never an epsilon.** ffmpeg reports a cut at
+    0.834167 where the manifest holds 0.8342 — the same cut, 33µs apart — and
+    matching exactly reported 20 stale stretches on the film where there are 6.
+    Two boundaries inside one source frame are one window, which is the
+    resolution the render has (CLAUDE.md § The MLT reframe).
+
+    Needs no face detector: this is scene cuts against stored geometry, so it
+    answers on a box where `reframe_detect` cannot run at all. It reads and
+    never writes. Each stretch carries `timeline_start` — where it plays in the
+    film — because the fix is to look at it, and `reframe_detect --clip` is
+    what proposes a window for it.
+    """
+    if not 0 < threshold <= 1:
+        raise ProjectError(f"a scene threshold is a score between 0 and 1, not {threshold}")
+
+    project = Project.open(path)
+    resolution = _mlt_resolution(project)
+    placements, skipped = _sheet_placements(project, resolution)
+    if clip_id is not None:
+        clips = {str(clip.get("clip_id")) for clip in project.read_manifest().get("clips", [])}
+        if clip_id not in clips:
+            raise ProjectError(f"no clip {clip_id!r} in this project")
+        placements = [p for p in placements if p["asset"] == clip_id]
+    for placement in list(placements):
+        if placement["reframe"] is None:
+            skipped.append(
+                {
+                    "index": placement["index"],
+                    "asset": placement["asset"],
+                    "why": "this clip has no registered picture size to crop against",
+                }
+            )
+            placements.remove(placement)
+    if not placements:
+        raise ProjectError(
+            "this project has no footage placements to check — there is nothing "
+            "here a window would apply to"
+        )
+
+    # One scan per clip, stopped at the last frame any placement of it reads —
+    # `reframe_detect`'s own arithmetic, and for its reason: the decode is the
+    # whole cost, and a 730s clip the film reads 71.8s of has no reason to be
+    # walked to the end.
+    scans: dict[str, list[dict[str, float]]] = {}
+    for asset in {p["asset"] for p in placements}:
+        used = [p for p in placements if p["asset"] == asset]
+        scans[asset] = media.scene_cuts(
+            used[0]["path"], until=max(p["src_start"] + p["duration"] for p in used)
+        )
+
+    same_window = 1.0 / _export_fps(_clips_by_id(project))
+    stored = _stored_reframes(project)
+
+    stale: list[dict[str, Any]] = []
+    cuts_seen = 0
+    cuts_framed = 0
+    for placement in sorted(placements, key=lambda p: p["timeline_start"]):
+        entry = placement["reframe"]
+        start = placement["src_start"]
+        end = start + placement["duration"]
+        boundaries = [at for at, _ in entry.windows()]
+        held = [at for at, *_ in stored.get(placement["asset"], [])]
+        cuts = [cut for cut in scans[placement["asset"]] if cut["score"] >= threshold]
+
+        def framed(at: float, edges: list[float] = boundaries) -> bool:
+            return any(abs(edge - at) <= same_window for edge in edges)
+
+        shown = [cut for cut in cuts if start < cut["src_time"] < end]
+        cuts_seen += len(shown)
+        cuts_framed += sum(1 for cut in shown if framed(cut["src_time"]))
+
+        # **The question is asked of the footage, not of the cut** — because a
+        # placement can begin *downstream* of the cut that stranded it and
+        # never contain one. The film has three of those and an earlier walk
+        # over the cuts inside each placement could not see any of them: the
+        # cut is in source nothing shows, and the placement is stale from its
+        # own first frame. So the stretch is split wherever the framing could
+        # change — a window boundary, or a cut the framing does not follow —
+        # and each piece is asked what is covering it.
+        edges = {start}
+        edges.update(at for at in boundaries if start < at < end)
+        edges.update(
+            cut["src_time"] for cut in shown if not framed(cut["src_time"])
+        )
+        points = sorted(edges)
+
+        run: dict[str, Any] | None = None
+        for index, at in enumerate(points):
+            stop = points[index + 1] if index + 1 < len(points) else end
+            governing = entry.window_start(at)
+            # A cut between where this window began and where this footage
+            # starts is the whole finding: the picture changed and the framing
+            # did not follow it.
+            crossed = [
+                cut
+                for cut in cuts
+                if governing + same_window < cut["src_time"] <= at + same_window
+            ]
+            if not crossed:
+                run = None
+                continue
+            # Two unframed cuts under one window are one stale stretch, not
+            # two: `cold-open` holds a single rect across four camera setups
+            # and that is one thing wrong. A change of governing window ends
+            # the run even when the new one is stale too, because they are
+            # different windows to go and fix.
+            if run is not None and abs(run["held_from"] - governing) <= same_window:
+                run["src_end"] = round(stop, 4)
+                run["seconds"] = round(stop - run["src_start"], 3)
+                run["cuts"] = sorted({*run["cuts"], *(round(c["src_time"], 4) for c in crossed)})
+                continue
+            override = framed(governing, held)
+            run = {
+                "index": placement["index"],
+                "asset": placement["asset"],
+                "timeline_start": round(placement["timeline_start"] + (at - start), 3),
+                "src_start": round(at, 4),
+                "src_end": round(stop, 4),
+                "seconds": round(stop - at, 3),
+                "held_from": round(governing, 4),
+                # `reframe_detect`'s own two answers, in its own words: this is
+                # the same question asked of a project rather than of a
+                # proposal, and two vocabularies for one fact is how they drift.
+                "framed_by": (
+                    f"the window from {governing:.3f}s — a different shot's framing"
+                    if override
+                    else "the centre crop"
+                ),
+                "stale": override,
+                "cuts": sorted({round(cut["src_time"], 4) for cut in crossed}),
+                "scores": sorted({round(cut["score"], 3) for cut in crossed}),
+            }
+            stale.append(run)
+
+    placed = sum(p["duration"] for p in placements)
+    held_over = [row for row in stale if row["stale"]]
+    stale_seconds = sum(row["seconds"] for row in held_over)
+    default_seconds = sum(row["seconds"] for row in stale if not row["stale"])
+    return {
+        "project": str(project.root),
+        "canvas": f"{resolution[0]}x{resolution[1]}",
+        "threshold": threshold,
+        "same_window_within": round(same_window, 5),
+        "placements": len(placements),
+        "placed_seconds": round(placed, 3),
+        "cuts": cuts_seen,
+        "cuts_framed": cuts_framed,
+        "cuts_unframed": cuts_seen - cuts_framed,
+        "stretches": stale,
+        # The headline, and the only number that is a defect: an override held
+        # across a camera cut. The centre crop walking through one is the
+        # default doing what it always did, counted beside it and not with it.
+        "stale_seconds": round(stale_seconds, 3),
+        "stale_share": round(stale_seconds / placed, 4) if placed else 0.0,
+        "stale_stretches": len(held_over),
+        "default_seconds": round(default_seconds, 3),
         "skipped": skipped,
     }
 

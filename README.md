@@ -317,6 +317,7 @@ lucid -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
 lucid -C myproject reframe cold-open --reset        # back to the centre
 lucid -C myproject reframe-detect                   # propose a window per shot
 lucid -C myproject reframe-sheet                    # every window, drawn, for review
+lucid -C myproject reframe-coverage                 # seconds framed for an earlier shot
 ```
 
 A rect is in that clip's own source pixels, so no cut can invalidate one, and
@@ -332,9 +333,11 @@ because it is still a quarter of a window's width out on average and a wrong
 automatic reframe makes a film with nothing on screen saying so. A window with
 no face in it is *named* rather than guessed at, and the reply says what will
 cover it instead, which is not the centre crop but whatever window is already
-in force. That naming lives only in the reply — nothing records it, and on the
-vertical cut it leaves 13.6s of one clip framed for a shot that ended long
-before.
+in force. That naming lives only in the reply, so `reframe-coverage` asks the
+same of a project on disk: which placed seconds a camera cut has stranded under
+a window chosen before it. On the vertical cut that is 15.6s, three of the four
+stretches on one clip. It is scene cuts against stored geometry, so unlike
+`reframe-detect` it needs no face detector.
 
 `--pane` draws that window as a **stacked split** — two half-height panes, the
 rect on top and the pane below, each keeping about twice the width one crop

@@ -5558,3 +5558,56 @@ cut times to window starts *exactly* reported 20 stale stretches where there
 are 6, because ffmpeg says 5.588 where the manifest holds 5.5889. A frame of
 tolerance, never an epsilon — the same rule § The auto-framing detector, built
 already carried, arrived at from the other side.
+
+## `reframe_coverage` — 2026-08-12
+
+§ The thirty-nine windows, reviewed found the detector's placement rule sound
+and its **coverage** not, and left the finding nowhere a project could be asked
+for it. `reframe_detect` names `falls_back_to` for the windows it refuses in
+the call being made and then throws it away; nothing is written for a refusal,
+so the manifest, `status` and `reframe_sheet` were all clean over 13.6s of
+`cold-open` held by a rect chosen for a shot that ended long before. This is the
+asking, and it is a read: scene cuts against stored geometry, no face detector
+involved, so it answers on a box where `reframe_detect` cannot run at all.
+
+**One observable, two mechanisms, and it deliberately does not separate them**,
+because the render cannot. A refused proposal writes nothing; a cut under
+`SCENE_THRESHOLD` is never offered a window. What reaches the film either way
+is one rect held across a camera cut.
+
+**The question is asked of the footage, not of the cut, and the first build got
+that wrong.** Walking the cuts *inside* each placement finds only the stretches
+where the picture changes mid-placement — it cannot see a placement that
+**begins** downstream of the cut that stranded it, whose every frame is framed
+by a window chosen before that cut and which contains no cut at all. On this
+film that mistake cost 6.0 of `cold-open`'s 13.6 stale seconds, and the missing
+stretch was the one in the middle. So each placement is split wherever the
+framing could change — a window boundary, or a cut the framing does not follow
+— and each piece is asked what is covering it: stale iff a cut lies between
+where the governing window began and where this footage starts.
+
+**An override held across a cut and the centre crop walking through one are
+counted apart.** The first is worse than the default, because a stale window
+looks deliberate; the second is the default doing what it always did, and
+rolling them together would report a project nobody has framed as one somebody
+framed wrong.
+
+**It reconciles with the detector's own accounting, and the review's headline
+does not.** On the vertical cut at the shipped 0.20 floor: 245.745s of placed
+footage, which is § The thirty-nine windows' own 245.7s to the millisecond, and
+**15.557s stale**. `reframe_detect` independently reports 8 refusals of 59
+windows — the review's numbers — of which exactly 4 inherit a different shot's
+framing, and those four sum to 4.80 + 6.01 + 2.75 + 2.00 = **15.56s**. Three of
+them are `cold-open` and sum to 13.56s, which is that section's own 13.6s. So
+the per-clip detail in the review, the detector's refusal table and this op all
+agree; what does not is the review's summary figure of **24.4s / 10%**, which
+cannot be assembled from the four inheriting refusals it also reports. Its
+probe is gone and the discrepancy is unresolvable from here, but two of its
+three checkable numbers land exactly and the third is the odd one out. At 0.15
+this op reads 68.738s / 28.0% against the review's 32%, uncheckable the same
+way.
+
+The frame of tolerance is load-bearing here for the reason § The thirty-nine
+windows recorded from the other side, and a test pins it: ffmpeg reports a cut
+where the manifest holds a number 33µs away, and an exact match reports stale
+stretches that are not.

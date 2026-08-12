@@ -68,6 +68,7 @@ EXPECTED_TOOLS = {
     "reel",
     "reframe",
     "reframe_detect",
+    "reframe_coverage",
     "reframe_sheet",
     "synopsis",
     "broll_brief",
@@ -200,6 +201,7 @@ TOOL_TO_COMMAND = {
     "reel": "reel",
     "reframe": "reframe",
     "reframe_detect": "reframe-detect",
+    "reframe_coverage": "reframe-coverage",
     "reframe_sheet": "reframe-sheet",
     "synopsis": "synopsis",
     "broll_brief": "broll-brief",
@@ -1869,6 +1871,85 @@ def test_reframe_over_the_wire(tmp_path: Path) -> None:
 
 @needs_ffmpeg
 @needs_ffprobe
+def test_reframe_coverage_over_the_wire(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """The reading that says a window is covering footage it was never chosen
+    for — over stdio, because that is the client that would ask.
+
+    Real footage with a real cut in it: this is the one framing tool whose
+    answer is ffmpeg's rather than arithmetic, so a fixtured clip would be
+    testing lucid against itself. The window is stored at the head and the cut
+    is six seconds in, which is the film's `cold-open` shape in miniature —
+    there, one rect covered four camera setups and the manifest, `status` and
+    `reframe_sheet` were all clean over it.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video_with_cut(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            word_index=0,
+            asset=clip["clip_id"],
+        )
+        await client.call("canvas", path=str(project), size="1080x1920")
+        # Store the centre crop as an explicit window, which is what makes it
+        # someone's decision rather than the default — the distinction the two
+        # second-counts are built on.
+        centred = await client.call("reframe", path=str(project))
+        crop = next(
+            row["crop"] for row in centred["clips"] if row["clip_id"] == clip["clip_id"]
+        )
+        await client.call(
+            "reframe", path=str(project), clip_id=clip["clip_id"], rect=crop
+        )
+        return {
+            "covered": await client.call("reframe_coverage", path=str(project)),
+            "strict": await client.call(
+                "reframe_coverage", path=str(project), threshold=0.99
+            ),
+            "clip": clip,
+        }
+
+    out = anyio.run(_with_server, body)
+    covered = out["covered"]
+
+    assert covered["cuts"] == 1 and covered["cuts_unframed"] == 1
+    assert covered["stale_stretches"] == 1
+    (stretch,) = covered["stretches"]
+    assert stretch["asset"] == out["clip"]["clip_id"]
+    assert stretch["stale"] is True
+    assert stretch["src_start"] == pytest.approx(6.0, abs=0.2)
+    assert "a different shot's framing" in stretch["framed_by"]
+    assert covered["stale_seconds"] > 0
+    # Where it plays, not just where it reads — the fix is to go and look at it.
+    assert stretch["timeline_start"] == pytest.approx(6.0, abs=0.2)
+
+    # A floor high enough to find no cuts finds nothing stale either, and says
+    # which floor it used: the miss rate of the threshold *is* a framing number.
+    assert out["strict"]["cuts"] == 0
+    assert out["strict"]["stale_seconds"] == 0.0
+    assert out["strict"]["threshold"] == 0.99
+
+
+@needs_ffmpeg
+@needs_ffprobe
 def test_synopsis_and_broll_brief_over_the_wire(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
@@ -2281,6 +2362,31 @@ def _make_video(path: Path, *, duration: float = 12.0, fps: int = 30) -> None:
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "lavfi", "-i", f"testsrc=size=160x120:rate={fps}:duration={duration}",
             "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+
+
+def _make_video_with_cut(path: Path, *, each: float = 6.0, fps: int = 30) -> None:
+    """testsrc then smptebars: one unambiguous camera cut, at `each` seconds.
+
+    Bigger than `_make_video`'s 160x120 because a 9:16 window out of it has to
+    be a rect with room to be wrong in, and the scene scan wants real detail
+    either side of the boundary rather than eight pixels of it. Long enough,
+    too, that a single cue's shot fits inside it — `plan_picture` refuses a
+    shot longer than its asset, and one cue holds the whole timeline.
+    """
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"testsrc=size=320x240:rate={fps}:duration={each}",
+            "-f", "lavfi", "-i", f"smptebars=size=320x240:rate={fps}:duration={each}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={each * 2}",
+            "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+            "-map", "[v]", "-map", "2:a",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
             str(path),
         ],

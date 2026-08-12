@@ -1041,6 +1041,41 @@ def reframe_detect(
 
 
 @_tool()
+def reframe_coverage(
+    path: str,
+    clip_id: str | None = None,
+    threshold: float = ops.SCENE_THRESHOLD,
+) -> dict[str, Any]:
+    """Which placed seconds are framed by a window chosen for an earlier shot.
+
+    **The question `reframe_detect` cannot answer**, because that one is about
+    a proposal and this is about the project as it stands. A detect run names
+    `falls_back_to` for the windows it refuses that call and then throws it
+    away; nothing is written for a refusal, so a project on disk cannot say
+    that a stretch of it is held by a rect chosen for a shot that ended long
+    before. On the film that was 13.6s of one clip across four camera setups,
+    with the manifest, `status` and `reframe_sheet` all reporting clean.
+
+    Every placement is walked against its own source's scene cuts. A cut with
+    no window boundary within a frame of it opens a stale stretch, running to
+    the next boundary or the placement's end. Two mechanisms reach that state —
+    a refused proposal writes nothing, and a cut under `threshold` is never
+    offered a window at all — and they are deliberately not separated, because
+    the render cannot tell them apart either.
+
+    Read `stale_seconds`, not the stretch count: it is an **override** held
+    across a cut, which is worse than the default because a stale window looks
+    deliberate. `default_seconds` beside it is the centre crop walking through
+    a cut, which is only the default doing what it always did. Each stretch
+    carries `timeline_start`, where it plays in the film, since the fix is to
+    go and look — `reframe_sheet` for that, then `reframe_detect` on the clip.
+
+    Needs no face detector, reads and never writes.
+    """
+    return ops.reframe_coverage(path, clip_id=clip_id, threshold=threshold)
+
+
+@_tool()
 def reframe_sheet(
     path: str,
     out: str | None = None,
