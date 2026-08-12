@@ -280,6 +280,53 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
     p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
 
+    p_unspoken = sub.add_parser(
+        "unspoken",
+        help="manage the words the transcript holds and the recording never said",
+    )
+    unspoken_sub = p_unspoken.add_subparsers(dest="unspoken_command", required=True)
+
+    p_unspoken_add = unspoken_sub.add_parser(
+        "add", help="mark a word as never spoken: captions and verify stop expecting it"
+    )
+    p_unspoken_add.add_argument("clip_id")
+    p_unspoken_add.add_argument("word_index", type=int)
+
+    p_unspoken_rm = unspoken_sub.add_parser("rm", help="unmark a word")
+    p_unspoken_rm.add_argument("clip_id")
+    p_unspoken_rm.add_argument("word_index", type=int)
+
+    unspoken_sub.add_parser("ls", help="list every marked word, and which marks have gone stale")
+
+    p_unspoken_detect = unspoken_sub.add_parser(
+        "detect",
+        help="propose the words a render's own transcription says were never spoken",
+    )
+    p_unspoken_detect.add_argument("render", help="a finished render of this timeline")
+    p_unspoken_detect.add_argument("--clip-id", help="only this clip (default: every transcript)")
+    p_unspoken_detect.add_argument(
+        "--transcript",
+        dest="transcript_path",
+        help="an existing transcription of the render — `verify` leaves one in "
+        "cache/verify/. Passed explicitly rather than found, so a re-render under "
+        "the same name is never judged against the previous render's audio",
+    )
+    p_unspoken_detect.add_argument("--model", help="whisper model (default: the verify default)")
+    p_unspoken_detect.add_argument("--language")
+    p_unspoken_detect.add_argument(
+        "--pad",
+        type=float,
+        default=ops.UNSPOKEN_PAD,
+        help="seconds either side of a candidate to read the render's own words "
+        f"(default: {ops.UNSPOKEN_PAD})",
+    )
+    p_unspoken_detect.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the proposals as marks. Off by default: this changes what a "
+        "caption says, and a wrong mark deletes a real word from every check",
+    )
+
     p_synopsis = sub.add_parser(
         "synopsis", help="read, set or clear what a clip is — the corpus a b-roll picker needs"
     )
@@ -1047,6 +1094,27 @@ def _cmd_cue(args: argparse.Namespace) -> int:
     return _emit(ops.cue_ls(args.project, clip_id=args.clip_id))
 
 
+def _cmd_unspoken(args: argparse.Namespace) -> int:
+    if args.unspoken_command == "add":
+        return _emit(ops.unspoken_add(args.project, args.clip_id, args.word_index))
+    if args.unspoken_command == "rm":
+        return _emit(ops.unspoken_rm(args.project, args.clip_id, args.word_index))
+    if args.unspoken_command == "detect":
+        return _emit(
+            ops.unspoken_detect(
+                args.project,
+                args.render,
+                clip_id=args.clip_id,
+                transcript_path=args.transcript_path,
+                model=args.model,
+                language=args.language,
+                pad=args.pad,
+                apply=args.apply,
+            )
+        )
+    return _emit(ops.unspoken_ls(args.project))
+
+
 def _cmd_shots(args: argparse.Namespace) -> int:
     return _emit(ops.build_shots(args.project, fps=args.fps))
 
@@ -1391,6 +1459,7 @@ _COMMANDS = {
     "describe-ls": _cmd_describe_ls,
     "card": _cmd_card,
     "cue": _cmd_cue,
+    "unspoken": _cmd_unspoken,
     "shots": _cmd_shots,
     "seed": _cmd_seed,
     "cut": _cmd_cut,

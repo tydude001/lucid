@@ -439,6 +439,89 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 
 @_tool()
+def unspoken_add(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Mark a word the transcript holds and the recording never said.
+
+    Whisper transcribes straight *across* a retake splice and emits words from
+    both takes interleaved, so words appear in the index that nobody said.
+    They are in the transcript and nowhere else — not the audio, not the
+    render — so captions draw them and `verify` expects them.
+
+    This writes a mark beside the transcript and never touches the transcript
+    itself: word indices must not renumber, or every cue pointing at one would
+    move. Captions, `caption_view` and `verify` all stop expecting the word;
+    no audio, timing or shot changes, because the seconds around it are the
+    take that was kept. Echoes the word it resolved to, plus three either side.
+
+    Prefer `unspoken_detect` to find them: it is evidence rather than reading,
+    and reading for sense provably misses the grammatical ones.
+    """
+    return ops.unspoken_add(path, clip_id, word_index)
+
+
+@_tool()
+def unspoken_rm(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Unmark a word, putting it back into captions and into `verify`."""
+    return ops.unspoken_rm(path, clip_id, word_index)
+
+
+@_tool()
+def unspoken_ls(path: str) -> dict[str, Any]:
+    """Every word marked never-spoken, with what the transcript says now.
+
+    Read-only. `stale` is a mark whose recorded text and current text
+    disagree — the transcript was re-attached under it. A stale mark is never
+    applied, so re-transcribing surfaces as a list to re-check rather than as
+    words disappearing from a caption file.
+    """
+    return ops.unspoken_ls(path)
+
+
+@_tool()
+def unspoken_detect(
+    path: str,
+    render: str,
+    clip_id: str | None = None,
+    transcript_path: str | None = None,
+    model: str | None = None,
+    language: str | None = None,
+    pad: float = ops.UNSPOKEN_PAD,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Propose the words a render's own transcription says were never spoken.
+
+    Candidates come from two mechanisms and one witness decides both. A
+    **seam** is where whisper read across a splice and invented a word; a
+    **fragment** is where a cut left a sliver of a real one, which draws as a
+    whole word on screen and is inaudible. The witness is the render: the
+    candidate's word is counted in the timeline over a short window and in the
+    render's own transcription over the same seconds, and it is proposed only
+    where the timeline has more of them than the render heard. Counted rather
+    than looked up because the inventions are function words — asking whether
+    the render says "the" near here answers yes off the real one beside it.
+
+    `apply=False` by default, like `reframe_detect`: this changes what a
+    caption says, and a wrong mark deletes a real word from every check lucid
+    has. Read the echoes first.
+
+    `transcript_path` takes an existing transcription of the render, which is
+    what `verify` leaves in `cache/verify/`. Pass it explicitly — it is never
+    found automatically, because a re-render under the same filename would
+    otherwise be judged against the previous render's audio.
+    """
+    return ops.unspoken_detect(
+        path,
+        render,
+        clip_id=clip_id,
+        transcript_path=transcript_path,
+        model=model,
+        language=language,
+        pad=pad,
+        apply=apply,
+    )
+
+
+@_tool()
 def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 

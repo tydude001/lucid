@@ -52,6 +52,10 @@ EXPECTED_TOOLS = {
     "cue_add",
     "cue_rm",
     "cue_ls",
+    "unspoken_add",
+    "unspoken_rm",
+    "unspoken_ls",
+    "unspoken_detect",
     "build_shots",
     "seed_timeline",
     "cut_by_transcript",
@@ -185,6 +189,10 @@ TOOL_TO_COMMAND = {
     "cue_add": "cue",
     "cue_rm": "cue",
     "cue_ls": "cue",
+    "unspoken_add": "unspoken",
+    "unspoken_rm": "unspoken",
+    "unspoken_ls": "unspoken",
+    "unspoken_detect": "unspoken",
     "build_shots": "shots",
     "seed_timeline": "seed",
     "cut_by_transcript": "cut",
@@ -5206,3 +5214,309 @@ def test_every_tool_taking_a_path_goes_through_the_binding() -> None:
             "a tool with a `path` argument must be registered with `@_tool()`, "
             "not `@mcp.tool()`, or it escapes the -C binding"
         )
+
+
+def _seam_sources(root: Path) -> tuple[Path, Path]:
+    """A recording whose transcript holds one word nobody said.
+
+    `w11x` starts before `w11` ends, which is the only tell a retake splice
+    leaves: whisper reads across it and interleaves both takes, and the
+    invention is grammatical as often as not (HISTORY.md § The hand-framed
+    teaser, watched). Everything else here is an ordinary two-words-per-burst
+    recording.
+    """
+    audio = root / "seam.wav"
+    _make_wav(audio, tones=[(0.0, 2.0), (3.0, 5.0), (6.0, 8.0), (9.0, 11.0)])
+    words = [
+        {"word": "w00", "start": 0.0, "end": 0.9},
+        {"word": "w01", "start": 1.0, "end": 1.9},
+        {"word": "w10", "start": 3.0, "end": 3.9},
+        {"word": "w11", "start": 4.0, "end": 4.9},
+        {"word": "w11x", "start": 4.8, "end": 4.95},
+        {"word": "w20", "start": 6.0, "end": 6.9},
+        {"word": "w21", "start": 7.0, "end": 7.9},
+        {"word": "w30", "start": 9.0, "end": 9.9},
+        {"word": "w31", "start": 10.0, "end": 10.9},
+    ]
+    transcript = root / "seam.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+def _heard_at(path: Path, words: list[tuple[str, float]]) -> Path:
+    """A render's transcript with times that mean something.
+
+    `_heard` puts words on an arbitrary one-per-second grid, which is right
+    for `verify` — it compares order. `unspoken_detect` reads the *seconds*,
+    because a word is judged against what the render says at the moment it
+    plays, so these have to be the timeline's own.
+    """
+    payload = {
+        "language": "en",
+        "words": [{"word": w, "start": at, "end": at + 0.9} for w, at in words],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+@needs_ffprobe
+def test_unspoken_mark_drops_a_word_from_captions_and_from_verify(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The whole point: one mark, and the three transcript readers agree.
+
+    Captions, `caption_view` and `verify` share one derivation, so a word
+    marked never-spoken leaves all three at once — and `verify` says so in the
+    same breath, because a render checked against a shortened expectation has
+    to report that it was shortened.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    # The render says the seven words a listener would hear: no `w11`.
+    heard = _heard(
+        tmp_path / "render.json", ["w00", "w01", "w10", "w20", "w21", "w30", "w31"]
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        before = await client.call("caption_view", path=str(project))
+        dirty = await client.call(
+            "verify", path=str(project), render=str(audio), transcript_path=str(heard)
+        )
+        marked = await client.call(
+            "unspoken_add", path=str(project), clip_id=clip["clip_id"], word_index=3
+        )
+        after = await client.call("caption_view", path=str(project))
+        clean = await client.call(
+            "verify", path=str(project), render=str(audio), transcript_path=str(heard)
+        )
+        listed = await client.call("unspoken_ls", path=str(project))
+        await client.call(
+            "unspoken_rm", path=str(project), clip_id=clip["clip_id"], word_index=3
+        )
+        restored = await client.call("caption_view", path=str(project))
+        return {
+            "before": before,
+            "dirty": dirty,
+            "marked": marked,
+            "after": after,
+            "clean": clean,
+            "listed": listed,
+            "restored": restored,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    # The mark echoes what it resolved to, plus neighbours — every
+    # word-indexed tool here does (CLAUDE.md).
+    assert out["marked"]["text"] == "w11"
+    assert [w["text"] for w in out["marked"]["context_before"]] == ["w00", "w01", "w10"]
+
+    assert out["before"]["words"] == 8
+    assert out["after"]["words"] == 7
+    assert out["after"]["unspoken"] == 1
+    drawn = " ".join(cue["text"] for cue in out["after"]["cues"])
+    assert "w11" not in drawn.split()
+
+    # The render was always right; it was the transcript that was wrong.
+    assert out["dirty"]["similarity"] < 1.0
+    assert out["clean"]["similarity"] == 1.0
+    assert out["clean"]["diff"] == []
+    # ...and it never hides that the expectation was shortened by hand.
+    assert out["clean"]["unspoken"] == 1
+
+    assert out["listed"]["count"] == 1
+    assert out["listed"]["unspoken"][0]["text"] == "w11"
+    assert out["listed"]["unspoken"][0]["stale"] is False
+    assert out["restored"]["words"] == 8
+
+
+@needs_ffprobe
+def test_unspoken_detect_proposes_a_seam_word_and_writes_nothing(tmp_path: Path) -> None:
+    """Proposes, like `reframe_detect`, and for a sharper reason.
+
+    A wrong mark deletes a real word from every check lucid has, so `apply` is
+    off by default and the echoes are what gets read first.
+    """
+    audio, transcript = _seam_sources(tmp_path)
+    project = tmp_path / "proj"
+    heard = _heard_at(
+        tmp_path / "render.json",
+        [("w00", 0.0), ("w01", 1.0), ("w10", 3.0), ("w11", 4.0), ("w20", 6.0),
+         ("w21", 7.0), ("w30", 9.0), ("w31", 10.0)],
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        proposed = await client.call(
+            "unspoken_detect",
+            path=str(project),
+            render=str(audio),
+            transcript_path=str(heard),
+        )
+        after = await client.call("unspoken_ls", path=str(project))
+        applied = await client.call(
+            "unspoken_detect",
+            path=str(project),
+            render=str(audio),
+            transcript_path=str(heard),
+            apply=True,
+        )
+        marked = await client.call("unspoken_ls", path=str(project))
+        again = await client.call(
+            "unspoken_detect",
+            path=str(project),
+            render=str(audio),
+            transcript_path=str(heard),
+        )
+        return {
+            "proposed": proposed,
+            "after": after,
+            "applied": applied,
+            "marked": marked,
+            "again": again,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["proposed"]["count"] == 1
+    only = out["proposed"]["proposals"][0]
+    assert only["text"] == "w11x"
+    assert only["found_by"] == "seam"
+    assert only["seam"] is not None
+    # The count is what decides, never a lookup: the render says it 0 times
+    # where the timeline says it once.
+    assert "the render says it 0x" in only["why"]
+    # A proposal is not a write.
+    assert out["proposed"]["applied"] == 0
+    assert out["after"]["count"] == 0
+
+    assert out["applied"]["applied"] == 1
+    assert out["marked"]["count"] == 1
+    assert out["marked"]["unspoken"][0]["text"] == "w11x"
+    # Already marked is not proposed again — the second run has nothing to say.
+    assert out["again"]["count"] == 0
+    assert out["again"]["already_marked"] == 1
+
+
+@needs_ffprobe
+def test_unspoken_detect_leaves_alone_a_seam_word_the_render_does_say(
+    tmp_path: Path,
+) -> None:
+    """The seam is the candidate, never the verdict.
+
+    People do speak across a splice, and a scan that marked every seam word
+    would delete real ones. The render is the witness, and here it says the
+    word — so nothing is proposed.
+    """
+    audio, transcript = _seam_sources(tmp_path)
+    project = tmp_path / "proj"
+    heard = _heard_at(
+        tmp_path / "render.json",
+        [("w00", 0.0), ("w01", 1.0), ("w10", 3.0), ("w11", 4.0), ("w11x", 4.8),
+         ("w20", 6.0), ("w21", 7.0), ("w30", 9.0), ("w31", 10.0)],
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call(
+            "unspoken_detect",
+            path=str(project),
+            render=str(audio),
+            transcript_path=str(heard),
+        )
+
+    out = anyio.run(_with_server, body)
+
+    assert out["seams"] == 1
+    assert out["count"] == 0
+
+
+@needs_ffprobe
+def test_a_stale_mark_is_reported_and_never_applied(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Re-transcribing must not make words disappear.
+
+    A mark is an index, and an index only means something against the
+    transcript it was taken from. When the recorded text and the text at that
+    index disagree the word stays on screen and the mark is reported, because
+    the two failures are not symmetric: a word wrongly drawn is visible to
+    anyone watching, and a real word silently dropped is invisible to every
+    check lucid has.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+    replacement = tmp_path / "redone.json"
+    words = json.loads(transcript.read_text(encoding="utf-8"))["words"]
+    words[3] = {**words[3], "word": "different"}
+    replacement.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "unspoken_add", path=str(project), clip_id=clip["clip_id"], word_index=3
+        )
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(replacement),
+        )
+        return {
+            "view": await client.call("caption_view", path=str(project)),
+            "listed": await client.call("unspoken_ls", path=str(project)),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    # The word is still drawn — the mark was not applied.
+    assert out["view"]["words"] == 8
+    assert out["view"]["unspoken"] == 0
+    assert out["view"]["unspoken_stale"][0]["recorded"] == "w11"
+    assert out["view"]["unspoken_stale"][0]["found"] == "different"
+    assert out["listed"]["stale"] == 1

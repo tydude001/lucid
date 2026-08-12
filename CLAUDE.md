@@ -181,6 +181,13 @@ installed package or the upstream repo, not your memory.
   nothing. So a derivation prunes and **names** what it pruned (`cues_dropped`),
   each entry being a picture the result will not have. HISTORY.md § `lucid
   reel`.
+  - **Read that list for the cue nearest the head before reading anything
+    else in it.** One pruned from the far end trims the result; one pruned
+    just outside the *kept* span leaves the reel opening on no picture at
+    all — 11 seconds of it on the teaser, reported as one line among 35. Move
+    the edge to keep it, and **pin every survivor**, because the derivation
+    empties `plan_picture`'s cursor and three of the teaser's four were only
+    right by luck. HISTORY.md § The teaser, re-cut.
   - Its sibling: **`cut_by_time` flags every suspect-duration word a removed
     span overlaps, not the ones at the boundary.** Right for an ordinary cut,
     noise for a wholesale one — 15 flags on a reel, none near either edge — so
@@ -219,6 +226,28 @@ installed package or the upstream repo, not your memory.
       again. **Seams, never pairs, and deliberately unthresholded** — a floor is
       the obvious improvement and it is wrong twice over. HISTORY.md § The
       overlap scan.
+    - **What removes one is `unspoken`, and the render is the witness — never
+      the seam and never a reading.** A mark is `(clip_id, word_index, text)`,
+      word-indexed like a cue so no cut invalidates it, and it **never touches
+      the transcript file**: renumbering would move every cue. One derivation
+      (`_spoken_transcripts`) feeds captions, `caption_view` **and `verify`**,
+      which reports the count beside its diff — a check whose expectation was
+      shortened by hand has to say so, or a mark becomes a way to make a real
+      miss disappear. HISTORY.md § The teaser, re-cut.
+      - **Two mechanisms produce a word the render does not say, and the seam
+        scan sees one.** The other is a *fragment*: a cut that left a sliver of
+        a real word, drawn whole and inaudible — 0.107s of a 0.500s `The` from
+        an abandoned take. `unspoken_detect` takes candidates from both and
+        lets the render decide, so the kept-share floor **asks and never
+        decides** (947 of 958 words survive whole; 0.48 of a word is a word).
+        It is **counted, never looked up** — the inventions are function words,
+        and "does the render say `the` near here" answers yes off the real one
+        beside it.
+      - `apply` is off by default, like `reframe_detect`, and a **stale mark is
+        kept rather than applied**: recorded text ≠ current text means the
+        transcript was replaced under it, and a word wrongly drawn is visible
+        to anyone watching while a real word silently dropped is invisible to
+        every check lucid has.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the
@@ -459,6 +488,17 @@ installed package or the upstream repo, not your memory.
         those — 6.0 of `cold-open`'s 13.6 stale seconds. Read `stale_seconds`
         (an override held across a cut), never `default_seconds` beside it (the
         centre crop, a different thing). HISTORY.md § `reframe_coverage`.
+        - **It asks which cuts have no window; nothing asks which windows have
+          no cut, and that is the one a viewer notices.** A boundary inside a
+          continuous take steps the frame sideways with no cut under it, which
+          reads as an edit that is not there — `s1996-billy-stu` @0.5012, scene
+          score **0.000**, 510px, and it was the first thing Tyler said about
+          the teaser. Coverage answered `default_seconds: 0` correctly and
+          uselessly: nothing was held *across* a cut, because the footage
+          before the boundary was never framed at all. **Every clip should be
+          framed from the first frame anyone sees** — check a clip's head
+          against its first stored window before blaming the placement.
+          HISTORY.md § The teaser, re-cut.
     - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
       cut with no window is one the framing walks through, so the floor's miss
       rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are

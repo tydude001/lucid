@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from itertools import pairwise
 from math import gcd
 from pathlib import Path
@@ -5351,6 +5352,92 @@ def _stored_caption_style(project: Project) -> dict[str, Any]:
     return stored
 
 
+#: Words the transcript holds that the recording never said — whisper reading
+#: across a retake splice and emitting both takes interleaved (HISTORY.md § The
+#: hand-framed teaser, watched). Additive and optional the way `CANVAS_KEY` and
+#: `CAPTION_STYLE_KEY` are: absent means what every older manifest meant, that
+#: every transcribed word was spoken, so it takes no `SCHEMA_VERSION` bump.
+#:
+#: **Word-indexed, for the reason cues are** — the transcript indexes the
+#: source, so no cut can invalidate a mark, and `Word.index` survives the
+#: filtering below because a transcript never renumbers.
+UNSPOKEN_KEY = "unspoken"
+
+
+def _stored_unspoken(project: Project) -> dict[str, dict[int, str]]:
+    """Per clip, the word indices marked never-spoken and the text each was.
+
+    The text is on the record so the mark can be *checked* rather than
+    trusted: an index is only meaningful against the transcript it was taken
+    from, and re-transcribing a clip renumbers nothing but does change what
+    sits at each index. `_spoken_transcripts` compares before it drops.
+    """
+    stored = project.read_manifest().get(UNSPOKEN_KEY, [])
+    if not isinstance(stored, list):
+        raise tx.TranscriptError(
+            f"{project.manifest_path}'s {UNSPOKEN_KEY!r} must be a JSON array"
+        )
+    marked: dict[str, dict[int, str]] = {}
+    for record in stored:
+        marked.setdefault(str(record["clip_id"]), {})[int(record["word_index"])] = str(
+            record.get("text", "")
+        )
+    return marked
+
+
+def _spoken_transcripts(
+    project: Project, transcripts: dict[str, tx.Transcript]
+) -> tuple[dict[str, tx.Transcript], dict[str, Any]]:
+    """The transcripts with the never-spoken words taken out.
+
+    The one derivation, shared by `_caption_cues` and `verify` for the reason
+    `_caption_cues` is itself shared: what the window draws, what the subtitle
+    file contains and what the render is checked against cannot be three
+    different word sequences. A word removed here is removed from all three,
+    and `verify` reports the count so a render is never silently checked
+    against a shortened expectation.
+
+    **A stale mark is kept, never applied.** If the text on the record and the
+    text at that index disagree, the transcript has been replaced under the
+    mark, and the two failures are not symmetric: a word wrongly left on
+    screen is visible to anyone watching, while a real word silently dropped
+    is invisible in every check lucid has. So a mismatch is reported as
+    `unspoken_stale` and the word stays.
+    """
+    marked = _stored_unspoken(project)
+    if not marked:
+        return transcripts, {"unspoken": 0, "unspoken_stale": []}
+
+    spoken: dict[str, tx.Transcript] = {}
+    dropped = 0
+    stale: list[dict[str, Any]] = []
+    for clip_id, transcript in transcripts.items():
+        indices = marked.get(clip_id)
+        if not indices:
+            spoken[clip_id] = transcript
+            continue
+        keep: list[tx.Word] = []
+        for word in transcript.words:
+            recorded = indices.get(word.index)
+            if recorded is None:
+                keep.append(word)
+                continue
+            if recorded and recorded != word.text:
+                stale.append(
+                    {
+                        "clip_id": clip_id,
+                        "word_index": word.index,
+                        "recorded": recorded,
+                        "found": word.text,
+                    }
+                )
+                keep.append(word)
+                continue
+            dropped += 1
+        spoken[clip_id] = replace(transcript, words=tuple(keep))
+    return spoken, {"unspoken": dropped, "unspoken_stale": stale}
+
+
 def caption_style(
     path: Path | str,
     *,
@@ -5463,6 +5550,7 @@ def _caption_cues(
     reason the font does: line breaks are part of the look.
     """
     transcripts = _transcripts_for(project, clip_id)
+    transcripts, unspoken = _spoken_transcripts(project, transcripts)
     placed, cut = captions.place(edit, transcripts)
     cues = captions.group(
         placed,
@@ -5471,7 +5559,351 @@ def _caption_cues(
         max_duration=style.max_duration,
         hold=style.hold,
     )
-    return cues, placed, cut, {"clips": sorted(transcripts)}
+    return cues, placed, cut, {"clips": sorted(transcripts), **unspoken}
+
+
+def unspoken_add(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Mark a word the transcript holds and the recording never said.
+
+    The subject is one failure and not a general edit: whisper transcribes
+    straight *across* a retake splice and emits words from both takes
+    interleaved, so a word appears in the index that was never spoken
+    (HISTORY.md § The hand-framed teaser, watched). It is in the transcript
+    and in nothing else — not the audio, not the render — so every consumer of
+    the transcript carries it and nothing downstream can tell it from a word
+    somebody said quietly.
+
+    This does not touch the transcript file, and it must not: the transcript
+    is an immutable index over source media, word indices never renumber, and
+    a cue at word 366 has to keep meaning word 366. What it writes is a mark
+    beside the transcript, addressed the same way a cue is, so a cut can no
+    more invalidate it than it can invalidate a cue.
+
+    **It removes a word from captions, from `caption_view` and from what
+    `verify` expects — the three that read the transcript rather than the
+    audio.** It changes no audio, no timing and no shot: a marked word's
+    seconds still belong to the words either side of it, because the sound in
+    them is the take that was kept.
+
+    Echoes the word it resolved to plus the three either side, for the reason
+    every word-indexed tool here does: an index one past the intended word
+    reads correctly on its own.
+    """
+    project = Project.open(path)
+    media.get_clip(project, clip_id)
+    parsed = _transcript(project, clip_id)
+    word_index = int(word_index)
+    echo = _cue_echo(parsed, word_index)
+
+    manifest = project.read_manifest()
+    marks = manifest.setdefault(UNSPOKEN_KEY, [])
+    if any(m["clip_id"] == clip_id and int(m["word_index"]) == word_index for m in marks):
+        raise tx.TranscriptError(
+            f"word {word_index} of {clip_id!r} is already marked unspoken — "
+            "remove it with unspoken_rm first (CLI: `lucid unspoken rm`)"
+        )
+    marks.append(
+        {"clip_id": clip_id, "word_index": word_index, "text": parsed.words[word_index].text}
+    )
+    marks.sort(key=lambda m: (m["clip_id"], int(m["word_index"])))
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "marked": len(marks), **echo}
+
+
+def unspoken_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
+    """Unmark a word, putting it back into captions and into `verify`."""
+    project = Project.open(path)
+    word_index = int(word_index)
+    manifest = project.read_manifest()
+    marks = manifest.get(UNSPOKEN_KEY, [])
+    kept = [
+        m
+        for m in marks
+        if not (m["clip_id"] == clip_id and int(m["word_index"]) == word_index)
+    ]
+    if len(kept) == len(marks):
+        raise tx.TranscriptError(
+            f"word {word_index} of {clip_id!r} is not marked unspoken"
+        )
+    if kept:
+        manifest[UNSPOKEN_KEY] = kept
+    else:
+        manifest.pop(UNSPOKEN_KEY, None)
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "word_index": word_index, "marked": len(kept)}
+
+
+def unspoken_ls(path: Path | str) -> dict[str, Any]:
+    """Every word marked never-spoken, with what the transcript says now.
+
+    `stale` is the mark whose recorded text and current text disagree — the
+    transcript was replaced under it — and those are reported here rather than
+    applied anywhere, so a re-transcribe surfaces as a list to re-check rather
+    than as words vanishing from a caption file.
+    """
+    project = Project.open(path)
+    marked = _stored_unspoken(project)
+    rows: list[dict[str, Any]] = []
+    for clip_id in sorted(marked):
+        try:
+            parsed = _transcript(project, clip_id)
+        except tx.TranscriptError:
+            parsed = None
+        for index in sorted(marked[clip_id]):
+            recorded = marked[clip_id][index]
+            found = (
+                parsed.words[index].text
+                if parsed is not None and 0 <= index < len(parsed.words)
+                else None
+            )
+            row: dict[str, Any] = {
+                "clip_id": clip_id,
+                "word_index": index,
+                "text": recorded,
+                "found": found,
+                "stale": bool(recorded and found is not None and recorded != found),
+            }
+            if parsed is not None and 0 <= index < len(parsed.words):
+                row.update(_context(parsed, index, index))
+            rows.append(row)
+    return {
+        "project": str(project.root),
+        "count": len(rows),
+        "stale": sum(1 for row in rows if row["stale"]),
+        "unspoken": rows,
+    }
+
+
+#: How far either side of a candidate word to read the render's own words when
+#: asking whether it was said. Wide enough to survive whisper placing a word a
+#: few hundred milliseconds off, narrow enough that a common token borrowed
+#: from the next sentence cannot vouch for one in this one.
+UNSPOKEN_PAD = 1.5
+
+#: A word this much of whose own duration survived the edit is *asked about*,
+#: never removed — the removing is the render's answer, below. Set where it
+#: asks about little and misses nothing: over the whole Scream film, 947 of
+#: 958 surviving words survive **whole**, and the 11 under this floor hold
+#: every clipped fragment in the cut, the shortest being 33ms of a `The`.
+#: A floor that decided anything here would be wrong for the reason the
+#: overlap scan has none (HISTORY.md § The overlap scan) — partial survival is
+#: normal, and 0.48 of a word is a word.
+UNSPOKEN_KEPT_SHARE = 0.5
+
+
+def unspoken_detect(
+    path: Path | str,
+    render: Path | str,
+    *,
+    clip_id: str | None = None,
+    transcript_path: Path | str | None = None,
+    model: str | None = None,
+    language: str | None = None,
+    pad: float = UNSPOKEN_PAD,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Propose the words the render's own ears say were never spoken.
+
+    Two independent signals, and the intersection is the proposal — neither
+    alone is safe. `transcript.find_overlaps` says *where a seam is*: a word
+    starting before the one ahead of it ends is whisper reading across a
+    splice, which is the only mechanism known to invent a word here. The
+    render's transcription says *what was actually said*, and it is the only
+    witness that answers to the audio rather than to the index. A seam word
+    the render does not say is an invention; a seam word it does say is a word
+    somebody said at a splice, and there are plenty.
+
+    **Counted rather than looked up, because the inventions are function
+    words.** Whisper's seams produce "The That's the ceiling" and "what was
+    the this all about" as readily as "Billions" — asking "does the render say
+    'the' near here" answers yes off the *real* `the` standing next to the
+    invented one. So the candidate's token is counted in the timeline's words
+    over the window and in the render's words over the same seconds, and it is
+    proposed only where the timeline has more of them than the render heard.
+
+    The two clocks agree by construction: a verified render is a render *of
+    this timeline*, so a word's timeline seconds and the heard word's seconds
+    are the same seconds. That is what makes a local window possible at all,
+    and it is why this reads the render rather than diffing two whole word
+    sequences — a global diff cannot say which of six `the`s it lost.
+
+    `apply=False` is the default, the same way round as `reframe_detect` and
+    for the same reason: this proposes a change to what a caption *says*, the
+    evidence is a whisper run, and a wrongly applied mark deletes a real word
+    from every check lucid has. Read the echoes, then apply.
+
+    `transcript_path` takes an existing transcription of the render — the
+    cached one `verify` leaves behind is the obvious candidate, and it is
+    passed explicitly rather than found, for `verify`'s own reason: a
+    re-render under the same filename would otherwise be judged against the
+    previous render's audio.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    transcripts = _transcripts_for(project, clip_id)
+    already = _stored_unspoken(project)
+
+    render_path = Path(render).expanduser()
+    if transcript_path is not None:
+        heard_transcript = tx.load(transcript_path, clip_id="render")
+        origin = str(transcript_path)
+    else:
+        model = model or asr.DEFAULT_MODEL
+        payload = asr.transcribe(
+            render_path, model=model, language=language or _shared_language(transcripts)
+        )
+        if not payload.get("words") and not payload.get("segments"):
+            raise vfy.VerifyError(
+                f"whisper heard no speech at all in {render_path.name} — there is "
+                "nothing here to judge a transcript against"
+            )
+        heard_transcript = tx.parse_whisper(
+            payload, clip_id="render", origin=f"whisper:{model}"
+        )
+        cached = project.verify_dir / f"{render_path.stem}.json"
+        tx.save(heard_transcript, cached)
+        origin = str(cached)
+
+    heard = [
+        (word.start, word.end, token)
+        for word in heard_transcript.words
+        for token in vfy.tokens([word.text])
+    ]
+
+    proposals: list[dict[str, Any]] = []
+    seams_seen = 0
+    fragments_seen = 0
+    for name, transcript in sorted(transcripts.items()):
+        marked = already.get(name, {})
+        # Every word placed on the timeline, with the source index kept: the
+        # question is asked of what plays, and answered against what was heard.
+        placed: list[tuple[int, float, float, str]] = []
+        for word in transcript.words:
+            span = edit.timeline_span(
+                name, word.start, max(word.end, word.start + captions.MIN_WORD)
+            )
+            if span is not None:
+                placed.append((word.index, span[0], span[1], word.text))
+        at_index = {index: (start, end) for index, start, end, _ in placed}
+
+        # Two candidate sources, one confirmation. A seam is where whisper
+        # *invented* a word; a fragment is where a cut left a sliver of a real
+        # one — 33ms of a `The` from an abandoned take reads on screen as a
+        # whole word and is inaudible. Different mechanisms, same symptom, and
+        # widening the candidates costs nothing because it is the render that
+        # decides. `seam` is None for the second kind: there is no splice to
+        # quote, and claiming one would put a false reason on the record.
+        candidates: dict[int, dict[str, Any] | None] = {}
+        for seam in tx.find_overlaps(transcript.words):
+            seams_seen += 1
+            for index in range(seam["first_word"], seam["last_word"] + 1):
+                candidates.setdefault(index, seam)
+        for index, start, end, _ in placed:
+            word = transcript.words[index]
+            spoken_for = word.end - word.start
+            if spoken_for <= 0:
+                continue
+            if (end - start) / spoken_for < UNSPOKEN_KEPT_SHARE:
+                fragments_seen += 1
+                candidates.setdefault(index, None)
+
+        for index in sorted(candidates):
+            if index in marked or index not in at_index:
+                continue
+            seam = candidates[index]
+            word = transcript.words[index]
+            token = vfy.tokens([word.text])
+            if not token:
+                # Normalises to nothing — "-" and its friends. The render can
+                # never be asked about it, so the candidacy is the only
+                # evidence there is, and it is enough: a token with no letters
+                # in it was never a word anyone said.
+                proposals.append(
+                    _unspoken_proposal(transcript, seam, index, heard_says=None)
+                )
+                continue
+            start, end = at_index[index]
+            window = (start - pad, end + pad)
+            mine = sum(
+                1
+                for _, other_start, other_end, text in placed
+                if window[0] <= other_start and other_end <= window[1]
+                for other in vfy.tokens([text])
+                if other == token[0]
+            )
+            theirs = sum(
+                1
+                for heard_start, heard_end, other in heard
+                if other == token[0]
+                and heard_end >= window[0]
+                and heard_start <= window[1]
+            )
+            if mine > theirs:
+                proposals.append(
+                    _unspoken_proposal(transcript, seam, index, heard_says=(mine, theirs))
+                )
+
+    applied = 0
+    if apply:
+        manifest = project.read_manifest()
+        marks = manifest.setdefault(UNSPOKEN_KEY, [])
+        for proposal in proposals:
+            marks.append(
+                {
+                    "clip_id": proposal["clip_id"],
+                    "word_index": proposal["word_index"],
+                    "text": proposal["text"],
+                }
+            )
+            applied += 1
+        marks.sort(key=lambda m: (m["clip_id"], int(m["word_index"])))
+        project.write_manifest(manifest)
+
+    return {
+        "project": str(project.root),
+        "render": str(render_path),
+        "heard_transcript": origin,
+        "pad": pad,
+        "seams": seams_seen,
+        "fragments": fragments_seen,
+        "already_marked": sum(len(v) for v in already.values()),
+        "count": len(proposals),
+        "applied": applied,
+        "apply": apply,
+        "proposals": proposals,
+    }
+
+
+def _unspoken_proposal(
+    transcript: tx.Transcript,
+    seam: dict[str, Any] | None,
+    index: int,
+    *,
+    heard_says: tuple[int, int] | None,
+) -> dict[str, Any]:
+    """One proposal, echoed the way every word-indexed tool here echoes."""
+    word = transcript.words[index]
+    why = (
+        "no token — a candidate with no letters in it"
+        if heard_says is None
+        else f"the timeline says it {heard_says[0]}x here, the render says it {heard_says[1]}x"
+    )
+    return {
+        "clip_id": transcript.clip_id,
+        "word_index": index,
+        "text": word.text,
+        "start": word.start,
+        "end": word.end,
+        # Which mechanism put it up for the question, in its own words: a
+        # splice whisper read across, or a cut that left a sliver. Naming the
+        # wrong one is worse than naming none, so the second says `null`.
+        "found_by": "seam" if seam is not None else "fragment",
+        "seam": seam["text"] if seam is not None else None,
+        "seam_words": [seam["first_word"], seam["last_word"]] if seam is not None else None,
+        "overlap": seam["worst"] if seam is not None else None,
+        "why": why,
+        **_context(transcript, index, index),
+    }
 
 
 def caption_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
@@ -6050,6 +6482,7 @@ def verify(
     project = Project.open(path)
     edit = _load_edit(project)
     transcripts = _transcripts_for(project, clip_id)
+    transcripts, unspoken = _spoken_transcripts(project, transcripts)
 
     placed, cut = captions.place(edit, transcripts)
     if not placed:
@@ -6133,6 +6566,11 @@ def verify(
             "expected_words": len(expected),
             "heard_words": len(heard),
             "words_cut_from_transcript": cut,
+            # Reported beside the diff and never folded into it: this check's
+            # expectation was *shortened* by hand, and a render checked against
+            # a shortened expectation has to say so or the mark becomes a way
+            # to make a real miss disappear.
+            **unspoken,
             "timeline_duration": edit.duration,
             **vfy.compare(expected, heard),
         }

@@ -5788,3 +5788,135 @@ peak immediately before it. One real trap on the way: `fps=24000/1001` sets
 the frame *rate* and leaves the timebase at `1001/24000`, where the render's
 own is `1/24000` — `xfade` refuses mismatched timebases rather than guessing,
 so both inputs need an explicit `settb`.
+
+## The teaser, re-cut — and the two things a watch found — 2026-08-12
+
+The approvals round's answer to *does the teaser ship?* was **re-cut it from
+the finished film** (§ The approvals round, answered), which `lucid reel` did
+not exist for when the hand teaser was built. This is that re-cut, and what
+watching it cost.
+
+The span is the film's own 95.4→139.8s — the same passage the hand teaser
+read — derived at `1080x1920` into `~/lucid-teaser/proj`. 44.4s, four shots,
+1065 frames against the timeline's 1065, `check_black` clean.
+
+**Two silent wrong-films were one command apart, and neither would have been
+visible in the result.**
+
+- **The head cue.** At the obvious span start of 95.9 the opening picture cue
+  — word 318, `s1996-billy-stu` — falls outside the kept range and is pruned,
+  so the teaser opens on **eleven seconds with no picture**. It is reported,
+  honestly, as one line of a 35-entry `cues_dropped` list, which is where a
+  reader is least likely to notice that one of them is the *first* one.
+  Starting at 95.4 keeps it. **What a derivation drops inside its own opening
+  is a different kind of loss from what it drops at the far end**, and the
+  list does not say so.
+- **The pins.** All four surviving cues came across unpinned, and `plan_picture`
+  restarts a per-asset cursor the derivation has emptied. Three would have
+  been right by luck. `s4-reveal` is used earlier in the film, so its cursor
+  starts at 0 rather than 3.670 — **a different 15 seconds of the movie, at
+  exit 0**. CLAUDE.md already says to pin a derivation's survivors; doing it
+  by hand is a `cue rm` + `cue add` per cue, and `reel` has the film's own
+  shot projection in front of it while it prunes.
+
+Framing came across for free, being addressed in source seconds, and is
+**better in the teaser than in the film**: 12 of 12 cuts framed, 0 stale
+seconds against the film's 15.6.
+
+### A window boundary with no cut under it
+
+Tyler's watch: *"the clip at the beginning is weird it like switches to a
+different clip really quickly."*
+
+It does, and it is not a cut. `s1996-billy-stu`'s first stored window starts
+at src **0.5012**, and the teaser opens at src 0.0 — so the first half-second
+is drawn by the **centre crop**, which puts Stu at the left edge with half his
+face outside the frame, and then the frame jumps 510px sideways to the window
+that frames him. The source either side is one continuous take: four frames
+across the boundary are the same setup, same lamp, same blocking, and ffmpeg's
+scene score at 0.5012 is **0.000**.
+
+Measured across the teaser's three assets, three boundaries have no cut under
+them and only one is a defect:
+
+| window | nearest cut | what it is |
+|---|---|---|
+| `s1996-billy-stu` @0.5012 | none, best score 0.000 within 1s | the jump |
+| `s1996-randy` @0.0 | — | the clip head, framed from frame one |
+| `s4-reveal` @3.6703 | — | the placement's own in-point |
+
+The other two are the *right* pattern and the first one is missing it: every
+other clip is framed from the first frame anyone sees. Fixed by extending the
+window back to the head — one `lucid reframe --at 0`, source-addressed, so it
+fixes the film's vertical too.
+
+**`reframe_coverage` cannot see this, and the reason is the interesting
+half.** It asks *which cuts have no window*; this is *a window with no cut*.
+The two are not the same question and the second is the one a viewer notices:
+a stale window merely looks wrong, while a framing step inside a continuous
+take reads as an edit that isn't there. `default_seconds: 0` was correct and
+useless — nothing had been held across a cut, because the footage before the
+boundary was never framed at all.
+
+### The nine words the film does not say, marked by evidence
+
+The other half of the watch was the captions, and it was known before he said
+it: *"Billy **Billions** and Stu **do -** spend"*. Whisper transcribes across a
+retake splice and interleaves both takes, so nine invented words land in these
+44 seconds — the same nine § The hand-framed teaser, watched found by eye,
+where one survived being read for sense because "Billy and Stu **do** spend"
+is a grammatical English sentence.
+
+What is new is that **nothing here needs judgement any more**. `verify`
+transcribes the finished render and diffs it against the timeline, and the
+render's own ears say the clean line. So the mark is settled by the audio, and
+`unspoken` is the state that holds it: `(clip_id, word_index, text)`, additive
+and optional the way `canvas` and `caption_style` are, **word-indexed for the
+reason a cue is** — the transcript indexes the source, so no cut can
+invalidate a mark. It does not touch the transcript file, and must not: word
+indices renumbering would move every cue.
+
+One derivation, `_spoken_transcripts`, feeds captions, `caption_view` and
+`verify` alike, because what the window draws, what the subtitle file contains
+and what the render is checked against cannot be three different word
+sequences. `verify` reports the count beside its diff — a check whose
+expectation was shortened by hand has to say so, or the mark becomes a way to
+make a real miss disappear.
+
+**`unspoken_detect` proposes and never applies by default**, the same way
+round as `reframe_detect` and for a sharper reason: a wrong mark deletes a
+real word from every check lucid has. Two candidate mechanisms, one witness:
+
+- **A seam** — `find_overlaps`, a word starting before the one ahead of it
+  ends. 8 of the 9.
+- **A fragment** — a cut that left a sliver of a *real* word. Word 407, `The`,
+  from an abandoned take: 0.500s in the source, **0.107s surviving**, drawn on
+  screen as a whole word and inaudible. No seam, so the overlap scan is blind
+  to it.
+
+The witness is the render, and it is **counted, never looked up**, because the
+inventions are function words: asking "does the render say `the` near here"
+answers yes off the real `the` standing beside the invented one. The
+candidate's token is counted in the timeline over a ±1.5s window and in the
+render's transcription over the same seconds, and proposed only where the
+timeline has more. That is what catches word 407 — timeline 2, render 1 — and
+it is what clears the second fragment candidate, which the render does say.
+
+**The fragment floor asks and never decides.** Over the whole film, **947 of
+958 surviving words survive whole**; the 11 under 0.5 hold every clipped
+fragment in the cut, the shortest being 33ms of a `The`. So a generous floor
+costs nothing: it puts 1.1% of words up for a question the render answers.
+A floor that *decided* would be wrong for the reason the overlap scan has none
+(§ The overlap scan) — partial survival is normal, and 0.48 of a word is a
+word.
+
+**A stale mark is kept, never applied.** If the recorded text and the text at
+that index disagree, the transcript was replaced under the mark, and the two
+failures are not symmetric: a word wrongly left on screen is visible to anyone
+watching, and a real word silently dropped is invisible to every check lucid
+has. So a re-transcribe surfaces as `unspoken_stale` — a list to re-check —
+rather than as words vanishing from a caption file.
+
+Nine marked on the teaser, and the caption track now reads what the render
+says: *"Billy and Stu spend the entire film explaining the rules of a horror
+movie to you."*
