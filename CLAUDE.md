@@ -416,9 +416,8 @@ installed package or the upstream repo, not your memory.
     crosses and `moments` are fractions of the stretch showing that window, so
     `count` is windows (58 on the vertical against 25 placements, and all 55
     stored windows drawn) and `placements` is placements. **The edges take a
-    frame of tolerance, never an epsilon** — a boundary and the placement
-    starting on it are one instant 30µs apart, and comparing exactly made
-    fifteen 30µs rows that mislabelled their own placements. `windows` on a row is
+    frame of tolerance, never an epsilon** — the same rule `steps` needs below,
+    for the same 30µs. `windows` on a row is
     still the *placement's* count (the preview/render tell); `window` is the
     address `reframe --src-start` takes. HISTORY.md § The thirty-nine windows,
     reviewed; § The three gaps, closed.
@@ -508,22 +507,17 @@ installed package or the upstream repo, not your memory.
         those — 6.0 of `cold-open`'s 13.6 stale seconds. Read `stale_seconds`
         (an override held across a cut), never `default_seconds` beside it (the
         centre crop, a different thing). HISTORY.md § `reframe_coverage`.
-        - **It also asks which windows have no cut, and that is the one a
-          viewer notices** — a boundary inside a continuous take steps the
-          frame sideways and reads as an edit that is not there, while the
-          stale walk answers clean because nothing was held *across* a cut.
-          `steps` (13 boundaries on the teaser, 1 unaccounted; 33 and 2 on the
-          vertical) carries `shift` in source pixels and `nearest_cut`. **The
-          two directions score against different cut lists on purpose**: a cut
-          must reach `threshold` to *demand* a window and only be detected to
-          *explain* one, or a boundary sitting on a real 0.15 cut is reported
-          as a defect. **Interior takes a frame of tolerance** — a window
-          placed at a shot boundary is the normal case and sits ~1e-7 from the
-          placement's own start, which made 13 false findings of 15. **And a
-          near sub-threshold cut is not evidence of a missed one**: scored at
-          the boundary with no floor, all fifteen were 0.002–0.013, so the
-          nearby change was a different instant. HISTORY.md § The three gaps,
-          closed.
+        - **It also asks which windows have no cut (`steps`), and that is the
+          one a viewer notices** — a boundary inside a continuous take reads as
+          an edit that is not there, while the stale walk answers clean because
+          nothing was held *across* a cut. Three rules, each measured: the two
+          directions score against **different cut lists** (a cut must reach
+          `threshold` to *demand* a window, only be detected to *explain*
+          one); "interior" takes **a frame of tolerance**, a window placed at a
+          shot boundary being the normal case and sitting ~1e-7 from the
+          placement's own start; and **a near sub-threshold cut is not evidence
+          of a missed one** — score the boundary itself. The first two are 13
+          false findings of 15 apiece. HISTORY.md § The three gaps, closed.
     - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
       cut with no window is one the framing walks through, so the floor's miss
       rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are
