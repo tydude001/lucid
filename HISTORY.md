@@ -5544,6 +5544,15 @@ in-point sits the wrong side of a camera cut. An edit fault the framing merely
 made visible — nudging the in-point fixes it and touching the framing would
 not.
 
+**But only that one survives being scored, and the count of five does not.**
+Scoring all 25 placements head-frame against settled-frame (2026-08-12,
+`~/lucid-approvals/flash_scan.py`) separates exactly one: `vi-richie` at
+59.528s scores 58.5 against a *continuous* 28.7-to-21.8 band holding everyone
+else, and the third-ranked is the film's own fade-up from black at 0.000. So
+there is one in-point to nudge on evidence and four that would be guesswork —
+and the signal cannot tell a flash from a fade, which is why the by-eye pass
+is what named them and a threshold on this score would not.
+
 The measurement walked into this file's own trap on the way: matching ffmpeg's
 cut times to window starts *exactly* reported 20 stale stretches where there
 are 6, because ffmpeg says 5.588 where the manifest holds 5.5889. A frame of
