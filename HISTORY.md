@@ -5698,7 +5698,34 @@ register runs the other way here: `branding.md` rule 10 has the trajectory
 going Hereditary → Sicario, which "ends by ceding the floor to the final
 scene. No CTA." The teaser broke that deliberately on the grounds a teaser has
 no other job; the essay is where it was meant to hold. So the card is
-**bumper A's register** at 16:9 — mark, rule, tagline, no CTA.
+**bumper A's register** at 16:9 — the mark, no CTA.
+
+### The tagline was on it, and branding.md says it must not be
+
+The first card drew the lockup, an amber rule and the tagline under it. Tyler
+watched it and called the tagline repetitive; `branding.md` § Visual identity
+had already ruled it out, which is the stronger reason. **Wherever the tagline
+appears near the wordmark it *is* the footnote** — so the card drew two
+footnotes off one asterisk: "good" twice, "sometimes" twice, and the asterisk
+three times in one frame. The joke told, then explained.
+
+The rule has a second reading — drop `* Sometimes` and let the tagline be the
+footnote — which is the better joke and the wrong card, because an end card's
+one job is naming the channel and that version never says "Sometimes" as a
+name. So the tagline goes back to the homes the brand table gives it (channel
+description, banner, podcast blurb), and the mark stays whole.
+
+**The amber rule went with it, on a watch.** With nothing under it a rule is a
+divider pointing at a missing thing rather than a full stop; served as an A/B
+against the mark alone, Tyler picked the mark alone. Settled 2026-08-12: mark,
+no rule, no tagline, 6s, no CTA (`~/lucid-watch/decisions.json`).
+
+Two things that cost a step each. **The card is the block, so dropping a piece
+re-centres it** — the lockup moved down 52px and its clearance of the subscribe
+zone is re-reported per piece rather than assumed. And **the superseded card
+has to be rendered with the flags it actually had**: letting the comparison
+image inherit the new default drew a tagline card with no rule, which never
+existed, illustrating the rejected option with a third thing.
 
 ### The house end screen is the wrong shape, and scaling it is the wrong fix
 
@@ -5714,9 +5741,9 @@ content `(555, 528)` — 96px from where scaling 1080 → 816 would put it. The
 card therefore draws **no guide at all** and is *sized* to leave the spot
 clear: the lockup width is derived from the circle's right edge, not chosen by
 eye. Two layout defects fell out of that check rather than out of a look — the
-first attempt put the tagline 63px below the bottom edge (the house wordmark
-size of 170 does not carry to a frame with 264 fewer pixels of height), and
-the lockup sat inside the subscribe zone.
+first attempt ran the block 63px below the bottom edge (the house wordmark size
+of 170 does not carry to a frame with 264 fewer pixels of height), and the
+lockup sat inside the subscribe zone.
 
 ### Tail time is cheaper than `vo_extend`, and the cue table is what costs
 
