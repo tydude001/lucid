@@ -502,7 +502,14 @@ timeline being the enabler and the look pass being gated on nothing:
    was placed on, and about a third of the film's placed footage is framed by a
    window placed for a *different* one. What is left is the two mechanisms
    behind that, neither of them the placement rule. HISTORY.md § The thirty-nine
-   windows, reviewed.
+   windows, reviewed. **The instrument's own share of it is closed as of
+   2026-08-12** — a sheet row is a window shown rather than a placement, so the
+   14 windows of 55 no round fraction ever landed in are drawn, and
+   `reframe_coverage` now answers the mirror question (`steps`: a boundary the
+   picture does not justify) as well as its original one. What that leaves is
+   the `SCENE_THRESHOLD` re-pin, which `steps` supplies fresh evidence for from
+   the other side, and sampling a window where the subject is extreme rather
+   than where the clock is round. HISTORY.md § The three gaps, closed.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the

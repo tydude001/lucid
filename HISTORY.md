@@ -6017,3 +6017,123 @@ A review page's reference is load-bearing exactly when the reader is checking a
 memory against it, which is the case nobody labels carefully because the
 reference is the part that is not being asked about. Settle a served control by
 its own measurement — duration, shot count — not by its filename.
+
+## The three gaps, closed — 2026-08-12
+
+Three defects found by watching the teaser, all recorded in `CLAUDE.md` and
+none built. They have nothing in common as code and everything in common as a
+failure: each is a wrong film that every check in the project agrees with.
+
+### A derivation pins what it keeps
+
+`lucid reel` prunes the cues it orphans and names them. Pruning them is what
+strands the rest: `plan_picture` walks one cursor per asset and each shot picks
+up where the previous one left it, so dropping the shots before a survivor
+empties the cursor it was counting on and it replays its asset from the head.
+
+Measured on the film's own teaser span (95.4–139.8s): **34 cues dropped, 4
+survive, and 2 of the 4 need a non-zero in-point** — `s1996-billy-stu` at
+11.428s and `s4-reveal` at 3.670s. Unpinned those two show the first seconds of
+their clips instead, which is 15 seconds of a different film at exit 0.
+
+So `_reel_cue_pins` reads the in-points off the *film's* own picture plan and
+writes them onto the survivors as `src_start`, which is the thing that makes
+`plan_picture` refuse rather than rewind them. **The pins reproduce the hand
+fix exactly** — the same four numbers already in `~/lucid-teaser/proj`, applied
+by hand on 2026-08-12 after the watch found the defect — which is the control
+this had: the op now derives what a person had to notice.
+
+Three things it does not do. An existing `src_start` is never overwritten: a
+pinned shot has no cursor, so the film's plan agrees with the pin by
+construction and a hand-chosen in-point is the last thing a derivation should
+rewrite. Stills are left alone, `plan_picture` refusing a pin on a held frame.
+And a film whose own projection refuses comes back as `pins_error` rather than
+an empty `cues_pinned` — that film cannot be exported either, so the reel is
+not newly wrong, but it is why its cues arrive unpinned and an empty list alone
+reads as "nothing needed one".
+
+### Which windows have no cut
+
+`reframe_coverage` asks which cuts have no window. The teaser's opening defect
+was the other direction — a window boundary 0.5s inside a continuous take,
+stepping the frame 510px sideways with no cut behind it — and coverage answered
+clean and useless, because nothing was held *across* anything.
+
+`steps` is the mirror, in the same walk: a boundary strictly inside a
+placement, where the frame moves and the picture does not. A boundary at a
+placement's own edge is not one, the timeline cutting there being reason enough
+for the frame to. A boundary with the same rect on both sides is not one
+either — nothing moves, so there is nothing for a cut to justify, and a window
+per shot normally repeats a rect.
+
+**The two directions score against different cut lists, and that is the load-
+bearing part.** A cut must reach `threshold` to *demand* a window, because that
+floor was pinned by a control against sixteen approved boundaries. It only has
+to be detected to *explain* one. Scoring both off the thresholded list would
+report a boundary sitting on a real 0.15 cut as a defect and send someone to
+re-frame a shot that is already right.
+
+What it finds on the shipped work, which is the reason it is worth having:
+
+| Project | boundaries that move the frame | with a cut | without |
+|---|---|---|---|
+| `~/lucid-teaser/proj` (re-cut, watched twice) | 13 | 12 | **1** |
+| `~/lucid-vertical/proj` (55 windows) | 48 | 33 | **15** |
+
+The teaser's one is `s4-reveal` at src 7.343 — a **410px** step at 32.5s of a
+44s cut, nearest picture change 1.25s away scoring 0.078. Coverage on that
+project is otherwise clean: 0 unframed cuts, 0 stale seconds.
+
+**And the fifteen split into two kinds, which the numbers say and the eye
+would not.** Five sit within 0.6s of a change scoring 0.15–0.18 — under the
+0.20 floor, so no window was demanded and one was placed anyway. That is
+`SCENE_THRESHOLD` showing up from the other side: the same open re-pin, now
+with evidence that does not depend on sampling frames either side of a
+candidate. The rest sit 1.9s to 11.1s from anything, and those are steps in the
+middle of a take with nothing to appeal to. Worst is `vi-richie` at src 10.427,
+**512px**, and `cold-open` carries four of them.
+
+### The sheet's unit is a window
+
+Three fixed fractions of a placement never looked at 14 of the vertical's 55
+windows, **eight of them hand-approved** — a window covering a small slice of a
+long placement is one no round fraction lands in, and it was reported as
+reviewed. § The thirty-nine windows, reviewed named this and left it.
+
+A row is now a window shown rather than a placement: each placement is split at
+the boundaries it crosses and each stretch sampled inside itself, so `moments`
+are fractions of the window's own span. A short window gets the same three
+looks a long one does, and `count` is no longer the placement count —
+`placements` is reported beside it and the two differ by exactly what the old
+unit could miss.
+
+**On the vertical cut that is 58 rows against 25 placements, and all 55 stored
+windows are drawn** — checked by set difference against the manifest, not by
+counting rows. The two extra rows are the centre crop at the head of
+`cold-open` and of `s3-reveal`, which is the unframed-head case turning up as
+a drawn tile rather than as something to remember to look for.
+
+**The float edge is real and cost fifteen of those rows before it was fixed.**
+A window boundary and the placement that starts on it are the same instant a
+frame apart — 20.39538 against 20.39541 — so comparing exactly split off a
+stretch 30µs long, drew three tiles of it, and left the placement itself
+labelled with the window it was about to leave. Same at the tail. It is
+`reframe_coverage`'s own rule arrived at from a third direction: **a frame of
+tolerance, never an epsilon**, and the later of two addresses inside one frame
+is the one that wins, because that is what the render steps to and what a rect
+is stored at.
+
+`windows` on a row survives, and it is now counted off the geometry rather than
+off where the samples landed. It was the sampling artefact of the two: three
+moments crossing three windows could report two. It is also the preview/render
+asymmetry's own tell (CLAUDE.md), so it had to keep meaning the *placement's*
+count — which is why the row carries `window`, the source address its rect is
+stored at, separately.
+
+**This closes the coverage half of § The tile that made a wrong window look
+right and not the other half.** Every window that reaches the screen is now
+drawn; a tile is still evidence about the instant it draws, and a static rect
+over a moving subject still has a best moment for a sample to land on. Sampling
+where the subject is *extreme* rather than where the clock is round needs the
+face detector, which is `reframe_sheet`'s first dependency on `LUCID_FACE` and
+a different build.

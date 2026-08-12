@@ -99,7 +99,7 @@ def test_the_sheet_draws_a_row_per_placement_and_three_moments_each(
 
     result = ops.reframe_sheet(project.root)
 
-    assert result["count"] == 2, "one row per placement, not per clip"
+    assert result["count"] == 2, "a row per window shown — one each here, and not per clip"
     assert [row["asset"] for row in result["rows"]] == ["clipa", "clipa"]
     assert all(len(row["samples"]) == 3 for row in result["rows"])
     assert Path(result["sheet"]).exists()
@@ -128,9 +128,11 @@ def test_each_row_is_labelled_with_the_window_in_force_at_that_moment(
 
 @needs_tools
 def test_a_placement_crossing_a_window_boundary_says_so(project: Project) -> None:
-    """`windows` counts the distinct crops the sampled moments landed on. More
-    than one means this stretch of footage is not framed alike throughout,
-    which is exactly what a reviewer needs pointing at."""
+    """`windows` counts the windows the *placement* crosses — off the geometry,
+    not off where the samples happened to land. More than one means this shot
+    is not framed alike throughout, which is what a reviewer needs pointing at,
+    and it is also the preview/render asymmetry: the preview places the whole
+    shot by the window at its `src_start`."""
     ops.cue_add(project.root, "vo", 0, "clipa")
     ops.reframe(project.root, "clipa", rect="0,0,459,816")
     ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=1.0)
@@ -138,6 +140,81 @@ def test_a_placement_crossing_a_window_boundary_says_so(project: Project) -> Non
     rows = ops.reframe_sheet(project.root)["rows"]
 
     assert rows[0]["windows"] == 2
+    assert [row["windows"] for row in rows] == [2, 2], "a property of the shot, not of the row"
+
+
+# -- the row is a window, which is what the coverage fix is ---------------
+
+
+@needs_tools
+def test_a_window_no_round_fraction_lands_in_is_still_drawn(project: Project) -> None:
+    """The finding. Three fixed fractions of a placement missed 14 of the
+    vertical cut's 55 windows and eight of those were hand-approved — a window
+    covering a small slice of a long placement is one no round fraction lands
+    in, and it was reported as reviewed (HISTORY.md § The thirty-nine windows,
+    reviewed)."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=3.9)
+
+    result = ops.reframe_sheet(project.root)
+
+    assert result["placements"] == 1 and result["count"] == 2
+    assert [row["window"] for row in result["rows"]] == [0.0, 3.9]
+    assert result["rows"][1]["samples"][0]["crop"] == "1461,0,459,816"
+    # And the old unit could not have drawn it: every fraction of the whole
+    # placement lands before the boundary.
+    assert all(s["src_time"] < 3.9 for s in result["rows"][0]["samples"])
+
+
+@needs_tools
+def test_a_boundary_within_a_frame_of_a_placement_edge_is_that_edge(
+    project: Project,
+) -> None:
+    """A frame of tolerance, never an epsilon — `reframe_coverage`'s rule, and
+    not optional here either.
+
+    A window boundary and the placement that starts on it are the same instant
+    a frame apart: 20.39538 against 20.39541 on the real vertical cut. Compared
+    exactly, that splits off a stretch 30µs long, draws three tiles of it, and
+    leaves the placement labelled with the window it is about to leave —
+    fifteen of that cut's rows were exactly this. A boundary within a frame of
+    the *end* goes for the mirror reason: a window with under a frame of a
+    placement left is not one that placement shows, and whichever placement
+    starts there draws it as its own head.
+    """
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=2.0001)
+
+    rows = ops.reframe_sheet(project.root)["rows"]
+
+    assert len(rows) == 2, "two placements, one window each — not a 30µs sliver"
+    assert [row["windows"] for row in rows] == [1, 1]
+    # And the second placement is labelled with what the render actually steps
+    # to, which is the later of the two addresses.
+    assert rows[1]["window"] == 2.0
+    assert rows[1]["samples"][0]["crop"] == "1461,0,459,816"
+
+
+@needs_tools
+def test_moments_are_fractions_of_the_window_not_of_the_placement(
+    project: Project,
+) -> None:
+    """Which is what makes the coverage claim true rather than approximate: a
+    stretch is sampled inside itself, so a short window gets the same three
+    looks a long one does."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=2.0)
+
+    rows = ops.reframe_sheet(project.root, moments=[0.5])["rows"]
+
+    assert [row["src_start"] for row in rows] == [0.0, 2.0]
+    assert [row["duration"] for row in rows] == [2.0, 2.0]
+    assert [row["samples"][0]["src_time"] for row in rows] == [1.0, 3.0]
+    assert [row["placement_duration"] for row in rows] == [4.0, 4.0]
 
 
 @needs_tools

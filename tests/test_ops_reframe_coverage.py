@@ -233,6 +233,101 @@ def test_several_unframed_cuts_under_one_window_are_one_stretch(
     assert all(score >= ops.SCENE_THRESHOLD for score in stretch["scores"])
 
 
+# -- the mirror: which windows have no cut ------------------------------
+
+
+#: A second window, far enough from `RECT` that the frame plainly travels
+#: between them. Both fit inside the 1920x816 source, so grow-to-fit leaves
+#: each one as asked and the shift is arithmetic rather than a guess.
+LEFT = "0,0,459,816"
+
+
+@needs_ffmpeg
+def test_a_window_boundary_inside_a_continuous_take_is_a_step(project: Project) -> None:
+    """The defect coverage answers clean about, and the one a viewer notices.
+
+    Two windows: one at 2.0s, in the middle of the first take, and one at the
+    camera cut. Every cut has a window at it, so the walk above has nothing to
+    report — and the frame still travels sideways at 2.0s with the picture
+    behind it unchanged, which reads as an edit that is not there. On the
+    teaser this was 510px inside one continuous take, from a clip whose head
+    was never framed (HISTORY.md § The teaser, re-cut).
+    """
+    at = ops.reframe_coverage(project.root)["stretches"][0]["src_start"]
+    ops.reframe(project.root, "clipa", rect=RECT, src_start=2.0)
+    ops.reframe(project.root, "clipa", rect=LEFT, src_start=at)
+
+    result = ops.reframe_coverage(project.root)
+
+    assert result["cuts_unframed"] == 0 and result["stretches"] == [], "coverage is clean"
+    assert result["steps_seen"] == 2 and result["steps_cut"] == 1
+    (step,) = result["steps"]
+    assert step["asset"] == "clipa"
+    assert step["src_time"] == pytest.approx(2.0, abs=0.05)
+    assert step["shift"] > 0, "the frame moves, which is what makes it visible"
+    assert step["from_rect"] != step["to_rect"]
+    # What says whether this missed a real cut narrowly or sits mid-take.
+    assert step["nearest_cut"] == pytest.approx(4.0, abs=0.15)
+    assert step["nearest_cut_gap"] == pytest.approx(2.0, abs=0.15)
+
+
+@needs_ffmpeg
+def test_a_boundary_the_picture_accounts_for_is_not_a_step(project: Project) -> None:
+    """The clean case. A window at a camera cut is the frame moving because the
+    picture did, which is the whole point of framing per shot."""
+    at = ops.reframe_coverage(project.root)["stretches"][0]["src_start"]
+    ops.reframe(project.root, "clipa", rect=RECT, src_start=at)
+
+    result = ops.reframe_coverage(project.root)
+
+    assert result["steps_seen"] == 1 and result["steps_cut"] == 1
+    assert result["steps"] == []
+
+
+@needs_ffmpeg
+def test_a_weak_cut_still_explains_a_boundary_it_could_not_have_demanded(
+    project: Project,
+) -> None:
+    """The asymmetry between the two directions, stated.
+
+    At a threshold no cut can reach, the walk above sees no cuts at all — and
+    the boundary is still justified, because the picture did change there. A
+    cut too weak to *demand* a window is enough to *explain* one, and scoring
+    both directions off one list would send someone to re-frame a shot that is
+    already right.
+    """
+    at = ops.reframe_coverage(project.root)["stretches"][0]["src_start"]
+    ops.reframe(project.root, "clipa", rect=RECT, src_start=at)
+
+    result = ops.reframe_coverage(project.root, threshold=0.99)
+
+    assert result["cuts"] == 0, "nothing scores that high"
+    assert result["steps_seen"] == 1 and result["steps"] == []
+
+
+@needs_ffmpeg
+def test_two_addresses_holding_one_framing_are_not_a_step(project: Project) -> None:
+    """Nothing moves, so there is nothing for a cut to justify. A window per
+    shot is the normal way to frame a clip and most of them repeat a rect."""
+    ops.reframe(project.root, "clipa", rect=RECT)
+    ops.reframe(project.root, "clipa", rect=RECT, src_start=2.0)
+
+    result = ops.reframe_coverage(project.root)
+
+    assert result["steps_seen"] == 0 and result["steps"] == []
+
+
+@needs_ffmpeg
+def test_a_window_at_the_head_is_not_a_step(project: Project) -> None:
+    """A boundary at a placement's own edge is a frame change the timeline's
+    own cut already explains — the shot changed, so the framing may."""
+    ops.reframe(project.root, "clipa", rect=RECT)
+
+    result = ops.reframe_coverage(project.root)
+
+    assert result["steps_seen"] == 0 and result["steps"] == []
+
+
 @needs_ffmpeg
 def test_it_answers_without_a_face_detector(
     project: Project, monkeypatch: pytest.MonkeyPatch

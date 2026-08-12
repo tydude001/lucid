@@ -159,10 +159,13 @@ installed package or the upstream repo, not your memory.
     the cue's ask is **`src_pin`** and the planner's answer is **`src_start`**;
     one key for both reads as correct in every test that has a pin in it.
     **A derivation is where this bites hardest, because it empties the
-    cursor**: `reel` drops the cues it cut, so every survivor replays its asset
-    from the head and the reel's picture is *not* the film's picture over the
-    same seconds. Pin them to the film's own in-points to excerpt faithfully.
-    HISTORY.md § The pinned cue, § The framing control.
+    cursor**: `reel` drops the cues it cut, so every survivor would replay its
+    asset from the head and the reel's picture would *not* be the film's
+    picture over the same seconds. So **`reel` pins every survivor** to the
+    in-point the film's own plan gave it (`cues_pinned`, and `pins_error`
+    where the film cannot project) — 2 of the teaser's 4 survivors needed one,
+    and hand-derived reels before this did not have them. HISTORY.md § The
+    pinned cue, § The framing control, § The three gaps, closed.
   - **A description does not choose the clip — `synopsis` does, and lucid does
     not choose at all.** Which footage goes under a sentence is never a lexical
     match: measured against 25 human picks, the description index agreed 2
@@ -184,9 +187,11 @@ installed package or the upstream repo, not your memory.
   - **Read that list for the cue nearest the head first.** One pruned from the
     far end trims the result; one pruned just outside the *kept* span opens the
     reel on no picture at all — 11 seconds of it on the teaser, reported as one
-    line among 35. Move the edge to keep it, and **pin every survivor**: the
-    derivation empties `plan_picture`'s cursor, so an unpinned re-use replays
-    its asset from the head. HISTORY.md § The teaser, re-cut.
+    line among 35. Move the edge to keep it. The other half of that watch —
+    every survivor replaying its asset from the head — is `reel`'s own job as
+    of § The three gaps, closed; **a reel derived before it has unpinned cues
+    and is a different film**, so check `cues_pinned` on anything older.
+    HISTORY.md § The teaser, re-cut.
   - Its sibling: **`cut_by_time` flags every suspect-duration word a removed
     span overlaps, not the ones at the boundary.** Right for an ordinary cut,
     noise for a wholesale one — 15 flags on a reel, none near either edge — so
@@ -405,18 +410,27 @@ installed package or the upstream repo, not your memory.
   motion** (2 of 15 hand numbers, twice now), so judge one on
   `reframe_sheet`'s drawn-on-the-source-frame tiles, never on a watch.
   HISTORY.md § Per-shot framing.
-  - **But the sheet samples *placements*, so it cannot see every window** —
-    three fractions of each missed 14 of the vertical's 55, eight of them
-    hand-approved. Sample the window, at the midpoint of the stretch each
-    placement shows of it. HISTORY.md § The thirty-nine windows, reviewed.
+  - **A sheet row is a window shown, not a placement** — sampling placements at
+    three fixed fractions never looked at 14 of the vertical's 55 windows,
+    eight of them hand-approved. Each placement is split at the boundaries it
+    crosses and `moments` are fractions of the stretch showing that window, so
+    `count` is windows (58 on the vertical against 25 placements, and all 55
+    stored windows drawn) and `placements` is placements. **The edges take a
+    frame of tolerance, never an epsilon** — a boundary and the placement
+    starting on it are one instant 30µs apart, and comparing exactly made
+    fifteen 30µs rows that mislabelled their own placements. `windows` on a row is
+    still the *placement's* count (the preview/render tell); `window` is the
+    address `reframe --src-start` takes. HISTORY.md § The thirty-nine windows,
+    reviewed; § The three gaps, closed.
     - **And a window it *does* sample can still pass while badly wrong**, so a
       clean sheet is not an approval of the span: a rect is a claim about a
       stretch, a tile is evidence about one instant, and a static rect over a
       moving subject has a best instant. The teaser's opening window was 184px
       out at the median and its one tile landed at 122px — the shot's least
       wrong moment, which reads as tight and fine. Sample where the subject is
-      extreme, not where the clock is round. HISTORY.md § The tile that made a
-      wrong window look right.
+      extreme, not where the clock is round — **still unbuilt, and it is the
+      half of that finding drawing every window did not close.** HISTORY.md
+      § The tile that made a wrong window look right.
   - Its two asymmetries: the **preview** places a shot by the window at its
     `src_start`, so a boundary *inside* a placement previews as the first of
     the two while the render steps mid-shot correctly (`reframe_sheet`'s
@@ -494,13 +508,18 @@ installed package or the upstream repo, not your memory.
         those — 6.0 of `cold-open`'s 13.6 stale seconds. Read `stale_seconds`
         (an override held across a cut), never `default_seconds` beside it (the
         centre crop, a different thing). HISTORY.md § `reframe_coverage`.
-        - **It asks which cuts have no window; nothing asks which windows have
-          no cut, and that is the one a viewer notices** — a boundary inside a
-          continuous take steps the frame sideways and reads as an edit that is
-          not there, while coverage answers clean because nothing was held
-          *across* a cut. **Check that every clip is framed from its first
-          shown frame**, by eye: an unframed head is a centre crop that snaps.
-          HISTORY.md § The teaser, re-cut.
+        - **It also asks which windows have no cut, and that is the one a
+          viewer notices** — a boundary inside a continuous take steps the
+          frame sideways and reads as an edit that is not there, while the
+          stale walk answers clean because nothing was held *across* a cut.
+          `steps` (13 boundaries on the teaser, 1 unaccounted; 48 and 15 on the
+          vertical) carries `shift` in source pixels and `nearest_cut`. **The
+          two directions score against different cut lists on purpose**: a cut
+          must reach `threshold` to *demand* a window and only be detected to
+          *explain* one, or a boundary sitting on a real 0.15 cut is reported
+          as a defect. Read the gap — under ~0.6s from a 0.15–0.18 change is
+          the `SCENE_THRESHOLD` re-pin wearing a different hat, seconds from
+          anything is a real step. HISTORY.md § The three gaps, closed.
     - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
       cut with no window is one the framing walks through, so the floor's miss
       rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are

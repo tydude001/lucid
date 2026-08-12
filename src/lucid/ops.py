@@ -20,7 +20,7 @@ import time
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from itertools import pairwise
-from math import gcd
+from math import gcd, hypot
 from pathlib import Path
 from typing import Any
 
@@ -4226,15 +4226,36 @@ def reframe_sheet(
     prototype).
 
     Every placement the render shows — the picture lane's shots, or the edit's
-    own segments where there is no lane — sampled at three moments, with the
-    window in force at that point in the *source* drawn on the frame in red
-    and labelled with the rect. Placements rather than clips, because framing
-    is per shot: one clip used seven times gets seven rows, each showing the
-    window its own stretch of source reads.
+    own segments where there is no lane — walked window by window, with the
+    window in force drawn on the frame in red and labelled with the rect.
+    Placements rather than clips, because framing is per shot: one clip used
+    seven times gets seven placements, each showing the windows its own stretch
+    of source reads.
+
+    **The row is a window, not a placement, and that is a correction.** Three
+    fixed fractions of each placement missed 14 of the vertical cut's 55
+    windows, eight of them hand-approved — a window covering a small slice of a
+    long placement is one no round fraction lands in, and it was reported as
+    reviewed. So each placement is split at the boundaries it crosses and each
+    stretch is sampled inside itself: every window that reaches the screen gets
+    drawn, and `moments` are fractions of the stretch that shows it rather than
+    of the whole placement. `windows` on a row still says how many the
+    *placement* crosses, which is the preview/render asymmetry's own tell
+    (CLAUDE.md). HISTORY.md § The thirty-nine windows, reviewed.
+
+    **A tile is still evidence about an instant, not an approval of the span.**
+    A static rect over a moving subject has a best moment, and a sample can
+    land on it: the teaser's opening window was 184px out at its median and the
+    one tile inside it landed 122px out, which reads as tight and fine. Drawing
+    every window is what closes the coverage half of that; the other half is
+    sampling where the subject is extreme rather than where the clock is round,
+    which needs the detector and is not this (HISTORY.md § The tile that made a
+    wrong window look right).
 
     Writes a tile per sample and one montage under `cache/sheets/`, and
     returns both paths and the table. `out` names the sheet somewhere else;
-    `moments` overrides where in each placement it samples, as fractions.
+    `moments` overrides where inside each window's stretch it samples, as
+    fractions.
     """
     project = Project.open(path)
     resolution = _mlt_resolution(project)
@@ -4255,12 +4276,45 @@ def reframe_sheet(
     shutil.rmtree(dest_dir, ignore_errors=True)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    for row, placement in enumerate(placements):
+    # One entry per window a placement shows, in the order it shows them. The
+    # split is the whole coverage fix: sampling the placement asks about the
+    # window at whichever fractions happen to land inside it, and the windows
+    # that get missed that way are precisely the short ones.
+    #
+    # **A frame of tolerance, never an epsilon** — `reframe_coverage`'s rule,
+    # and it is not optional here either. A window boundary and the placement
+    # that starts on it are the same instant a frame apart (20.39538 against
+    # 20.39541 on the real cut), so an exact comparison splits off a stretch
+    # 30µs long, draws three tiles of it, and labels the placement with the
+    # window it is about to leave. Fifteen of the vertical's rows were that.
+    frame = 1.0 / _export_fps(_clips_by_id(project))
+    stretches: list[tuple[dict[str, Any], float, float, int]] = []
+    for placement in placements:
+        entry = placement["reframe"]
+        begin = placement["src_start"]
+        finish = begin + placement["duration"]
+        windows = entry.windows() if entry is not None else ()
+        # Dropped at the tail for the same reason: a window with under a frame
+        # of a placement left is one that placement does not show. Whichever
+        # placement starts there draws it as its own head.
+        edges: list[float] = []
+        for edge in sorted({begin, *(b for b, _ in windows if begin - frame <= b < finish - frame)}):
+            if edges and edge - edges[-1] <= frame:
+                # One instant. The later address wins, because that is the one
+                # the render steps to and the one a rect is stored at.
+                edges[-1] = edge
+            else:
+                edges.append(edge)
+        for index, edge in enumerate(edges):
+            stop = edges[index + 1] if index + 1 < len(edges) else finish
+            stretches.append((placement, edge, stop, len(edges)))
+
+    for row, (placement, begin, finish, crossed) in enumerate(stretches):
         entry = placement["reframe"]
         source = entry.source if entry is not None else None
         samples = []
         for moment in at:
-            when = placement["src_start"] + placement["duration"] * moment
+            when = begin + (finish - begin) * moment
             tile = dest_dir / f"{row:03d}-{moment:.2f}.png"
             picture.extract_frame(placement["path"], when, tile)
             crop = entry.crop_at(when) if entry is not None else None
@@ -4287,18 +4341,23 @@ def reframe_sheet(
                 "row": row,
                 "shot": placement["index"],
                 "asset": placement["asset"],
-                "src_start": round(placement["src_start"], 3),
-                "duration": round(placement["duration"], 3),
-                # How many distinct windows this placement crosses. More than
-                # one means the sampled frames are not all framed alike, which
-                # is the case the sheet exists to make visible.
-                "windows": len(
-                    {
-                        (sample["crop"], sample["pane"])
-                        for sample in samples
-                        if sample["crop"] is not None
-                    }
-                ),
+                # The stretch this row is about — one window's worth of one
+                # placement, which is what the tiles are frames of.
+                "src_start": round(begin, 3),
+                "duration": round(finish - begin, 3),
+                # And the placement it came out of, so a row can still be
+                # traced back to a shot on the timeline.
+                "placement_src_start": round(placement["src_start"], 3),
+                "placement_duration": round(placement["duration"], 3),
+                # The address the rect is stored at, which is what `reframe
+                # --src-start` takes to change it.
+                "window": round(entry.window_start(begin), 3) if entry is not None else None,
+                # How many windows this *placement* crosses — counted off the
+                # geometry rather than off where the samples landed, which is
+                # the number that was wrong before. More than one is also the
+                # preview/render asymmetry: the preview places the whole shot
+                # by the window at its `src_start` (CLAUDE.md).
+                "windows": crossed,
                 # Whether any sampled frame of this placement is drawn as a
                 # stacked split, which is what a review page filters on.
                 "split": any(sample["pane"] for sample in samples),
@@ -4324,7 +4383,10 @@ def reframe_sheet(
         "canvas": f"{resolution[0]}x{resolution[1]}",
         "sheet": str(sheet),
         "rows": rows,
+        # A row is a window shown, so this is no longer the placement count —
+        # the two differ by exactly the windows the old sampling could miss.
         "count": len(rows),
+        "placements": len(placements),
         "moments": list(at),
         "skipped": skipped,
     }
@@ -4723,6 +4785,25 @@ def reframe_coverage(
     Two boundaries inside one source frame are one window, which is the
     resolution the render has (CLAUDE.md § The MLT reframe).
 
+    **And the mirror, which is the one a viewer actually notices.** The walk
+    above asks which cuts have no window; `steps` asks which windows have no
+    cut — a boundary *inside* one placement, where the frame moves sideways
+    and the picture behind it does not change. Coverage answers clean over
+    exactly that, because nothing was held across anything: the teaser opened
+    on 510px of sideways travel inside one continuous take, from a clip whose
+    head was never framed, and every check in this project agreed with it
+    (HISTORY.md § The teaser, re-cut). A boundary at a placement's own edge is
+    not one of these — the timeline cuts there, so the frame is expected to.
+
+    **The two directions do not use the same cut list, deliberately.** A cut
+    has to score `threshold` to *demand* a window, because that floor was
+    picked by a control against sixteen approved boundaries. It only has to be
+    detected at all to *explain* one — a weak cut is still a picture change,
+    and calling a justified boundary a defect sends someone to re-frame a shot
+    that is already right. So `steps` is scored against the whole scan and each
+    one carries `nearest_cut`, which is what says whether the boundary missed a
+    real cut by 40ms or sits in the middle of a take.
+
     Needs no face detector: this is scene cuts against stored geometry, so it
     answers on a box where `reframe_detect` cannot run at all. It reads and
     never writes. Each stretch carries `timeline_start` — where it plays in the
@@ -4771,8 +4852,11 @@ def reframe_coverage(
     stored = _stored_reframes(project)
 
     stale: list[dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
     cuts_seen = 0
     cuts_framed = 0
+    steps_seen = 0
+    steps_cut = 0
     for placement in sorted(placements, key=lambda p: p["timeline_start"]):
         entry = placement["reframe"]
         start = placement["src_start"]
@@ -4787,6 +4871,47 @@ def reframe_coverage(
         shown = [cut for cut in cuts if start < cut["src_time"] < end]
         cuts_seen += len(shown)
         cuts_framed += sum(1 for cut in shown if framed(cut["src_time"]))
+
+        # The mirror. Only boundaries *inside* the placement: one at either
+        # edge is a frame change the timeline's own cut already explains.
+        for at in [edge for edge in boundaries if start < edge < end]:
+            before = entry.crop_at(at - same_window)
+            after = entry.crop_at(at)
+            was_split = entry.pane_at(entry.window_start(at - same_window))
+            is_split = entry.pane_at(at)
+            if before == after and was_split == is_split:
+                # Two addresses, one framing — nothing moves, so there is
+                # nothing for a cut to justify.
+                continue
+            steps_seen += 1
+            # The whole scan, not the thresholded list: a cut too weak to
+            # demand a window is still enough to explain one.
+            near = min(scans[placement["asset"]], key=lambda c: abs(c["src_time"] - at), default=None)
+            if near is not None and abs(near["src_time"] - at) <= same_window:
+                steps_cut += 1
+                continue
+            steps.append(
+                {
+                    "index": placement["index"],
+                    "asset": placement["asset"],
+                    "timeline_at": round(placement["timeline_start"] + (at - start), 3),
+                    "src_time": round(at, 4),
+                    "from_rect": list(before),
+                    "to_rect": list(after),
+                    # In the source's own pixels, like the rects — how far the
+                    # frame travels, which is what makes one of these visible
+                    # rather than merely present.
+                    "shift": round(
+                        hypot(
+                            (after[0] + after[2] / 2) - (before[0] + before[2] / 2),
+                            (after[1] + after[3] / 2) - (before[1] + before[3] / 2),
+                        )
+                    ),
+                    "nearest_cut": round(near["src_time"], 4) if near else None,
+                    "nearest_cut_score": round(near["score"], 3) if near else None,
+                    "nearest_cut_gap": round(abs(near["src_time"] - at), 3) if near else None,
+                }
+            )
 
         # **The question is asked of the footage, not of the cut** — because a
         # placement can begin *downstream* of the cut that stranded it and
@@ -4866,6 +4991,12 @@ def reframe_coverage(
         "cuts_framed": cuts_framed,
         "cuts_unframed": cuts_seen - cuts_framed,
         "stretches": stale,
+        # The other direction, counted the same way round: boundaries that
+        # move the frame inside one placement, and how many of them the
+        # picture accounts for.
+        "steps_seen": steps_seen,
+        "steps_cut": steps_cut,
+        "steps": steps,
         # The headline, and the only number that is a defect: an override held
         # across a camera cut. The centre crop walking through one is the
         # default doing what it always did, counted beside it and not with it.
@@ -6616,7 +6747,9 @@ def verify(
 # word-indexed and so cannot be *invalidated* by a cut, can be orphaned by
 # one: a reel removes most of the film, which takes most of the cues' words
 # with it, and `build_shots` refuses a whole projection on a single orphan.
-# `_reel_orphan_cues`.
+# `_reel_orphan_cues`. Pruning them is then what strands the survivors, since
+# the cursor deciding what each shot shows is per-asset and cumulative —
+# `_reel_cue_pins`, the quieter half of the same problem.
 
 #: How long a platform will let a vertical post run. Reported beside the
 #: reel's own duration and never enforced: it is why a reel exists at all
@@ -6778,6 +6911,79 @@ def _reel_orphan_cues(
     return orphans
 
 
+def _reel_cue_pins(project: Project) -> tuple[dict[tuple[str, int], float], str | None]:
+    """Where in its asset each of the *film's* shots actually reads.
+
+    The counterpart to `_reel_orphan_cues`, and the same class of failure one
+    level further in: pruning is what stops the derived project refusing, and
+    pinning is what stops it rendering a different film.
+
+    `plan_picture`'s per-asset cursor carries on from where the previous shot
+    left it, so what a shot shows depends on every shot *before* it. A
+    derivation drops the ones it cut, which empties that cursor — every
+    survivor then replays its asset from the head, and the reel's picture is
+    not the film's picture over the same seconds. It is the silent kind: the
+    frames are real, the projection is valid, `status` and `verify` and
+    `check_frames` all agree, and only a watch against the film says otherwise
+    (CLAUDE.md; HISTORY.md § The teaser, re-cut).
+
+    So the in-points are read off the film's own plan and written onto the
+    survivors, which is exactly what `src_start` means — somebody asked for
+    *that* moment — and what makes `plan_picture` refuse rather than rewind
+    them. Stills are left alone: a card is a held frame with no playhead, and
+    `plan_picture` refuses a pin on one.
+
+    A refusal from the film's own projection comes back as a string rather
+    than raising. A film that cannot project shots cannot be exported either,
+    so the reel is not made newly wrong by deriving from one — but it is the
+    reason its cues arrive unpinned, and that has to be said rather than
+    inferred from an empty list.
+    """
+    rate = _export_fps(_clips_by_id(project))
+    try:
+        shots, _ = _picture_plan(project, rate)
+    except _PICTURE_REFUSALS as exc:
+        return {}, str(exc)
+    return {
+        (shot["clip_id"], shot["word_index"]): round(float(shot["src_start"]), 3)
+        for shot in shots
+        if not shot.get("is_image")
+    }, None
+
+
+def _reel_cue_table(
+    cues: list[dict[str, Any]],
+    orphans: list[dict[str, Any]],
+    pins: dict[tuple[str, int], float],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The derived cue table, and the in-points this derivation had to add.
+
+    An existing `src_start` is never overwritten: the film's plan agrees with
+    it by construction — a pinned shot has no cursor — so there is nothing to
+    add, and a cue somebody pinned by hand is the last thing a derivation
+    should be rewriting.
+    """
+    orphaned = {(cue["clip_id"], cue["word_index"]) for cue in orphans}
+    kept: list[dict[str, Any]] = []
+    pinned: list[dict[str, Any]] = []
+    for cue in cues:
+        key = (cue["clip_id"], cue["word_index"])
+        if key in orphaned:
+            continue
+        if cue.get("src_start") is None and key in pins:
+            cue = {**cue, "src_start": pins[key]}
+            pinned.append(
+                {
+                    "clip_id": cue["clip_id"],
+                    "word_index": cue["word_index"],
+                    "asset": cue["asset"],
+                    "src_start": cue["src_start"],
+                }
+            )
+        kept.append(cue)
+    return kept, pinned
+
+
 def reel(
     path: Path | str,
     dest: Path | str,
@@ -6816,6 +7022,13 @@ def reel(
     `cues_dropped` names the rest, and each one is a picture the reel will not
     have; without the pruning the derived project cannot project shots at all,
     since `build_shots` refuses the whole projection on one orphan.
+
+    **And every survivor is pinned to the in-point the film gave it**
+    (`_reel_cue_pins`), because the pruning empties `plan_picture`'s per-asset
+    cursor: unpinned, each survivor replays its asset from the head, which is
+    a different film at exit 0 with every check agreeing. `cues_pinned` names
+    them, and `pins_error` says why there are none where the film's own
+    projection refuses.
 
     Cards are re-authored at the end because they are the only project state a
     canvas change cannot re-derive (PLAN.md § Aspect swap, finding 5). A card
@@ -6864,6 +7077,12 @@ def reel(
     # Both resolved against the film, before anything is created, so a refusal
     # leaves nothing behind.
     orphans = _reel_orphan_cues(source, edit, start, end)
+    # Read off the film, because that is the only place the answer exists: the
+    # cursor `plan_picture` walks is emptied by the pruning above, so a
+    # survivor arriving unpinned replays its asset from the head
+    # (`_reel_cue_pins`).
+    pins, pins_error = _reel_cue_pins(source)
+    kept_cues, pinned = _reel_cue_table(source.read_manifest().get("cues", []), orphans, pins)
     # Checked here rather than left to `cut_by_time`, at the granularity a reel
     # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
     # is reported and never refused, which is `cut_by_time`'s own convention
@@ -6914,6 +7133,10 @@ def reel(
         # Each one is a picture the reel will not have, so they are named
         # rather than counted.
         "cues_dropped": orphans,
+        # And each of these is a picture the reel would have had from the
+        # wrong second. Named for the same reason.
+        "cues_pinned": pinned,
+        "pins_error": pins_error,
         "plan": bool(plan),
     }
     report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
@@ -6937,12 +7160,7 @@ def reel(
     try:
         manifest = source.read_manifest()
         manifest["name"] = name or reel_project.root.name
-        orphaned = {(cue["clip_id"], cue["word_index"]) for cue in orphans}
-        manifest["cues"] = [
-            cue
-            for cue in manifest.get("cues", [])
-            if (cue["clip_id"], cue["word_index"]) not in orphaned
-        ]
+        manifest["cues"] = kept_cues
         # Provenance, and the answer to the question a hand-made scratch copy
         # could not answer once already: which film is this, and which seconds
         # of it (HISTORY.md § The VO the project was holding). Additive and

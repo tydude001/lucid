@@ -1000,7 +1000,12 @@ def reel(
     footage. Descriptions and reframes come across unchanged and stay valid,
     because neither stores a timeline position. Cues come across only where
     the reel still has the word they hang on — read `cues_dropped`, which is
-    one entry per picture the reel will not have. Cards are
+    one entry per picture the reel will not have, and read it head-first: one
+    pruned just outside the kept span opens the reel on no picture at all.
+    Every surviving cue is **pinned** to the in-point the film gave it, since
+    dropping the others would otherwise make each one replay its asset from
+    the head — a different film with nothing reporting it. `cues_pinned` names
+    those, `pins_error` says why there are none. Cards are
     re-authored at the new canvas; read `cards_unrecorded` in the result,
     which names any that cannot be, and `over_platform_cap`, which says
     whether the result still runs longer than a vertical feed will take.
@@ -1153,6 +1158,17 @@ def reframe_coverage(
     carries `timeline_start`, where it plays in the film, since the fix is to
     go and look — `reframe_sheet` for that, then `reframe_detect` on the clip.
 
+    **`steps` is the mirror, and it is the one a viewer notices.** The walk
+    above asks which cuts have no window; this asks which windows have no cut —
+    a boundary *inside* one placement, where the frame travels sideways and the
+    picture does not change. It reads as an edit that is not there, and
+    coverage answers clean over it because nothing was held across anything.
+    Each carries `shift` (how far the frame moves, in source pixels) and
+    `nearest_cut`, which says whether the boundary missed a real cut narrowly
+    or sits in the middle of a take. Boundaries are scored against every
+    detected cut rather than the ones over `threshold`: a cut too weak to
+    demand a window still explains one.
+
     Needs no face detector, reads and never writes.
     """
     return ops.reframe_coverage(path, clip_id=clip_id, threshold=threshold)
@@ -1173,14 +1189,26 @@ def reframe_sheet(
     leaving out sits right beside it.
 
     Every placement the render shows — the picture lane's shots, or the edit's
-    own segments where there is no lane — sampled at three moments, the window
-    in force at that point in the source drawn in red and labelled with its
-    rect. Placements and not clips: one clip used seven times gets seven rows.
+    own segments where there is no lane — walked window by window, the window
+    in force drawn in red and labelled with its rect. Placements and not clips:
+    one clip used seven times reads seven stretches of itself.
+
+    **A row is a window shown, not a placement.** Three fixed fractions of each
+    placement missed 14 of the vertical cut's 55 windows, eight of them
+    hand-approved, because a window covering a small slice of a long placement
+    is one no round fraction lands in. Each placement is split at the
+    boundaries it crosses and each stretch sampled inside itself, so `moments`
+    are fractions of the window's own stretch.
 
     Returns the montage's path (under `cache/sheets/`, or `out`) and the table
-    behind it, `windows` per row being how many distinct windows that stretch
-    of footage crosses. Stills come back under `skipped` — a card is authored
-    at the canvas and never cropped, so it has no window to review.
+    behind it: `window` is the source address the rect is stored at — what
+    `reframe --src-start` takes to change it — and `windows` is how many the
+    whole placement crosses. Stills come back under `skipped`: a card is
+    authored at the canvas and never cropped, so it has no window to review.
+
+    A tile is evidence about an instant, not an approval of the span. A static
+    rect over a moving subject has a best moment and a sample can land on it,
+    so judge one against where the subject actually is.
     """
     return ops.reframe_sheet(path, out=out, moments=moments)
 

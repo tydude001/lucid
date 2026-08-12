@@ -352,10 +352,12 @@ in force. That naming lives only in the reply, so `reframe-coverage` asks the
 same of a project on disk: which placed seconds a camera cut has stranded under
 a window chosen before it. On the vertical cut that is 15.6s, three of the four
 stretches on one clip. It is scene cuts against stored geometry, so unlike
-`reframe-detect` it needs no face detector. It asks which *cuts have no
-window*, and nothing yet asks the mirror — which windows have no cut — so a
-boundary inside a continuous take steps the frame sideways and reads clean
-here; check that a clip is framed from its first shown frame by eye.
+`reframe-detect` it needs no face detector. It asks the mirror too, and that is
+the one a viewer notices: `steps` names each window boundary *inside* one
+placement where the frame moves and the picture does not — an edit that is not
+there. Each carries how far the frame travels and how near the closest picture
+change is, which is what separates a boundary that missed a real cut narrowly
+from a step in the middle of a take.
 
 `--pane` draws that window as a **stacked split** — two half-height panes, the
 rect on top and the pane below, each keeping about twice the width one crop
@@ -367,12 +369,13 @@ is rare on purpose: 4 of the 59 windows on the film it was measured against.
 `--at` is seconds into that clip's own source, so framing is per **shot**
 rather than per clip: a clip used seven times picks up whichever window each
 placement reads over, from one table. **Judge windows on `reframe-sheet`, never
-on a watch** — it draws them on three of each placement's own source frames,
-and a badly-placed window is invisible in motion because nothing in the frame
-contradicts it. It samples *placements*, though, so a window a placement only
-glances off gets no tile at all — 14 of the 55 on the vertical cut, eight of
-them hand-approved. Read a clean sheet as covering what it sampled, not the
-project.
+on a watch** — it draws every window on three of its own source frames, and a
+badly-placed window is invisible in motion because nothing in the frame
+contradicts it. A row is a *window shown* rather than a placement: sampling
+placements at fixed fractions never looked at 14 of the vertical cut's 55
+windows, eight of them hand-approved. A tile is still evidence about the
+instant it draws and a window is a claim about a span, so a static rect over a
+moving subject can pass on its best moment.
 
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders
@@ -395,10 +398,18 @@ film to take one render leaves it reshaped afterwards, and nothing reports that.
 Media is linked rather than copied, so a reel costs its manifest and its
 transcripts instead of its footage.
 
-Two things are reported rather than done quietly. `cues_dropped` names every cue
-whose word the reel cut — each one is a picture the reel will not have — and
-`suspect_edges` flags a kept edge landing on a word that likely hides a retake,
-which is the reel opening or closing on the wrong take.
+Three things are reported rather than done quietly. `cues_dropped` names every
+cue whose word the reel cut — each one is a picture the reel will not have —
+`cues_pinned` names the survivors it gave an in-point to, and `suspect_edges`
+flags a kept edge landing on a word that likely hides a retake, which is the
+reel opening or closing on the wrong take.
+
+The pinning is why a reel shows what the film showed. Which stretch of an asset
+a shot reads is decided by a cursor that walks from shot to shot, so dropping
+the shots before a survivor makes it replay its clip from the head instead —
+real frames, a valid projection, and a different film with nothing saying so.
+Each survivor is pinned to the in-point the film's own plan gave it; 2 of the
+4 that survived the Scream teaser's span needed one.
 
 To find the b-roll to cue in the first place, describe it:
 

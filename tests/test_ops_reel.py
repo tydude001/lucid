@@ -246,6 +246,152 @@ def test_the_derived_project_can_project_shots(film: Project, tmp_path: Path) ->
     assert shots["shots"], "the reel projects, which is what export needs"
 
 
+# -- and the quieter half: what a survivor shows once the others are gone --
+
+
+def _three_shots_of_one_clip(film: Project) -> None:
+    """A b-roll clip cued three times, which is where the cursor is visible.
+
+    `plan_picture` walks one cursor per asset, so the three shots read 0-6s,
+    6-9s and 9-12s of `broll` — a clip used three times showing three
+    stretches of itself, which is the whole point of the cursor.
+    """
+    real = film.root.parent / "footage" / "broll.mp4"
+    real.write_bytes(b"twenty seconds of hallway")
+    (film.media_dir / "broll.mp4").symlink_to(real)
+
+    manifest = film.read_manifest()
+    manifest["clips"].append(
+        {
+            "clip_id": "broll",
+            "source": "/tmp/broll.mp4",
+            "media": "media/broll.mp4",
+            "duration": 20.0,
+            "has_video": True,
+            "has_audio": False,
+            "width": 1920,
+            "height": 816,
+            "fps": 25.0,
+        }
+    )
+    manifest["cues"] = [
+        {"clip_id": "vo", "word_index": index, "asset": "broll"} for index in (2, 6, 9)
+    ]
+    film.write_manifest(manifest)
+
+
+def test_a_surviving_cue_is_pinned_to_the_in_point_the_film_gave_it(
+    film: Project, tmp_path: Path
+) -> None:
+    """The cursor `plan_picture` walks is per-asset and cumulative, so dropping
+    the cues a derivation cut empties it — and the survivors, which asked for
+    nothing, arrive reading their asset from the head."""
+    _three_shots_of_one_clip(film)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=5.0, end=11.0)
+    reel = Project.open(result["reel"])
+
+    assert [cue["word_index"] for cue in result["cues_dropped"]] == [2]
+    assert [(p["word_index"], p["src_start"]) for p in result["cues_pinned"]] == [
+        (6, 6.0),
+        (9, 9.0),
+    ]
+    assert [cue.get("src_start") for cue in reel.read_manifest()["cues"]] == [6.0, 9.0]
+    assert result["pins_error"] is None
+
+
+def test_the_reel_shows_what_the_film_showed_over_the_same_seconds(
+    film: Project, tmp_path: Path
+) -> None:
+    """The property the pinning exists for, stated against the two plans rather
+    than against the manifest: same asset, same seconds of it. Unpinned this
+    reel reads 0s and 4s of `broll` where the film read 6s and 9s — real
+    frames, a valid projection, and a different film at exit 0 with `status`,
+    `verify` and `check_frames` all agreeing (HISTORY.md § The teaser, re-cut).
+    """
+    _three_shots_of_one_clip(film)
+    film_shots, _ = ops._picture_plan(film, 25.0)
+    assert [shot["src_start"] for shot in film_shots] == [0.0, 6.0, 9.0], "the cursor walking"
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=5.0, end=11.0)
+    reel_shots, _ = ops._picture_plan(Project.open(result["reel"]), 25.0)
+
+    kept = {(shot["clip_id"], shot["word_index"]): shot for shot in film_shots}
+    for shot in reel_shots:
+        assert shot["src_start"] == kept[(shot["clip_id"], shot["word_index"])]["src_start"]
+    assert [shot["src_start"] for shot in reel_shots] == [6.0, 9.0], "not 0.0 and 4.0"
+
+
+def test_a_cue_pinned_by_hand_is_left_alone(film: Project, tmp_path: Path) -> None:
+    """A pinned shot has no cursor, so the film's plan agrees with the pin by
+    construction and there is nothing to add — and a hand-chosen in-point is
+    the last thing a derivation should be rewriting."""
+    _three_shots_of_one_clip(film)
+    manifest = film.read_manifest()
+    manifest["cues"][1]["src_start"] = 12.0
+    film.write_manifest(manifest)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=5.0, end=11.0)
+    reel = Project.open(result["reel"])
+
+    assert [p["word_index"] for p in result["cues_pinned"]] == [9], "only the one asking for nothing"
+    # 15.0 rather than 9.0: the hand pin moved the cursor the third shot picks
+    # up, so what the film showed there moved with it. Read off the plan, not
+    # off the cue table, which is why this is not the pin arithmetic repeated.
+    assert [cue.get("src_start") for cue in reel.read_manifest()["cues"]] == [12.0, 15.0]
+
+
+def test_a_still_is_not_pinned(film: Project, tmp_path: Path) -> None:
+    """A card is a held frame with no playhead to move, and `plan_picture`
+    refuses a pin on one rather than ignoring it — so writing one here would
+    make the reel unrenderable to fix a problem stills do not have."""
+    film.cards_dir.mkdir(parents=True, exist_ok=True)
+    (film.cards_dir / "title.png").write_bytes(b"a card")
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+
+    assert result["cues_pinned"] == []
+    assert "src_start" not in reel.read_manifest()["cues"][0]
+    assert ops.build_shots(reel.root)["shots"], "and it still projects"
+
+
+def test_a_film_that_cannot_project_says_so_rather_than_pinning_silently(
+    film: Project, tmp_path: Path
+) -> None:
+    """A film that cannot project shots cannot be exported either, so the reel
+    is not made newly wrong by deriving from one. But it is why its cues arrive
+    unpinned, and an empty list alone would read as "nothing needed one"."""
+    _three_shots_of_one_clip(film)
+    manifest = film.read_manifest()
+    manifest["clips"][1]["duration"] = 2.0
+    film.write_manifest(manifest)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=5.0, end=11.0)
+
+    assert result["cues_pinned"] == []
+    assert result["pins_error"] and "broll" in result["pins_error"]
+    assert [cue.get("src_start") for cue in Project.open(result["reel"]).read_manifest()["cues"]] == [
+        None,
+        None,
+    ]
+
+
+def test_plan_names_the_pins_and_creates_nothing(film: Project, tmp_path: Path) -> None:
+    """Same convention as `cues_dropped`: both are resolved against the film
+    before anything is created, so the plan is the answer rather than a guess
+    at it."""
+    _three_shots_of_one_clip(film)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=5.0, end=11.0, plan=True)
+
+    assert [(p["word_index"], p["src_start"]) for p in result["cues_pinned"]] == [
+        (6, 6.0),
+        (9, 9.0),
+    ]
+    assert not (tmp_path / "teaser").exists()
+
+
 def test_the_reel_records_where_it_came_from(film: Project, tmp_path: Path) -> None:
     """The question a hand-made scratch copy could not answer once already:
     which film is this, and which seconds of it (HISTORY.md § The VO the
