@@ -5684,3 +5684,80 @@ making it a libass query is a design change, not a fix.
 
 `Outfit` is the one that needed none of this: a single pick,
 `Outfit[wght].ttf` instance 458752 as `Outfit-Bold`, no fallback line at all.
+
+## The end card, and what tail time actually costs — 2026-08-12
+
+Tyler asked whether the essay should get an end card the way the teaser got a
+bumper. It should, and `goodsometimes/pipeline.md` § Package already had
+**"End screen added"** unchecked with `scripts/make_outro_card.py` written for
+this exact video — never run, no `outro.png` anywhere on disk.
+
+**It is not the teaser's bumper.** B reads "the full Scream essay / on the
+channel", which points at the thing you would already be watching. And the
+register runs the other way here: `branding.md` rule 10 has the trajectory
+going Hereditary → Sicario, which "ends by ceding the floor to the final
+scene. No CTA." The teaser broke that deliberately on the grounds a teaser has
+no other job; the essay is where it was meant to hold. So the card is
+**bumper A's register** at 16:9 — mark, rule, tagline, no CTA.
+
+### The house end screen is the wrong shape, and scaling it is the wrong fix
+
+1920x1080 against an 816-tall frame, which MLT `contain`s — the same defect
+that had all twelve Scream cards drawing 1450 wide until the morning of the
+same day. `make_endcard.py` authors at the canvas instead.
+
+Its subscribe circle does not survive the shape change either, and not by a
+scale factor. YouTube positions its own Subscribe element against the **16:9
+player**, and 816-tall content is letterboxed inside that player by
+`(1080 - 816) / 2 = 132`. So the house circle at player `(555, 660)` lands at
+content `(555, 528)` — 96px from where scaling 1080 → 816 would put it. The
+card therefore draws **no guide at all** and is *sized* to leave the spot
+clear: the lockup width is derived from the circle's right edge, not chosen by
+eye. Two layout defects fell out of that check rather than out of a look — the
+first attempt put the tagline 63px below the bottom edge (the house wordmark
+size of 170 does not carry to a frame with 264 fewer pixels of height), and
+the lockup sat inside the subscribe zone.
+
+### Tail time is cheaper than `vo_extend`, and the cue table is what costs
+
+PLAN.md § Parked frames runtime-after-the-last-word as `vo_extend`, the item
+that "touches `Edit`'s subtractive invariant". For an end card it does not.
+Appending real silence to `media/vo.wav` and raising the clip's registered
+duration makes the new tail an ordinary **gap**, and `restore` — already
+bounded by `Edit.gaps` — brings it onto the timeline. The invariant never
+bends, because the recording genuinely got longer. `vo_extend`'s actual
+subject is material the source *never had*, and that stays parked.
+
+What costs is addressing. **Cues are `(clip_id, word_index)` and resolve
+through the transcript; there is no word in six seconds of silence.** Cueing
+on the last available word is not a workaround:
+
+| word | text | source | why not |
+|---|---|---|---|
+| 1148 | `Thank` | 490.0–491.4 | whisper swallowed "you" into it — the card would come up **1.4s early**, over the sign-off |
+| 1149 | `you.` | 491.4–491.4 | zero-width; `build_shots`' overlap test refuses it, correctly |
+
+And **faking a transcript word in the silence is worse than it looks**:
+`verify` diffs the render's own transcription against the timeline's words, so
+an invented word would make this film's verification permanently report a
+miss. The honest shape is a cue addressed by **source time** instead of word
+index — the same `timeline_span` resolution, the same survival across cuts,
+minus the transcript lookup — which touches `cue_add`/`cue_rm`/`cue_ls`/
+`_cue_echo`/`build_shots`, the CLI, the MCP server, the window's cue lane and
+their tests.
+
+### So it was watched before it was built
+
+PLAN.md § Parked says the case for tail time "is editorial — decide on a
+watch". `make_endcard_proof.py` puts the card on the *finished render* with
+ffmpeg — 1s crossfade off the last shot, 5s hold — so the editorial question
+is answerable before the cue model changes. **The file is a proof, not a cut,
+and the lucid project still ends at "Thank you."**
+
+Checked rather than assumed: 8208 frames against 8064 (+144 = 6.006s at
+23.976), the card's own ink `(24,22,18)` at both frame edges through the hold,
+tail audio at **-91 dB** (digital silence) with the sign-off still at -10.2 dB
+peak immediately before it. One real trap on the way: `fps=24000/1001` sets
+the frame *rate* and leaves the timebase at `1001/24000`, where the render's
+own is `1/24000` — `xfade` refuses mismatched timebases rather than guessing,
+so both inputs need an explicit `settb`.

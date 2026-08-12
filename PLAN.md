@@ -512,12 +512,9 @@ layer). What that needed was a second element in `#viewer`, not a transcode —
 every piece of the Scream footage is already `avc1`/`yuv420p`.
 
 The wiki row's other half, **a playable proxy for footage a browser cannot
-decode**, is still open and is now the smaller thing: an unplayable asset
-explains itself in the viewer (`hev1`, 10-bit, an unopenable container, an
-undecodable audio track — each named), it just does not play. Building the
-transcode wants a design note first for the same reason everything else here
-does: it is a *job*, not a request — `cold-open` is 730s — so it needs the
-`/api/render` background pattern, a cache key, and an eviction rule.
+decode**, shipped 2026-08-11 — with the containment that makes it safe being
+that `media_path()` has no branch for a proxy, so `export` cannot reach one.
+HISTORY.md § The preview proxy.
 
 ### Parked — deliberately, with the reasoning
 
@@ -526,7 +523,14 @@ does: it is a *job*, not a request — `cold-open` is 730s — so it needs the
   invariant, it is the same operation as inserting a hold to unblock
   Billy/Stu without a re-record, and the case for it is editorial — decide on
   a watch, after the six steps land. Constraints it inherits: HISTORY.md
-  HISTORY.md § `cut_by_time`, at *the `vo_extend` mirror*.
+  § `cut_by_time`, at *the `vo_extend` mirror*.
+  - **Its subject is material the source never had, and that is narrower than
+    "runtime after the last word."** Tail time for an end card is not this
+    item: append real silence to the recording, raise the clip's registered
+    duration, and `restore` walks it onto the timeline already bounded by
+    `Edit.gaps` — the invariant never bends. What that costs instead is a cue
+    the *cue table cannot express*, because cues resolve through the
+    transcript and silence has no word. HISTORY.md § The end card.
 - **Energy-snapping cut edges** — measured non-urgent on Scream-like
   material; the failures that looked like drift were transcript infidelity,
   addressed instead by the near-duplicate and suspect-duration checks
