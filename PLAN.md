@@ -531,6 +531,13 @@ HISTORY.md § The preview proxy.
     `Edit.gaps` — the invariant never bends. What that costs instead is a cue
     the *cue table cannot express*, because cues resolve through the
     transcript and silence has no word. HISTORY.md § The end card.
+    - **The teaser is the harder case and the one that has already cost
+      something.** It ends on live VO rather than a sign-off, so there is no
+      silence to append to and the tail must be manufactured as well as
+      addressed. And because the bumper goes on downstream of `export`, every
+      re-derivation drops it at exit 0 with nothing reporting the loss — which
+      is what makes this a shipping cost rather than a modelling one.
+      HISTORY.md § The bumper the teaser never had.
 - **Energy-snapping cut edges** — measured non-urgent on Scream-like
   material; the failures that looked like drift were transcript infidelity,
   addressed instead by the near-duplicate and suspect-duration checks

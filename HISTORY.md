@@ -5963,3 +5963,57 @@ invisibly (§ The auto-framing detector, built). And the same wrong rect is
 still in `~/lucid-vertical/proj` at `src_start` 0.5012, because the teaser
 inherited its framing from that cut; the teaser was re-rendered and the
 vertical was not.
+
+## The bumper the teaser never had — 2026-08-12
+
+Tyler watched the reframed teaser and asked why the bumper had been dropped.
+Nothing dropped it. The bumper only ever existed in the **hand** teaser of
+2026-08-10 (`~/lucid-final-cut/teaser.mp4`, 45.837s), assembled outside lucid;
+v2 and v3 are `lucid reel` derivations and have never had one. Which is the
+answer to the question he asked, and not the interesting part.
+
+**The teaser is a strictly harder case than the essay's end card**, and § The
+end card's reasoning does not carry to it unchanged. That item's escape was to
+append real silence to `media/vo.wav`, raise the clip's registered duration and
+let `restore` walk the new tail on — the film ends on "Thank you." with room
+after it. The teaser ends on live VO at **-9.9 dB peak in its final second**:
+there is no silence, and the last word is not a sign-off but the middle of the
+argument. So the tail would have to be manufactured *and* addressed, and the
+addressing is the same cue-by-source-time work PLAN.md § Parked already prices.
+
+So the same shape as the essay's proof — `make_teaser_bumper_proof.py`, ffmpeg
+over the finished render, **and the lucid project still ends on the last word.**
+The treatment is measured off the hand cut rather than chosen, because that is
+the version that was approved: footage to 43.710, a 4-frame dissolve, then the
+card alone to 45.837. Verified by readback rather than assumed — the card
+intact at 1080x1920, audio under it at -91 dB against the -9.9 dB immediately
+before, and bumper **B**, since the teaser is the one place the no-CTA rule was
+broken deliberately.
+
+**The arithmetic trap is that the dissolve overlaps the film's own last frames
+rather than following them.** `xfade` at `offset = DUR - FADE` finishes the
+transition exactly at `DUR`, so the tail length passed to it is the time the
+card holds *alone*; adding the fade to it on the way in runs the bumper long.
+Four frames, caught by measuring the render and not by reading the filter.
+
+**And a derivation cannot inherit a finishing pass.** The bumper is applied
+downstream of `export`, so re-deriving the teaser — the exact thing that
+happened between the hand cut and v2 — silently produces a cut without one, at
+exit 0, and nothing in `status`, `verify` or `check_frames` has an opinion.
+That is the real cost of leaving tail time parked, and it is a shipping-level
+loss rather than a modelling one.
+
+### The reference on the review page had no bumper either
+
+The page served three cuts, one of them labelled "Hand-built, 2026-08-10 — 15
+shots". It was not: it was a later render of a different edit (18 detected
+scene changes against the hand cut's 15, and 44.522s against 45.837), and it
+had no bumper. So when he went looking for the thing he remembered, **nothing
+on the page had it, including the control** — and the question came back as
+"why did you drop it" rather than "which of these is right", which is a
+different and much slower question to answer.
+
+A review page's reference is load-bearing exactly when the reader is checking a
+memory against it, which is the case nobody labels carefully because the
+reference is the part that is not being asked about. Settle a served control by
+its own measurement — duration, shot count — not by its filename.
