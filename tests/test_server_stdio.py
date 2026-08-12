@@ -1758,7 +1758,7 @@ def test_a_stored_style_reaches_the_ass_file_and_survives_a_cut(
     assert out["read_back"]["stored"] == out["styled"]["stored"]
     assert out["read_back"]["written"] is False, "reading is not a mutation"
 
-    assert "Style: lucid,DejaVu Sans,80," in text
+    assert "Style: lucid,Outfit,80," in text
     assert "\\k" in text, "karaoke survived the cut that followed the restyle"
     # SecondaryColour is the *unspoken* colour — the swap this layer exists for.
     assert out["view"]["style"]["ass"]["text"] == "&H0000D4FF"

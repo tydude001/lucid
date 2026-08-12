@@ -279,6 +279,16 @@ installed package or the upstream repo, not your memory.
       a bold *flag*, unmeasured here). **Settle which face draws by measuring a
       render, never by `fc-match`.** HISTORY.md § The emphasis-capable quote
       slot.
+    - That rule is not a caution, it is a **disagreement**: `font_match` asks
+      fontconfig and libass asks something else, so a clean `resolves_to` is
+      not a claim about the burn. Two styles `fc-match` calls identical render
+      3593 RMSE apart here, because libass's first pick for `Noto Sans` on this
+      box is a **Nerd Font symbol face** and it only reaches the real one by
+      failing to find `E` — the Latin glyphs then agree and the primary font
+      still supplies the space advance. `ffmpeg -v verbose` prints every
+      `fontselect` line; a caption font that resolves in one pick with no
+      fallback is the only kind that has been settled. HISTORY.md § The
+      approvals round, answered.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
   input.** `-size` is a vector render and **fits, never distorts**; `-resize`
   after the input resamples the pixels and wrecks text, so `render_svg` has no

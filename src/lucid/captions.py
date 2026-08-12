@@ -257,19 +257,26 @@ class Preset:
     karaoke: bool
 
 
-#: Deliberately small (PLAN.md). DejaVu Sans is the default because it ships
-#: with most Linux distributions — libass silently substitutes a missing font,
-#: so a fancier default would render differently per machine.
+#: Deliberately small (PLAN.md). The font was `DejaVu Sans` on the reasoning
+#: that it ships with most Linux distributions, so a fancier default could not
+#: render differently per machine. **Bazzite does not ship it** — `fc-match
+#: "DejaVu Sans"` answers `Noto Sans` — so the safe-looking default was the
+#: one font on this box guaranteed to be a substitution, and every caption
+#: lucid ever burned here drew in a face nobody chose.
 #:
-#: **That reasoning does not hold on this box, and the check below is why it is
-#: now reported rather than assumed.** Bazzite ships Noto, not DejaVu:
-#: `fc-match "DejaVu Sans"` answers `Noto Sans`, so every caption lucid has
-#: burned here was drawn in a font nobody chose. `font_match` is what makes
-#: that visible instead of silent — it is not fixed by changing this table,
-#: because the same substitution can happen to any font on any other machine.
+#: Tyler settled it 2026-08-12 (~/lucid-approvals item 07): install the faces
+#: we want rather than name whatever happens to resolve. `Outfit` is the brand
+#: face for "tagline, titles, labels" (goodsometimes/branding.md § Type) and it
+#: is installed here, so captions now match the cards drawn beside them.
+#:
+#: **Naming an installed font does not make substitution impossible**, on
+#: another machine or on this one after a font is removed — `font_match` is
+#: still what makes it visible instead of silent, and which face actually drew
+#: is still settled by measuring a render, never by `fc-match`.
+CAPTION_FONT = "Outfit"
 PRESETS: dict[str, Preset] = {
     "clean": Preset(
-        font="DejaVu Sans",
+        font=CAPTION_FONT,
         size=64,
         primary="&H00FFFFFF",
         secondary="&H00FFFFFF",
@@ -284,7 +291,7 @@ PRESETS: dict[str, Preset] = {
         karaoke=False,
     ),
     "karaoke": Preset(
-        font="DejaVu Sans",
+        font=CAPTION_FONT,
         size=64,
         primary="&H0000C8FF",
         secondary="&H00FFFFFF",
@@ -299,7 +306,7 @@ PRESETS: dict[str, Preset] = {
         karaoke=True,
     ),
     "boxed": Preset(
-        font="DejaVu Sans",
+        font=CAPTION_FONT,
         size=56,
         primary="&H00FFFFFF",
         secondary="&H00FFFFFF",

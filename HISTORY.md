@@ -5611,3 +5611,76 @@ The frame of tolerance is load-bearing here for the reason § The thirty-nine
 windows recorded from the other side, and a test pins it: ffmpeg reports a cut
 where the manifest holds a number 33µs away, and an exact match reports stale
 stretches that are not.
+
+## The approvals round, answered — 2026-08-12
+
+Ten calls in `~/lucid-approvals/`, all answered on the phone in three minutes.
+Two of them changed what gets built rather than how, and the record of what was
+chosen is `decisions.json` beside the page — this is only what shipped off the
+back of it.
+
+**The one that reorders the queue is a note, not a choice.** Against the vertical
+cut Tyler picked "needs another pass" and wrote: *I don't need a full vertical
+cut like this — I only need the teaser that we're making.* § The hand-framed
+teaser, watched had already recorded the reason without drawing the conclusion:
+Shorts and Reels cap at 3:00 and the film is 5:36, so **a teaser is the only
+vertical output that can reach the feed at all** and the 5:36 vertical was never
+distributable. The teaser answer then routes it through `lucid reel`. So the
+per-shot framing coverage numbers — 15.557s stale at the 0.20 floor, 68.738s at
+0.15 — are sized against a cut nobody will publish; what has to hold is the
+teaser's own shots. The framing rects survive the derivation for free, because a
+window is addressed in *source* seconds and no edit can invalidate one.
+
+### Every card in the film was the wrong shape, and nothing said so
+
+The quote trims were the item; the finding was underneath it. The twelve cards
+in `~/lucid-final-cut/proj/assets/cards/` were all **1920x1080 against a
+1920x816 canvas**. MLT `contain`s a still, so each drew shrunk to 1450 wide with
+bars either side — for as long as the essay has existed. Nothing reported it:
+the cards are assets, not clips, so no `width`/`height` sat in the manifest to
+disagree with the canvas, and the project held **zero card records**, which is
+the state § The card record calls unrecoverable-by-anything.
+
+Both overrunning quotes fit at the picked trims — `receipt-scream-1996` at B
+(3 lines of the box's 3, was 4) and `receipt-scream4-2011` at A (2, was 6) — and
+authoring all twelve into the film itself rather than copying records across is
+what fixed the shape and the missing records in one pass, because `card new`
+records `(template, slots, canvas, variant)` as it draws and defaults the canvas
+to `_mlt_resolution`. 12/12 at 1920x816, 12 records, projection still builds:
+38 shots, 13 card placements, no refusal.
+
+**The render on disk is still the old one.** v7 carries the pillarboxed cards,
+so nobody has yet watched the cards that are now on disk — the same shape as
+§ The film had no captions in it, where a manifest, a view and a check all
+agreed about something the file did not have.
+
+### `fc-match` is not what libass asks
+
+Captions moved off `DejaVu Sans`, which is not installed here and drew as Noto
+Sans in every caption lucid ever burned, onto `Outfit` — the brand face for
+"tagline, titles, labels" (`goodsometimes/branding.md` § Type), installed, and
+the face the cards' own meta lines use.
+
+Settled by render, per the standing rule. At 64pt the same line inks 768x78 in
+Outfit against 679x71 in Noto Sans, RMSE 4740 between them and 0 against a
+re-render of itself, so Outfit is genuinely drawing and not substituting.
+
+**Then the control misbehaved, and the reason is worth more than the change.**
+A deliberately missing family and `Noto Sans` both answer `NotoSans-Regular` to
+`fc-match` — and render **3593 RMSE apart at identical weight**, 613 against 599
+ink px. libass's own trace says why: for the literally-correct name `Noto Sans`
+its *first* pick on this box is `SymbolsNerdFont-Regular.ttf`, and it only
+reaches `NotoSans-Regular` by failing to find glyph 0x45 and falling back; the
+missing family lands on `NotoSansArabic` first and falls back the same way. The
+Latin glyphs then match, but the primary font still supplies the space advance,
+which is the 14px.
+
+So the rule "settle which face draws by measuring a render, never by `fc-match`"
+has a mechanism now, and a sharper consequence: **`font_match` reports
+fontconfig's answer, which is not the question libass asked.** It reported
+`resolves_to: Outfit`, correctly — and it would have reported `Noto Sans` for
+`Noto Sans` on a box where libass drew a symbol font. Left as is deliberately;
+making it a libass query is a design change, not a fix.
+
+`Outfit` is the one that needed none of this: a single pick,
+`Outfit[wght].ttf` instance 458752 as `Outfit-Bold`, no fallback line at all.
