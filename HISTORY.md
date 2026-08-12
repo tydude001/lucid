@@ -6078,20 +6078,40 @@ What it finds on the shipped work, which is the reason it is worth having:
 | Project | boundaries that move the frame | with a cut | without |
 |---|---|---|---|
 | `~/lucid-teaser/proj` (re-cut, watched twice) | 13 | 12 | **1** |
-| `~/lucid-vertical/proj` (55 windows) | 48 | 33 | **15** |
+| `~/lucid-vertical/proj` (55 windows) | 33 | 31 | **2** |
 
-The teaser's one is `s4-reveal` at src 7.343 — a **410px** step at 32.5s of a
-44s cut, nearest picture change 1.25s away scoring 0.078. Coverage on that
-project is otherwise clean: 0 unframed cuts, 0 stale seconds.
+**The vertical's number was 15 until the findings were looked at, and 13 of
+those were this file's own trap for the third time in one build.** A window
+placed *at* a shot boundary is the normal case — it is what `reframe_detect`
+writes — and the placement's `src_start` is computed while the window's is a
+rounded manifest value, so the two sit ~1e-7 apart and `start < at < end`
+called every one of them an interior boundary. The same frame of tolerance had
+already been written twice in the same session, once in `reframe_coverage`'s
+older half and once in the sheet, and was still missing here. What gave it away
+was the drawn evidence and not the number: `vi-richie`'s "before" window was
+holding empty background a frame before the boundary, which is not what a step
+looks like — it is what a *different placement's* window looks like.
 
-**And the fifteen split into two kinds, which the numbers say and the eye
-would not.** Five sit within 0.6s of a change scoring 0.15–0.18 — under the
-0.20 floor, so no window was demanded and one was placed anyway. That is
-`SCENE_THRESHOLD` showing up from the other side: the same open re-pin, now
-with evidence that does not depend on sampling frames either side of a
-candidate. The rest sit 1.9s to 11.1s from anything, and those are steps in the
-middle of a take with nothing to appeal to. Worst is `vi-richie` at src 10.427,
-**512px**, and `cold-open` carries four of them.
+**The two that survive are the two a watch had already found**, which is the
+only control available for a check nobody can run twice:
+
+- `s1996-billy-stu` at src 0.501 — a 146px move *left* on a continuous take of
+  Stu, whose face sits at 666 then 651. It makes the frame worse, and it is
+  § The tile that made a wrong window look right's subject, still in the
+  vertical because the teaser was re-rendered and the vertical was not.
+- `s4-reveal` at src 7.343 — **410px, and it is in the shipped teaser** at
+  32.5s of 44s. This one is not a wrong window: Sidney crosses from 810 to
+  1154 over two seconds and the window steps to follow her, which is a
+  keyframed *move* (PLAN.md § Parked) rendered as discrete keyframes because
+  that is all lucid has. Both crops hold near-featureless dark at the boundary
+  itself, which is the only thing softening it. A watch decides this one.
+
+**And the `SCENE_THRESHOLD` reading was wrong too, in the safe direction.**
+Five of the fifteen sat within 0.6s of a change scoring 0.15–0.18 and read as
+the floor missing a cut. Scored at the boundary itself with no floor at all,
+every one of the fifteen is between 0.0016 and 0.0134 — the picture is
+continuous at all of them, and the nearby sub-threshold change is a *different*
+instant that happens to be nearby. `steps` says nothing about the re-pin.
 
 ### The sheet's unit is a window
 

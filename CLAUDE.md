@@ -512,14 +512,18 @@ installed package or the upstream repo, not your memory.
           viewer notices** — a boundary inside a continuous take steps the
           frame sideways and reads as an edit that is not there, while the
           stale walk answers clean because nothing was held *across* a cut.
-          `steps` (13 boundaries on the teaser, 1 unaccounted; 48 and 15 on the
+          `steps` (13 boundaries on the teaser, 1 unaccounted; 33 and 2 on the
           vertical) carries `shift` in source pixels and `nearest_cut`. **The
           two directions score against different cut lists on purpose**: a cut
           must reach `threshold` to *demand* a window and only be detected to
           *explain* one, or a boundary sitting on a real 0.15 cut is reported
-          as a defect. Read the gap — under ~0.6s from a 0.15–0.18 change is
-          the `SCENE_THRESHOLD` re-pin wearing a different hat, seconds from
-          anything is a real step. HISTORY.md § The three gaps, closed.
+          as a defect. **Interior takes a frame of tolerance** — a window
+          placed at a shot boundary is the normal case and sits ~1e-7 from the
+          placement's own start, which made 13 false findings of 15. **And a
+          near sub-threshold cut is not evidence of a missed one**: scored at
+          the boundary with no floor, all fifteen were 0.002–0.013, so the
+          nearby change was a different instant. HISTORY.md § The three gaps,
+          closed.
     - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
       cut with no window is one the framing walks through, so the floor's miss
       rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are

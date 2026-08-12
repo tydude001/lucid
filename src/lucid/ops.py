@@ -4874,7 +4874,16 @@ def reframe_coverage(
 
         # The mirror. Only boundaries *inside* the placement: one at either
         # edge is a frame change the timeline's own cut already explains.
-        for at in [edge for edge in boundaries if start < edge < end]:
+        #
+        # **And "inside" takes the same frame of tolerance everything else
+        # here does.** A window placed at a shot boundary is the normal case —
+        # it is what `reframe_detect` writes — and the placement's own
+        # `src_start` is computed while the window's is a rounded manifest
+        # value, so they sit ~1e-7 apart and a strict comparison calls every
+        # one of them an interior boundary. Measured before this line existed:
+        # 13 of 15 findings on the vertical cut were that, and the two real
+        # ones were the two a watch had already found.
+        for at in [edge for edge in boundaries if start + same_window < edge < end - same_window]:
             before = entry.crop_at(at - same_window)
             after = entry.crop_at(at)
             was_split = entry.pane_at(entry.window_start(at - same_window))

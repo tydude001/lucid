@@ -272,6 +272,28 @@ def test_a_window_boundary_inside_a_continuous_take_is_a_step(project: Project) 
 
 
 @needs_ffmpeg
+def test_a_boundary_within_a_frame_of_a_placement_edge_is_not_a_step(
+    project: Project,
+) -> None:
+    """A frame of tolerance, never an epsilon — and this one is not academic.
+
+    A window placed *at* a shot boundary is the normal case; it is what
+    `reframe_detect` writes. The placement's `src_start` is computed and the
+    window's is a rounded manifest value, so the two sit ~1e-7 apart and a
+    strict comparison calls every such window an interior boundary. On the
+    vertical cut that was 13 of 15 findings, and the 2 that survived the
+    tolerance were the 2 a watch had already found.
+    """
+    ops.reframe(project.root, "clipa", rect=RECT)
+    ops.reframe(project.root, "clipa", rect=LEFT, src_start=8.0 - 1e-7)
+
+    result = ops.reframe_coverage(project.root)
+
+    assert result["steps_seen"] == 0, "the placement ends there; nothing plays after it"
+    assert result["steps"] == []
+
+
+@needs_ffmpeg
 def test_a_boundary_the_picture_accounts_for_is_not_a_step(project: Project) -> None:
     """The clean case. A window at a camera cut is the frame moving because the
     picture did, which is the whole point of framing per shot."""
