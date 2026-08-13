@@ -17,10 +17,11 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from lucid import ops
+from lucid import faces, ops
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.project import Project, ProjectError
@@ -272,3 +273,173 @@ def test_the_edits_own_track_is_sheeted_when_there_is_no_picture_lane(
 def test_moments_outside_a_placement_are_refused(project: Project) -> None:
     with pytest.raises(ProjectError, match="fractions of a placement"):
         ops.reframe_sheet(project.root, moments=[0.5, 1.5])
+
+
+def _face(centre: float, *, width: float = 120.0) -> dict[str, Any]:
+    """One plausible box, centred where the caller wants the subject."""
+    return {
+        "box": [centre - width / 2, 120.0, centre + width / 2, 400.0],
+        "score": 0.9,
+    }
+
+
+def _stub_detector(monkeypatch: pytest.MonkeyPatch, answer: Any) -> list[dict[str, Any]]:
+    """Stand in for the detector and hand back the jobs it was asked for.
+
+    `test_ops_reframe_detect.py`'s helper, for its reason: insightface lives in
+    another interpreter and what a box *means* is measured in
+    `test_framing_control.py`. What is under test here is which frames get
+    drawn, and the captured jobs are how that gets asserted.
+    """
+    seen: list[dict[str, Any]] = []
+
+    def fake_detect(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen.extend(jobs)
+        out = []
+        for job in jobs:
+            got = answer(job)
+            if isinstance(got, str):
+                out.append({"index": job["index"], "error": got})
+            else:
+                out.append(
+                    {
+                        "index": job["index"],
+                        "frames": [{"ts": ts, "faces": got(ts)} for ts in job["timestamps"]],
+                    }
+                )
+        return out
+
+    monkeypatch.setattr(
+        faces,
+        "available",
+        lambda: {"available": True, "python": "/stub", "model": "x", "why": None},
+    )
+    monkeypatch.setattr(faces, "detect", fake_detect)
+    return seen
+
+
+@needs_tools
+def test_extremes_draws_the_subjects_ends_worst_tile_first(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of the mode: a static rect over a moving subject has a worst
+    moment, and three fixed fractions have no reason to find it. The crop does
+    not move inside a stretch, so the worst moment is at one of the subject's
+    own ends — leftmost or rightmost — which is what makes these three the
+    right three rather than merely a denser sampling."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    # A subject walking right across the stretch, so its ends are unambiguous
+    # and neither of them is where a round fraction lands.
+    _stub_detector(monkeypatch, lambda _job: lambda ts: [_face(200.0 + ts * 400.0)])
+
+    rows = ops.reframe_sheet(project.root, extremes=True)["rows"]
+
+    assert [sample["pick"] for sample in rows[0]["samples"]] == ["rightmost", "median", "leftmost"]
+    offsets = [abs(sample["offset"]) for sample in rows[0]["samples"]]
+    assert offsets == sorted(offsets, reverse=True), "worst first — a sheet is read left to right"
+    assert rows[0]["probe"] == "extremes"
+    assert rows[0]["worst_offset"] == max(sample["offset"] for sample in rows[0]["samples"])
+
+
+@needs_tools
+def test_the_probe_grid_includes_the_fixed_fractions(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**The measurement's own correction.** Probing at a rate finds the
+    extreme of the probed sample and not of the stretch, so a fraction landing
+    between two probes can catch a worse moment than any of them — it did on 5
+    of the teaser's 16 rows, by up to 29px, which is a sheet that changed its
+    sampling and got quietly worse. With the fractions in the grid the old
+    sheet is a subset of this one and that cannot happen."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    seen = _stub_detector(monkeypatch, lambda _job: lambda _ts: [_face(900.0)])
+
+    rows = ops.reframe_sheet(project.root, extremes=True)["rows"]
+
+    begin, span = rows[0]["src_start"], rows[0]["duration"]
+    asked = seen[0]["timestamps"]
+    for moment in ops.SHEET_MOMENTS:
+        when = begin + span * moment
+        assert any(abs(ts - when) < 1e-9 for ts in asked), f"fraction {moment} was not probed"
+
+
+@needs_tools
+def test_a_stretch_with_no_face_says_so_and_is_still_drawn(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fraction presented as an extreme is a tile claiming evidence it does
+    not have — the same failure as a refused window read as a centre crop. The
+    tiles are still drawn, because a window nobody can review is worse than one
+    reviewed without a subject number."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    _stub_detector(monkeypatch, lambda _job: lambda _ts: [])
+
+    rows = ops.reframe_sheet(project.root, extremes=True)["rows"]
+
+    assert rows[0]["probe"].startswith("no face in ")
+    assert rows[0]["located"] == 0
+    assert rows[0]["worst_offset"] is None
+    assert len(rows[0]["samples"]) == ops.SHEET_PICKS, "the montage is a fixed grid"
+    assert all(sample["subject_x"] is None for sample in rows[0]["samples"])
+    assert all(Path(sample["png"]).exists() for sample in rows[0]["samples"])
+
+
+@needs_tools
+def test_a_two_face_frame_is_flagged_beside_its_offset(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`frame_centre` is area-weighted across every face, so two faces put the
+    "subject" between them where neither is: the teaser's largest offset, 608px,
+    is Stu at 1079 averaged with a bystander at 1775. The number is kept — it is
+    the same subject rule the framing itself uses — and the count that explains
+    it travels with it."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    _stub_detector(monkeypatch, lambda _job: lambda _ts: [_face(400.0), _face(1600.0)])
+
+    rows = ops.reframe_sheet(project.root, extremes=True)["rows"]
+
+    assert rows[0]["multi_face"] is True
+    assert all(sample["faces"] == 2 for sample in rows[0]["samples"])
+
+
+@needs_tools
+def test_the_detector_failing_on_one_stretch_does_not_lose_the_others(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.cue_add(project.root, "vo", 1, "clipa")
+    _stub_detector(
+        monkeypatch,
+        lambda job: "seek failed" if job["index"] == 0 else (lambda _ts: [_face(900.0)]),
+    )
+
+    rows = ops.reframe_sheet(project.root, extremes=True)["rows"]
+
+    assert "seek failed" in rows[0]["probe"]
+    assert rows[0]["worst_offset"] is None
+    assert rows[1]["probe"] == "extremes"
+
+
+def test_extremes_and_moments_are_refused_together(project: Project) -> None:
+    """One replaces the other. A tuning argument silently ignored is how a run
+    reports fractions it never sampled."""
+    with pytest.raises(ProjectError, match="one or the other"):
+        ops.reframe_sheet(project.root, moments=[0.5], extremes=True)
+
+
+def test_extremes_refuses_before_decoding_when_there_is_no_detector(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`reframe_detect`'s rule: a missing interpreter is a refusal that should
+    arrive now rather than after ffmpeg has walked the film."""
+    monkeypatch.setattr(
+        faces,
+        "available",
+        lambda: {"available": False, "python": None, "model": None, "why": "no LUCID_FACE here"},
+    )
+    with pytest.raises(faces.FaceError, match="no LUCID_FACE here"):
+        ops.reframe_sheet(project.root, extremes=True)

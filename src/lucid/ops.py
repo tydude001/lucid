@@ -4106,6 +4106,175 @@ SHEET_TILE_WIDTH = 420
 #: is, and thick enough to read once the tile is 420px wide.
 SHEET_STROKE = "#ff3b3b"
 SHEET_LABEL = "#ffcc00"
+#: Tiles a row draws when it is sampled for the subject's extremes: leftmost,
+#: median, rightmost. Three because the montage is a fixed grid — a row with
+#: fewer tiles shifts every row after it, and a sheet whose rows do not line up
+#: mislabels the thing being reviewed.
+SHEET_PICKS = 3
+#: Probes per second of window when sampling for extremes. The detector costs
+#: ~0.48s a frame on this box's CPU build, measured at 3/12/36 frames, so a
+#: 245-second cut is about four minutes of probing — a price a review
+#: instrument pays once, and why this is opt-in rather than the default.
+SHEET_PROBE_HZ = 2.0
+#: The floor is `DETECT_FRAMES`, so the shortest window is asked the same three
+#: questions the detector asks of one. The ceiling keeps a long held shot from
+#: costing a minute on its own; a subject's extremes are where it turns, and
+#: sixteen looks find a turn that two do not.
+SHEET_PROBE_MIN = 3
+SHEET_PROBE_MAX = 16
+
+
+def _spread(values: list[float], count: int) -> list[float]:
+    """`count` items spaced evenly through `values`, in the order given.
+
+    For padding a row out to its tile count when the subject was located in
+    fewer probes than that: the leftovers still want to be spread across the
+    stretch rather than bunched at its head.
+    """
+    if count <= 0 or not values:
+        return []
+    if count >= len(values):
+        return list(values)
+    step = (len(values) - 1) / (count - 1) if count > 1 else 0.0
+    return [values[round(index * step)] for index in range(count)]
+
+
+def _sheet_extremes(
+    stretches: list[tuple[dict[str, Any], float, float, int]],
+    at: Sequence[float],
+) -> dict[int, dict[str, Any]]:
+    """Where the subject is extreme in each stretch, in one detector run.
+
+    **The half of the sheet's finding that drawing every window did not
+    close.** A tile is evidence about the instant it draws and a window is a
+    claim about a span, so three fixed fractions have no reason to find either
+    the best moment or the worst one — the teaser's opening window was 184px
+    out at its median and the one tile that landed inside it was 122px out,
+    which reads as tight and fine (HISTORY.md § The tile that made a wrong
+    window look right).
+
+    **The rect is static inside a stretch, so the worst moment is at one of the
+    subject's own extremes** — the error is `|subject_x - crop centre|`, which
+    is monotonic in `subject_x` either side of that centre. That is what makes
+    leftmost/median/rightmost the right three and not merely a denser sampling:
+    the worst moment is in them by construction, whatever the subject did in
+    between.
+
+    Probing does not decide anything and writes nothing. It picks *which
+    frames get drawn*, and the drawn frame is still what a window is judged on
+    — the same rule as `reframe_detect`, whose proposal is 114px out on a
+    459px window.
+
+    **The probe grid includes the fixed fractions, and that is a correction the
+    measurement made.** Probing at a rate finds the extreme of the *probed*
+    sample, not of the stretch, so a fraction landing between two probes can
+    catch a worse moment than any of them — on the teaser it did on 5 rows of
+    16, by up to 29px, which is a sheet that changed its sampling and got
+    quietly worse. Sampling the fractions too costs at most three extra frames
+    a row and makes the old sheet a subset of this one, so the drawn moment is
+    never worse than the moment the default would have drawn.
+
+    Returns the picks per row, plus the numbers behind them. A stretch where no
+    probe held a face comes back **named** rather than quietly sampled the old
+    way: a fraction presented as an extreme is a tile claiming evidence it
+    does not have.
+    """
+    jobs: list[dict[str, Any]] = []
+    probes: dict[int, list[float]] = {}
+    for row, (placement, begin, finish, _crossed) in enumerate(stretches):
+        entry = placement["reframe"]
+        if entry is None or entry.crop_at(begin) is None:
+            continue  # No geometry, so no rect to be extreme against.
+        count = min(SHEET_PROBE_MAX, max(SHEET_PROBE_MIN, round((finish - begin) * SHEET_PROBE_HZ)))
+        times = sorted(
+            {
+                *dsc.frame_times(begin, finish, count),
+                *(begin + (finish - begin) * moment for moment in at),
+            }
+        )
+        probes[row] = times
+        jobs.append({"index": row, "media": str(placement["path"]), "timestamps": times})
+
+    detections = {result["index"]: result for result in faces.detect(jobs)}
+
+    found: dict[int, dict[str, Any]] = {}
+    for row, times in probes.items():
+        placement, begin, _finish, _crossed = stretches[row]
+        crop = placement["reframe"].crop_at(begin)
+        middle = crop[0] + crop[2] / 2
+        answer = detections[row]
+        note: str | None = None
+        located: list[tuple[float, float, int]] = []  # (subject_x, src_time, faces)
+        if "error" in answer:
+            # One unreadable stretch is not a reason to lose the other rows'
+            # probing, so it is reported against this row and its tiles fall
+            # back to the probe times, drawn with no subject number on them.
+            note = f"the detector could not read this stretch: {answer['error']}"
+        else:
+            for frame in answer["frames"]:
+                seen_faces = frame.get("faces", [])
+                centre = faces.frame_centre(seen_faces)
+                if centre is not None:
+                    located.append((centre, float(frame["ts"]), len(seen_faces)))
+        located.sort()
+
+        picks: list[dict[str, Any]] = []
+        seen: set[float] = set()
+        if located:
+            for name, index in (
+                ("leftmost", 0),
+                ("median", len(located) // 2),
+                ("rightmost", len(located) - 1),
+            ):
+                subject, when, seen_faces = located[index]
+                if when in seen:
+                    continue
+                seen.add(when)
+                picks.append(
+                    {
+                        "src_time": when,
+                        "subject_x": round(subject),
+                        "offset": round(subject - middle),
+                        # **The count is not decoration.** `frame_centre` is
+                        # area-weighted across every face in the frame, so two
+                        # faces put the "subject" between them, where neither
+                        # is: the teaser's largest offset, 608px, is Stu at
+                        # 1079 averaged with a bystander at 1775 against a crop
+                        # centred on 830 — and Stu is 250px out, not 608. That
+                        # is `faces.py`'s own which-face-is-the-shot finding
+                        # arriving in a review number, so the number carries
+                        # the count that explains it.
+                        "faces": seen_faces,
+                        "pick": name,
+                    }
+                )
+        for when in _spread([ts for ts in times if ts not in seen], SHEET_PICKS - len(picks)):
+            picks.append(
+                {"src_time": when, "subject_x": None, "offset": None, "faces": 0, "pick": "probe"}
+            )
+
+        # Worst first. A reviewer reads a row left to right on a phone, and the
+        # whole finding behind this is that the reassuring tile was the one
+        # that got looked at. Unlocated tiles sort last, in time order.
+        picks.sort(key=lambda p: (p["offset"] is None, -abs(p["offset"] or 0), p["src_time"]))
+        offsets = [subject - middle for subject, _, _ in located]
+        found[row] = {
+            "probe": note or ("extremes" if located else f"no face in {len(times)} probes"),
+            "probes": len(times),
+            "located": len(located),
+            # Whether any probe held more than one face, which is the flag on
+            # every offset in the row: a two-face frame's weighted centre is a
+            # question about which face is the shot, not a measurement of how
+            # wrong the window is.
+            "multi_face": any(count > 1 for _, _, count in located),
+            "subject_min": round(located[0][0]) if located else None,
+            "subject_max": round(located[-1][0]) if located else None,
+            # Off every probe rather than only the drawn three — they agree by
+            # construction, and saying so is what makes that claim checkable.
+            "worst_offset": round(max(offsets, key=abs)) if offsets else None,
+            "picks": picks[:SHEET_PICKS],
+        }
+    return found
 
 
 def _sheet_placements(
@@ -4213,6 +4382,7 @@ def reframe_sheet(
     *,
     out: str | None = None,
     moments: Sequence[float] | None = None,
+    extremes: bool = False,
 ) -> dict[str, Any]:
     """Draw every placement's framing window on its own source frames.
 
@@ -4243,25 +4413,43 @@ def reframe_sheet(
     *placement* crosses, which is the preview/render asymmetry's own tell
     (CLAUDE.md). HISTORY.md § The thirty-nine windows, reviewed.
 
-    **A tile is still evidence about an instant, not an approval of the span.**
-    A static rect over a moving subject has a best moment, and a sample can
-    land on it: the teaser's opening window was 184px out at its median and the
-    one tile inside it landed 122px out, which reads as tight and fine. Drawing
-    every window is what closes the coverage half of that; the other half is
-    sampling where the subject is extreme rather than where the clock is round,
-    which needs the detector and is not this (HISTORY.md § The tile that made a
-    wrong window look right).
+    **A tile is evidence about an instant, not an approval of the span**, and
+    `extremes` is the answer to that. A static rect over a moving subject has a
+    best moment and a sample can land on it: the teaser's opening window was
+    184px out at its median and the one tile inside it landed 122px out, which
+    reads as tight and fine. Drawing every window closed the coverage half of
+    that finding; this closes the other half. With `extremes` each stretch is
+    probed with the face detector and drawn where the subject is **leftmost,
+    median and rightmost** rather than where the clock is round — and since the
+    rect does not move inside a stretch, the worst moment is one of those two
+    ends by construction. Worst tile first, labelled with how far the subject
+    sits from the middle of the crop. It costs a detector and minutes of
+    decoding, which is why it is opt-in; `_sheet_extremes` has the rule and the
+    measurement. HISTORY.md § The tile that made a wrong window look right.
 
     Writes a tile per sample and one montage under `cache/sheets/`, and
     returns both paths and the table. `out` names the sheet somewhere else;
     `moments` overrides where inside each window's stretch it samples, as
-    fractions.
+    fractions — and is refused alongside `extremes`, which is what replaces
+    them rather than something they tune.
     """
     project = Project.open(path)
     resolution = _mlt_resolution(project)
+    if extremes and moments is not None:
+        raise ProjectError(
+            "moments are fractions of the clock and extremes are where the "
+            "subject is — ask for one or the other, not both"
+        )
     at = tuple(float(m) for m in (moments or SHEET_MOMENTS))
     if not at or any(m < 0 or m > 1 for m in at):
         raise ProjectError(f"sample moments are fractions of a placement, not {list(at)}")
+    if extremes:
+        # Asked before any decoding, for `reframe_detect`'s reason: a missing
+        # interpreter is a refusal that should arrive now rather than after
+        # ffmpeg has walked the film.
+        detector = faces.available()
+        if not detector["available"]:
+            raise faces.FaceError(str(detector["why"]))
 
     placements, skipped = _sheet_placements(project, resolution)
     if not placements:
@@ -4309,13 +4497,28 @@ def reframe_sheet(
             stop = edges[index + 1] if index + 1 < len(edges) else finish
             stretches.append((placement, edge, stop, len(edges)))
 
+    probed = _sheet_extremes(stretches, at) if extremes else {}
+
     for row, (placement, begin, finish, crossed) in enumerate(stretches):
         entry = placement["reframe"]
         source = entry.source if entry is not None else None
+        # In extremes mode the picks *are* the samples; a stretch with no
+        # geometry to be extreme against still gets its fractions, so every
+        # window is drawn either way.
+        chosen = probed.get(row, {}).get("picks") or [
+            {
+                "src_time": begin + (finish - begin) * moment,
+                "subject_x": None,
+                "offset": None,
+                "faces": None,
+                "pick": f"{moment:.2f}",
+            }
+            for moment in at
+        ]
         samples = []
-        for moment in at:
-            when = begin + (finish - begin) * moment
-            tile = dest_dir / f"{row:03d}-{moment:.2f}.png"
+        for index, pick in enumerate(chosen):
+            when = float(pick["src_time"])
+            tile = dest_dir / f"{row:03d}-{index}-{pick['pick']}.png"
             picture.extract_frame(placement["path"], when, tile)
             crop = entry.crop_at(when) if entry is not None else None
             pane = entry.pane_at(entry.window_start(when)) if entry is not None else None
@@ -4323,6 +4526,16 @@ def reframe_sheet(
                 label = f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}"
                 if pane is not None:
                     label += f" + {_rect_text(pane)} (split)"
+                if pick["subject_x"] is not None:
+                    # The number the tile is being read for: where the subject
+                    # is against the middle of the crop, signed, so which way
+                    # the window is wrong is on the tile rather than inferred.
+                    label += f"  subj {pick['subject_x']} {pick['offset']:+} {pick['pick']}"
+                    if pick["faces"] > 1:
+                        # On the tile, not only in the table: this is the one
+                        # number on a sheet that can be large and mean nothing,
+                        # and a sheet is read as pictures.
+                        label += f" ({pick['faces']} faces)"
                 _draw_window(tile, crop, source, label, pane)
             tiles.append(tile)
             samples.append(
@@ -4333,6 +4546,10 @@ def reframe_sheet(
                     # this table can say which tiles are splits without parsing
                     # a label back apart.
                     "pane": _rect_text(pane) if pane else None,
+                    "subject_x": pick["subject_x"],
+                    "offset": pick["offset"],
+                    "faces": pick["faces"],
+                    "pick": pick["pick"],
                     "png": str(tile),
                 }
             )
@@ -4361,6 +4578,22 @@ def reframe_sheet(
                 # Whether any sampled frame of this placement is drawn as a
                 # stacked split, which is what a review page filters on.
                 "split": any(sample["pane"] for sample in samples),
+                # How the tiles were chosen, and what the probing found. A row
+                # says "no face in N probes" rather than reporting extremes it
+                # does not have — an unsupported claim of evidence is the same
+                # failure as a refused window read as a centre crop.
+                "probe": probed.get(row, {}).get("probe"),
+                "probes": probed.get(row, {}).get("probes"),
+                "located": probed.get(row, {}).get("located"),
+                # Read beside `worst_offset`, never after it: an offset off a
+                # multi-face frame is the weighted centre of two subjects and
+                # can be large with the shot's own face well inside the crop.
+                "multi_face": probed.get(row, {}).get("multi_face"),
+                "subject_min": probed.get(row, {}).get("subject_min"),
+                "subject_max": probed.get(row, {}).get("subject_max"),
+                # The worst the window is off across every probe, not only the
+                # drawn ones. This is the number a sheet gets sorted by.
+                "worst_offset": probed.get(row, {}).get("worst_offset"),
                 "samples": samples,
             }
         )
@@ -4369,7 +4602,7 @@ def reframe_sheet(
     sheet.parent.mkdir(parents=True, exist_ok=True)
     command = [
         *graphics.magick_command(), "montage", *[str(tile) for tile in tiles],
-        "-tile", f"{len(at)}x",
+        "-tile", f"{SHEET_PICKS if extremes else len(at)}x",
         "-geometry", f"{SHEET_TILE_WIDTH}x+3+3",
         "-background", "#222",
         str(sheet),
@@ -4387,7 +4620,11 @@ def reframe_sheet(
         # the two differ by exactly the windows the old sampling could miss.
         "count": len(rows),
         "placements": len(placements),
-        "moments": list(at),
+        # Where the tiles came from. `moments` is null under `extremes`, so
+        # nothing reading this table can report fractions a run never used.
+        "extremes": extremes,
+        "moments": None if extremes else list(at),
+        "probed": sum(1 for row in rows if row["located"]) if extremes else 0,
         "skipped": skipped,
     }
 

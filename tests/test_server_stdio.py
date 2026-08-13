@@ -5216,6 +5216,20 @@ def test_every_tool_taking_a_path_goes_through_the_binding() -> None:
         )
 
 
+def test_the_sheet_advertises_its_extremes_argument() -> None:
+    """A CLI flag with no tool behind it is the parity convention broken one
+    argument at a time — the name mapping above cannot see it, because both
+    sides still exist. `extremes` is the whole difference between a sheet that
+    samples the clock and one that samples the subject.
+    """
+    import lucid.server as server_module
+
+    taken = inspect.signature(server_module.reframe_sheet).parameters
+    assert "extremes" in taken and taken["extremes"].default is False, (
+        "reframe_sheet must offer `extremes`, off by default like reframe_detect's `apply`"
+    )
+
+
 def _seam_sources(root: Path) -> tuple[Path, Path]:
     """A recording whose transcript holds one word nobody said.
 

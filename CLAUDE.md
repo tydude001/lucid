@@ -426,10 +426,18 @@ installed package or the upstream repo, not your memory.
       stretch, a tile is evidence about one instant, and a static rect over a
       moving subject has a best instant. The teaser's opening window was 184px
       out at the median and its one tile landed at 122px — the shot's least
-      wrong moment, which reads as tight and fine. Sample where the subject is
-      extreme, not where the clock is round — **still unbuilt, and it is the
-      half of that finding drawing every window did not close.** HISTORY.md
-      § The tile that made a wrong window look right.
+      wrong moment, which reads as tight and fine. HISTORY.md § The tile that
+      made a wrong window look right.
+      - **`--extremes` is the answer, and it is opt-in**: the rect does not
+        move inside a stretch, so the worst moment is at the subject's own
+        leftmost or rightmost by construction — three tiles, worst first. It
+        costs `LUCID_FACE` and ~0.5s a probe. **Its probe grid contains the
+        fixed fractions deliberately**: probing at a rate finds the extreme of
+        the *sample*, and without them it was worse than the default on 5 rows
+        of 16. **Read `worst_offset` beside `multi_face`, never after it** —
+        the subject is area-weighted over every face, so a two-face frame puts
+        it between them where nobody is, and the teaser's largest offset (608px)
+        is exactly that. HISTORY.md § The sheet samples where the subject is.
   - Its two asymmetries: the **preview** places a shot by the window at its
     `src_start`, so a boundary *inside* a placement previews as the first of
     the two while the render steps mid-shot correctly (`reframe_sheet`'s

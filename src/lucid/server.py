@@ -1179,6 +1179,7 @@ def reframe_sheet(
     path: str,
     out: str | None = None,
     moments: list[float] | None = None,
+    extremes: bool = False,
 ) -> dict[str, Any]:
     """Draw every placement's framing window on its own source frames.
 
@@ -1206,11 +1207,20 @@ def reframe_sheet(
     whole placement crosses. Stills come back under `skipped`: a card is
     authored at the canvas and never cropped, so it has no window to review.
 
-    A tile is evidence about an instant, not an approval of the span. A static
-    rect over a moving subject has a best moment and a sample can land on it,
-    so judge one against where the subject actually is.
+    **A tile is evidence about an instant, not an approval of the span**, and
+    `extremes` is what answers that. A static rect over a moving subject has a
+    best moment and a sample can land on it — the teaser's opening window was
+    184px out at its median while the one tile inside it landed 122px out and
+    read as fine. Under `extremes` each stretch is probed with the face
+    detector and drawn where the subject is leftmost, median and rightmost;
+    since the rect does not move inside a stretch, the worst moment is one of
+    those ends. Worst tile first, each labelled with the subject's offset from
+    the middle of the crop, and `worst_offset` on the row is what to sort by. A
+    stretch with no face in any probe says so rather than reporting extremes it
+    does not have. It costs the detector and minutes of decoding, so it is off
+    by default, and it is refused alongside `moments`.
     """
-    return ops.reframe_sheet(path, out=out, moments=moments)
+    return ops.reframe_sheet(path, out=out, moments=moments, extremes=extremes)
 
 
 @_tool()

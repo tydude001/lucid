@@ -332,6 +332,7 @@ lucid -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
 lucid -C myproject reframe cold-open --reset        # back to the centre
 lucid -C myproject reframe-detect                   # propose a window per shot
 lucid -C myproject reframe-sheet                    # every window, drawn, for review
+lucid -C myproject reframe-sheet --extremes         # ...drawn where the subject is extreme
 lucid -C myproject reframe-coverage                 # seconds framed for an earlier shot
 ```
 
@@ -375,7 +376,16 @@ contradicts it. A row is a *window shown* rather than a placement: sampling
 placements at fixed fractions never looked at 14 of the vertical cut's 55
 windows, eight of them hand-approved. A tile is still evidence about the
 instant it draws and a window is a claim about a span, so a static rect over a
-moving subject can pass on its best moment.
+moving subject can pass on its best moment — which is what `--extremes` is
+for: it probes each window with the face detector and draws it where the
+subject is **leftmost, median and rightmost**, worst tile first. The rect does
+not move inside a window, so the worst moment is at one of those ends by
+construction. It found 284px of error where the fixed fractions found 186 on
+the window a watch had already indicted, and never draws a *better* moment than
+the fractions would have, because they are in the probe grid. Read
+`worst_offset` beside `multi_face`, never after it: the subject is
+area-weighted across every face in the frame, so a two-face frame puts it
+between them where nobody is — the teaser's largest offset, 608px, is that.
 
 Every render reports the fonts the document names and what fontconfig will
 actually draw — **a card naming a font this machine lacks renders

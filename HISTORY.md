@@ -6157,3 +6157,71 @@ over a moving subject still has a best moment for a sample to land on. Sampling
 where the subject is *extreme* rather than where the clock is round needs the
 face detector, which is `reframe_sheet`'s first dependency on `LUCID_FACE` and
 a different build.
+
+## The sheet samples where the subject is — 2026-08-12
+
+`reframe_sheet --extremes`, which is the half of § The tile that made a wrong
+window look right that drawing every window did not close. A window is a claim
+about a span and a tile is evidence about an instant, so three fixed fractions
+have no reason to find either the best moment or the worst one.
+
+**The rect does not move inside a stretch, and that is what makes three tiles
+enough.** The error is `|subject_x - crop centre|`, monotonic in `subject_x`
+either side of that centre, so the worst moment is at one of the subject's own
+ends whatever it did in between — leftmost, median, rightmost, worst first
+because a sheet is read left to right on a phone and the reassuring tile was
+the one that got looked at. Each stretch is probed at 2Hz (floor 3, ceiling 16)
+and each tile is labelled with the subject's signed offset from the middle of
+the crop.
+
+Rebuilt the indicted window as a control — `s1996-billy-stu` at 0.5012 set back
+to the wrong `220,0,459,816` on a copy of the teaser — and measured both
+samplings over all 18 rows:
+
+| | worst moment drawn |
+|---|---|
+| fixed fractions (the default) | **186px** |
+| extremes | **284px** |
+
+At 186 the subject's centre is still inside the crop and the tile reads as
+tight; at 284 the crop's right edge runs down the middle of Stu's face. Worth
+recording that the fractions do better here than the 122px § The tile… found —
+that number was the *placement*-level sampling, and § The three gaps, closed
+already moved the row to the window. The instrument's remaining gap was
+narrower than the finding that prompted it.
+
+**Two things the measurement corrected, both of which the number alone would
+have hidden.**
+
+*The probe grid has to contain the fractions.* Probing at a rate finds the
+extreme of the probed *sample*, not of the stretch. Scored against the default
+on the first build, extremes was **worse on 5 rows of 16** — by up to 29px —
+because a fraction landing between two probes caught a moment no probe did.
+That is a sheet that changed its sampling and got quietly worse, which is the
+whole failure class this repo keeps finding. Sampling the fractions too costs
+at most three frames a row and makes the old sheet a subset of this one: after
+it, extremes is never worse and is better on 4 rows of 16.
+
+*A large offset can mean nothing.* `faces.frame_centre` is area-weighted across
+every face in the frame, so two faces put the subject between them where
+neither is. The teaser's largest offset, **608px on `s1996-billy-stu` at
+17.601**, is Stu at 1079 averaged with a bystander at 1775 against a crop
+centred on 830 — Stu is 250px out, not 608. `faces.py`'s own which-face-is-the-
+shot finding, arriving in a review number. The number is kept, because it is
+the same subject rule the framing itself uses, and `multi_face` and a per-tile
+face count travel with it.
+
+**One real finding on the shipped teaser**, judged on the drawn frame rather
+than the number: `s4-reveal`'s window at 11.053 (`780,0,450,800`) holds the
+back-of-head figure and clips Sidney, who is speaking — 187px out at the
+subject's leftmost and 274 at its rightmost, one detection, so consistently
+rather than at an instant. A watch decides it; it is not the 410px follow at
+7.343, which measures 36.
+
+And `~/lucid-vertical/proj` is **gone**, deleted on request 2026-08-12 — only
+the teaser ships, so the full-length vertical cut was 468MB of project holding
+one known-wrong rect nobody would re-render. Its 55 approved windows, 38 cues
+and 12 card records survive as the manifest alone in `~/lucid-archive/vertical/`
+(176KB). Nothing in the suite referenced it; the framing-port spike names it as
+a target and would now do nothing. The teaser keeps 17 windows over 3 clips,
+which is the framing that shipped.

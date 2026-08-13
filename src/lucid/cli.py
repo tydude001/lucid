@@ -719,6 +719,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--moments",
         help="comma-separated fractions of each placement to sample (default 0.15,0.5,0.85)",
     )
+    p_sheet.add_argument(
+        "--extremes",
+        action="store_true",
+        help="draw each window where the subject is leftmost, median and rightmost "
+        "instead of at fixed fractions — the worst moment is one of the ends. Needs "
+        "the face detector and minutes of decoding",
+    )
 
     p_verify = sub.add_parser(
         "verify", help="transcribe a render and diff it against the timeline"
@@ -1328,7 +1335,9 @@ def _cmd_reframe_coverage(args: argparse.Namespace) -> int:
 
 def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
     moments = [float(part) for part in args.moments.split(",")] if args.moments else None
-    return _emit(ops.reframe_sheet(args.project, out=args.out, moments=moments))
+    return _emit(
+        ops.reframe_sheet(args.project, out=args.out, moments=moments, extremes=args.extremes)
+    )
 
 
 def _cmd_synopsis(args: argparse.Namespace) -> int:

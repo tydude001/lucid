@@ -509,11 +509,17 @@ timeline being the enabler and the look pass being gated on nothing:
    picture does not justify) as well as its original one. **Its two findings
    were judged the same day and both were already known** — one a defect the
    vertical never had re-applied, one the 410px follow in the shipped teaser
-   that wants the parked keyframed *move*. What that leaves is the
+   that wants the parked keyframed *move*. **Sampling where the subject is
+   extreme shipped 2026-08-12** as `reframe-sheet --extremes`: 284px of error
+   against the default's 186 on the window a watch had already indicted, never
+   a *better* moment than the default draws (the fractions are in its probe
+   grid, which the measurement forced), and one new finding on the shipped
+   teaser — `s4-reveal`'s window at 11.053 frames the back of someone's head
+   and clips Sidney, who is speaking, which a watch decides. HISTORY.md § The
+   sheet samples where the subject is. What that leaves is the
    `SCENE_THRESHOLD` re-pin, which `steps` says nothing about (every boundary
-   scored 0.002–0.013 at the frame itself), and sampling a window where the
-   subject is extreme rather than where the clock is round. HISTORY.md § The
-   three gaps, closed.
+   scored 0.002–0.013 at the frame itself). HISTORY.md § The three gaps,
+   closed.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
