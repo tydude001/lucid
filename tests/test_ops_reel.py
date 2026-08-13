@@ -407,6 +407,43 @@ def test_the_reel_records_where_it_came_from(film: Project, tmp_path: Path) -> N
     assert reel.read_manifest()["name"] == "teaser"
 
 
+# -- a tail is never inherited (PLAN.md § Tail time — the design note) ---
+
+
+def test_a_films_tail_is_dropped_and_named(film: Project, tmp_path: Path) -> None:
+    """Taken 2026-08-12: a derivation carries nothing and reports — the same
+    'never' `cues_pinned` proves out for pruning, applied to a finishing pass.
+    A teaser derived from an essay must not silently end on the essay's own
+    end card."""
+    ops.tail(film.root, asset="card:title", seconds=6.0, fade=0.167)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+
+    assert result["tail_dropped"] == {"asset": "card:title", "seconds": 6.0, "fade": 0.167}
+    assert ops.TAIL_KEY not in reel.read_manifest()
+    assert ops.tail(reel.root)["tail"] is None
+    # And the film itself is untouched — the same guarantee every other
+    # `reel` field already gets (test_the_film_is_left_alone).
+    assert ops.tail(film.root)["tail"] == {"asset": "card:title", "seconds": 6.0, "fade": 0.167}
+
+
+def test_a_film_with_no_tail_reports_none_dropped(film: Project, tmp_path: Path) -> None:
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+
+    assert result["tail_dropped"] is None
+
+
+def test_tail_dropped_is_reported_under_plan_too(film: Project, tmp_path: Path) -> None:
+    """Read early, before anything is created — the same as `cues_dropped`."""
+    ops.tail(film.root, asset="card:title", seconds=6.0)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0, plan=True)
+
+    assert result["tail_dropped"] == {"asset": "card:title", "seconds": 6.0, "fade": 0.0}
+    assert not (tmp_path / "teaser").exists()
+
+
 # -- the edges of the span -----------------------------------------------
 
 

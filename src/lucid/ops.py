@@ -17,6 +17,7 @@ import statistics
 import subprocess
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from itertools import pairwise
@@ -39,6 +40,10 @@ from lucid import (
 # `describe` is also the name of the op below — the same collision `verify`
 # has, and the same fix.
 from lucid import describe as dsc
+
+# `fonts` is also the name of the op below, so the module needs an alias here
+# or the function would shadow it at call time — the `describe`/`verify` fix.
+from lucid import fonts as lucid_fonts
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -155,6 +160,24 @@ def _overlaps(parsed: tx.Transcript) -> list[dict[str, Any]]:
     return seams
 
 
+def _repeats(parsed: tx.Transcript) -> list[dict[str, Any]]:
+    """Flag back-to-back duplicated phrases — the shape a retake makes.
+
+    The fourth attach-time check, and the one none of the other three can
+    catch: `_near_duplicates` looks at the same span of transcript this does,
+    but `tx.find_repeats` is the one ported straight from the tool that
+    actually caught the Scream VO's retake pass by hand
+    (`goodsometimes/scripts/vo_windows.py --repeats`, which lives outside
+    lucid). See its docstring for the blind spot this still has — it can only
+    see a retake that survived as distinct words, which is a *different*
+    subset of retakes than `_overlaps`' seam scan finds, not a smaller one.
+    """
+    repeats = tx.find_repeats(parsed.words)
+    for item in repeats:
+        item.update(_context(parsed, item["first_word"], item["last_word"]))
+    return repeats
+
+
 def attach_transcript(
     path: Path | str, clip_id: str, transcript_path: Path | str
 ) -> dict[str, Any]:
@@ -177,6 +200,7 @@ def attach_transcript(
         "near_duplicates": _near_duplicates(parsed),
         "suspect_durations": _suspect_durations(parsed),
         "overlaps": _overlaps(parsed),
+        "repeats": _repeats(parsed),
     }
 
 
@@ -217,6 +241,7 @@ def transcribe(
         "near_duplicates": _near_duplicates(parsed),
         "suspect_durations": _suspect_durations(parsed),
         "overlaps": _overlaps(parsed),
+        "repeats": _repeats(parsed),
     }
 
 
@@ -261,13 +286,15 @@ def get_transcript(
 def transcript_checks(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
     """Re-run the attach-time transcript checks over what is already attached.
 
-    The three findings `attach_transcript` returns are computed once, at
+    The four findings `attach_transcript` returns are computed once, at
     attach, and handed back in that call's result — so a project attached
     before a check existed can never see it. That is not hypothetical: the
-    Scream VO was attached long before `overlaps`, and its 40 seams were
-    invisible to the project holding it. Re-attaching to surface a finding
-    would mean re-running ASR or hunting down the original whisper JSON, so
-    the checks are addressable on their own.
+    Scream VO was attached long before `overlaps` or `repeats` existed, and
+    both findings were invisible to the project holding it — `repeats` would
+    have named the retakes directly (HISTORY.md § The VO the project was
+    holding). Re-attaching to surface a finding would mean re-running ASR or
+    hunting down the original whisper JSON, so the checks are addressable on
+    their own.
 
     Reads only — nothing here writes to the project, which is what makes it
     safe to run over a finished cut.
@@ -292,6 +319,7 @@ def transcript_checks(path: Path | str, clip_id: str | None = None) -> dict[str,
                 "near_duplicates": _near_duplicates(parsed),
                 "suspect_durations": _suspect_durations(parsed),
                 "overlaps": _overlaps(parsed),
+                "repeats": _repeats(parsed),
             }
         )
     return {"clips": clips}
@@ -712,6 +740,74 @@ def card_templates() -> dict[str, Any]:
     Takes no project: a template is package data, the same for every one.
     """
     return {"templates": graphics.templates()}
+
+
+def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str, Any]:
+    """Will the caption font actually draw here — and is it here on purpose?
+
+    Two questions that look like one, reported side by side and **never folded
+    into each other**. `font_match` asks fontconfig, which answers "is this
+    family present". `fonts.probe` asks the renderer, which answers "did it
+    draw". This repo has measured them disagreeing more than once: two styles
+    `fc-match` calls identical render 3593 RMSE apart, because libass's first
+    pick for `Noto Sans` on this box is a Nerd Font symbol face that only
+    reaches the real one by failing a Latin glyph (HISTORY.md § The approvals
+    round, answered). A clean `resolves_to` is not a claim about the burn, so
+    neither result is allowed to stand in for the other here.
+
+    The probe is a **render comparison**, not a lookup: it burns the family and
+    a family that cannot exist, and compares the pixels. Identical means the
+    name is not drawing, whatever fontconfig says. That costs two ffmpeg runs
+    and a `magick compare`, which is why nothing on a hot path calls it —
+    `status`, `info` and `caption-view` all stay on `font_match` alone, and
+    this op is where someone asks the expensive question deliberately.
+
+    `path` is optional because a font is not project state, but a project's
+    `caption_style` may *name* one — so given a project this reports the font
+    that project would actually burn, and given none it reports lucid's own
+    default. `card_templates` is the precedent for the no-project half.
+
+    **`install` is off by default**, like `reframe_detect`'s `apply` and for
+    the same reason: it writes into `$HOME`. Vendoring the face is what makes
+    the default resolve on a machine rather than aspirationally
+    (`src/lucid/fonts/FONTS.md`), and it is a side effect somebody should ask
+    for rather than one a report performs on the way past.
+    """
+    checked: list[str] = []
+    default = captions.CAPTION_FONT
+    project_font: str | None = None
+    if path is not None:
+        project = Project.open(path)
+        stored = project.read_manifest().get(CAPTION_STYLE_KEY) or {}
+        project_font = str(stored.get("font") or default)
+        checked.append(project_font)
+    if default not in checked:
+        checked.append(default)
+
+    report: dict[str, Any] = {
+        "project": str(Project.open(path).root) if path is not None else None,
+        "caption_font": project_font or default,
+        "default_font": default,
+        "vendored": [p.name for p in lucid_fonts.vendored()],
+        "font_dir": str(lucid_fonts.user_font_dir()),
+    }
+    if install:
+        report["install"] = lucid_fonts.install()
+
+    seen: dict[str, dict[str, Any]] = {}
+    for family in checked:
+        if family in seen:
+            continue
+        entry: dict[str, Any] = {"fontconfig": captions.font_match(family)}
+        try:
+            entry["render"] = lucid_fonts.probe(family)
+        except lucid_fonts.FontError as exc:
+            # "could not tell" and "it does not draw" are different answers,
+            # the same distinction `font_match` makes with a null `available`.
+            entry["render"] = {"font": family, "drew": None, "error": str(exc)}
+        seen[family] = entry
+    report["fonts"] = seen
+    return report
 
 
 def card_new(
@@ -1493,9 +1589,192 @@ def seed_timeline(
     }
 
 
+def _resolve_resource(document: Path, root_attr: str | None, resource: str) -> Path:
+    """Where a playlist's `resource` string actually points.
+
+    MLT resolves a relative resource against the document's `root` attribute,
+    and falls back to the document's own directory when there is none. Both
+    are tried rather than one assumed, because a `.kdenlive` moved off the
+    machine that wrote it keeps a `root` that no longer exists — and then the
+    only honest answer is the directory the file is sitting in.
+    """
+    candidate = Path(resource).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    roots = [Path(root_attr).expanduser()] if root_attr else []
+    roots.append(document.parent)
+    for base in roots:
+        resolved = (base / candidate).resolve()
+        if resolved.exists():
+            return resolved
+    return (roots[0] / candidate).resolve()
+
+
+def import_edit(
+    path: Path | str,
+    document: Path | str,
+    *,
+    clip_id: str | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Lay an outside cut down as the timeline — the supported way in.
+
+    The other half of `seed_timeline`: that one lays a clip down and lets
+    auto-editor find the cuts, this one takes a cut somebody already made in
+    Kdenlive. PLAN.md § Open questions, *How does a lucid project know it is
+    the film*, names why it exists — the Scream retake pass was done in
+    Kdenlive, and bringing it in meant 63 ranges parsed by hand and written
+    straight to `Edit`, "which is not a supported path — it bypasses `cut` and
+    its history entirely" (HISTORY.md § The VO the project was holding). Going
+    through `_save_edit` is most of the fix: the old timeline is snapshotted
+    before this one replaces it, so an import is undoable like every other
+    mutation.
+
+    **Every clip has to be registered already.** Importing media as a side
+    effect of importing an edit would make one op that reaches ffprobe, writes
+    the manifest and replaces the timeline, and the failure mode is a project
+    holding footage nobody asked for. Unregistered resources are named, all of
+    them at once, rather than one per run.
+
+    `clip_id` names the single clip a one-source document maps onto, for the
+    case where the `.kdenlive` was written against a copy of the media at a
+    path this project does not know. It is refused against a document holding
+    more than one resource — there would be nothing to say which is which.
+
+    Ranges that overrun their clip's registered duration are **clamped and
+    reported**, never dropped and never taken on trust. That case is not
+    hypothetical or rare: auto-editor's own exports overshoot the tail by
+    exactly one frame (`--export v3` and `--export kdenlive` alike, measured),
+    which is the reading-side face of the black frame CLAUDE.md warns about.
+    A clamp that said nothing would make the import quietly one frame shorter
+    than the file it came from, which is the same class of silence this op
+    exists to end.
+    """
+    project = Project.open(path)
+    source = Path(document).expanduser()
+    if not source.is_file():
+        raise ProjectError(f"no such edit document: {source}")
+    try:
+        tree = ET.parse(source)
+    except ET.ParseError as exc:
+        raise ProjectError(f"{source.name} is not readable as XML: {exc}") from exc
+    root = tree.getroot()
+    if root.tag != "mlt":
+        raise ProjectError(
+            f"{source.name} has a <{root.tag}> root, not <mlt> — a .kdenlive project "
+            "is an MLT document, and this is not one"
+        )
+
+    try:
+        ranges, rate = mlt.read_ranges(root)
+    except mlt.MLTError as exc:
+        raise ProjectError(str(exc)) from exc
+
+    resources = list(dict.fromkeys(r.resource for r in ranges))
+    if clip_id is not None and len(resources) > 1:
+        raise ProjectError(
+            f"{source.name} holds {len(resources)} distinct resources "
+            f"({', '.join(resources)}), so `clip_id` cannot say which is which — "
+            "register each one and let the paths match instead"
+        )
+
+    clips = _clips_by_id(project)
+    if clip_id is not None:
+        if clip_id not in clips:
+            raise ProjectError(f"unknown clip {clip_id!r}")
+        mapping = {resources[0]: clip_id}
+    else:
+        by_source = {Path(c["source"]).expanduser().resolve(): cid for cid, c in clips.items()}
+        mapping = {}
+        unmatched = []
+        for resource in resources:
+            resolved = _resolve_resource(source, root.get("root"), resource)
+            if resolved in by_source:
+                mapping[resource] = by_source[resolved]
+            else:
+                unmatched.append(f"{resource} (looked for {resolved})")
+        if unmatched:
+            raise ProjectError(
+                "this edit references media the project has not registered: "
+                + "; ".join(unmatched)
+                + " — import each one first, or pass clip_id for a single-source document"
+            )
+
+    segments: list[tl.Segment] = []
+    overshot: list[dict[str, Any]] = []
+    for entry in ranges:
+        cid = mapping[entry.resource]
+        duration = float(clips[cid]["duration"])
+        end = entry.end
+        if end > duration + 1e-9:
+            overshot.append(
+                {
+                    "clip_id": cid,
+                    "asked_end": round(entry.end, 6),
+                    "clamped_to": round(duration, 6),
+                    "frames": round((entry.end - duration) * rate, 3),
+                }
+            )
+            end = duration
+        if end - entry.start < tl.MIN_SEGMENT:
+            continue
+        segments.append(tl.Segment(clip_id=cid, start=entry.start, end=end))
+
+    if not segments:
+        raise ProjectError(
+            f"{source.name} parsed to {len(ranges)} ranges and none of them survived "
+            "against the registered clip durations — the document is describing "
+            "different media from the project's"
+        )
+
+    edit = tl.Edit(segments=segments)
+    # What the document says about its own length, against what its entries
+    # actually sum to. This is the check that would have caught the hand-parse
+    # (§ The import that was one frame short, sixty-three times): every range
+    # is individually plausible and the total is the only thing that is wrong.
+    read_frames = sum(round(entry.duration * rate) for entry in ranges)
+    declared = mlt.declared_length(root, rate)
+    disagrees = sorted({name for name, frames in declared.items() if frames != read_frames})
+    report: dict[str, Any] = {
+        "project": str(project.root),
+        "document": str(source),
+        "rate": rate,
+        "ranges": len(ranges),
+        "segments": len(edit.segments),
+        "clips": sorted(set(mapping.values())),
+        "timeline_duration": edit.duration,
+        "overshot": overshot,
+        "document_frames": read_frames,
+        "declared_frames": declared,
+        "declares_otherwise": disagrees,
+    }
+    if plan:
+        report["plan"] = True
+        return report
+
+    manifest = project.read_manifest()
+    manifest.setdefault("timebase", rate)
+    project.write_manifest(manifest)
+    _save_edit(project, edit)
+    report["undo_depth"] = len(project.snapshots())
+    return report
+
+
 def status(path: Path | str) -> dict[str, Any]:
+    """The current timeline: duration, segment count, undo depth, and canvas.
+
+    `timeline_duration` is the `Edit`'s own length in seconds and stays exactly
+    that whether or not a `tail` is set — `Edit` never grows to describe one
+    (PLAN.md § Tail time — the design note). `tail` echoes what is configured
+    (None for none, the `canvas`/`caption_style` shape), and `expected_frames`/
+    `expected_duration` are what `export` would actually lay down at its own
+    default frame rate — `_frame_total_with_tail`, so a caller asking "how long
+    is this" gets the same number `check_frames` and `_build_mlt` would.
+    """
     project = Project.open(path)
     edit = _load_edit(project)
+    rate = _export_fps(_clips_by_id(project))
+    expected = _frame_total_with_tail(project, edit, rate)
     return {
         "project": str(project.root),
         "timeline_duration": edit.duration,
@@ -1503,6 +1782,9 @@ def status(path: Path | str) -> dict[str, Any]:
         "undo_depth": len(project.snapshots()),
         "clips": [c["clip_id"] for c in project.read_manifest().get("clips", [])],
         "canvas": "{}x{}".format(*_mlt_resolution(project)),
+        "tail": _stored_tail(project),
+        "expected_frames": expected,
+        "expected_duration": expected / rate,
     }
 
 
@@ -3700,19 +3982,21 @@ def _fit_rect_to_canvas(
     return grown_x, grown_y, grown_w, grown_h
 
 
-#: One stored window: where in the source it starts, the rect asked for, and
-#: the second rect when that window is drawn as a stacked split.
-StoredWindow = tuple[float, tuple[int, int, int, int], tuple[int, int, int, int] | None]
+#: One stored window: where in the source it starts, the rect asked for, the
+#: second rect when that window is drawn as a stacked split, and whether it
+#: slides in from the previous window instead of stepping to it.
+StoredWindow = tuple[float, tuple[int, int, int, int], tuple[int, int, int, int] | None, bool]
 
 
 def _stored_reframes(project: Project) -> dict[str, list[StoredWindow]]:
     """Every clip's requested crop rects, as asked for rather than as fitted.
 
-    A series per clip, `(src_start seconds, rect, pane)` in source order. A
-    record with no `src_start` is the window from the head of the file onward,
-    which is what every rect written before per-shot framing existed meant and
-    still means — the key is optional and absent-means-what-it-always-meant, so
-    this is deliberately not a schema bump (CLAUDE.md).
+    A series per clip, `(src_start seconds, rect, pane, interp)` in source
+    order. A record with no `src_start` is the window from the head of the
+    file onward, which is what every rect written before per-shot framing
+    existed meant and still means — the key is optional and
+    absent-means-what-it-always-meant, so this is deliberately not a schema
+    bump (CLAUDE.md).
 
     `pane` is the same for the stacked split: absent means the window is one
     rect, which is what every window written before the split existed was. It
@@ -3720,13 +4004,18 @@ def _stored_reframes(project: Project) -> dict[str, list[StoredWindow]]:
     it cannot drift from the window it is the other half of — a pane with no
     window would render as half a frame over whatever framing happened to be
     in force.
+
+    `interp` is the third such optional key, for the same reason: absent
+    means the window steps rather than slides, which is what every window
+    written before the keyframed move existed meant and still means. PLAN.md
+    § Per-shot framing, refused section; § The keyframed move.
     """
     stored: dict[str, list[StoredWindow]] = {}
     for record in project.read_manifest().get(REFRAME_KEY, []):
         at = float(record.get("src_start") or 0.0)
         pane = record.get("pane")
         stored.setdefault(str(record["clip_id"]), []).append(
-            (at, _parse_rect(record["rect"]), _parse_rect(pane) if pane else None)
+            (at, _parse_rect(record["rect"]), _parse_rect(pane) if pane else None, bool(record.get("interp")))
         )
     for series in stored.values():
         series.sort(key=lambda entry: entry[0])
@@ -3797,6 +4086,12 @@ def _clip_reframe(
     geometry is the only thing holding the two halves off each other, there
     being no mask and no crop filter anywhere in this (`mlt.Reframe._dest`).
     A source too tall to carry a pane is refused there, at the keyboard.
+
+    A head window flagged `interp` is the same class of hand-edit as two
+    windows at one in-point: `reframe` never writes one, since there is
+    nothing before the head to slide from, so one found here can only have
+    been typed into the manifest directly. Refused the same way, rather than
+    silently dropped or handed to `mlt.Reframe` to raise less legibly.
     """
     source = _clip_source(clip)
     if source is None:
@@ -3825,14 +4120,21 @@ def _clip_reframe(
     # The head window is addressed as 0.0 whatever it was stored as, so that a
     # pane on it pairs with the window `Reframe` calls `crop`.
     head = (0.0, *series.pop(0)[1:]) if series and series[0][0] <= 0 else None
-    crop = mlt.centre_crop(source, resolution) if head is None else fit(*head)
-    later = tuple((when, fit(when, rect, pane)) for when, rect, pane in series)
+    if head is not None and head[3]:
+        raise ProjectError(
+            f"clip {clip.get('clip_id')!r} has its head window flagged to slide — "
+            "there is nothing before the head of the source to slide from; only "
+            "a later window can carry `interp`"
+        )
+    crop = mlt.centre_crop(source, resolution) if head is None else fit(*head[:3])
+    later = tuple((when, fit(when, rect, pane)) for when, rect, pane, _interp in series)
     panes = tuple(
         (when, _fit_pane_rect(pane, source, pane_shape))
-        for when, _rect, pane in ([head] if head else []) + series
+        for when, _rect, pane, _interp in ([head] if head else []) + series
         if pane is not None
     )
-    return mlt.Reframe(source=source, crop=crop, later=later, panes=panes)
+    interp = tuple(when for when, _rect, _pane, flag in series if flag)
+    return mlt.Reframe(source=source, crop=crop, later=later, panes=panes, interp=interp)
 
 
 def _reframe_map(project: Project, resolution: tuple[int, int]) -> dict[str, mlt.Reframe]:
@@ -3863,6 +4165,7 @@ def reframe(
     rect: str | None = None,
     pane: str | None = None,
     src_start: float | None = None,
+    interp: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -3906,6 +4209,20 @@ def reframe(
     canvas's, and a source too tall to carry it is refused here rather than
     rendering as two halves bleeding into each other. Measured before it was
     built: PLAN.md § The stacked split.
+
+    **`interp` makes that window slide in from the previous one** instead of
+    stepping to it — the mechanism `mlt.Reframe.rect_property` always had
+    (a keyframe's own operator is a per-key choice; this is the first thing
+    that exercises it), authored rather than built, per PLAN.md § Per-shot
+    framing's refused section and § The keyframed move. The flag names the
+    window arriving, not the key that carries it — MLT interpolates the
+    segment *leaving* a keyframe, so the operator this implies lands on the
+    *previous* window's own key (measured, HISTORY.md § The keyframed move;
+    `mlt.Reframe.rect_property` has the render that settled it). There is
+    nothing before the head of a clip's source to slide from, so an `interp`
+    window needs `src_start` after 0, and it cannot also carry
+    `pane`: a split's lower half has no interpolation of its own, so the two
+    would move out of step.
     """
     if rect is not None and reset:
         raise ProjectError("pass a rect or `reset`, not both")
@@ -3922,6 +4239,15 @@ def reframe(
         )
     if src_start is not None and rect is None and not reset:
         raise ProjectError("an in-point needs a rect to put there, or `reset` to drop one")
+    if interp and rect is None:
+        raise ProjectError(
+            "interp flags a window as sliding in, so it needs a rect to store it on"
+        )
+    if interp and pane is not None:
+        raise ProjectError(
+            "a split window cannot also slide — its lower pane has no "
+            "interpolation of its own, so the two halves would move out of step"
+        )
 
     project = Project.open(path)
     resolution = _mlt_resolution(project)
@@ -3946,6 +4272,16 @@ def reframe(
                 f"src_start {at} is past clip {clip_id!r}'s {float(duration):.3f}s, so "
                 "the window would never come into force"
             )
+    if interp and at <= 0:
+        # The head is `at == 0.0` whether that came from an explicit
+        # `src_start=0` or from omitting `src_start` altogether — either way
+        # there is nothing before the start of the source for it to slide
+        # from, the same reasoning `mlt.Reframe.__post_init__` enforces on
+        # the writer's own side.
+        raise ProjectError(
+            f"the window at {at}s is the head of {clip_id!r}'s source — there is "
+            "nothing before it to slide from, so it cannot be flagged `interp`"
+        )
 
     asked = _stored_reframes(project)
     if rect is not None:
@@ -3964,7 +4300,7 @@ def reframe(
         else:
             _fit_rect_to_canvas(parsed, source, resolution)  # type: ignore[arg-type]
         series = [entry for entry in asked.get(str(clip_id), []) if entry[0] != at]
-        series.append((at, parsed, parsed_pane))
+        series.append((at, parsed, parsed_pane, bool(interp)))
         asked[str(clip_id)] = sorted(series, key=lambda entry: entry[0])
     elif reset:
         if clip_id is None:
@@ -3988,16 +4324,19 @@ def reframe(
         manifest = project.read_manifest()
         records = []
         for key, series in sorted(asked.items()):
-            for window_at, window_rect, window_pane in series:
+            for window_at, window_rect, window_pane, window_interp in series:
                 record: dict[str, Any] = {"clip_id": key, "rect": list(window_rect)}
                 # The head window writes the record it wrote before per-shot
                 # framing existed, so an unwindowed project's manifest is
-                # unchanged by any of this. Same for `pane`: absent is what
-                # every window written before the split existed meant.
+                # unchanged by any of this. Same for `pane` and `interp`:
+                # absent is what every window written before each existed
+                # meant.
                 if window_at:
                     record["src_start"] = window_at
                 if window_pane is not None:
                     record["pane"] = list(window_pane)
+                if window_interp:
+                    record["interp"] = True
                 records.append(record)
         if records:
             manifest[REFRAME_KEY] = records
@@ -4031,7 +4370,7 @@ def reframe(
             )
             continue
         assert entry is not None
-        overrides = {when: rect for when, rect, _pane in asked.get(key, [])}
+        overrides = {when: rect for when, rect, _pane, _interp in asked.get(key, [])}
         report.append(
             {
                 "clip_id": key,
@@ -4065,6 +4404,12 @@ def reframe(
                         "pane": _rect_text(entry.pane_at(window_at))
                         if entry.pane_at(window_at)
                         else None,
+                        # Whether this window slides in from whatever governed
+                        # before it rather than stepping to it. False for the
+                        # head always — there is nothing before it to slide
+                        # from — and for every window written before this
+                        # existed.
+                        "interp": entry.is_interp(window_at),
                         "kept": round(
                             (
                                 window_crop[2] * window_crop[3]
@@ -4139,8 +4484,24 @@ def _spread(values: list[float], count: int) -> list[float]:
     return [values[round(index * step)] for index in range(count)]
 
 
+def _is_sliding(entry: mlt.Reframe | None, next_edge: float | None) -> bool:
+    """Does this stretch end by sliding into the next window, not stepping?
+
+    True exactly when the window this stretch runs up to is flagged `interp`
+    — the render is already moving throughout the stretch in that case, not
+    holding a single crop, so a tile drawn from `crop_at` alone would show a
+    position the file holds for no more than an instant. `reframe_sheet`
+    handles a row answering True here as a special case: it draws the two
+    ends rather than sampling a rect that does not sit still (HISTORY.md § The
+    keyframed move). `next_edge` is `None` when the stretch runs to the
+    placement's own end rather than to another window, which can never be a
+    slide's destination — nothing is there to slide *into*.
+    """
+    return entry is not None and next_edge is not None and entry.is_interp(next_edge)
+
+
 def _sheet_extremes(
-    stretches: list[tuple[dict[str, Any], float, float, int]],
+    stretches: list[tuple[dict[str, Any], float, float, int, float | None]],
     at: Sequence[float],
 ) -> dict[int, dict[str, Any]]:
     """Where the subject is extreme in each stretch, in one detector run.
@@ -4181,10 +4542,16 @@ def _sheet_extremes(
     """
     jobs: list[dict[str, Any]] = []
     probes: dict[int, list[float]] = {}
-    for row, (placement, begin, finish, _crossed) in enumerate(stretches):
+    for row, (placement, begin, finish, _crossed, next_edge) in enumerate(stretches):
         entry = placement["reframe"]
         if entry is None or entry.crop_at(begin) is None:
             continue  # No geometry, so no rect to be extreme against.
+        if _is_sliding(entry, next_edge):
+            # The picks for a sliding stretch are its two ends, not wherever
+            # the subject happens to be — `reframe_sheet` overrides `chosen`
+            # for these rows regardless of what this function returns, so
+            # spending a detector pass on them buys nothing.
+            continue
         count = min(SHEET_PROBE_MAX, max(SHEET_PROBE_MIN, round((finish - begin) * SHEET_PROBE_HZ)))
         times = sorted(
             {
@@ -4199,7 +4566,7 @@ def _sheet_extremes(
 
     found: dict[int, dict[str, Any]] = {}
     for row, times in probes.items():
-        placement, begin, _finish, _crossed = stretches[row]
+        placement, begin, _finish, _crossed, _next_edge = stretches[row]
         crop = placement["reframe"].crop_at(begin)
         middle = crop[0] + crop[2] / 2
         answer = detections[row]
@@ -4332,6 +4699,27 @@ def _sheet_placements(
     return placements, skipped
 
 
+def _lerp_rect(
+    start: tuple[int, int, int, int], end: tuple[int, int, int, int], fraction: float
+) -> tuple[int, int, int, int]:
+    """A straight-line stand-in for MLT's own keyframe interpolation.
+
+    Not a claim of bit-exactness — melt's curve is its own to draw, and this
+    is a review tile, not the render. It is exact at `fraction` 0 and 1 (the
+    two rects MLT actually holds as keyframes) and a reasonable approximation
+    between them, which is what `reframe_sheet` needs to show a slide is
+    moving without pretending to know precisely where it is at every instant.
+    """
+    x0, y0, w0, h0 = start
+    x1, y1, w1, h1 = end
+    return (
+        round(x0 + (x1 - x0) * fraction),
+        round(y0 + (y1 - y0) * fraction),
+        round(w0 + (w1 - w0) * fraction),
+        round(h0 + (h1 - h0) * fraction),
+    )
+
+
 def _draw_window(
     tile: Path,
     crop: tuple[int, int, int, int],
@@ -4346,6 +4734,12 @@ def _draw_window(
     pane alone reads as a badly-centred single window, and whether the pair is
     right is a question about the pair. The lower one is dashed, so which half
     is which is legible in a montage rather than only in the label.
+
+    `pane` is reused for a sliding window's other end (`reframe_sheet`'s
+    "slide-from"/"slide-to" tiles): the same dashed-rectangle drawing, this
+    time showing where the move starts or finishes rather than the other
+    half of a split. The two never coincide — a window cannot be both
+    (`mlt.Reframe.__post_init__`) — so nothing here needs to tell them apart.
     """
     x, y, width, height = crop
     stroke = max(2, round(source[0] / 240))
@@ -4476,7 +4870,7 @@ def reframe_sheet(
     # 30µs long, draws three tiles of it, and labels the placement with the
     # window it is about to leave. Fifteen of the vertical's rows were that.
     frame = 1.0 / _export_fps(_clips_by_id(project))
-    stretches: list[tuple[dict[str, Any], float, float, int]] = []
+    stretches: list[tuple[dict[str, Any], float, float, int, float | None]] = []
     for placement in placements:
         entry = placement["reframe"]
         begin = placement["src_start"]
@@ -4494,49 +4888,119 @@ def reframe_sheet(
             else:
                 edges.append(edge)
         for index, edge in enumerate(edges):
-            stop = edges[index + 1] if index + 1 < len(edges) else finish
-            stretches.append((placement, edge, stop, len(edges)))
+            # `None` when this stretch runs to the placement's own end rather
+            # than to another window — never a slide's destination, since
+            # nothing is there to slide into.
+            next_edge = edges[index + 1] if index + 1 < len(edges) else None
+            stop = next_edge if next_edge is not None else finish
+            stretches.append((placement, edge, stop, len(edges), next_edge))
 
     probed = _sheet_extremes(stretches, at) if extremes else {}
+    # The montage is a fixed grid (`-tile {columns}x`), so every row has to
+    # emit the same tile count or the rows after a short one shift into its
+    # gap (SHEET_PICKS's own reasoning). A sliding row needs at least its two
+    # ends to be honest about the move, so this many columns is the floor for
+    # any project that has one.
+    columns = SHEET_PICKS if extremes else len(at)
 
-    for row, (placement, begin, finish, crossed) in enumerate(stretches):
+    for row, (placement, begin, finish, crossed, next_edge) in enumerate(stretches):
         entry = placement["reframe"]
         source = entry.source if entry is not None else None
-        # In extremes mode the picks *are* the samples; a stretch with no
-        # geometry to be extreme against still gets its fractions, so every
-        # window is drawn either way.
-        chosen = probed.get(row, {}).get("picks") or [
-            {
-                "src_time": begin + (finish - begin) * moment,
-                "subject_x": None,
-                "offset": None,
-                "faces": None,
-                "pick": f"{moment:.2f}",
-            }
-            for moment in at
-        ]
+        sliding = _is_sliding(entry, next_edge)
+        if sliding and columns < 2:
+            raise ProjectError(
+                f"clip {placement['asset']!r} slides into a window at {next_edge}s, "
+                f"but this sheet draws {columns} tile per row — showing both ends "
+                "of a slide needs at least two; pass more `moments`"
+            )
+        if sliding:
+            # **A sheet row is a window shown, not a placement** — and a
+            # sliding window is never shown as one static rect, because it
+            # is not one. `crop_at` only knows the discrete window that
+            # governs a source instant; it cannot say where the frame
+            # actually sits mid-slide, so drawing it at three arbitrary
+            # fractions would draw the *departure* rect three times and call
+            # that a review of a move (CLAUDE.md: a wrong window reads as
+            # framing in motion — this is that trap's mirror image, motion
+            # read as no window at all). Evenly spaced fractions **including
+            # both ends** stand in for the interpolation instead: exact at
+            # the two keyframes MLT actually holds, and a straight-line
+            # approximation of its curve in between, which is honest about
+            # being an approximation because the label says so.
+            assert next_edge is not None
+            from_rect = entry.crop_at(begin)
+            to_rect = entry.crop_at(next_edge)
+            # `columns >= 2` here — the refusal above is what guarantees it.
+            fractions = [index / (columns - 1) for index in range(columns)]
+            chosen = []
+            for fraction in fractions:
+                if fraction <= 0.0:
+                    pick_name = "slide-from"
+                elif fraction >= 1.0:
+                    pick_name = "slide-to"
+                else:
+                    pick_name = f"slide-{fraction:.2f}"
+                chosen.append(
+                    {
+                        "src_time": begin + (next_edge - begin) * fraction,
+                        "subject_x": None,
+                        "offset": None,
+                        "faces": None,
+                        "pick": pick_name,
+                    }
+                )
+        else:
+            # In extremes mode the picks *are* the samples; a stretch with no
+            # geometry to be extreme against still gets its fractions, so
+            # every window is drawn either way.
+            chosen = probed.get(row, {}).get("picks") or [
+                {
+                    "src_time": begin + (finish - begin) * moment,
+                    "subject_x": None,
+                    "offset": None,
+                    "faces": None,
+                    "pick": f"{moment:.2f}",
+                }
+                for moment in at
+            ]
         samples = []
         for index, pick in enumerate(chosen):
             when = float(pick["src_time"])
             tile = dest_dir / f"{row:03d}-{index}-{pick['pick']}.png"
             picture.extract_frame(placement["path"], when, tile)
-            crop = entry.crop_at(when) if entry is not None else None
-            pane = entry.pane_at(entry.window_start(when)) if entry is not None else None
-            if crop is not None and source is not None:
-                label = f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}"
-                if pane is not None:
-                    label += f" + {_rect_text(pane)} (split)"
-                if pick["subject_x"] is not None:
-                    # The number the tile is being read for: where the subject
-                    # is against the middle of the crop, signed, so which way
-                    # the window is wrong is on the tile rather than inferred.
-                    label += f"  subj {pick['subject_x']} {pick['offset']:+} {pick['pick']}"
-                    if pick["faces"] > 1:
-                        # On the tile, not only in the table: this is the one
-                        # number on a sheet that can be large and mean nothing,
-                        # and a sheet is read as pictures.
-                        label += f" ({pick['faces']} faces)"
-                _draw_window(tile, crop, source, label, pane)
+            if sliding:
+                fraction = (when - begin) / (next_edge - begin) if next_edge > begin else 0.0
+                crop = _lerp_rect(from_rect, to_rect, fraction)
+                # The dashed rect is the *other* end — the target while it is
+                # still travelling, the origin once it has arrived, so the
+                # last tile does not dash an identical rect over its own
+                # solid one.
+                ghost = from_rect if fraction >= 1.0 else to_rect
+                pane = None  # a sliding window is never also a split — mlt.Reframe refuses it.
+                if source is not None:
+                    label = (
+                        f"{row} {placement['asset']} @{when:.2f}s SLIDE "
+                        f"{_rect_text(from_rect)} -> {_rect_text(to_rect)}  {pick['pick']}"
+                    )
+                    _draw_window(tile, crop, source, label, ghost)
+            else:
+                crop = entry.crop_at(when) if entry is not None else None
+                pane = entry.pane_at(entry.window_start(when)) if entry is not None else None
+                if crop is not None and source is not None:
+                    label = f"{row} {placement['asset']} @{when:.2f}s  {_rect_text(crop)}"
+                    if pane is not None:
+                        label += f" + {_rect_text(pane)} (split)"
+                    if pick["subject_x"] is not None:
+                        # The number the tile is being read for: where the subject
+                        # is against the middle of the crop, signed, so which way
+                        # the window is wrong is on the tile rather than inferred.
+                        label += f"  subj {pick['subject_x']} {pick['offset']:+} {pick['pick']}"
+                        if pick["faces"] > 1:
+                            # On the tile, not only in the table: this is the one
+                            # number on a sheet that can be large and mean nothing,
+                            # and a sheet is read as pictures.
+                            label += f" ({pick['faces']} faces)"
+                    _draw_window(tile, crop, source, label, pane)
             tiles.append(tile)
             samples.append(
                 {
@@ -4544,7 +5008,9 @@ def reframe_sheet(
                     "crop": _rect_text(crop) if crop else None,
                     # Named rather than folded into `crop`, so a page built on
                     # this table can say which tiles are splits without parsing
-                    # a label back apart.
+                    # a label back apart. Always None on a sliding row — the
+                    # dashed rect there is the slide's other end, not a pane,
+                    # and reusing this field would misreport `split` below.
                     "pane": _rect_text(pane) if pane else None,
                     "subject_x": pick["subject_x"],
                     "offset": pick["offset"],
@@ -4569,6 +5035,15 @@ def reframe_sheet(
                 # The address the rect is stored at, which is what `reframe
                 # --src-start` takes to change it.
                 "window": round(entry.window_start(begin), 3) if entry is not None else None,
+                # Whether this window slides into the next one rather than
+                # stepping — the flag `reframe --interp` sets on the
+                # *destination* window, so `slides_to` is that window's own
+                # address (`reframe --src-start` again, to change or drop it).
+                # A sliding row's tiles are its two ends, never `crop_at`'s
+                # single answer, and `crop`/`pane` on its `samples` follow —
+                # `pane` is always null there (§ The keyframed move).
+                "sliding": sliding,
+                "slides_to": round(next_edge, 3) if sliding else None,
                 # How many windows this *placement* crosses — counted off the
                 # geometry rather than off where the samples landed, which is
                 # the number that was wrong before. More than one is also the
@@ -4615,7 +5090,7 @@ def reframe_sheet(
     sheet.parent.mkdir(parents=True, exist_ok=True)
     command = [
         *graphics.magick_command(), "montage", *[str(tile) for tile in tiles],
-        "-tile", f"{SHEET_PICKS if extremes else len(at)}x",
+        "-tile", f"{columns}x",
         "-geometry", f"{SHEET_TILE_WIDTH}x+3+3",
         "-background", "#222",
         str(sheet),
@@ -5285,21 +5760,238 @@ def reframe_coverage(
     }
 
 
+#: Where a project keeps a finishing pass on the very end — an end card or a
+#: bumper, applied by `export` itself rather than by a person running ffmpeg
+#: over a finished render afterward, which is a pass every derivation drops at
+#: exit 0 with nothing in `status`, `verify` or `check_frames` ever noticing
+#: (HISTORY.md § The bumper the teaser never had, § The end card). Read with
+#: `.get()` and additive, the `CANVAS_KEY`/`CAPTION_STYLE_KEY` shape: absent
+#: means what every project written before this key existed meant, that
+#: nothing plays after the `Edit`'s own last frame — so this is not a
+#: `SCHEMA_VERSION` bump. `{"asset": "card:name", "seconds": ..., "fade": ...}`
+#: (PLAN.md § Tail time — the design note).
+#:
+#: **`asset` is always a card, never a clip, and `tail()` refuses the other
+#: shape rather than storing it.** `verify` diffs a render's own
+#: transcription against the timeline's words, and silence adds none of its
+#: own — a media clip's audio would give `verify` something to disagree
+#: about, permanently, on every project that ever set one.
+TAIL_KEY = "tail"
+
+
+def _stored_tail(project: Project) -> dict[str, Any] | None:
+    """The project's tail, resolved to its three fields, or None for no tail.
+
+    Validated on every read, not only on write — a manifest edited by hand or
+    carried over from a future lucid gets a message naming the shape rather
+    than a `KeyError` three calls later inside `_build_mlt`.
+    """
+    stored = project.read_manifest().get(TAIL_KEY)
+    if stored is None:
+        return None
+    if not isinstance(stored, dict):
+        raise ProjectError(f"{project.manifest_path}'s {TAIL_KEY!r} must be a JSON object")
+    try:
+        asset = str(stored["asset"])
+        seconds = float(stored["seconds"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProjectError(
+            f"{project.manifest_path}'s {TAIL_KEY!r} must hold at least "
+            f"'asset' and a numeric 'seconds', not {stored!r}"
+        ) from exc
+    fade = float(stored.get("fade", 0.0))
+    return {"asset": asset, "seconds": seconds, "fade": fade}
+
+
+def _tail_frames(project: Project, rate: float) -> int:
+    """How many frames the configured tail adds at `rate`, 0 with none.
+
+    Rounds the same way `autoeditor.frame_layout` rounds every segment edge —
+    `round()`, not truncation — so a tail's own frame count is quantised on
+    the export's grid by the same rule the rest of the timeline is, rather
+    than by a second convention that happens to agree most of the time.
+    `max(1, ...)` for the same reason a shot is: a positive `seconds` that
+    rounds to zero frames at a coarse grid is a bug to surface downstream
+    (an empty MLT entry), not silence the tail into never having existed.
+    """
+    tail = _stored_tail(project)
+    if tail is None:
+        return 0
+    return max(1, round(tail["seconds"] * rate))
+
+
+def _frame_total_with_tail(project: Project, edit: tl.Edit, rate: float) -> int:
+    """`autoeditor.frame_total`, plus whatever a configured tail adds.
+
+    The single answer to "how long is this" once a tail exists to answer for
+    (PLAN.md § Tail time — the design note): the `Edit` itself never grows to
+    describe the card and the silence after it, so every caller that used to
+    read `autoeditor.frame_total` straight moves to this instead of learning
+    about `tail` on its own — a duration answered two ways is exactly how a
+    render can disagree with its own timeline while both report clean, which
+    is the failure `check_frames` exists to catch and would now be able to
+    cause. A project that has never touched `tail` renders through here
+    byte-identically to `autoeditor.frame_total` alone, `_tail_frames` being 0.
+    """
+    return autoeditor.frame_total(edit, rate) + _tail_frames(project, rate)
+
+
+def _tail_silence(project: Project, seconds: float) -> Path:
+    """The cached silent WAV a tail's audio-track entry reads from.
+
+    Keyed on `seconds` alone — not on the frame rate a particular export
+    happens to run at — because `picture.render_silence` already renders a
+    half second past what was asked, so one file outlasts every grid a tail
+    could ever be quantised onto. Rendered once and reused, the way a card's
+    PNG is rendered once and re-read by every export after it.
+    """
+    dest = project.tail_dir / f"silence-{round(seconds * 1000)}ms.wav"
+    if not dest.is_file():
+        picture.render_silence(dest, seconds)
+    return dest
+
+
+def tail(
+    path: Path | str,
+    *,
+    asset: str | None = None,
+    seconds: float | None = None,
+    fade: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the finishing pass this project plays after its last frame.
+
+    An end card or a bumper, applied by `export` itself — the fix for a defect
+    that has already shipped a video with one missing: a finishing pass glued
+    on with ffmpeg after the fact is dropped by every derivation at exit 0,
+    silently, because nothing in the project ever knew it existed (HISTORY.md
+    § The bumper the teaser never had, § The end card). Called with no
+    arguments it changes nothing and reports what is in force, which is also
+    how to learn the field names.
+
+    `asset` **must be a `card:name`, never a clip_id.** `verify` diffs a
+    render's own transcription against the timeline's words; silence adds
+    none of its own, and a media clip's audio would give it something to
+    disagree about on every check from here on. `seconds` is the tail's whole
+    length, card included — not the hold *before* a dissolve, with `fade`
+    added on top of it. That is the known trap this key exists to not repeat
+    (HISTORY.md § The bumper the teaser never had: `xfade` finishes exactly at
+    the length it was given, so treating `seconds` as the hold-alone and
+    adding `fade` on top runs the render long by exactly the fade). `fade` is
+    recorded and echoed but **not yet drawn** — this build cuts to the card
+    hard, at `seconds`, and a later pass can spend the stored value on an
+    actual dissolve without a second manifest key.
+
+    Setting `asset` or `seconds` the first time requires both together (there
+    is no card with an unstated length, and no length with nothing to hold);
+    either alone after that just updates its own field, `caption_style`'s
+    partial-update shape. `reset` drops the tail entirely — a project with no
+    `tail` key means exactly what it meant before this existed, nothing plays
+    past the `Edit`'s own end.
+
+    **This mechanism needs an existing picture cue lane covering the whole
+    film.** A tail is two ordinary MLT entries — the card on the picture lane,
+    a silent WAV on the audio track — and that only writes a document
+    `mlt.document` will accept when the picture lane already covers every
+    frame the audio track has (PLAN.md § Tail time — the design note, "What
+    the writer already accepts"). A project whose picture comes straight off
+    its own clip, with no cue table, has no second lane for a card to join;
+    `export` refuses rather than duplicating the whole film onto one just to
+    make room for six seconds at the end. Add cues first (`cue_add`), or this
+    is the call that names why.
+
+    `plan` resolves and validates without writing.
+    """
+    if reset and (asset is not None or seconds is not None or fade is not None):
+        raise ProjectError("pass fields to change, or `reset`, not both")
+
+    project = Project.open(path)
+    stored = _stored_tail(project)
+    changing = asset is not None or seconds is not None or fade is not None
+
+    if reset:
+        after: dict[str, Any] | None = None
+    elif not changing:
+        after = stored
+    else:
+        base = stored or {}
+        merged_asset = asset if asset is not None else base.get("asset")
+        merged_seconds = seconds if seconds is not None else base.get("seconds")
+        merged_fade = fade if fade is not None else base.get("fade", 0.0)
+        if merged_asset is None or merged_seconds is None:
+            raise ProjectError(
+                "a tail needs both `asset` and `seconds` set together the first "
+                "time — there is no card with an unstated length, and no length "
+                "with nothing to hold. Either alone after that updates its own "
+                "field."
+            )
+        if not str(merged_asset).startswith("card:"):
+            raise ProjectError(
+                f"tail asset must be a card (card:name), not {merged_asset!r} — "
+                "verify diffs a render's own transcription against the "
+                "timeline's words, and silence adds none of its own; a media "
+                "clip would give it something to disagree about on every check "
+                "from here on"
+            )
+        if float(merged_seconds) <= 0:
+            raise ProjectError(f"tail seconds must be positive, not {merged_seconds!r}")
+        if float(merged_fade) < 0:
+            raise ProjectError(f"tail fade must not be negative, not {merged_fade!r}")
+        if float(merged_fade) > float(merged_seconds):
+            raise ProjectError(
+                f"tail fade ({merged_fade}) cannot exceed seconds ({merged_seconds}) "
+                "— the fade is spent inside the tail's own length, never added to "
+                "it (HISTORY.md § The bumper the teaser never had, the four-frame "
+                "trap this key exists to not repeat)"
+            )
+        after = {
+            "asset": str(merged_asset),
+            "seconds": float(merged_seconds),
+            "fade": float(merged_fade),
+        }
+
+    write = (reset or changing) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if after is None:
+            manifest.pop(TAIL_KEY, None)
+        else:
+            manifest[TAIL_KEY] = after
+        project.write_manifest(manifest)
+
+    asset_exists: bool | None = None
+    if after is not None:
+        name = after["asset"].removeprefix("card:")
+        asset_exists = (project.cards_dir / f"{name}.png").is_file()
+
+    return {
+        "project": str(project.root),
+        "tail": after,
+        "asset_exists": asset_exists,
+        "written": write,
+        "reset": bool(reset),
+        "plan": bool(plan),
+    }
+
+
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
     """Does this timeline need the MLT writer?
 
-    Three ways to get there and they hit the same wall: a cue table lays
+    Four ways to get there and they hit the same wall: a cue table lays
     picture over the edit, an edit naming two clips already holds two `src`
-    files, and a canvas override names a shape auto-editor can only
-    letterbox into. auto-editor 31.x refuses to *export* the first two
-    (exit 2) and *renders* them at 720x576 with exit 0 (CLAUDE.md); it would
-    take the third and quietly ignore it, which is the same failure wearing
-    a different hat. All three route through the MLT writer.
+    files, a canvas override names a shape auto-editor can only letterbox
+    into, and a tail names a second and third resource (the card, the
+    silence) auto-editor has no export for at all. auto-editor 31.x refuses
+    to *export* a multi-source timeline (exit 2) and *renders* one at 720x576
+    with exit 0 (CLAUDE.md); it would take a canvas override and quietly
+    ignore it, which is the same failure wearing a different hat. All four
+    route through the MLT writer.
     """
     if len({segment.clip_id for segment in edit.segments}) > 1:
         return True
     manifest = project.read_manifest()
-    return bool(manifest.get("cues") or manifest.get(CANVAS_KEY))
+    return bool(manifest.get("cues") or manifest.get(CANVAS_KEY) or manifest.get(TAIL_KEY))
 
 
 def _mlt_resolution(project: Project) -> tuple[int, int]:
@@ -5346,6 +6038,39 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         if not shot["is_image"]:
             clip_of[shot["asset_path"]] = shot["asset"]
 
+    # A tail is two ordinary entries appended after everything above — the
+    # card on the picture lane, a silent WAV of the same length on the audio
+    # track — added here rather than taught to `build_shots`/`_picture_plan`,
+    # because a cue addresses a moment *inside* the film and a tail is after
+    # it (PLAN.md § Tail time — the design note; CLAUDE.md "the completion
+    # queue"). `lane`'s existing frames already sum to exactly `audio`'s (that
+    # is what every prior `mlt.document` call on this project has already
+    # required), so appending the same `tail_frames` to both keeps the
+    # lane-covers-track invariant true by construction — nothing below has to
+    # relax it.
+    tail_report: dict[str, Any] | None = None
+    tail = _stored_tail(project)
+    if tail is not None:
+        if not lane:
+            raise ProjectError(
+                "this project has a tail but no picture cue lane to hang the "
+                "card on — a tail needs an existing cue table (cue_add) "
+                "covering the whole film, because `mlt.document` requires the "
+                "picture lane to cover the audio track exactly whenever one "
+                "exists, and a project whose picture comes straight off its "
+                "own clip has no second lane a card could join without "
+                "duplicating the entire film onto one just to make room for "
+                "the last few seconds"
+            )
+        card = _resolve_asset(project, tail["asset"])
+        if not card["is_image"]:
+            raise ProjectError(f"tail asset {tail['asset']!r} resolved to a clip, not a card")
+        tail_frames = _tail_frames(project, rate)
+        silence = _tail_silence(project, tail["seconds"])
+        audio.append(mlt.Entry(str(silence), 0, tail_frames, is_image=False, has_video=False))
+        lane.append(mlt.Entry(card["asset_path"], 0, tail_frames, is_image=True, has_video=True))
+        tail_report = {**tail, "frames": tail_frames}
+
     resolution = _mlt_resolution(project)
     by_clip = _reframe_map(project, resolution)
     reframes = {
@@ -5366,6 +6091,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
         "sources": len({entry.resource for entry in [*audio, *lane]}),
+        "tail": tail_report,
         # What the render will actually crop, named where the render is built
         # rather than left for a pixel probe to discover.
         "reframed": sorted(
@@ -5389,6 +6115,10 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
         "shots": len(built["shots"]),
         "sources": built["sources"],
         "frames": built["frames"],
+        # None with no tail, or the resolved config plus the frames it added
+        # — `frames` above already includes them, this is what accounts for
+        # the difference from `autoeditor.frame_total` alone.
+        "tail": built["tail"],
         # Named on both roads because a crop is a decision about what is on
         # screen, and the render that made it looks entirely plausible.
         "reframed": built["reframed"],
@@ -5584,8 +6314,15 @@ def export(
     combination of arguments that should route one through the path that
     silently ruins it. A `canvas` override joins them for the same reason:
     auto-editor would take the export and ignore the canvas, which is the same
-    silent wrong output wearing a different hat. The reply says which road was
-    taken: `"writer"` is `"auto-editor"`, `"mlt"`, or `"melt"`.
+    silent wrong output wearing a different hat. A configured `tail` joins
+    them too, for a third reason with the same shape: auto-editor has no
+    export for the second and third resources a card and its silence are, and
+    the alternative is the defect this key exists to fix, a finishing pass
+    that only ever existed downstream of `export` and vanished at exit 0 on
+    every re-cut (PLAN.md § Tail time — the design note). The reply says
+    which road was taken: `"writer"` is `"auto-editor"`, `"mlt"`, or `"melt"`,
+    and `"tail"` (on the `mlt`/`melt` roads) is null with no tail or the
+    resolved config plus the frames it added.
 
     `preset` names one of `EXPORT_PRESETS` (`"youtube"`, `"web"`,
     `"tiktok-reels"`) or `"custom"` (which requires `resolution`) — a bundle
@@ -6462,9 +7199,10 @@ def check_frames(
     """Count the frames the timeline should run to, and check a target against it.
 
     The picture-side counterpart to `verify`, which deliberately covers only
-    audio. `expected_frames` is what `export` lays down — the same
-    `autoeditor.frame_layout` the export itself uses, so the two cannot drift —
-    and every segment edge is quantised on its own, which is why this is not
+    audio. `expected_frames` is what `export` lays down — `_frame_total_with_tail`,
+    the same arithmetic the export itself uses (`autoeditor.frame_layout` plus
+    whatever a configured `tail` adds), so the two cannot drift — and every
+    segment edge is quantised on its own, which is why this is not
     `round(duration * fps)`.
 
     With no `target` it reports that number and stops, which is the cheap thing
@@ -6490,7 +7228,7 @@ def check_frames(
         raise ProjectError("the timeline is empty — there are no frames to count")
 
     rate = float(fps) if fps else _export_fps(_clips_by_id(project))
-    expected = autoeditor.frame_total(edit, rate)
+    expected = _frame_total_with_tail(project, edit, rate)
     result: dict[str, Any] = {
         "fps": rate,
         "segments": len(edit.segments),
@@ -6553,6 +7291,167 @@ def check_frames(
     return result
 
 
+#: Where a project records the export it is meant to agree with, as a path
+#: string. Absent means "nothing declared" — which is exactly what every
+#: project written before this key existed meant, so it is additive the way
+#: `CANVAS_KEY`/`CAPTION_STYLE_KEY`/`TAIL_KEY` are and gets no `SCHEMA_VERSION`
+#: bump for the same reason (HISTORY.md § The VO the project was holding: "a
+#: caveat recorded in a results table is not a guard" — this is the guard, and
+#: it has to live in the manifest rather than in whoever typed the path last).
+REFERENCE_KEY = "reference"
+
+#: How far `film_check`'s own `timeline_duration` may drift from a reference
+#: render's ffprobe duration and still count as the same film. This is
+#: deliberately not a frame grid — `check_frames` above already owns
+#: frame-exact agreement, decoding the target through `melt` or counting its
+#: packets. `film_check` compares two much cheaper numbers (a sum of segment
+#: lengths against a container header) that were never going to land on the
+#: same float: frame quantisation and encoder padding move a correct render
+#: away from the raw `timeline_duration` by a measured 0.072s on the shipped
+#: Scream film (336.269s timeline against a 336.341s render of it). The
+#: disagreement this function exists to catch is nothing like that scale —
+#: the same film's stale-VO project measured 74.622s away from the same
+#: reference. One second sits two orders of magnitude above the noise a
+#: correct render produces and two below the defect this is for.
+FILM_CHECK_TOLERANCE = 1.0
+
+
+def _stored_reference(project: Project) -> str | None:
+    """The project's declared reference export, or None if never declared."""
+    stored = project.read_manifest().get(REFERENCE_KEY)
+    return None if stored is None else str(stored)
+
+
+def film_check(
+    path: Path | str,
+    reference: Path | str | None = None,
+    *,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Compare this project against the export it is supposed to be, cheaply.
+
+    Answers PLAN.md § Open questions, *How does a lucid project know it is
+    the film* — the question the Scream project's stale VO left open.
+    `~/lucid-scream-v2` sat at the silence-cut stage of an edit whose retake
+    pass had already been done outside lucid: 73 segments, 410.963s, against
+    the shipped film's 63 segments, 336.269s. The render matched the
+    timeline, `verify` had nothing to report, all 38 shots planned — **every
+    check lucid had agreed with itself the whole time**, because none of them
+    compares a project to anything outside it. `check_frames` is the closest
+    relative and is not this: it asks whether an export it is *about* to make
+    (or one already made) matches *this* project's own arithmetic, framewise.
+    It structurally cannot catch this project being the wrong film to begin
+    with — it would have agreed with itself just as cleanly on the stale cut.
+    This asks the other question: does this project's own answer resemble a
+    *reference* export's, at all. (HISTORY.md § The VO the project was
+    holding.)
+
+    The comparison is deliberately coarse — cheaper than `check_frames`, and
+    answering a coarser question. **`timeline_duration`** comes off this
+    project's own edit (`_load_edit`, the same source `check_frames` reads).
+    **`reference_duration`** is read off `reference` with ffprobe alone —
+    no `melt`, no frame counting — because a *segment count* is not a number
+    a finished render carries: once encoded there is no cut boundary left to
+    count, only a stream of frames. So `segments` is reported for the record
+    (what CAN be asked of this project) and there is nothing on the
+    reference's side to set it against (what CANNOT be asked of a render) —
+    naming that gap honestly is the point, rather than inventing a number
+    or silently dropping the comparison. `agrees` is the two durations within
+    `FILM_CHECK_TOLERANCE` of each other; `duration_delta` is the raw
+    difference, which is the number that would have read as 74.622 the day
+    this was needed and been impossible to miss.
+
+    `reference` is remembered, not just used once: passing it stores it under
+    the project's `reference` key (additive, no schema bump — the `canvas`/
+    `caption_style` precedent) so every later call — from a script, from an
+    agent that never saw the original conversation — asks the same question
+    without the path being retyped or forgotten. That is the fix HISTORY.md's
+    own postmortem names: "a caveat recorded in a results table is not a
+    guard," because nothing re-checked it. This makes the claim project
+    state instead of a sentence someone has to remember to re-read. Called
+    with no `reference` and none declared, it reports the project's own
+    numbers and says so rather than raising — the same shape `canvas` and
+    `tail` use for "nothing set yet." `reset` drops the declared reference;
+    `plan` resolves and validates without writing.
+    """
+    if reference is not None and reset:
+        raise ProjectError("pass a reference or `reset`, not both")
+
+    project = Project.open(path)
+    stored = _stored_reference(project)
+    if reference is not None:
+        after: str | None = str(Path(reference).expanduser())
+    elif reset:
+        after = None
+    else:
+        after = stored
+
+    write = (reference is not None or reset) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if after is None:
+            manifest.pop(REFERENCE_KEY, None)
+        else:
+            manifest[REFERENCE_KEY] = after
+        project.write_manifest(manifest)
+
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError("the timeline is empty — there is no film here to check yet")
+
+    result: dict[str, Any] = {
+        "project": str(project.root),
+        "timeline_duration": edit.duration,
+        "segments": len(edit.segments),
+        "reference": after,
+        "reference_source": (
+            "argument" if reference is not None else ("declared" if after is not None else None)
+        ),
+    }
+    if after is None:
+        result["notes"] = [
+            (
+                "no reference declared — pass `reference` to compare against an "
+                "exported file. Passing one also records it, so the next call "
+                "(from anyone, with no argument) asks the same question again."
+            )
+        ]
+        return result
+
+    target_path = Path(after).expanduser()
+    if not target_path.exists():
+        raise picture.PictureError(f"no such reference file: {target_path}")
+
+    counts = media.count_frames(target_path)
+    reference_duration = counts["duration"]
+    if reference_duration is None:
+        raise picture.PictureError(
+            f"ffprobe reported no duration for {target_path} — it may not be a "
+            "readable media file"
+        )
+
+    delta = edit.duration - reference_duration
+    result.update(
+        {
+            "reference_duration": reference_duration,
+            "tolerance": FILM_CHECK_TOLERANCE,
+            "duration_delta": delta,
+            "agrees": abs(delta) <= FILM_CHECK_TOLERANCE,
+        }
+    )
+    result["notes"] = [
+        (
+            "segment count has nothing to compare against on the reference side — "
+            "a finished render carries no cut boundaries, only frames, so "
+            "`segments` is reported for the record and duration is the only "
+            "number both sides can produce. See check_frames for a frame-exact "
+            "check once this one agrees."
+        )
+    ]
+    return result
+
+
 def check_black(
     path: Path | str,
     target: Path | str,
@@ -6565,7 +7464,7 @@ def check_black(
 
     ffmpeg's `blackdetect` finds every black run in `target`. Each is checked
     against the timeline's own `expected_frames`/`expected_duration`
-    (`autoeditor.frame_total`, the same arithmetic `check_frames` already
+    (`_frame_total_with_tail`, the same arithmetic `check_frames` already
     trusts) using `media.count_frames`'s packet count rather than a fresh
     probe, so the two checks' delta math cannot drift apart.
 
@@ -6603,7 +7502,7 @@ def check_black(
         raise ProjectError("the timeline is empty — there is no picture to check")
 
     rate = float(fps) if fps else _export_fps(_clips_by_id(project))
-    expected_frames = autoeditor.frame_total(edit, rate)
+    expected_frames = _frame_total_with_tail(project, edit, rate)
     expected_duration = expected_frames / rate
     threshold = min_duration if min_duration is not None else 0.0
 
@@ -6751,7 +7650,7 @@ def spot_frames(
         raise picture.PictureError(f"could not read a duration for {target_path}")
 
     rate = float(fps) if fps else _export_fps(_clips_by_id(project))
-    expected_frames = autoeditor.frame_total(edit, rate)
+    expected_frames = _frame_total_with_tail(project, edit, rate)
     expected_duration = expected_frames / rate
     half_frame = 0.5 / rate
     mapping_trusted = abs(target_duration - expected_duration) <= half_frame
@@ -7320,6 +8219,16 @@ def reel(
     does not simply defer to `cut_by_time`, and the reason is measured rather
     than argued.
 
+    **A configured `tail` (an end card, a bumper) is never inherited** —
+    `tail_dropped` reports what the film had, if anything, and the derived
+    project gets none, the same "never" `cues_pinned` proves out for pruning
+    (PLAN.md § Tail time — the design note: taken 2026-08-12, "a derivation
+    carries nothing and reports"). A bumper is a decision about *this* cut,
+    not a fact a span of the film carries with it — a teaser derived from an
+    essay should not silently end on the essay's own end card, and register
+    is the reason it is worth naming rather than just dropping: the film's
+    register and a reel's are allowed to differ on purpose.
+
     `plan=True` resolves the whole thing — the spans, the clips that would be
     linked, what the cut would remove — and creates nothing.
     """
@@ -7360,6 +8269,10 @@ def reel(
     # (`_reel_cue_pins`).
     pins, pins_error = _reel_cue_pins(source)
     kept_cues, pinned = _reel_cue_table(source.read_manifest().get("cues", []), orphans, pins)
+    # Read here, before anything is created, the same as `cues_dropped` above
+    # — a `tail` is never inherited (taken 2026-08-12), so this is what the
+    # film had, reported rather than silently left behind.
+    tail_dropped = _stored_tail(source)
     # Checked here rather than left to `cut_by_time`, at the granularity a reel
     # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
     # is reported and never refused, which is `cut_by_time`'s own convention
@@ -7414,6 +8327,10 @@ def reel(
         # wrong second. Named for the same reason.
         "cues_pinned": pinned,
         "pins_error": pins_error,
+        # None if the film had no tail; otherwise what it had, never carried
+        # onto the derived project — a bumper is a decision about this cut,
+        # not a fact the span carries with it.
+        "tail_dropped": tail_dropped,
         "plan": bool(plan),
     }
     report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
@@ -7438,6 +8355,12 @@ def reel(
         manifest = source.read_manifest()
         manifest["name"] = name or reel_project.root.name
         manifest["cues"] = kept_cues
+        # Never inherited — see `tail_dropped` above. Popped explicitly rather
+        # than left to the copy above carrying it across: `manifest` starts as
+        # the *film's* manifest, tail and all, and this is the one line that
+        # makes "never" true rather than "true until the next key gets copied
+        # here by accident".
+        manifest.pop(TAIL_KEY, None)
         # Provenance, and the answer to the question a hand-made scratch copy
         # could not answer once already: which film is this, and which seconds
         # of it (HISTORY.md § The VO the project was holding). Additive and

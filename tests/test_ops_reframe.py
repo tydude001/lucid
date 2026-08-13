@@ -423,6 +423,7 @@ def test_the_windows_come_back_in_source_order(project: Project) -> None:
         "asked": None,
         "origin": "centre",
         "pane": None,
+        "interp": False,
         "kept": round((459 * 816) / (1920 * 816), 4),
     }
     assert [w["origin"] for w in windows[1:]] == ["override", "override"]
@@ -660,3 +661,98 @@ def test_a_rect_at_the_same_in_point_replaces_a_split_with_a_solo(project: Proje
     records = project.read_manifest()[ops.REFRAME_KEY]
     assert len(records) == 1
     assert "pane" not in records[0]
+
+
+# -- the keyframed move: PLAN.md § Per-shot framing, refused section; § The
+# keyframed move. `interp` marks the window arriving as one that slides in
+# from whatever governed before it — the writer decides which MLT key that
+# implies (mlt.Reframe.rect_property, test_mlt.py's own coverage); this file
+# is only the store and the op that reaches it.
+
+
+def test_interp_is_absent_by_default_and_reads_back_on_the_flagged_window(
+    project: Project,
+) -> None:
+    """Absent-means-a-step is what every window before this existed meant, so
+    setting one window's flag must not touch its neighbours' or the head's."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=8.0, interp=True)
+
+    windows = _clip(ops.reframe(project.root), "cold-open")["windows"]
+    by_start = {w["src_start"]: w["interp"] for w in windows}
+    assert by_start == {0.0: False, 4.0: False, 8.0: True}
+
+
+def test_interp_is_written_only_when_true(project: Project) -> None:
+    """No new key on a record that never asked for one — the `pane`/`canvas`
+    shape rather than `cards`, so an unflagged window's record is untouched."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+
+    records = project.read_manifest()[ops.REFRAME_KEY]
+
+    assert records == [{"clip_id": "cold-open", "rect": [0, 0, 459, 816], "src_start": 4.0}]
+
+
+def test_interp_needs_a_rect(project: Project) -> None:
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="needs a rect"):
+        ops.reframe(project.root, "cold-open", interp=True)
+
+
+def test_interp_cannot_combine_with_a_split(project: Project) -> None:
+    """The lower pane has no interpolation of its own, so a window that is
+    both would move on top and step underneath."""
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="cannot also slide"):
+        ops.reframe(
+            project.root, "cold-open", rect=PANE_LEFT, pane=PANE_RIGHT,
+            src_start=4.0, interp=True,
+        )  # fmt: skip
+
+
+def test_interp_on_the_head_is_refused(project: Project) -> None:
+    """There is nothing before the head of the source to slide from — refused
+    whether the head is named explicitly (`--at 0`) or by omission."""
+    ops.canvas(project.root, size="1080x1920")
+
+    with pytest.raises(ProjectError, match="head of"):
+        ops.reframe(project.root, "cold-open", rect="0,0,459,816", interp=True)
+    with pytest.raises(ProjectError, match="head of"):
+        ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=0.0, interp=True)
+
+
+def test_a_hand_edited_head_flagged_to_slide_is_reported_not_raised(project: Project) -> None:
+    """Only reachable by hand-editing the manifest — `reframe` never writes
+    one — so it is reported the same way a hand-edited duplicate in-point is,
+    which is how reading the table stays possible at all."""
+    ops.canvas(project.root, size="1080x1920")
+    manifest = project.read_manifest()
+    manifest[ops.REFRAME_KEY] = [
+        {"clip_id": "cold-open", "rect": [0, 0, 459, 816], "interp": True}
+    ]
+    project.write_manifest(manifest)
+
+    entry = _clip(ops.reframe(project.root), "cold-open")
+
+    assert entry["windows"] is None
+    assert "flagged to slide" in entry["error"]
+
+
+def test_the_writer_gets_the_interp_flag(project: Project) -> None:
+    """The end of the chain: what `reframe` stores has to arrive at the
+    writer as `Reframe.interp`, or the manifest asks for a slide the render
+    never draws."""
+    ops.canvas(project.root, size="1080x1920")
+    ops.reframe(project.root, "cold-open", rect="0,0,459,816", src_start=4.0)
+    ops.reframe(project.root, "cold-open", rect="1461,0,459,816", src_start=8.0, interp=True)
+
+    entry = ops._reframe_map(project, (1080, 1920))["cold-open"]
+
+    assert entry.interp == (8.0,)
+    assert entry.is_interp(4.0) is False
+    assert entry.is_interp(8.0) is True

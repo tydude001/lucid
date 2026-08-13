@@ -578,6 +578,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_fonts = sub.add_parser(
+        "fonts", help="will the caption font actually draw here, measured by rendering"
+    )
+    p_fonts.add_argument(
+        "--install",
+        action="store_true",
+        help="copy the vendored face where fontconfig looks (writes into $HOME)",
+    )
+
     p_canvas = sub.add_parser("canvas", help="read or change the shape this project renders at")
     p_canvas.add_argument(
         "size",
@@ -589,6 +598,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reset", action="store_true", help="drop the override and go back to the footage's shape"
     )
     p_canvas.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
+    p_tail = sub.add_parser(
+        "tail", help="read or change the finishing pass this project plays after its last frame"
+    )
+    p_tail.add_argument(
+        "--asset", metavar="card:NAME", help="the card to hold — must be card:name, never a clip"
+    )
+    p_tail.add_argument(
+        "--seconds", type=float, help="the tail's whole length, card included"
+    )
+    p_tail.add_argument(
+        "--fade",
+        type=float,
+        help="recorded and echoed but not yet drawn — spent inside `seconds`, never added to it",
+    )
+    p_tail.add_argument("--reset", action="store_true", help="drop the tail entirely")
+    p_tail.add_argument(
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
@@ -648,6 +676,13 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="seconds into this clip's own source that the rect applies from, "
         "until the next window. Omit for the window from the head of the file",
+    )
+    p_reframe.add_argument(
+        "--interp",
+        action="store_true",
+        help="slide into this window from whatever governed before it, instead "
+        "of stepping to it. Needs --at after 0 (nothing before the head of the "
+        "source to slide from) and cannot be combined with --pane",
     )
     p_reframe.add_argument(
         "--reset",
@@ -774,6 +809,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "--fps",
         type=float,
         help="the rate the export used (default: the picture's, else 30)",
+    )
+
+    p_film_check = sub.add_parser(
+        "film-check",
+        help="compare this project's own numbers against a declared reference export",
+    )
+    p_film_check.add_argument(
+        "reference",
+        nargs="?",
+        help="a render to compare against, checked with ffprobe alone (default: whatever "
+        "was declared before, if anything). Passing one records it on the project.",
+    )
+    p_film_check.add_argument(
+        "--reset", action="store_true", help="drop the declared reference"
+    )
+    p_film_check.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
+    p_import_edit = sub.add_parser(
+        "import-edit",
+        help="lay a cut made in Kdenlive down as this project's timeline",
+    )
+    p_import_edit.add_argument("document", help="a .kdenlive (or .mlt) playlist to read")
+    p_import_edit.add_argument(
+        "--clip-id",
+        help="the registered clip a single-source document maps onto, for when the "
+        "document names the media at a path this project does not know",
+    )
+    p_import_edit.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the timeline"
     )
 
     p_black = sub.add_parser(
@@ -1276,10 +1342,32 @@ def _cmd_caption_style(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_fonts(args: argparse.Namespace) -> int:
+    # `project_given` rather than `project`, because `-C` is resolved to "."
+    # for every other subcommand and a font is not project state: asked from a
+    # directory that happens not to be a project, this should report lucid's
+    # own default rather than refuse. Naming a project is how you ask the
+    # narrower question, and typing `-C` is the only evidence of that intent.
+    return _emit(ops.fonts(args.project if args.project_given else None, install=args.install))
+
+
 def _cmd_canvas(args: argparse.Namespace) -> int:
     # The raw string goes through: `ops._parse_canvas` owns every refusal, so
     # the CLI and the MCP tool cannot disagree about what a canvas may be.
     return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
+
+
+def _cmd_tail(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.tail(
+            args.project,
+            asset=args.asset,
+            seconds=args.seconds,
+            fade=args.fade,
+            reset=args.reset,
+            plan=args.plan,
+        )
+    )
 
 
 def _cmd_reel(args: argparse.Namespace) -> int:
@@ -1308,6 +1396,7 @@ def _cmd_reframe(args: argparse.Namespace) -> int:
             rect=args.rect,
             pane=args.pane,
             src_start=args.at,
+            interp=args.interp,
             reset=args.reset,
             plan=args.plan,
         )
@@ -1366,6 +1455,18 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 def _cmd_frames(args: argparse.Namespace) -> int:
     return _emit(ops.check_frames(args.project, args.target, fps=args.fps))
+
+
+def _cmd_film_check(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.film_check(args.project, args.reference, reset=args.reset, plan=args.plan)
+    )
+
+
+def _cmd_import_edit(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.import_edit(args.project, args.document, clip_id=args.clip_id, plan=args.plan)
+    )
 
 
 def _cmd_black(args: argparse.Namespace) -> int:
@@ -1485,6 +1586,8 @@ _COMMANDS = {
     "caption-view": _cmd_caption_view,
     "caption-style": _cmd_caption_style,
     "canvas": _cmd_canvas,
+    "fonts": _cmd_fonts,
+    "tail": _cmd_tail,
     "reel": _cmd_reel,
     "reframe": _cmd_reframe,
     "reframe-detect": _cmd_reframe_detect,
@@ -1494,6 +1597,8 @@ _COMMANDS = {
     "broll-brief": _cmd_broll_brief,
     "verify": _cmd_verify,
     "frames": _cmd_frames,
+    "film-check": _cmd_film_check,
+    "import-edit": _cmd_import_edit,
     "black": _cmd_black,
     "spots": _cmd_spots,
     "attenuate": _cmd_attenuate,

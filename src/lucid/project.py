@@ -66,6 +66,13 @@ WAVEFORM_DIR = "cache/waveform"
 PROXY_DIR = "cache/proxy"
 RENDER_DIR = "renders"
 CARDS_DIR = "assets/cards"
+#: The silent WAV a `tail` renders its audio-track entry from (PLAN.md § Tail
+#: time — the design note). Cache, the `SHEET_DIR` precedent rather than
+#: `PROXY_DIR`'s: it is re-derivable from the manifest's own `tail.seconds`
+#: with no probe of anything on disk, and a project never had one until the
+#: first tail was set — so it is not in `_SUBDIRS` either, and `ops._tail_silence`
+#: creates it on demand the way `reframe_sheet` creates `SHEET_DIR`.
+TAIL_DIR = "cache/tail"
 #: Per-turn thumbs-up/down log for the agent panel (DAYDREAM.md § Agent
 #: panel) — one JSON line per rating. Lives under `cache/` because it is
 #: derived telemetry, not part of the edit: nothing here is authoritative for
@@ -233,6 +240,10 @@ class Project:
     @property
     def cards_dir(self) -> Path:
         return self.root / CARDS_DIR
+
+    @property
+    def tail_dir(self) -> Path:
+        return self.root / TAIL_DIR
 
     def transcript_path(self, clip_id: str) -> Path:
         return self.transcript_dir / f"{clip_id}.json"

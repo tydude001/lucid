@@ -228,12 +228,32 @@ class Reframe:
     drawn as two half-height panes, this series holding the lower one and the
     ordinary window series the upper. Empty on every project that has no
     split, which is what keeps their documents byte-identical.
+
+    `interp` names which `later` windows **slide in** from whatever governed
+    before them, instead of stepping to it (PLAN.md § Per-shot framing,
+    refused section; built out as § The keyframed move). It is a set of the
+    same `src_start` addresses `later` uses, not a parallel series, because a
+    window either slides or it does not — there is no third rect to carry.
+    Empty means every window steps, which is what every window before this
+    existed meant and what keeps an unflagged project's document unchanged.
+    The mechanism was already paid for by the writer (`rect_property` below):
+    every key already carried its own operator, discrete `|=` or
+    interpolated `=`, this class just never wrote anything but `|=`. **Which
+    key** is the one thing that was not obvious and was measured rather than
+    assumed: MLT interpolates the segment *leaving* a keyframe, so a window
+    asking to slide in puts `=` on the key *before* it, not its own
+    (`rect_property`'s own docstring has the render that settled it). **The
+    head can never be in `interp`** — there is nothing before frame 0 in the
+    source to slide from — and `__post_init__` refuses one that claims to,
+    the same discipline the "after the head" check above already applies to
+    `later` itself.
     """
 
     source: tuple[int, int]
     crop: tuple[int, int, int, int]
     later: tuple[tuple[float, tuple[int, int, int, int]], ...] = ()
     panes: tuple[tuple[float, tuple[int, int, int, int]], ...] = ()
+    interp: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         at = [seconds for seconds, _ in self.later]
@@ -257,6 +277,26 @@ class Reframe:
                 f"a split pane at {orphans} has no window of its own to pair with — "
                 "a pane is the lower half of a window, so both halves are addressed "
                 "by the same source in-point"
+            )
+        # `interp` names a `later` window, never the head — refused here
+        # rather than left to render wrong, since a bad key would still write
+        # a document and exit 0.
+        stray = sorted(set(self.interp) - set(at))
+        if stray:
+            raise MLTError(
+                f"reframe cannot flag {stray} to slide — interp names a window "
+                "in `later`, and the head has nothing before it to slide from"
+            )
+        # A pane track has no interpolation of its own (`pane_rect_property`
+        # always writes `|=`), so a window that is both a split and a slide
+        # would move on top and step underneath — two framings disagreeing in
+        # the same frame, at exit 0. Refused rather than shipped half-built.
+        both = sorted(set(self.interp) & set(pane_at))
+        if both:
+            raise MLTError(
+                f"window {both} cannot both slide and split — its lower pane "
+                "would still step while the upper half moves, drawing two "
+                "different framings across the same join"
             )
 
     def windows(self) -> tuple[tuple[float, tuple[int, int, int, int]], ...]:
@@ -288,6 +328,22 @@ class Reframe:
     def is_split(self, seconds: float) -> bool:
         """Is the window in force at this point in the source a stacked split?"""
         return self.pane_at(self.window_start(seconds)) is not None
+
+    def is_interp(self, seconds: float) -> bool:
+        """Does the window starting here slide in from whatever came before it?
+
+        Keyed on the window's own start, the same address `pane_at` uses, and
+        that address is a fact about *this* window regardless of which MLT
+        key ends up carrying the `=` — the answer to "should the source be
+        moving throughout the previous stretch" (`reframe_sheet`'s question)
+        is the same either way. The default — and every window written before
+        this existed — is False, a discrete step. `rect_property` is the one
+        place the direction matters: it puts the operator this implies on the
+        *preceding* key, because MLT interpolates the segment leaving a
+        keyframe, not the one arriving at it (measured, not assumed — see
+        `rect_property`'s own docstring).
+        """
+        return any(abs(seconds - at) < 1e-9 for at in self.interp)
 
     def crop_at(self, seconds: float) -> tuple[int, int, int, int]:
         """The window in force at that point in the source."""
@@ -388,19 +444,38 @@ class Reframe:
         """The `rect` value: `x y w h opacity`, or MLT's animation of them.
 
         One window writes the bare string it always wrote. More than one
-        writes keyframes — **discrete (`|=`), because a framing window steps
-        at a camera cut and does not slide into the next one** — numbered in
-        the producer's own **source** frames, which is the clock MLT runs a
-        filter's animation on. That was measured rather than assumed, and
-        refuted from both directions: a step keyed at source frame 310 on a
-        producer read from 300 lands at output frame 10, and one keyed at 20
-        is already up at output frame 0 (PLAN.md § Per-shot framing, finding
-        3). A timeline clock would have shown the opposite of both.
+        writes keyframes — numbered in the producer's own **source** frames,
+        which is the clock MLT runs a filter's animation on. That was
+        measured rather than assumed, and refuted from both directions: a
+        step keyed at source frame 310 on a producer read from 300 lands at
+        output frame 10, and one keyed at 20 is already up at output frame 0
+        (PLAN.md § Per-shot framing, finding 3). A timeline clock would have
+        shown the opposite of both.
+
+        **Each key's own operator is discrete (`|=`) unless the window that
+        *follows* it is flagged `interp`**, in which case it is `=` — a
+        framing window steps at a camera cut by default and does not slide
+        into the next one, but a window named in `interp` is asking its
+        predecessor to. **MLT interpolates the segment *leaving* a keyframe,
+        not the one arriving at it** — measured directly (`~/lucid-kf-probe`,
+        two renders differing only in which of a pair's two keys carried `=`):
+        flagging the later key produced a hold at the earlier rect for the
+        entire span and a hard cut to the later one exactly at its own frame,
+        indistinguishable from `|=`; flagging the *earlier* key produced a
+        render that visibly travelled between the two, crossing over roughly
+        midway. So a window asking to slide in puts its flag on the key
+        *before* it, not its own — which is also why the head can never
+        satisfy `interp` (`__post_init__`): there being nothing before it to
+        flag is the same fact as there being nothing before it to slide from.
+        The mechanism is the same either way — every key already had its own
+        operator, `interp` just decides which one gets `=` (PLAN.md § Per-shot
+        framing, refused section; § The keyframed move).
 
         A window that is a split writes the *upper* pane here — the same rect
         against a half-height box — so this node keeps drawing the whole way
         through and only its destination changes. The lower pane is a second
-        node, `pane_rect_property`.
+        node, `pane_rect_property`, which has no `interp` of its own
+        (`__post_init__` refuses a window that is both).
         """
         upper, _ = pane_boxes(resolution)
         if not self.later and not self.panes:
@@ -410,11 +485,16 @@ class Reframe:
                 "a reframe with more than one window needs the frame rate — its "
                 "keyframes are numbered in the source's own frames"
             )
+        windows = self.windows()
         keys = []
-        for seconds, crop in self.windows():
+        for index, (seconds, crop) in enumerate(windows):
             box = upper if self.pane_at(seconds) is not None else None
             values = " ".join(str(value) for value in self._dest(crop, resolution, box))
-            keys.append(f"{round(seconds * rate)}|={values} 1")
+            # This key's operator governs the segment *leaving* it, so it is
+            # the *next* window's flag that decides — not this one's.
+            next_start = windows[index + 1][0] if index + 1 < len(windows) else None
+            operator = "=" if next_start is not None and self.is_interp(next_start) else "|="
+            keys.append(f"{round(seconds * rate)}{operator}{values} 1")
         return ";".join(keys)
 
     def pane_rect_property(self, resolution: tuple[int, int], rate: float) -> str:
@@ -1106,3 +1186,222 @@ def write(root: ET.Element, output: Path | str) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(to_string(root), encoding="utf-8")
     return destination
+
+
+# -- reading one back ------------------------------------------------------
+#
+# The module's rule is "generated, never mutated", and this does not bend it:
+# nothing below writes, patches or round-trips a document. It reads an
+# *outside* cut — a `.kdenlive` playlist somebody trimmed in Kdenlive — into
+# the ranges `ops.import_edit` turns into an `Edit`. PLAN.md § Open questions,
+# *How does a lucid project know it is the film*, names the gap it closes: the
+# Scream retake pass was done in Kdenlive and its 63 ranges were parsed by hand
+# and written straight to `Edit`, bypassing `cut` and its history entirely.
+#
+# It lives here rather than in `autoeditor.py` because what makes it hard is
+# MLT's semantics, not auto-editor's, and those are already this module's to
+# own: a frame-inclusive `out`, a rate that comes from `<profile>` rather than
+# from any entry, and a `<blank>` that is real timeline runtime.
+
+
+@dataclass(frozen=True)
+class ImportedRange:
+    """One surviving source interval read out of a playlist.
+
+    `resource` is the producer's own `resource` string, untouched — resolving
+    it to a file, and a file to a registered `clip_id`, is the caller's job
+    and needs the project. `start`/`end` are **source seconds, half-open**,
+    already converted out of MLT's frame-inclusive `out` so that nothing
+    downstream has to remember to.
+    """
+
+    resource: str
+    start: float
+    end: float
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+def profile_rate(root: ET.Element) -> float:
+    """The document's frame rate, from `<profile>` and nowhere else.
+
+    Every position in a playlist is a frame number on this clock, including
+    the ones written as timecodes, so reading it wrong scales the whole
+    import rather than shifting it.
+    """
+    profile = root.find("profile")
+    if profile is None:
+        raise MLTError("this document has no <profile>, so nothing says what a frame is")
+    num = profile.get("frame_rate_num")
+    den = profile.get("frame_rate_den") or "1"
+    try:
+        rate = float(num or "") / float(den)
+    except (TypeError, ValueError) as exc:
+        raise MLTError(f"unreadable profile frame rate {num!r}/{den!r}") from exc
+    if rate <= 0:
+        raise MLTError(f"profile frame rate is {rate}, which cannot be a clock")
+    return rate
+
+
+def _position(raw: str, rate: float) -> int:
+    """A playlist position as a frame index, from either spelling.
+
+    MLT accepts a bare frame number *and* an `HH:MM:SS.mmm` timecode in the
+    same attribute, and which one a writer uses is its own business — Kdenlive
+    writes frames, auto-editor 31.4.2 writes timecodes, and both are the same
+    document format. Anything that only handled one would read the other as a
+    zero and import a cut starting at the head of the file.
+    """
+    text = raw.strip()
+    if not text:
+        raise MLTError("a playlist entry has an empty position")
+    if ":" not in text:
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise MLTError(f"unreadable playlist position {raw!r}") from exc
+    parts = text.split(":")
+    if len(parts) != 3:
+        raise MLTError(f"unreadable playlist timecode {raw!r}")
+    try:
+        hours, minutes, seconds = float(parts[0]), float(parts[1]), float(parts[2])
+    except ValueError as exc:
+        raise MLTError(f"unreadable playlist timecode {raw!r}") from exc
+    return round((hours * 3600 + minutes * 60 + seconds) * rate)
+
+
+def _resources(root: ET.Element) -> dict[str, str]:
+    """Producer id → the file it names, for the producers that name one.
+
+    Media arrives as `<chain>` in MLT 7 and as `<producer>` before it, and a
+    document written by one Kdenlive can hold both — so both are read.
+    Producers with no `resource`, and the `color` service that backs the black
+    track, are left out: they are not footage and an entry referencing one is
+    not a cut of anything.
+    """
+    found: dict[str, str] = {}
+    for node in [*root.findall("chain"), *root.findall("producer")]:
+        node_id = node.get("id")
+        if not node_id:
+            continue
+        service = node.find("property[@name='mlt_service']")
+        if service is not None and (service.text or "").strip() == "color":
+            continue
+        resource = node.find("property[@name='resource']")
+        text = (resource.text or "").strip() if resource is not None else ""
+        if text and text != "black":
+            found[node_id] = text
+    return found
+
+
+def declared_length(root: ET.Element, rate: float) -> dict[str, int]:
+    """Every place an outside document states how long its own cut is.
+
+    The reading-side twin of `declared_frames`, and separate from it because
+    the two read different spellings: this module writes bare frame numbers,
+    while Kdenlive writes `HH:MM:SS.mmm` into the same attributes. Folding
+    them together would make the writer's own check quietly accept a timecode
+    it should never see.
+
+    It exists because it is the check that would have caught the hand-parse.
+    A document that says 10151 frames three times, imported as 10088, is a
+    disagreement nothing else would have reported — the ranges are all
+    individually plausible and their sum is only wrong by one frame each.
+    """
+    found: dict[str, int] = {}
+    for producer in root.findall("producer"):
+        length = producer.find("property[@name='length']")
+        if producer.get("id") == "producer0" and length is not None and length.text:
+            found["producer0 length"] = _position(length.text, rate)
+    for tractor in root.findall("tractor"):
+        out = tractor.get("out")
+        if not out:
+            continue
+        frames = _position(out, rate)
+        # A tractor declaring nothing is the empty sequence wrapper every
+        # Kdenlive document carries; it is not a claim about the cut.
+        if frames > 0:
+            found[f"tractor {tractor.get('id')} out"] = frames
+    return found
+
+
+def read_ranges(root: ET.Element) -> tuple[list[ImportedRange], float]:
+    """Every surviving range in the document's cut, plus the profile rate.
+
+    **`out` is the last frame *index*, inclusive**, so a range's exclusive end
+    is `out + 1` — settled by measurement rather than by reading MLT's docs:
+    auto-editor's `--export v3` and `--export kdenlive` of the same cut give
+    `dur` and `(in, out)` for the same three segments, and `out - in + 1`
+    equals `dur` on all three. That is also the arithmetic behind the
+    off-by-one CLAUDE.md warns about from the writing side, met here from the
+    reading side.
+
+    **Which playlist is the cut** is not guessed. A cut-and-concat timeline
+    writes the same intervals onto every track it uses — Kdenlive and
+    auto-editor both emit an audio playlist and a video one carrying identical
+    entries — so every playlist that holds entries is read and they must
+    agree. Two playlists that disagree are a multi-track picture edit, which
+    is a different and unbuilt thing, and it is refused by name rather than
+    resolved by preferring a track: preferring one would import half of
+    somebody's edit and report success.
+
+    A `<blank>` is refused for the same reason it is never written (see this
+    module's own rule at the top): it is real runtime on the timeline, and
+    `Edit` has nowhere to put it — segments are laid contiguously and the hole
+    would close silently, making the import a different film from the file it
+    was read out of.
+    """
+    rate = profile_rate(root)
+    resources = _resources(root)
+
+    candidates: list[tuple[str, list[ImportedRange]]] = []
+    for playlist in root.findall("playlist"):
+        playlist_id = playlist.get("id") or "?"
+        if playlist_id == "main_bin":
+            # The bin is the project's media list, not a placement of it —
+            # the same exclusion `reframed_nodes` makes for `xml_retain`.
+            continue
+        ranges: list[ImportedRange] = []
+        for child in playlist:
+            if child.tag == "blank":
+                raise MLTError(
+                    f"playlist {playlist_id!r} holds a <blank> of "
+                    f"{child.get('length', '?')} — that is runtime with nothing under "
+                    "it, and an Edit lays its segments contiguously, so importing it "
+                    "would silently close the hole and shorten the cut"
+                )
+            if child.tag != "entry":
+                continue
+            producer = child.get("producer") or ""
+            if producer not in resources:
+                continue
+            start = _position(child.get("in") or "0", rate)
+            out = _position(child.get("out") or "", rate)
+            ranges.append(
+                ImportedRange(
+                    resource=resources[producer],
+                    start=start / rate,
+                    end=(out + 1) / rate,
+                )
+            )
+        if ranges:
+            candidates.append((playlist_id, ranges))
+
+    if not candidates:
+        raise MLTError(
+            "no playlist in this document holds an entry referencing media — "
+            "there is no cut here to import"
+        )
+
+    first_id, first = candidates[0]
+    for other_id, other in candidates[1:]:
+        if other != first:
+            raise MLTError(
+                f"playlists {first_id!r} and {other_id!r} carry different cuts "
+                f"({len(first)} ranges against {len(other)}) — lucid's timeline is one "
+                "track with A/V linked, so a multi-track edit has no shape to import "
+                "into and is refused rather than half-read"
+            )
+    return first, rate

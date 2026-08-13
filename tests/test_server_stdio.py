@@ -69,6 +69,7 @@ EXPECTED_TOOLS = {
     "caption_view",
     "caption_style",
     "canvas",
+    "tail",
     "reel",
     "reframe",
     "reframe_detect",
@@ -77,7 +78,10 @@ EXPECTED_TOOLS = {
     "synopsis",
     "broll_brief",
     "verify",
+    "fonts",
     "check_frames",
+    "film_check",
+    "import_edit",
     "check_black",
     "spot_frames",
     "attenuate_noises",
@@ -206,6 +210,7 @@ TOOL_TO_COMMAND = {
     "caption_view": "caption-view",
     "caption_style": "caption-style",
     "canvas": "canvas",
+    "tail": "tail",
     "reel": "reel",
     "reframe": "reframe",
     "reframe_detect": "reframe-detect",
@@ -214,7 +219,10 @@ TOOL_TO_COMMAND = {
     "synopsis": "synopsis",
     "broll_brief": "broll-brief",
     "verify": "verify",
+    "fonts": "fonts",
     "check_frames": "frames",
+    "film_check": "film-check",
+    "import_edit": "import-edit",
     "check_black": "black",
     "spot_frames": "spots",
     "attenuate_noises": "attenuate",
@@ -365,7 +373,19 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
 
     out = anyio.run(_with_server, body)
 
-    assert {t["template"] for t in out["listed"]["templates"]} == {"receipt", "reveal", "rerate"}
+    # Exhaustive on purpose, and it is the only place the wire's own template
+    # inventory is pinned: a template that ships without reaching `card_new`
+    # is invisible to an agent, and one that reaches it without being meant to
+    # is worse. Adding a template means adding it here — that is the check
+    # working, not a test in the way. `endcard` and `bumper` arrived with the
+    # completion queue's channel-preset item.
+    assert {t["template"] for t in out["listed"]["templates"]} == {
+        "receipt",
+        "reveal",
+        "rerate",
+        "endcard",
+        "bumper",
+    }
     assert out["made"]["asset"] == "card:receipt-scream-1996"
     # No video clip in this project, so the canvas falls back to 1080p.
     assert out["made"]["canvas_from"] == "project"
@@ -374,6 +394,37 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
     cards = Project.open(project).cards_dir
     assert (cards / "receipt-scream-1996.svg").is_file()
     assert (cards / "receipt-scream-1996.png").is_file()
+
+
+@pytest.mark.skipif(
+    shutil.which("magick") is None or shutil.which("ffmpeg") is None,
+    reason="the render half of the font report needs ImageMagick and ffmpeg with libass",
+)
+def test_fonts_over_the_wire_reports_fontconfig_and_the_render_separately(
+    tmp_path: Path,
+) -> None:
+    """The two answers must arrive side by side. `fc-match` says whether a
+    family is present; only a burn says which face drew, and this repo has
+    measured them disagreeing — so an agent that got one merged number could
+    not tell "installed" from "actually drawing"."""
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("fonts")
+
+    result = anyio.run(_with_server, body)
+
+    assert result["project"] is None
+    entry = result["fonts"][result["caption_font"]]
+    assert entry["fontconfig"]["available"] is True
+    assert entry["render"]["drew"] is True
+    # Never folded together: the render's verdict is its own key, and it is
+    # reached by comparison against a family that cannot exist rather than
+    # against a stored reference image.
+    assert entry["render"]["rmse_against_substitute"] > 0
+    assert entry["render"]["control_family"] not in (result["caption_font"], "")
+    # The vendored face is what makes the default resolve rather than
+    # substitute, so its absence from the package is a reportable state.
+    assert result["vendored"]
 
 
 @pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
@@ -1024,6 +1075,65 @@ def test_attach_transcript_flags_overlapping_words(tmp_path: Path) -> None:
     assert attached["near_duplicates"] == []
 
 
+def _repeat_sources(tmp_path: Path) -> tuple[Path, Path]:
+    """A transcript with a retake read back in as ordinary, cleanly-timed
+    words — the shape `find_repeats` exists to catch, and the one
+    `find_overlaps` structurally cannot: there is no invented word here, just
+    the same four-word phrase said twice in a row. The Scream VO's retake
+    pass, in miniature. HISTORY.md § The VO the project was holding.
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 8.0)])
+
+    words = [
+        {"word": "the", "start": 0.0, "end": 0.3},
+        {"word": "best", "start": 0.3, "end": 0.6},
+        {"word": "twelve", "start": 0.6, "end": 0.9},
+        {"word": "minutes", "start": 0.9, "end": 1.2},
+        {"word": "the", "start": 1.6, "end": 1.9},
+        {"word": "best", "start": 1.9, "end": 2.2},
+        {"word": "twelve", "start": 2.2, "end": 2.5},
+        {"word": "minutes", "start": 2.5, "end": 2.8},
+        {"word": "of", "start": 2.8, "end": 3.0},
+        {"word": "horror", "start": 3.0, "end": 3.4},
+    ]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    return audio, transcript
+
+
+@needs_ffprobe
+def test_attach_transcript_flags_repeated_phrases(tmp_path: Path) -> None:
+    """Over the wire: a retake that survived as distinct words, the mirror
+    image of the seam `overlaps` finds — see `tx.find_repeats`'s docstring
+    for why one does not subsume the other.
+    """
+    audio, transcript = _repeat_sources(tmp_path)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        return await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+
+    attached = anyio.run(_with_server, body)
+
+    assert len(attached["repeats"]) == 1
+    hit = attached["repeats"][0]
+    assert hit["text"] == "the best twelve minutes"
+    assert hit["first_word"] == 0 and hit["last_word"] == 7
+    # The neighbours are the point, same as `overlaps`.
+    assert [w["text"] for w in hit["context_after"]] == ["of", "horror"]
+    # No invented word here, so the seam scan has nothing to say about it.
+    assert attached["overlaps"] == []
+
+
 @needs_ffprobe
 def test_transcript_checks_rechecks_an_already_attached_transcript(tmp_path: Path) -> None:
     """The finding is computed at attach and returned once, so a project
@@ -1052,8 +1162,9 @@ def test_transcript_checks_rechecks_an_already_attached_transcript(tmp_path: Pat
     found = checked["clips"][0]
     assert found["words"] == 10
     assert [s["text"] for s in found["overlaps"]] == ["Billy Billions and"]
-    # All three findings, not just the new one.
+    # All four findings, not just the new one.
     assert found["suspect_durations"] == [] and found["near_duplicates"] == []
+    assert found["repeats"] == []
 
 
 @needs_ffprobe
@@ -1822,6 +1933,62 @@ def test_canvas_refusal_travels_as_an_error(tmp_path: Path) -> None:
     assert "even" in out["text"]
 
 
+def test_tail_over_the_wire(tmp_path: Path) -> None:
+    """Registration and the `-C` binding, plus the partial-update shape
+    `caption_style` has: `seconds` alone after the first set changes only
+    that field, `fade` defaults to 0.0 and is not required."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        derived = await client.call("tail", path=str(project))
+        planned = await client.call(
+            "tail", path=str(project), asset="card:outro", seconds=6.0, plan=True
+        )
+        set_ = await client.call("tail", path=str(project), asset="card:outro", seconds=6.0)
+        updated = await client.call("tail", path=str(project), seconds=5.0, fade=0.167)
+        reset = await client.call("tail", path=str(project), reset=True)
+        return {
+            "derived": derived,
+            "planned": planned,
+            "set": set_,
+            "updated": updated,
+            "reset": reset,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["derived"]["tail"] is None
+    assert out["planned"]["written"] is False
+    assert out["set"]["tail"] == {"asset": "card:outro", "seconds": 6.0, "fade": 0.0}
+    assert out["set"]["asset_exists"] is False
+    assert out["updated"]["tail"] == {"asset": "card:outro", "seconds": 5.0, "fade": 0.167}
+    assert out["reset"]["tail"] is None
+    assert Project.open(project).read_manifest().get("tail") is None
+
+
+def test_tail_refuses_a_media_clip_asset(tmp_path: Path) -> None:
+    """`verify` diffs a render's own transcription against the timeline's
+    words; a media clip's audio would give it something to disagree about on
+    every check from here on, so this is refused at `tail` rather than
+    discovered later as a permanent verify miss."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        result = await session.call_tool(
+            "tail", {"path": str(project), "asset": "some_clip_id", "seconds": 6.0}
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "card" in out["text"]
+
+
 def test_reframe_over_the_wire(tmp_path: Path) -> None:
     """The sequence an agent asked for a vertical cut would run after the
     cards: swap the canvas, read what it crops, then move the crop off centre
@@ -1875,6 +2042,92 @@ def test_reframe_over_the_wire(tmp_path: Path) -> None:
     is_error, text = out["impossible"]
     assert is_error, "an impossible ask refuses rather than quietly clipping"
     assert "730,0,459,816" in text, "and the refusal names the rect that would work"
+
+
+def test_reframe_interp_over_the_wire(tmp_path: Path) -> None:
+    """The keyframed move reaches an agent, and its two refusals do too.
+
+    `reframe` was already registered, so the tool inventory says nothing about
+    whether a *parameter* added to it is reachable — a default-valued keyword
+    that never made it into the tool signature would leave every call
+    succeeding with the flag silently dropped, which is the shape of failure
+    this file exists for. Both refusals are asserted over the wire rather than
+    in-process for the same reason: they are the only thing standing between a
+    hand-typed flag and a document that renders wrong at exit 0 (HISTORY.md
+    § The keyframed move)."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["clips"] = [
+            {
+                "clip_id": "cold-open",
+                "source": "/tmp/cold-open.mp4",
+                "duration": 12.0,
+                "has_video": True,
+                "has_audio": True,
+                "width": 1920,
+                "height": 816,
+            }
+        ]
+        opened.write_manifest(manifest)
+
+        await client.call("canvas", path=str(project), size="1080x1920")
+        await client.call(
+            "reframe", path=str(project), clip_id="cold-open", rect="200,0,459,816"
+        )
+        slid = await client.call(
+            "reframe",
+            path=str(project),
+            clip_id="cold-open",
+            rect="1200,0,459,816",
+            src_start=4.0,
+            interp=True,
+        )
+        head = await session.call_tool(
+            "reframe",
+            {
+                "path": str(project),
+                "clip_id": "cold-open",
+                "rect": "300,0,459,816",
+                "interp": True,
+            },
+        )
+        split = await session.call_tool(
+            "reframe",
+            {
+                "path": str(project),
+                "clip_id": "cold-open",
+                "rect": "0,0,459,408",
+                "pane": "1461,0,459,408",
+                "src_start": 8.0,
+                "interp": True,
+            },
+        )
+        return {
+            "slid": slid,
+            "head": (head.is_error, head.content[0].text),
+            "split": (split.is_error, split.content[0].text),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    by_start = {w["src_start"]: w["interp"] for w in out["slid"]["clips"][0]["windows"]}
+    assert by_start == {0.0: False, 4.0: True}, (
+        "the flag rides through the tool onto the window it was asked for, and "
+        "the head is never flagged"
+    )
+
+    is_error, text = out["head"]
+    assert is_error, "the head has nothing before it to slide from"
+    assert "head of" in text
+
+    is_error, text = out["split"]
+    assert is_error, "a split's lower pane has no interpolation of its own"
+    assert "cannot also slide" in text
 
 
 @needs_ffmpeg
@@ -2596,6 +2849,273 @@ def test_an_audio_only_render_has_no_frames_and_says_so(
     assert "no video stream" in result["notes"][0]
     # The duration is still there to compare by hand, which is the advice given.
     assert result["target_duration"] == pytest.approx(result["expected_duration"], abs=0.05)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_import_edit_over_the_wire(tmp_path: Path) -> None:
+    """An outside cut reaches the timeline through the tool, and the two
+    refusals an agent is most likely to hit come back as errors rather than as
+    a half-read edit.
+
+    Worth reaching over the wire rather than testing `ops.import_edit` alone
+    for the ordinary reason this file exists — a tool that is not registered
+    is not reachable — and for one specific to this op: it *replaces* the
+    timeline, so an agent that reached it by accident would overwrite an edit.
+    `plan` is the guard, and it has to work from out here.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    document = tmp_path / "cut.kdenlive"
+    document.write_text(
+        f'<mlt root="{tmp_path}">'
+        '<profile frame_rate_num="30" frame_rate_den="1" />'
+        '<producer id="producer0">'
+        '<property name="resource">black</property>'
+        '<property name="mlt_service">color</property>'
+        "</producer>"
+        '<chain id="chain0"><property name="resource">pic.mp4</property></chain>'
+        '<playlist id="playlist0">'
+        '<entry producer="chain0" in="0" out="59"/>'
+        '<entry producer="chain0" in="120" out="179"/>'
+        "</playlist></mlt>",
+        encoding="utf-8",
+    )
+    blanked = tmp_path / "blank.kdenlive"
+    blanked.write_text(
+        document.read_text(encoding="utf-8").replace(
+            '<entry producer="chain0" in="120" out="179"/>',
+            '<blank length="00:00:01.000"/><entry producer="chain0" in="120" out="179"/>',
+        ),
+        encoding="utf-8",
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        await client.call("import_media", path=str(project), source=str(source))
+        planned = await client.call(
+            "import_edit", path=str(project), document=str(document), plan=True
+        )
+        imported = await client.call(
+            "import_edit", path=str(project), document=str(document)
+        )
+        blank = await session.call_tool(
+            "import_edit", {"path": str(project), "document": str(blanked)}
+        )
+        missing = await session.call_tool(
+            "import_edit", {"path": str(project), "document": str(tmp_path / "nope.kdenlive")}
+        )
+        return {
+            "planned": planned,
+            "imported": imported,
+            "status": await client.call("timeline_status", path=str(project)),
+            "blank": (blank.is_error, blank.content[0].text),
+            "missing": (missing.is_error, missing.content[0].text),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["plan"] is True
+    assert out["planned"]["segments"] == 2
+    assert out["imported"]["segments"] == 2
+    assert out["imported"]["clips"] == ["pic"]
+    # 60 + 60 frames at 30fps, out read as the last frame index.
+    assert out["imported"]["timeline_duration"] == pytest.approx(4.0)
+    assert out["status"]["segments"] == 2
+
+    is_error, text = out["blank"]
+    assert is_error, "a blank is runtime an Edit cannot hold"
+    assert "close the hole" in text
+
+    is_error, text = out["missing"]
+    assert is_error
+    assert "no such edit document" in text
+
+
+@needs_ffprobe
+@needs_auto_editor
+def test_film_check_with_no_reference_reports_the_projects_own_numbers(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The cheap call, same shape `check_frames` has with no target: report
+    what is knowable about this project alone and say plainly there is
+    nothing to compare it against yet, rather than raising.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(Client(session), project, audio, transcript)
+        return await client.call("film_check", path=str(project))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["reference"] is None
+    assert result["segments"] == 1
+    assert result["timeline_duration"] == pytest.approx(12.0, abs=0.05)
+    assert "agrees" not in result
+    assert "no reference declared" in result["notes"][0]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_film_check_agrees_when_the_reference_is_this_cut(tmp_path: Path) -> None:
+    """The clean case: a render of exactly this project's own timeline."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        return await client.call("film_check", path=str(project), reference=str(render))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["reference_source"] == "argument"
+    assert result["reference"] == str(render)
+    assert result["duration_delta"] == pytest.approx(0.0, abs=0.2)
+    assert result["agrees"] is True
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_film_check_catches_a_project_seeded_from_a_stale_cut(tmp_path: Path) -> None:
+    """The defect this item exists for (HISTORY.md § The VO the project was
+    holding): a project's own checks can all agree with themselves — the
+    render matches the timeline, `check_frames` is clean — while the project
+    is seeded from the wrong stage of the edit. `check_frames` cannot catch
+    this: it would have agreed with itself just as cleanly on the stale cut,
+    because it never looks outside the project. `undo` stands in here for
+    what actually happened to the Scream project: a retake pass done outside
+    lucid never landing in it, so the film's own export is short and correct
+    while the project's own timeline is still the longer, stale one.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        # The reference is a render of the *correct*, cut film.
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        # The retake pass never landed: the project's own timeline reverts to
+        # the longer, uncut version — the shape the Scream project was found in.
+        await client.call("undo", path=str(project))
+        return await client.call("film_check", path=str(project), reference=str(render))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["agrees"] is False
+    assert result["timeline_duration"] > result["reference_duration"]
+    assert result["duration_delta"] > 1.0
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_film_check_remembers_a_declared_reference(tmp_path: Path) -> None:
+    """Passing `reference` records it on the project (additive, no schema
+    bump — the `canvas`/`caption_style` precedent), so a later call with no
+    argument asks the same question again. This is the fix HISTORY.md names:
+    "a caveat recorded in a results table is not a guard" only holds when
+    nothing re-checks it — this makes the claim project state instead.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> tuple[dict[str, Any], dict[str, Any], str]:
+        client = Client(session)
+        await _seeded(client, project, source, transcript)
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        declared = await client.call("film_check", path=str(project), reference=str(render))
+        reread = await client.call("film_check", path=str(project))
+        manifest = (project / "lucid.json").read_text()
+        return declared, reread, manifest
+
+    declared, reread, manifest = anyio.run(_with_server, body)
+
+    assert declared["reference_source"] == "argument"
+    assert reread["reference_source"] == "declared"
+    assert reread["reference"] == declared["reference"] == str(render)
+    assert reread["agrees"] is True and declared["agrees"] is True
+    assert json.loads(manifest)["reference"] == str(render)
+
+
+@needs_ffprobe
+@needs_auto_editor
+def test_film_check_plan_does_not_write_the_reference(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """`plan` resolves and reports without recording anything — the same
+    contract `canvas`/`tail` give the same flag."""
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> tuple[dict[str, Any], str]:
+        client = Client(session)
+        await _seeded(Client(session), project, audio, transcript)
+        planned = await client.call(
+            "film_check", path=str(project), reference=str(audio), plan=True
+        )
+        manifest = (project / "lucid.json").read_text()
+        return planned, manifest
+
+    planned, manifest = anyio.run(_with_server, body)
+
+    assert planned["reference"] == str(audio)
+    assert "reference" not in json.loads(manifest)
+
+
+@needs_ffprobe
+@needs_auto_editor
+def test_film_check_reset_drops_the_declared_reference(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> tuple[dict[str, Any], str]:
+        client = Client(session)
+        await _seeded(Client(session), project, audio, transcript)
+        await client.call("film_check", path=str(project), reference=str(audio))
+        after_reset = await client.call("film_check", path=str(project), reset=True)
+        manifest = (project / "lucid.json").read_text()
+        return after_reset, manifest
+
+    after_reset, manifest = anyio.run(_with_server, body)
+
+    assert after_reset["reference"] is None
+    assert "reference" not in json.loads(manifest)
 
 
 @pytest.fixture

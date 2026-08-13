@@ -144,6 +144,83 @@ def test_a_placement_crossing_a_window_boundary_says_so(project: Project) -> Non
     assert [row["windows"] for row in rows] == [2, 2], "a property of the shot, not of the row"
 
 
+# -- the keyframed move: a sliding window is never one static rect ---------
+#
+# PLAN.md § Per-shot framing, refused section; § The keyframed move.
+# CLAUDE.md: "a wrong window reads as framing in motion" — this is that
+# trap's mirror image, motion read as no window at all, so the row that
+# precedes a sliding window has to draw its two ends rather than `crop_at`'s
+# single answer for the whole stretch.
+
+
+@needs_tools
+def test_a_sliding_window_draws_both_ends_not_a_static_crop(project: Project) -> None:
+    """The stretch *before* the flagged window is the one that is actually
+    moving (MLT interpolates the segment leaving a keyframe — `test_mlt.py`
+    has the render that settled it), so it is that row, not the destination
+    window's own row, that gets the sliding treatment.
+
+    One cue, not two — mirrors `test_a_placement_crossing_a_window_boundary_
+    says_so`: two cues make two placements, each starting its own cursor
+    fresh, and neither would cross the window this test needs crossed."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=2.0, interp=True)
+
+    rows = ops.reframe_sheet(project.root)["rows"]
+
+    assert [row["sliding"] for row in rows] == [True, False]
+    assert rows[0]["slides_to"] == 2.0
+    assert rows[1]["sliding"] is False and rows[1]["slides_to"] is None
+    # Both ends, not three arbitrary looks at the departure rect: the first
+    # sample is exactly where the window started and the last is exactly
+    # where it lands.
+    samples = rows[0]["samples"]
+    assert samples[0]["crop"] == "0,0,459,816"
+    assert samples[-1]["crop"] == "1461,0,459,816"
+    assert samples[0]["pick"] == "slide-from"
+    assert samples[-1]["pick"] == "slide-to"
+    # Never a split — a sliding window cannot also carry a pane
+    # (mlt.Reframe.__post_init__), and reusing that field would misreport
+    # `split` below.
+    assert all(sample["pane"] is None for sample in samples)
+    assert rows[0]["split"] is False
+    assert rows[0]["pane_overlap"] is None
+    # The row after the flagged window is an ordinary step, holding the new
+    # rect throughout — nothing about it looks like a slide.
+    assert rows[1]["samples"][0]["crop"] == "1461,0,459,816"
+
+
+@needs_tools
+def test_a_sliding_row_keeps_the_montage_grid_even_with_extremes(project: Project) -> None:
+    """`columns` is `SHEET_PICKS` under `extremes`, not `len(at)` — a sliding
+    row still has to match whatever every other row in this run is drawing,
+    or the montage's fixed-width grid shifts after it."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=2.0, interp=True)
+
+    result = ops.reframe_sheet(project.root, extremes=True)
+
+    assert len(result["rows"]) == 2, "one row for each side of the crossed window"
+    sliding_row = next(row for row in result["rows"] if row["sliding"])
+    assert len(sliding_row["samples"]) == ops.SHEET_PICKS
+    assert all(len(row["samples"]) == ops.SHEET_PICKS for row in result["rows"])
+
+
+@needs_tools
+def test_a_slide_needs_at_least_two_columns(project: Project) -> None:
+    """A single moment cannot show both ends, and one repeated tile would be
+    the same false claim of a static crop this feature exists to fix — so a
+    project holding a slide refuses rather than drawing one dishonestly."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe(project.root, "clipa", rect="0,0,459,816")
+    ops.reframe(project.root, "clipa", rect="1461,0,459,816", src_start=2.0, interp=True)
+
+    with pytest.raises(ProjectError, match="at least two"):
+        ops.reframe_sheet(project.root, moments=[0.5])
+
+
 # -- the row is a window, which is what the coverage fix is ---------------
 
 

@@ -143,8 +143,9 @@ installed package or the upstream repo, not your memory.
   step to `_MIGRATIONS` — keyed by the version it migrates *from* — rather
   than widening `open`. HISTORY.md § The schema migration. **The schema is at
   4**; v4 added `cards`.
-  - **An additive *optional* key does not bump** — `caption_style` and `canvas`
-    are absent-means-what-every-older-manifest-meant, and a bump would make
+  - **An additive *optional* key does not bump** — `caption_style`, `canvas`,
+    `tail`, `reference` and a window's `interp` are all
+    absent-means-what-every-older-manifest-meant, and a bump would make
     `open` refuse every project on disk to gain nothing. Both bumps so far were
     for list keys another op would `setdefault` anyway, where the number is
     what makes the key true rather than incidentally survivable.
@@ -265,6 +266,18 @@ installed package or the upstream repo, not your memory.
   edit, and the frame is black** — MLT's `out` is frame-inclusive and
   auto-editor writes a frame count into it. `export --render` does not have it.
   HISTORY.md § `check_frames`.
+  - **Read back, `out` is the last frame *index*, so a range's exclusive end is
+    `out + 1`** — and getting this wrong is invisible on any one range. The
+    hand-parse that brought the Scream retake cut in read it as exclusive and
+    lost a frame off the end of all 63, shipping a film 2.098s shorter than the
+    `.kdenlive` says it is. `mlt.read_ranges` is the only reader; `import_edit`
+    is the only caller, and it checks its own total against
+    `mlt.declared_length` — a Kdenlive document states its length in three
+    places and a misread disagrees with all three at once. **A multi-track
+    `.kdenlive` is refused, not preferred-down to one track**: four of the
+    Scream project's fourteen are assemblies with a real picture track, and
+    picking a playlist would import half an edit at exit 0. HISTORY.md § The
+    import that was one frame short, sixty-three times.
 - **`melt` is inside the Kdenlive flatpak, and that flatpak cannot see
   `/tmp`.** It has no host package here; resolve it through
   `picture.melt_command()`. Pointed at a project under `/tmp` it prints
@@ -576,4 +589,8 @@ installed package or the upstream repo, not your memory.
     one, compare its `timeline_duration` against the film it is meant to be.
     **And carry derived state back off a scratch copy** — the ten card records
     were written on the 411s copy, so the film's own project read as having
-    none. Three instances now. HISTORY.md § The VO the project was holding.
+    none. Four instances now — the newest is `~/lucid-kf-probe`, which is
+    `framed-teaser` rather than the shipped teaser, so its two renders are an
+    A/B of each other and **neither is a control**. `film_check` is the cheap
+    way to ask. HISTORY.md § The VO the project was holding, § The keyframed
+    move.

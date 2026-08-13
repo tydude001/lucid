@@ -585,6 +585,67 @@ def test_windows_must_be_ordered_distinct_and_after_the_head() -> None:
         mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT), (10.0, LEFT)))
 
 
+# -- the keyframed move: PLAN.md § Per-shot framing, refused section; § The
+# keyframed move. Authoring only — the mechanism (a per-key operator) was
+# already there; `interp` is the first thing that ever asks for `=`.
+#
+# **Which key carries `=` is not obvious, and was settled on a real render,
+# not reasoned about**: MLT interpolates the segment *leaving* a keyframe, not
+# the one arriving at it. Flagging a window's own key held it at the previous
+# rect for the whole stretch and cut hard at its own frame — indistinguishable
+# from `|=` — while flagging the *previous* key produced a render that
+# genuinely travelled between the two, crossing over roughly midway
+# (`~/lucid-kf-probe`, `s4-reveal` at source 7.343s, the shipped teaser's own
+# 410px follow). So `rect_property` puts the operator on the key *before* the
+# one a caller names in `interp`, and that is what the tests below pin.
+
+
+def test_interp_puts_the_equals_on_the_preceding_key_not_its_own() -> None:
+    """The window at 20.0 is the one asking to slide in, but 10.0's key is the
+    one that ends up carrying `=` — MLT's own segment-leaving-a-keyframe rule,
+    not a free choice. Every other key stays discrete."""
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT), (20.0, LEFT)), interp=(20.0,))
+
+    assert reframe.rect_property(VERTICAL, RATE) == (
+        "0|=0 0 4518 1920 1;300=-3438 0 4518 1920 1;600|=0 0 4518 1920 1"
+    )
+
+
+def test_interp_on_the_first_later_window_flags_the_head_key() -> None:
+    """The head can be a slide's departure even though it can never be its
+    destination — there is a real rect at 0.0 to leave, even when nothing
+    was asked for there."""
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),), interp=(10.0,))
+
+    assert reframe.rect_property(VERTICAL, RATE) == "0=0 0 4518 1920 1;300|=-3438 0 4518 1920 1"
+
+
+def test_interp_must_name_a_later_window_not_the_head() -> None:
+    """`interp` marks the window *arriving*, and there is nothing before the
+    head of the source for it to slide from — the same "after the head" rule
+    `later` itself already enforces."""
+    with pytest.raises(mlt.MLTError, match="head has nothing before it"):
+        mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),), interp=(0.0,))
+    with pytest.raises(mlt.MLTError, match="head has nothing before it"):
+        mlt.Reframe(WIDE, LEFT, interp=(10.0,))  # 10.0 names no window at all
+
+
+def test_interp_and_split_on_the_same_window_are_refused() -> None:
+    """The lower pane has no `interp` of its own (`pane_rect_property` always
+    writes `|=`), so a window that is both would move on top and step
+    underneath — two framings disagreeing in the same frame, at exit 0."""
+    with pytest.raises(mlt.MLTError, match="cannot both slide and split"):
+        mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT),), panes=((10.0, RIGHT),), interp=(10.0,))
+
+
+def test_is_interp_reads_the_flag_by_the_windows_own_start() -> None:
+    reframe = mlt.Reframe(WIDE, LEFT, later=((10.0, RIGHT), (20.0, LEFT)), interp=(20.0,))
+
+    assert reframe.is_interp(0.0) is False
+    assert reframe.is_interp(10.0) is False
+    assert reframe.is_interp(20.0) is True
+
+
 def test_every_window_rides_one_node_per_role() -> None:
     """The whole point of finding 3: per-shot framing did not multiply the
     nodes, so the readback invariant that catches a half-applied reframe is
@@ -785,3 +846,176 @@ def test_pane_overlap_separates_the_films_own_splits_from_its_duplicating_ones()
     ]
     assert max(distinct) < 0.30
     assert min(duplicating) > 0.50
+
+
+# -- reading an outside cut back in ----------------------------------------
+#
+# The module's own rule is "generated, never mutated" and this does not bend
+# it: `read_ranges` reads somebody else's document and writes nothing. What
+# these pin is the arithmetic, because every way of getting it wrong produces
+# a *timeline* rather than an error — a cut one frame short everywhere, or a
+# cut that silently drops half of somebody's edit.
+
+
+def _kdenlive(entries: str, *, rate: str = 'frame_rate_num="30" frame_rate_den="1"',
+              extra: str = "") -> ET.Element:
+    return ET.fromstring(
+        f'<mlt root="/media"><profile {rate} />'
+        '<producer id="producer0">'
+        '<property name="resource">black</property>'
+        '<property name="mlt_service">color</property>'
+        "</producer>"
+        '<chain id="chain0"><property name="resource">vo.mp4</property></chain>'
+        f'<playlist id="playlist0">{entries}</playlist>{extra}'
+        "</mlt>"
+    )
+
+
+def test_out_is_the_last_frame_index_not_a_count() -> None:
+    """**Settled by measurement, not by reading MLT's documentation.**
+    auto-editor's `--export v3` and `--export kdenlive` of one cut give `dur`
+    and `(in, out)` for the same three segments: 67/103/97 frames against
+    (0, 66), (114, 216), (264, 360). `out - in + 1` equals `dur` on all three,
+    so the exclusive end is `out + 1`. Reading `out` as exclusive would make
+    every imported segment one frame short — invisible on any single segment
+    and 63 frames on the Scream cut.
+    """
+    ranges, rate = mlt.read_ranges(
+        _kdenlive(
+            '<entry producer="chain0" in="0" out="66"/>'
+            '<entry producer="chain0" in="114" out="216"/>'
+            '<entry producer="chain0" in="264" out="360"/>'
+        )
+    )
+    assert rate == 30.0
+    assert [round(r.duration * rate) for r in ranges] == [67, 103, 97]
+    assert ranges[0].start == 0.0
+    assert ranges[0].end == pytest.approx(67 / 30)
+
+
+def test_a_position_reads_as_a_timecode_or_a_frame_number() -> None:
+    """One attribute, two spellings, both legal: Kdenlive writes frames and
+    auto-editor 31.4.2 writes `HH:MM:SS.mmm` into the same document format.
+    Handling only one would read the other as zero and import a cut that
+    starts at the head of the file.
+    """
+    frames, _ = mlt.read_ranges(_kdenlive('<entry producer="chain0" in="114" out="216"/>'))
+    timecodes, _ = mlt.read_ranges(
+        _kdenlive('<entry producer="chain0" in="00:00:03.800" out="00:00:07.200"/>')
+    )
+    assert frames == timecodes
+
+
+def test_the_black_track_is_not_footage() -> None:
+    """`producer0` is the colour producer every Kdenlive document carries. An
+    entry against it is not a cut of anything, and counting it would add a
+    range no clip could be resolved for.
+    """
+    ranges, _ = mlt.read_ranges(
+        _kdenlive(
+            '<entry producer="producer0" in="0" out="299"/>'
+            '<entry producer="chain0" in="0" out="66"/>'
+        )
+    )
+    assert [r.resource for r in ranges] == ["vo.mp4"]
+
+
+def test_media_is_read_from_chain_and_from_producer() -> None:
+    """MLT 7 writes `<chain>` and older versions write `<producer>`, and one
+    document can hold both. A reader that knew only one would find no cut in
+    half the files it was handed.
+    """
+    root = ET.fromstring(
+        '<mlt><profile frame_rate_num="30" frame_rate_den="1" />'
+        '<producer id="p1"><property name="resource">old.mp4</property></producer>'
+        '<playlist id="playlist0"><entry producer="p1" in="0" out="29"/></playlist>'
+        "</mlt>"
+    )
+    ranges, _ = mlt.read_ranges(root)
+    assert [r.resource for r in ranges] == ["old.mp4"]
+
+
+def test_a_blank_is_refused_rather_than_closed_over() -> None:
+    """A `<blank>` is real runtime with nothing under it, and `Edit` lays its
+    segments contiguously — so importing one would close the hole silently and
+    make the timeline shorter than the file it came from. The same reason this
+    module never writes one on a lane.
+    """
+    with pytest.raises(mlt.MLTError, match="close the hole"):
+        mlt.read_ranges(
+            _kdenlive(
+                '<entry producer="chain0" in="0" out="66"/>'
+                '<blank length="00:00:01.000"/>'
+                '<entry producer="chain0" in="114" out="216"/>'
+            )
+        )
+
+
+def test_playlists_carrying_the_same_cut_agree_and_are_read_once() -> None:
+    """A cut-and-concat timeline writes identical intervals onto its audio and
+    video tracks — which is exactly what auto-editor's kdenlive export does —
+    so reading every playlist and checking they agree costs nothing and needs
+    no rule about which track is authoritative.
+    """
+    ranges, _ = mlt.read_ranges(
+        _kdenlive(
+            '<entry producer="chain0" in="0" out="66"/>',
+            extra='<playlist id="playlist2"><entry producer="chain0" in="0" out="66"/></playlist>',
+        )
+    )
+    assert len(ranges) == 1
+
+
+def test_playlists_carrying_different_cuts_are_refused_not_preferred() -> None:
+    """**Preferring a track would import half of somebody's edit and report
+    success.** Two playlists that disagree are a multi-track picture edit,
+    which lucid's one linked A/V track has no shape for, so it refuses by
+    name.
+    """
+    with pytest.raises(mlt.MLTError, match="different cuts"):
+        mlt.read_ranges(
+            _kdenlive(
+                '<entry producer="chain0" in="0" out="66"/>',
+                extra=(
+                    '<playlist id="playlist2">'
+                    '<entry producer="chain0" in="0" out="66"/>'
+                    '<entry producer="chain0" in="114" out="216"/>'
+                    "</playlist>"
+                ),
+            )
+        )
+
+
+def test_the_bin_is_not_a_cut() -> None:
+    """`main_bin` is the project's media list — every clip appears in it whole,
+    so reading it as a playlist would find a "cut" that is the untrimmed
+    source and then refuse for disagreeing with the real one.
+    """
+    ranges, _ = mlt.read_ranges(
+        _kdenlive(
+            '<entry producer="chain0" in="0" out="66"/>',
+            extra='<playlist id="main_bin"><entry producer="chain0" in="0" out="359"/></playlist>',
+        )
+    )
+    assert [round(r.duration * 30) for r in ranges] == [67]
+
+
+def test_a_document_with_no_media_entry_says_so() -> None:
+    with pytest.raises(mlt.MLTError, match="no cut here"):
+        mlt.read_ranges(_kdenlive(""))
+
+
+def test_the_rate_comes_from_the_profile_and_a_missing_one_refuses() -> None:
+    """Every position in a playlist is a frame number on the profile's clock,
+    so reading the rate wrong scales the whole import rather than shifting it.
+    """
+    _, rate = mlt.read_ranges(
+        _kdenlive(
+            '<entry producer="chain0" in="0" out="47"/>',
+            rate='frame_rate_num="24000" frame_rate_den="1001"',
+        )
+    )
+    assert rate == pytest.approx(23.976, abs=1e-3)
+
+    with pytest.raises(mlt.MLTError, match="no <profile>"):
+        mlt.read_ranges(ET.fromstring('<mlt><playlist id="p"/></mlt>'))

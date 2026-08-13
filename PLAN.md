@@ -206,6 +206,18 @@ left. The conclusion survives because it was always the load-bearing one, but
   written straight to `Edit`, bypassing `cut`), and **nothing that compares a
   project against what it is meant to be**. HISTORY.md § The VO the project was
   holding.
+  - **All three gaps are closed as of 2026-08-13, and closing the second one
+    answered the question the other two only asked around.** The repeat-finder
+    is `transcript.find_repeats`, the comparison is `film_check`, and the way in
+    is `import_edit` (HISTORY.md § The film check, and the repeat that was never
+    lucid's to see; § The import that was one frame short, sixty-three times).
+    Building the supported import measured the hand-rolled one: the
+    `.kdenlive` declares **338.367s** in three places and the shipped project
+    holds **336.269s**, because `out` is the last frame *index* and the
+    hand-parse read it as exclusive — one frame off the end of each of the 63
+    ranges. The film is not being re-imported over it; what changed is that
+    nothing had ever compared a document's own declared length against what its
+    entries sum to, and now `import_edit` does.
 - **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host
@@ -2288,6 +2300,17 @@ useful drags land on gaps, the build is gap-anchored placement, which is a
 different and currently unbuilt address space. Cheap to settle against the
 Scream project with `Edit.gaps`; settle it before writing any UI.
 
+**Settled 2026-08-13, and the premise as written cannot happen.** A cut
+ripple-closes, so its removed span has **zero width on the timeline** — the
+film's 155.17s across 64 ranges is nowhere a cursor can go, and 16,813 sampled
+instants all mapped back through `source_spans`. The real referent is a
+*surviving pause*, and `cue_add` is in-point only, so only a drag's **start**
+needs an address: **85–87% of sampled drags are word-anchorable**, and the
+residual 14% is inter-word silence with a median of 0.54s. Gap-anchored
+placement is not needed; the third entry point is UI work on the address space
+that already exists, plus one snap rule. HISTORY.md § The gap that was never on
+the timeline.
+
 ### Music — the headline is that it has nowhere to live
 
 Daydream places music as short accent blocks on its own **A2** lane
@@ -2330,10 +2353,21 @@ graphics work"*, a clause that expired when cards and caption styling shipped.
 **Measured on this box, 2026-08-10: none of them are installed, and neither is
 lucid's own default.** `fc-match "DejaVu Sans"` → Noto Sans; `fc-match "Inter
 Tight"` → Noto Sans; `fc-match "Poppins"` → Noto Sans; `fc-list` counts zero
-for both of Daydream's faces. All three caption `PRESETS` name `DejaVu Sans`
-and every one of them draws as Noto Sans. So copying Daydream's choice moves
-the silent substitution from one absent name to another absent name. **The
-item as named builds nothing.**
+for both of Daydream's faces. All three caption `PRESETS` name `DejaVu Sans`.
+So copying Daydream's choice moves the silent substitution from one absent name
+to another absent name. **The item as named builds nothing.**
+
+> **Superseded in two places, 2026-08-13, by burning rather than asking.**
+> The `PRESETS` table now names `Outfit`, settled in the approvals round. And
+> the sentence this paragraph used to carry — *"every one of them draws as Noto
+> Sans"* — is **measurably false**: a burn naming `DejaVu Sans` is
+> pixel-identical to a burn naming a family that cannot exist, and both differ
+> from a burn naming the literal string `Noto Sans`. The old default drew as
+> the *absent-name substitute*, which is a third thing, and there are two
+> distinct flavours of wrong here that do not look like each other. This is the
+> § The emphasis-capable quote slot rule biting the paragraph that states it:
+> the claim above was `fc-match`'s answer written down as the render's.
+> HISTORY.md § The caption default resolved by coincidence.
 
 The real question is already on the record and explicitly not taken
 (§ Direction and order): *whether lucid's default should name a font this
@@ -2355,6 +2389,15 @@ behaviour change to every prior project's output, and nothing is stored
 per-project until overridden. And it is settled by measuring a render's
 pixels, never by `fc-match`, per § The emphasis-capable quote slot: `fc-match`
 answers "is the family present", not "which face drew".
+
+**Both shapes shipped, 2026-08-13, and the second one was the item.** The face
+is vendored into the package (`src/lucid/fonts/`, with `fonts.install()`
+putting it where fontconfig looks), and `fonts.probe()` is the render check —
+it burns the family and an impossible family and compares the pixels, so it
+needs no stored reference and works for a family lucid does not ship. What the
+build found is that the vendoring had already half-happened by accident: the
+face was on this box because a sibling repo's tooling fetched it, months before
+captions named it. HISTORY.md § The caption default resolved by coincidence.
 
 ## Per-shot framing — the design note — 2026-08-10
 
@@ -2766,6 +2809,14 @@ variable is the smaller, more reversible move.
 - **Keyframed moves stay refused**, unchanged. Shot 9 put a number on the
   mechanism (HISTORY.md § The framing control) and the call is Tyler's; the
   detector proposes discrete windows either way.
+  - **Authored moves shipped 2026-08-13** and this line still holds as
+    written: `reframe --interp` lets a *person* ask for a move, and
+    `reframe_detect` still proposes discrete windows only. What the build
+    settled is the one thing the mechanism had not been asked: MLT
+    interpolates the segment **leaving** a keyframe, so the flag names the
+    window a move arrives at and the writer flags its predecessor — measured
+    on the teaser's own `s4-reveal` follow, 30 frames of 1067 differing and
+    exactly the 30 between the two keys. HISTORY.md § The keyframed move.
 
 ### Built, 2026-08-11 — and the one thing the note had wrong
 
@@ -3201,6 +3252,17 @@ to it. It has to be the second: a duration answered two ways is how a render
 disagrees with its own timeline while both report clean, which is the failure
 `check_frames` exists to catch and would now be able to cause.
 
+> **The list of four was wrong, found on the build, 2026-08-13.** `status`
+> did not read `frame_total` at all — it answered in seconds off `edit.duration`
+> — and the web UI's picture lane is drawn from `build_shots`, which is the
+> film-only projection and not a `frame_total` reader. So the count was two,
+> not four. The conclusion survives intact and `status` now genuinely reads the
+> helper; what the miscount cost is nothing, and what it shows is that the note
+> enumerated readers by reasoning rather than by grep. **`build_shots` stays on
+> plain `frame_total` deliberately**: a cue's word has to survive into the
+> timeline and a tail is never inside it, so teaching the projection about a
+> tail would answer a question the tail does not ask.
+
 Three smaller ones, each a decision rather than work:
 
 - **`verify` is unaffected and should stay that way.** It diffs the render's
@@ -3237,6 +3299,144 @@ Two calls, both Tyler's, neither of which more building answers:
 
 Not started. The proofs stand and the renders on the NAS are unaffected either
 way.
+
+## `vo_extend` — the design note — 2026-08-13
+
+Queue item *`vo_extend`* is authorized and is the one item that bends `Edit`'s
+subtractive invariant, so it gets a note before code. Read against the code
+rather than reasoned about, the item is **narrower than its name, safer in the
+place everyone expected trouble, and unsafe in a place nobody has mentioned.**
+
+### It is one case, not two
+
+The queue item names two cases: "the Billy/Stu hold and manufactured mid-film
+silence". There is no second case. Every other mention of Billy/Stu — § What
+stays blocked, and it is not lucid; HISTORY.md § `speech_overlap` — describes
+exactly this: *open a gap in the VO and let the film's line play in it*. Silence
+manufactured in the middle of the film **is** the Billy/Stu hold, and the note
+plans one feature.
+
+Concretely, from the measurement that blocked it: the clip's own line runs
+105.35–109.15s against the VO's thesis sentence at 105.97–109.85s — 74–85% of
+the clip's runtime overlapping VO speech, with the only clean seams 0.5–0.62s
+wide, every one narrower than a single word. So the need is a real silence gap
+of roughly the line's own length at roughly 106–110s. How long exactly is an
+editorial call on a watch, not a number to derive from code.
+
+### The name points at the case tail time already solved
+
+The item is named for goodsometimes' `scripts/vo_extend.py`, and that script
+**appends and prepends at the two outer edges of a playlist and has no
+interior-insertion mode at all** — it refuses outright when the head would
+overlap real audio. Its whole subject is head and tail time, which § Tail time,
+shape B routes around entirely by putting the tail *downstream* of `Edit`.
+
+So the namesake covers the case that no longer needs it, and there is **no
+reference implementation for the case that remains, on either side of the
+fence.** Tail time shipping changes `vo_extend`'s cost not at all; the two are
+orthogonal by construction.
+
+### The shape is forced, and it is forced physically
+
+**A. Widen the VO clip's own segment past its registered duration.** This is the
+shape that sounds cheap, and it is not merely disallowed — it is *unreadable*.
+`_build_mlt` turns every segment into an `mlt.Entry` whose resource is a real
+file, with `src_in`/`frames` read straight off `autoeditor.frame_layout`. A
+segment naming seconds past the recording asks melt and ffmpeg to decode frames
+the file does not contain, which is the silent-wrong-output class this repo
+already knows from the kdenlive tail frame and auto-editor's 720x576 degrade.
+`clips[].duration` is also written exactly once, by `media.import_media` from
+ffprobe, and **nothing in this codebase has ever updated it after import.**
+
+**B. Splice a real generated silence clip between two of the VO's segments.**
+The manufactured material is its own registered clip, backed by a real file,
+imported like any other asset. Shape A is not a cheaper B; it is a broken one.
+
+### Where the read paths were expected to break, and don't
+
+The premise this item has carried is that `Edit`'s addressing would need
+rework. It does not. `timeline_time`, `timeline_span`, `timeline_spans`,
+`source_at`, `covers`, `source_spans` and `gaps` are all clip-filtering,
+offset-accumulating walks over `self.segments` — mechanically already tolerant
+of more than one `clip_id` interleaved in the list. `_word_placements`,
+`_seams`, `_reel_suspect_edges`, `cut_by_time`, `speech_overlap`,
+`_caption_cues` and `frame_layout` inherit that and need no change. A silence
+clip with no transcript is simply absent from the transcripts dict, not an
+error.
+
+**Word indices are safe under growth in a way they are not under a cut.** A cue
+is `(clip_id, word_index)` resolved through the immutable transcript, and an
+insertion adds no words to it — so no cue's address changes meaning, and none
+is orphaned. Orphaning is strictly a consequence of shrinking. Every cue after
+the insertion repositions for free, because `timeline_span` recomputes its
+offset by walking every segment including the new one. This is precisely what
+§ The property everything below defends is for, and it holds under growth as
+cleanly as under cuts.
+
+Three things do break, and only one of them is in the addressing:
+
+1. **`restore` refuses across the hold.** It requires a clip's own segments to
+   be one contiguous run and raises `TimelineError` otherwise — which is what a
+   foreign `clip_id` between two VO segments produces, by construction. Its
+   docstring already names this exact future. So `restore`, its CLI, its tool
+   and its web button stop working on the VO for any range straddling the hold,
+   the day this lands.
+2. **Export switches to `melt` permanently and one-way.** `_is_layered` routes
+   to the MLT writer whenever the timeline holds more than one `clip_id`, so a
+   project that has ever been extended never returns to the auto-editor path,
+   even for a render that would otherwise be single-source. That is a real
+   architectural cost rather than a bug — the machinery exists and is built for
+   this — but `vo_extend` rides on the layered timeline and cannot ship before
+   it.
+3. **`timeline_view`'s default clip is the first segment's.** A mid-film hold
+   leaves the VO at segment 0 and is unaffected. A *head* insertion would not
+   be, which is one more reason the outer edges belong to tail time.
+
+### The unsafe place nobody has mentioned
+
+**No cue can address the manufactured hold, because a cue resolves through a
+word and the hold has none** — the same finding § The end card made for tail
+silence, now true in the interior. But the interior version fails differently,
+and worse.
+
+`build_shots` runs every shot from its cue's frame to the next cue's. So
+whichever picture was already playing simply **auto-extends across the hold**.
+The projection does not refuse. It succeeds, renders, and shows stale picture
+over the manufactured silence — and `shots_error`, `pins_error`, `verify` and
+`check_frames` are all silent, because nothing was orphaned and nothing went
+missing. A hold inserted to let the film's own line play would, by default,
+play it under a frozen picture with every check clean.
+
+That is a silent success, which is the failure shape this repo is least able to
+see, and it is the reason this item needs the design note rather than just the
+mechanism. **Whatever `vo_extend` becomes, it reports what picture covers the
+span it opened** — the way `reel` names `cues_dropped` and a derivation reports
+`tail_dropped`. The insertion is the easy half.
+
+### The line that must not move
+
+`vo_extend` is authorized to bend the subtractive invariant. It is **not**
+authorized to touch § The property everything below defends. There is a third
+shape nobody has proposed and somebody eventually will — splice the silence
+into the underlying recording file — and it must be refused by name: it shifts
+every subsequent word's absolute source timestamp, renumbering the address
+space every cue in the project is written against. The rule: **the manufactured
+stretch adds source alongside the recording and never moves a byte of its
+interior.** That is also exactly what shape B does for free, which is the last
+argument for it.
+
+### What this note does not settle
+
+1. **Is the hold worth it at all?** The case is editorial, decided on a watch.
+   The two outs on record are unchanged: re-record the VO with a real pause, or
+   build this. The film shipped around it.
+2. **Does `restore` grow a two-clip contiguity rule, or refuse on an extended
+   timeline?** Refusing is the answer that cannot be silently wrong, and it is
+   also the answer that makes an extend one-way.
+
+Not started. What this note changes about the item's cost: the addressing work
+everyone expected is not there, and a reporting obligation nobody had costed
+is.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 
@@ -3283,6 +3483,22 @@ The order was adopted 2026-08-12.
    one on its evidence and put the other four on a served sheet before
    touching them, because the score cannot tell a flash from a fade
    (HISTORY.md § The thirty-nine windows, reviewed).
+   - **Which project the flash in-points are about is not the teaser, and that
+     has to be settled before the sheet is built.** `flashes.json` scored 25
+     placements over a timeline running to 325s — the *vertical cut*, deleted
+     2026-08-12 and rebuildable only from `~/lucid-archive/vertical/`. The
+     shipped teaser places four cues over three clips in 44s and holds none of
+     `vi-richie`, `cold-open` or `s4-overexposed` at all. The findings do carry
+     to the **essay**, whose cue table has all five assets with `src_start`
+     unpinned, so the in-points are `plan_picture`'s and the nudge has
+     somewhere to land — but a sheet built "for the teaser" would be a sheet of
+     shots the teaser does not contain.
+   - The mechanism half shipped 2026-08-13 (HISTORY.md § The keyframed move).
+     What is left of this item is entirely authoring and a watch, and the
+     rendered A/B that exists — `~/lucid-kf-probe` — **is not a control**: it
+     is `framed-teaser`, a different derivation from the shipped cut. Its
+     `s4-reveal` windows match the teaser's exactly, so the *move* is the right
+     one; the file is not the right file to compare against.
 5. **`import-edit` and the film check** — the wrong-cut class (§ Open
    questions, *How does a lucid project know it is the film*). Three builds,
    smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which

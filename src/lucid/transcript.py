@@ -196,6 +196,90 @@ def find_overlaps(words: Sequence[Word]) -> list[dict[str, Any]]:
     return seams
 
 
+def find_repeats(
+    words: Sequence[Word],
+    *,
+    min_words: int = 3,
+    max_words: int = 25,
+    max_gap: float = 3.0,
+) -> list[dict[str, Any]]:
+    """Find back-to-back duplicated phrases: the shape a retake makes.
+
+    Ported from goodsometimes `scripts/vo_windows.py`'s `find_repeats`, which
+    lives outside lucid and is what a human ran by hand to catch the Scream
+    VO's retake pass — 72s of exactly this shape sat uncut in the timeline
+    while every check lucid had agreed with itself (HISTORY.md § The VO the
+    project was holding). `min_words`/`max_words`/`max_gap` are its defaults,
+    unchanged: a run of 3-25 words that repeats itself verbatim within 3.0s
+    of its own end.
+
+    For each unconsumed starting position, the *longest* matching repeat
+    wins — a 20-word duplicate should not also be reported as the 3-word one
+    buried inside it — and every word in a match is consumed before scanning
+    resumes, so one retake is one finding rather than several overlapping
+    ones.
+
+    **Its blind spot is not this function's own — it is whisper's, and it is
+    the mirror image of `find_overlaps`'s.** This can only find a repeat that
+    survived transcription as distinct, cleanly-timed words, because the
+    match is exact normalised text over two separate runs. § The hand-framed
+    teaser, watched found that whisper does not reliably write a retake that
+    way: it routinely reads straight across the splice and hands the *word
+    after it* a duration long enough to swallow the abandoned take whole —
+    which is precisely `find_overlaps`'s tell, and precisely the shape this
+    function has nothing to match against, because there are no second-take
+    words here to find. The two are not redundant and neither subsumes the
+    other: a retake is either words this can see or timing `find_overlaps`
+    can see, and a transcript can hold either kind. Reading the transcript's
+    prose is not a substitute for either — the Scream VO reads as clean,
+    grammatical text with the retakes still in it.
+
+    Reported as **whole matched runs, never scored or thresholded** — the
+    same discipline `find_overlaps` documents for the same reason. This one
+    already carries structural bounds (`min_words`, `max_words`, `max_gap`)
+    that describe the *shape* a retake makes, but nothing here judges whether
+    a hit is a flub rather than a deliberate callback line said twice on
+    purpose — those match identically. A list to listen to, not a cut list.
+    """
+    keys = [_normalise(w.text) for w in words]
+    found: list[dict[str, Any]] = []
+    used: set[int] = set()
+    index = 0
+    while index < len(words):
+        best: dict[str, Any] | None = None
+        for length in range(max_words, min_words - 1, -1):
+            first, second = index, index + length
+            if second + length > len(words):
+                continue
+            if any(i in used for i in range(first, second + length)):
+                continue
+            if keys[first:second] != keys[second : second + length]:
+                continue
+            gap = words[second].start - words[second - 1].end
+            if gap > max_gap:
+                continue
+            best = {
+                "first_word": first,
+                "second_word": second,
+                "last_word": second + length - 1,
+                "words": length,
+                "first_start": words[first].start,
+                "first_end": words[second - 1].end,
+                "second_start": words[second].start,
+                "second_end": words[second + length - 1].end,
+                "gap": gap,
+                "text": " ".join(w.text for w in words[first:second]),
+            }
+            break
+        if best:
+            found.append(best)
+            used.update(range(best["first_word"], best["last_word"] + 1))
+            index = best["last_word"] + 1
+        else:
+            index += 1
+    return found
+
+
 def parse_whisper(payload: dict[str, Any], *, clip_id: str, origin: str | None = None) -> Transcript:
     """Normalise a whisper JSON dump into a `Transcript`.
 

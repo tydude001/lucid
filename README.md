@@ -92,6 +92,7 @@ uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
 uv run lucid -C myproject cut-at 40.4+4.4                # or cut by what an export played
 uv run lucid -C myproject restore vo 111:114             # changed your mind about one cut
 uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
+uv run lucid -C myproject import-edit trimmed.kdenlive   # ...and the trim you made there, back
 uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
 ```
 
@@ -155,6 +156,7 @@ lucid caption-style                          # read it back, resolved
 lucid caption-view                           # the cues this timeline produces
 lucid captions subs.ass                      # sidecar ASS, Kdenlive loads it
 lucid captions subs.ass --burn render.mp4    # or burn in with ffmpeg
+lucid fonts --install                        # put the face the preset names where libass looks
 ```
 
 Colours take `#rrggbb`, a name, or ASS's own `&H…`, and come back resolved in
@@ -162,10 +164,12 @@ both — ASS quotes them channel-reversed and alpha-inverted, so a value that
 looks right is routinely a different colour. The window draws the same style
 over the preview and on the CC lane, so what you see is what burns in.
 
-Attaching a transcript checks it against itself and reports three findings —
+Attaching a transcript checks it against itself and reports four findings —
 `near_duplicates`, phrases said twice back to back; `suspect_durations`, a word
-claiming long enough to hide a swallowed retake; and `overlaps`, where the
-timings say two words were spoken at once. That last one is a retake splice
+claiming long enough to hide a swallowed retake; `repeats`, a retake that
+survived transcription as clean duplicate words; and `overlaps`, where the
+timings say two words were spoken at once. The last two see opposite halves of
+one defect and neither subsumes the other. That overlap is a retake splice
 whisper read straight across, interleaving both takes and **inventing words
 nobody said** — the tell is the overlap, never the reading, since an invented
 word is usually grammatical. Findings are returned by the attach call, so an
@@ -233,6 +237,7 @@ the price of reading it:
 lucid frames                                 # what the timeline will be
 lucid frames cut.kdenlive                    # what melt says it would render
 lucid frames final.mp4                       # what actually came out
+lucid film-check the-film.mp4                # is this project even the right cut?
 ```
 
 `agrees` is the answer and `delta` is how far off. Two things this finds that
@@ -240,6 +245,13 @@ nothing else was looking at: a render that is no longer of this timeline, and �
 on its first real run — that **auto-editor's kdenlive export is one frame
 longer than your edit, and the frame is black**. That one is upstream's, it is
 reported rather than corrected, and `export --render` does not have it. HISTORY.md § `check_frames` has the measurements.
+
+`film-check` asks the other question, and it is the one `frames` structurally
+cannot: not "does this render match my arithmetic" but "is this project the
+film at all". A project seeded from a stale stage of an outside edit passes
+every check lucid has — 411s of silence-cut VO once did, against a 336s film —
+because nothing was comparing it to anything outside itself. The reference is
+remembered, so a later call re-asks without retyping the path.
 
 `black` and `spots` read a render that already exists. `black` runs ffmpeg's
 blackdetect and only ever explains away a run as that known kdenlive tail
@@ -298,8 +310,9 @@ lucid -C myproject export assembly.kdenlive         # both lanes, written as MLT
 
 A card is an SVG under `assets/cards/` and the PNG `card:<name>` resolves to;
 both are kept, so a card is re-edited rather than redrawn. `card new` fills one
-of three templates — `receipt`, `reveal`, `rerate` — and `card render`
-re-rasterises after a hand edit. **Cards generate at the project's own canvas**,
+of five templates — `receipt`, `reveal`, `rerate`, `endcard`, `bumper` — and
+`card render` re-rasterises after a hand edit. Every brand slot on the last two
+defaults to empty: lucid stays generic and the channel supplies its own mark. **Cards generate at the project's own canvas**,
 so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with a
 quarter of its width in black bar.
 
@@ -318,6 +331,19 @@ A card whose files predate the record — drawn elsewhere and copied in — is
 reported by name rather than guessed at, because nothing on disk says what
 made it.
 
+A card can also go *after* the last frame, as a `tail` — an end card or a
+bumper, which every earlier cut applied downstream of `export` and so lost on
+any re-cut, silently:
+
+```sh
+lucid -C myproject tail --asset card:endcard --seconds 6  # what plays after the film
+lucid -C myproject tail --reset                          # back to ending on the edit
+```
+
+It is project state, so a derivation knows it existed rather than dropping it
+without a word — `reel` reports `tail_dropped`. `Edit` does not grow to
+describe one, so `timeline_duration` still answers for the cut itself.
+
 The footage does follow on its own, by cropping to fill rather than
 pillarboxing — a 1920x816 clip in a 9:16 frame keeps a 459-pixel-wide band of
 itself instead of 76% of the frame going black. Which band is `reframe`'s to
@@ -329,6 +355,7 @@ lucid -C myproject reframe                          # every crop in force
 lucid -C myproject reframe cold-open --rect 1400,0,459,816
 lucid -C myproject reframe cold-open --rect 0,0,459,816 --at 20.4   # from there on
 lucid -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
+lucid -C myproject reframe cold-open --rect 930,0,450,800 --at 7.34 --interp  # slide, don't step
 lucid -C myproject reframe cold-open --reset        # back to the centre
 lucid -C myproject reframe-detect                   # propose a window per shot
 lucid -C myproject reframe-sheet                    # every window, drawn, for review

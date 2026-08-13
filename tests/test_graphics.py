@@ -1461,3 +1461,118 @@ def test_the_wordmark_is_drawn_in_title_type(name: str) -> None:
     for variant in (None, "portrait"):
         assert graphics._declared_slots(name, variant)["mark"]["font"] == "title_font"
         assert "{{title_font}}" in _file_line(name, variant, "{{mark}}")
+
+
+# -- the end card and the bumper --------------------------------------------
+#
+# HISTORY.md § The end card and § The bumper the teaser never had settled
+# both cards on a watch, outside any project; these two templates are the
+# concrete half — the same shapes, drawable by lucid rather than by a
+# one-off script. Neither bakes goodsometimes' own words into the file: a
+# `mark` slot ships empty everywhere else in this module and is held to that
+# here too, and the vocabulary that colours its asterisk is the caller's.
+
+_CANVASES = [(1920, 1080), (1080, 1920)]
+
+
+@pytest.mark.parametrize("name", ["endcard", "bumper"])
+def test_the_end_card_and_the_bumper_ship_their_brand_slots_empty(name: str) -> None:
+    """Every slot a project fills with its own brand text defaults to "".
+
+    The same rule the corner `mark` on `receipt`/`reveal`/`rerate` is held
+    to, extended to every text slot these two cards have — there is nothing
+    on either card that is not a project's own words.
+    """
+    slots = graphics.template_slots(name)
+    for slot in ("mark", "footnote", "line1", "line2"):
+        if slot in slots:
+            assert slots[slot]["default"] == ""
+            assert not slots[slot]["required"]
+
+
+@needs_magick
+@pytest.mark.parametrize("canvas", _CANVASES)
+def test_the_end_cards_mark_and_footnote_fit_both_canvases(canvas: tuple[int, int]) -> None:
+    """The lockup this ports (HISTORY.md § The end card) is a wordmark with
+    its own footnote underneath, both centred — filled here with the shape
+    a real caller would use, `[em]` asterisk included, never lucid's own."""
+    filled = graphics.fill_template(
+        "endcard",
+        {"mark": "Good[em]*[/em]", "footnote": "[em]*[/em] Sometimes"},
+        width=canvas[0],
+        height=canvas[1],
+    )
+    assert "{{" not in filled
+    graphics.declared_fonts(filled)
+
+
+@needs_magick
+@pytest.mark.parametrize("canvas", _CANVASES)
+def test_the_bumper_fits_mark_only_and_the_full_two_line_register(
+    canvas: tuple[int, int],
+) -> None:
+    """The two registers `make_bumper.py` proved, both filled here.
+
+    "Mark only" is the essay's own register (PLAN.md § Tail time) — `line1`
+    and `line2` both blank — and the full register is the teaser's, a
+    two-line call to the rest of the video. Both must fit at both canvases:
+    the essay's is drawn at 16:9 and the teaser's at 9:16, but nothing stops
+    either register from being asked for at the other aspect.
+    """
+    mark_only = graphics.fill_template(
+        "bumper", {"mark": "Good[em]*[/em]"}, width=canvas[0], height=canvas[1]
+    )
+    assert "{{" not in mark_only
+
+    full = graphics.fill_template(
+        "bumper",
+        {
+            "mark": "Good[em]*[/em]",
+            "line1": "the full essay",
+            "line2": "on the channel",
+        },
+        width=canvas[0],
+        height=canvas[1],
+    )
+    assert "{{" not in full
+
+
+def test_the_bumpers_rule_is_fixed_markup_not_gated_on_either_line() -> None:
+    """`make_bumper.py` draws the rule in both of its registers, unconditionally
+    — so it is lucid markup the template always emits, not a slot a project can
+    turn off. A mark-only fill still draws it."""
+    mark_only = graphics.fill_template("bumper", {"mark": "Good[em]*[/em]"}, flow=False)
+    full = graphics.fill_template(
+        "bumper",
+        {"mark": "Good[em]*[/em]", "line1": "a", "line2": "b"},
+        flow=False,
+    )
+    for drawn in (mark_only, full):
+        assert f'fill="{graphics.PALETTE["amber"]}"' in drawn
+        # One rect for the ink background, one for the rule — present
+        # whether or not either line slot carries a value.
+        assert drawn.count("<rect") == 2
+
+
+def test_the_end_card_has_no_rule_and_no_third_line() -> None:
+    """HISTORY.md § The end card: the rule and the tagline were both tried and
+    both dropped — "asis" is the mark and its footnote alone. A stray divider
+    here would be exactly the defect that section records: a rule pointing at
+    nothing under it."""
+    for variant in (None, "portrait"):
+        source = graphics.template_path("endcard", variant).read_text(encoding="utf-8")
+        # One rect: the ink background. A second would be a rule this card
+        # was explicitly built without.
+        assert source.count("<rect") == 1
+
+
+@pytest.mark.parametrize(("name", "expected"), [("endcard", 2), ("bumper", 4)])
+def test_the_new_cards_declare_exactly_the_slots_their_design_settled(
+    name: str, expected: int
+) -> None:
+    """A drift guard on the slot *count*, not just the drift guards already run
+    over every template — the end card's whole point was dropping the rule and
+    the tagline `make_endcard.py` tried, and a slot silently added back would
+    be that regression with every existing check still green."""
+    content_slots = set(graphics.template_slots(name)) - set(graphics.STYLE_SLOTS)
+    assert len(content_slots) == expected

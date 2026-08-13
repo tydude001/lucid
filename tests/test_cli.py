@@ -225,7 +225,7 @@ def test_transcript_checks_clip_id_is_optional(
     assert main(["-C", str(project), "transcript-checks"]) == 0
     every = json.loads(capsys.readouterr().out)
     assert [c["clip_id"] for c in every["clips"]] == [clip_id]
-    assert {"near_duplicates", "suspect_durations", "overlaps"} <= set(every["clips"][0])
+    assert {"near_duplicates", "suspect_durations", "overlaps", "repeats"} <= set(every["clips"][0])
 
     # Naming the clip explicitly reaches the same result.
     assert main(["-C", str(project), "transcript-checks", clip_id]) == 0
@@ -471,6 +471,118 @@ def test_reel_span_parses_and_reaches_ops_as_two_arguments(
     assert not (tmp_path / "teaser").exists()
 
 
+def test_tail_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--asset/--seconds/--fade/--reset/--plan all reach `ops.tail` under the
+    right keywords — this needs only `init`, since `tail` reads and writes
+    the manifest and does not touch the timeline."""
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "-C", str(project), "tail",
+                "--asset", "card:outro", "--seconds", "6", "--fade", "0.167", "--plan",
+            ]
+        )
+        == 0
+    )  # fmt: skip
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["written"] is False
+    assert planned["tail"] == {"asset": "card:outro", "seconds": 6.0, "fade": 0.167}
+
+    assert main(["-C", str(project), "tail", "--asset", "card:outro", "--seconds", "6"]) == 0
+    set_result = json.loads(capsys.readouterr().out)
+    assert set_result["written"] is True
+    assert set_result["tail"]["fade"] == 0.0, "fade defaults, and --plan left nothing behind"
+
+    assert main(["-C", str(project), "tail"]) == 0
+    read = json.loads(capsys.readouterr().out)
+    assert read["tail"]["asset"] == "card:outro"
+    assert read["written"] is False
+
+    assert main(["-C", str(project), "tail", "--reset"]) == 0
+    reset_result = json.loads(capsys.readouterr().out)
+    assert reset_result["tail"] is None
+    assert "tail" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+
+
+@needs_ffprobe
+def test_film_check_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The positional `reference` and `--reset`/`--plan` all reach
+    `ops.film_check` under the right keywords, and a declared reference is
+    remembered on the project the same way `canvas`/`tail` remember theirs.
+    This needs only a seeded timeline, not a real export — the export-backed
+    duration comparison itself is exercised over the wire in
+    test_server_stdio.py.
+    """
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    # A second recording built the same way ffprobes to the same duration as
+    # the source, so the timeline agrees with it without needing a real export.
+    reference = project.parent / "reference.wav"
+    _make_wav(reference, tones=[(0.0, 2.0)])
+
+    assert main(["-C", str(project), "film-check", str(reference), "--plan"]) == 0
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["reference_source"] == "argument"
+    assert planned["agrees"] is True
+    assert "reference" not in json.loads((project / "lucid.json").read_text(encoding="utf-8")), (
+        "--plan must not write"
+    )
+
+    assert main(["-C", str(project), "film-check", str(reference)]) == 0
+    written = json.loads(capsys.readouterr().out)
+    assert written["reference"] == str(reference)
+    manifest = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    assert manifest["reference"] == str(reference)
+
+    # No argument now reuses what was just declared.
+    assert main(["-C", str(project), "film-check"]) == 0
+    reread = json.loads(capsys.readouterr().out)
+    assert reread["reference_source"] == "declared"
+    assert reread["agrees"] is True
+
+    assert main(["-C", str(project), "film-check", "--reset"]) == 0
+    reset_result = json.loads(capsys.readouterr().out)
+    assert reset_result["reference"] is None
+    assert "reference" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(
+    shutil.which("magick") is None or shutil.which("ffmpeg") is None,
+    reason="the render half of the font report needs ImageMagick and ffmpeg with libass",
+)
+def test_fonts_without_a_project_reports_the_default(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`-C` defaults to "." for every subcommand, so without this the font
+    report would refuse from any directory that is not a project — and a font
+    is not project state. `project_given` is what separates "asked about this
+    project's caption style" from "asked about lucid's default"."""
+    assert main(["fonts"]) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["project"] is None
+    assert result["caption_font"] == result["default_font"]
+    assert result["fonts"][result["caption_font"]]["render"]["drew"] is True
+
+
 @needs_ffprobe
 def test_proxy_force_flag_parses_and_reaches_ops(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
@@ -497,3 +609,107 @@ def test_proxy_force_flag_parses_and_reaches_ops(
     assert main(["-C", str(tmp_path / "proj"), "proxy", "some-clip", "--force"]) == 0
     capsys.readouterr()
     assert seen["force"] is True
+
+
+def test_reframe_interp_flag_parses_and_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The one hop the stdio suite cannot reach for the keyframed move:
+    argparse's `store_true` arriving at `ops.reframe` under `interp`, and
+    `--at` arriving as `src_start` beside it. The flag is worthless without
+    `--at` — the head can never slide — so the pair is what gets checked, not
+    the flag alone (HISTORY.md § The keyframed move).
+
+    The clip is written into the manifest rather than imported: a reframe is
+    arithmetic over a declared shape, and ffprobe is not what is under test.
+    """
+    from lucid.project import Project
+
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+
+    opened = Project.open(project)
+    manifest = opened.read_manifest()
+    manifest["clips"] = [
+        {
+            "clip_id": "cold-open",
+            "source": "/tmp/cold-open.mp4",
+            "duration": 12.0,
+            "has_video": True,
+            "has_audio": True,
+            "width": 1920,
+            "height": 816,
+        }
+    ]
+    opened.write_manifest(manifest)
+
+    assert main(["-C", str(project), "canvas", "1080x1920"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "reframe", "cold-open", "--rect", "200,0,459,816"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "-C",
+                str(project),
+                "reframe",
+                "cold-open",
+                "--rect",
+                "1200,0,459,816",
+                "--at",
+                "4.0",
+                "--interp",
+            ]
+        )
+        == 0
+    )
+    slid = json.loads(capsys.readouterr().out)
+    by_start = {w["src_start"]: w["interp"] for w in slid["clips"][0]["windows"]}
+    assert by_start == {0.0: False, 4.0: True}
+
+    # Without the flag the same window steps, and the key is not written at all.
+    assert main(["-C", str(project), "reframe", "cold-open", "--rect", "600,0,459,816", "--at", "8.0"]) == 0
+    stepped = json.loads(capsys.readouterr().out)
+    assert stepped["clips"][0]["windows"][2]["interp"] is False
+    stored = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    at_eight = [r for r in stored["reframe"] if r.get("src_start") == 8.0]
+    assert at_eight and "interp" not in at_eight[0], (
+        "absent means steps, which is what every window written before this meant"
+    )
+
+
+@needs_ffprobe
+def test_import_edit_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one hop test_server_stdio.py cannot reach: the positional document
+    and `--clip-id`/`--plan` arriving at `ops.import_edit` under the right
+    keywords. The parse and the refusals are covered against ops in
+    test_ops_import_edit.py and over the wire in test_server_stdio.py, so this
+    stubs the op — what is under test is the wiring."""
+    from lucid import cli as cli_module
+
+    seen: dict[str, object] = {}
+
+    def _stub(path: object, document: object, *, clip_id: str | None = None,
+              plan: bool = False) -> dict[str, object]:
+        seen["document"] = str(document)
+        seen["clip_id"] = clip_id
+        seen["plan"] = plan
+        return {"segments": 0}
+
+    monkeypatch.setattr(cli_module.ops, "import_edit", _stub)
+
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "import-edit", "cut.kdenlive"]) == 0
+    capsys.readouterr()
+    assert seen == {"document": "cut.kdenlive", "clip_id": None, "plan": False}
+
+    assert (
+        main(["-C", str(project), "import-edit", "cut.kdenlive", "--clip-id", "vo", "--plan"])
+        == 0
+    )
+    capsys.readouterr()
+    assert seen == {"document": "cut.kdenlive", "clip_id": "vo", "plan": True}

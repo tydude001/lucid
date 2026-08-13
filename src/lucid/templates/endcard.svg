@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="{{width}}" height="{{height}}" viewBox="0 0 1920 {{view_height}}">
+  <rect x="0" y="0" width="1920" height="{{view_height}}" fill="{{ink}}"/>
+  <text x="960" y="{{mid_y}}" text-anchor="middle" font-family="{{title_font}}" font-size="210" font-weight="700" fill="{{paper}}">{{mark}}</text>
+  <text x="960" y="{{note_y}}" text-anchor="middle" font-family="{{title_font}}" font-size="60" font-weight="700" fill="{{paper}}">{{footnote}}</text>
+</svg>

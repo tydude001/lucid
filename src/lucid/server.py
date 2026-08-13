@@ -173,10 +173,14 @@ def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str
     since nothing then disagrees with the timeline. A hit is not a verdict:
     a deliberate callback line looks the same as a swallowed retake here.
 
-    Also reports `suspect_durations` and `overlaps`. An `overlaps` seam is a
-    retake splice whisper read straight across, interleaving both takes and
-    inventing words nobody said — check it before drawing anything derived
-    from this transcript. Use transcript_checks to see all three again later.
+    Also reports `suspect_durations`, `overlaps` and `repeats`. An `overlaps`
+    seam is a retake splice whisper read straight across, interleaving both
+    takes and inventing words nobody said — check it before drawing anything
+    derived from this transcript. `repeats` is a back-to-back duplicated
+    phrase, the shape a retake makes when it survives as distinct words
+    rather than as a seam — a different subset of retakes than `overlaps`
+    finds, not a smaller one. Use transcript_checks to see all four again
+    later.
     """
     return ops.attach_transcript(path, clip_id, transcript_path)
 
@@ -190,8 +194,8 @@ def transcribe(
     attach_transcript's ASR-driven sibling: use that when the recording
     already has a transcript, this when it needs one made. Takes minutes on a
     long recording — there is no timeout, so let it run. Reports
-    `near_duplicates`, `suspect_durations` and `overlaps` the same way
-    attach_transcript does.
+    `near_duplicates`, `suspect_durations`, `overlaps` and `repeats` the same
+    way attach_transcript does.
     """
     return ops.transcribe(path, clip_id, model=model, language=language)
 
@@ -217,16 +221,18 @@ def get_transcript(
 def transcript_checks(path: str, clip_id: str | None = None) -> dict[str, Any]:
     """Re-check an already-attached transcript against itself.
 
-    Returns the same three findings attach_transcript does —
-    `near_duplicates`, `suspect_durations`, `overlaps` — for a transcript
-    attached earlier, whose findings were reported once and are otherwise
-    gone. Omit `clip_id` for every clip that has a transcript.
+    Returns the same four findings attach_transcript does —
+    `near_duplicates`, `suspect_durations`, `overlaps`, `repeats` — for a
+    transcript attached earlier, whose findings were reported once and are
+    otherwise gone. Omit `clip_id` for every clip that has a transcript.
 
     Read `overlaps` before anything derived from this transcript is drawn on
     screen. A seam there is whisper reading across a retake splice and
     interleaving both takes, which **invents words nobody said** — and they
     read as ordinary English, so a human proofread finds some and is blind to
-    the rest. Reads only; it never writes.
+    the rest. `repeats` catches the other shape a retake takes: one that
+    survived transcription as distinct, cleanly-timed duplicated words rather
+    than as an interleaved seam. Reads only; it never writes.
     """
     return ops.transcript_checks(path, clip_id)
 
@@ -303,6 +309,24 @@ def card_templates() -> dict[str, Any]:
     too, so a card can be restyled without authoring an SVG by hand.
     """
     return ops.card_templates()
+
+
+@_tool()
+def fonts(path: str | None = None, install: bool = False) -> dict[str, Any]:
+    """Will the caption font actually draw on this machine?
+
+    Reports two answers side by side and does not merge them: `fontconfig`
+    says whether the family is present, `render` burns the family and an
+    impossible family and compares the pixels. Identical pixels mean the name
+    is substituting whatever fontconfig claims — the only way to settle which
+    face drew is to measure a render.
+
+    `path` is optional: with a project, this checks the font that project's
+    caption style would burn; without one, lucid's default. `install` copies
+    the vendored face where fontconfig looks and is off by default, because it
+    writes into the home directory.
+    """
+    return ops.fonts(path, install=install)
 
 
 @_tool()
@@ -729,7 +753,13 @@ def locate(
 
 @_tool()
 def timeline_status(path: str) -> dict[str, Any]:
-    """Report the current timeline: duration, segment count, undo depth."""
+    """Report the current timeline: duration, segment count, undo depth.
+
+    `tail` echoes the finishing pass set with the `tail` tool, or null for
+    none. `expected_frames`/`expected_duration` are what `export` would lay
+    down — `timeline_duration` alone stays the `Edit`'s own length even with a
+    tail configured, since the `Edit` never grows to describe one.
+    """
     return ops.status(path)
 
 
@@ -973,6 +1003,43 @@ def canvas(
     return ops.canvas(path, size=size, reset=reset, plan=plan)
 
 
+@_tool()
+def tail(
+    path: str,
+    asset: str | None = None,
+    seconds: float | None = None,
+    fade: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the finishing pass this project plays after its last frame.
+
+    An end card or a bumper, applied by `export` itself rather than glued on
+    afterward with ffmpeg — the fix for a defect that has already shipped: a
+    finishing pass applied downstream of `export` is dropped by every
+    derivation at exit 0, silently, because nothing in the project ever knew
+    it existed (HISTORY.md § The bumper the teaser never had, § The end card).
+    Call it with no arguments to read what is in force.
+
+    `asset` must be `card:name`, never a clip_id — `verify` diffs a render's
+    own transcription against the timeline's words, and silence adds none of
+    its own, which is exactly what a card behind it guarantees and a media
+    clip would not. `seconds` is the tail's *whole* length, card included, not
+    a hold with `fade` added on top of it (the known trap: `xfade` finishes
+    exactly at the length it is given). `fade` is recorded and echoed but not
+    yet drawn — this build cuts to the card hard, at `seconds`.
+
+    Setting `asset` or `seconds` for the first time needs both together;
+    either alone after that updates just that field, the same partial-update
+    shape `caption_style` has. `reset` drops the tail entirely.
+
+    **Needs an existing picture cue lane covering the whole film** — add cues
+    first (`cue_add`) if the project does not have one; `export` names why
+    otherwise. `plan` resolves and validates without writing.
+    """
+    return ops.tail(path, asset=asset, seconds=seconds, fade=fade, reset=reset, plan=plan)
+
+
 @_tool("path", "dest")
 def reel(
     path: str,
@@ -1010,6 +1077,11 @@ def reel(
     which names any that cannot be, and `over_platform_cap`, which says
     whether the result still runs longer than a vertical feed will take.
 
+    A configured `tail` (an end card, a bumper) is never inherited — the
+    derived project gets none, and `tail_dropped` reports what the film had,
+    if anything. A teaser cut from an essay should not silently end on the
+    essay's own end card.
+
     Refused if either kept edge lands on a word with a suspect duration — one
     that likely hides a retake, so the reel would open or close on the wrong
     take — unless `confirm_suspect=True`. Read `suspect_edges` in the result;
@@ -1037,6 +1109,7 @@ def reframe(
     rect: str | None = None,
     pane: str | None = None,
     src_start: float | None = None,
+    interp: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -1068,6 +1141,13 @@ def reframe(
     picking between them loses one. Both rects are grown to the pane's shape
     rather than the canvas's, and a source too tall to carry it is refused.
 
+    `interp` makes that window **slide in** from whatever governed before it,
+    instead of stepping to it: MLT keeps drawing the frame in motion across
+    the two windows rather than cutting between them. It flags the
+    destination window, needs `src_start` after 0 (there is nothing before
+    the head of the source to slide from), and cannot be combined with
+    `pane` — a split's lower half has no interpolation of its own.
+
     `clip_id` with `reset` drops that clip's overrides — with `src_start`,
     only the window there — `reset` alone drops every one, and `plan` resolves
     without writing. Nothing *here* analyses the picture: `reframe_detect` is
@@ -1075,7 +1155,14 @@ def reframe(
     framing anything itself.
     """
     return ops.reframe(
-        path, clip_id, rect=rect, pane=pane, src_start=src_start, reset=reset, plan=plan
+        path,
+        clip_id,
+        rect=rect,
+        pane=pane,
+        src_start=src_start,
+        interp=interp,
+        reset=reset,
+        plan=plan,
     )
 
 
@@ -1358,6 +1445,75 @@ def check_frames(path: str, target: str | None = None, fps: float | None = None)
     different grids; it defaults to the rate `export` would have picked.
     """
     return ops.check_frames(path, target, fps=fps)
+
+
+@_tool()
+def film_check(
+    path: str,
+    reference: str | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Compare this project against the export it is supposed to be.
+
+    check_frames answers whether an export agrees with *this project's own*
+    arithmetic; it cannot catch this project being the wrong film to begin
+    with — a project can pass every check it has and still be seeded from a
+    stale stage of an outside edit (HISTORY.md § The VO the project was
+    holding: 73 segments/410.963s sat in a project whose shipped film was 63
+    segments/336.269s, with the render, verify, the cue table and the shot
+    plan all agreeing with the wrong one). This checks the project's
+    `timeline_duration` against a reference file's own ffprobe duration —
+    cheap, no frame counting, no melt. Segment count has nothing on the
+    reference side to compare against once a film is encoded, so `segments`
+    is reported alone and the notes say why.
+
+    `reference` is remembered: passing it stores it on the project
+    (additive, no schema bump), so a later call with no argument re-asks the
+    same question against the same file. `reset` drops the stored reference;
+    `plan` resolves without writing. With no reference given or stored, this
+    reports the project's own numbers and says there is nothing to compare
+    them against, rather than raising.
+    """
+    return ops.film_check(path, reference, reset=reset, plan=plan)
+
+
+@_tool()
+def import_edit(
+    path: str,
+    document: str,
+    clip_id: str | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Lay a cut made in Kdenlive down as this project's timeline.
+
+    The supported way to bring an outside edit in. `seed_timeline` lays a clip
+    down and lets auto-editor find the cuts; this takes a `.kdenlive` (or
+    `.mlt`) playlist somebody already trimmed by hand and reads its surviving
+    ranges into the timeline. It replaces the whole timeline, and the previous
+    one is snapshotted first, so it is undoable like any other mutation —
+    which is the part the hand-rolled version of this never had (HISTORY.md
+    § The VO the project was holding: 63 ranges were parsed out of a
+    `.kdenlive` and written straight to `Edit`, bypassing `cut` and its
+    history).
+
+    Every clip the document references has to be **registered already** — the
+    resources are matched against registered clips by resolved path, and any
+    that do not match are named rather than imported behind your back. Pass
+    `clip_id` for a single-source document whose media sits at a path this
+    project does not know.
+
+    Ranges that overrun a clip's registered duration are clamped and reported
+    in `overshot`, never silently dropped: auto-editor's own exports overshoot
+    the tail by one frame, so a clean `overshot` is worth reading rather than
+    assuming. `plan` resolves and checks without writing.
+
+    Refused by name rather than half-read: a `<blank>` in the playlist (real
+    runtime an `Edit` has nowhere to put), and two playlists carrying
+    different cuts (a multi-track picture edit, which lucid's one linked A/V
+    track has no shape for).
+    """
+    return ops.import_edit(path, document, clip_id=clip_id, plan=plan)
 
 
 @_tool()

@@ -1254,6 +1254,147 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             }
         },
     },
+    "endcard": {
+        "description": (
+            "A closing card: a brand mark alone on ink, with its own footnote "
+            "underneath. No rule, no CTA — HISTORY.md § The end card settled "
+            "the mark holding the frame by itself as the film's own sign-off."
+        ),
+        "slots": {
+            "mark": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 210,
+                "weight": 700,
+                "font": "title_font",
+                "default": "",
+                "description": (
+                    "the wordmark, centred and large — this card's whole "
+                    "content. Ships empty; a project supplies its own mark, "
+                    "e.g. 'Name[em]*[/em]' for an amber accent glyph."
+                ),
+            },
+            "footnote": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 60,
+                "weight": 700,
+                "font": "title_font",
+                "default": "",
+                "description": (
+                    "a smaller line under the mark, e.g. the asterisk's own "
+                    "footnote spelled out ('[em]*[/em] the rest of the name'). "
+                    "Optional; leave blank to let the mark hold the frame alone."
+                ),
+            },
+        },
+        "derived": {},
+        # The mark this ports (HISTORY.md § The end card) was authored for
+        # the essay's own 1920x816 canvas and never asked to be legible at
+        # phone size, so a portrait use is speculative — but `mark` is a
+        # wordmark on every template that has one, and that rule is held at
+        # both canvases (`test_the_wordmark_is_drawn_in_title_type`), so this
+        # gets `reveal.portrait`'s own numbers rather than an untested gap.
+        "variants": {
+            "portrait": {
+                "geometry": {"mid_ratio": 0.34, "note_gap": 160},
+                "slots": {"mark": {"size": 260}, "footnote": {"size": 90}},
+            }
+        },
+    },
+    "bumper": {
+        "description": (
+            "A mark, a rule, and up to two lines under it — the register "
+            "used both as the teaser's own bumper and, at 16:9, the essay's "
+            "tail card. HISTORY.md § The bumper the teaser never had."
+        ),
+        "slots": {
+            "mark": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 220,
+                "weight": 700,
+                "font": "title_font",
+                "default": "",
+                "description": (
+                    "the wordmark, centred above the rule. Ships empty; a "
+                    "project supplies its own mark, e.g. 'Name[em]*[/em]'."
+                ),
+            },
+            "footnote": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 56,
+                "weight": 700,
+                "font": "title_font",
+                "default": "",
+                "description": (
+                    "a smaller line under the mark and above the rule, e.g. "
+                    "the asterisk's own footnote spelled out. `make_bumper.py` "
+                    "draws it in both of its registers; optional here too."
+                ),
+            },
+            "line1": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 50,
+                "weight": 400,
+                "font": "body_font",
+                "default": "",
+                "description": (
+                    "one line under the rule — a tagline for a no-CTA card, "
+                    "or the first line of a call to action. Optional; a mark "
+                    "with neither line drawn is the 'mark only' register."
+                ),
+            },
+            "line2": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 44,
+                "weight": 400,
+                "font": "body_font",
+                "default": "",
+                "description": (
+                    "a second line under the first, drawn lighter — the rest "
+                    "of a call to action ('on the channel'). Optional and "
+                    "independent of line1."
+                ),
+            },
+        },
+        "derived": {},
+        # The rule is fixed markup, not a slot: `make_bumper.py` draws it in
+        # both of its registers, so there is nothing for a project to turn
+        # off — a card that wants no divider uses `endcard` instead, which
+        # is the one HISTORY.md records as having had the rule removed.
+        "variants": {
+            "portrait": {
+                # `mid_ratio` 0.40 of a 3413-unit portrait frame puts the mark
+                # at 768 actual px on a 1080-wide canvas — the source script's
+                # own y=760, "above centre: the bottom third is where the
+                # platform UI lands." Sizes scale up the way `reveal`'s do,
+                # legible at phone size rather than merely present.
+                "geometry": {"mid_ratio": 0.40, "note_gap": 140},
+                "slots": {
+                    "mark": {"size": 300},
+                    "footnote": {"size": 76},
+                    "line1": {"size": 64},
+                    "line2": {"size": 56},
+                },
+            }
+        },
+    },
 }
 
 #: Slots every template gets: the palette, the font stacks, and the geometry

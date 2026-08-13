@@ -164,6 +164,86 @@ def test_find_overlaps_on_an_empty_or_single_word_transcript() -> None:
     assert tx.find_overlaps(_words(("alone", 0.0, 0.5))) == []
 
 
+# -- find_repeats: the ported vo_windows.py --repeats -----------------------
+
+
+def _run(*texts: str, word_len: float = 0.3) -> tuple[tuple[tx.Word, ...], float]:
+    """`n` words in a row, each `word_len` long and back-to-back, starting at
+    0.0. Returns the words and the last word's own `end`, so a caller can
+    place a second run some exact number of seconds after the first.
+    """
+    spans = []
+    t = 0.0
+    for text in texts:
+        spans.append((text, t, t + word_len))
+        t += word_len
+    return _words(*spans), t
+
+
+def _two_takes(phrase: list[str], *, gap: float) -> tuple[tx.Word, ...]:
+    """The phrase, spoken twice, `gap` seconds apart — the shape a retake
+    makes when whisper writes both readings out as ordinary words."""
+    first, end = _run(*phrase)
+    second, _ = _run(*phrase)
+    shifted = tuple(
+        tx.Word(index=w.index + len(first), text=w.text, start=w.start + end + gap, end=w.end + end + gap)
+        for w in second
+    )
+    return first + shifted
+
+
+def test_find_repeats_is_silent_on_a_clean_transcript() -> None:
+    words, _ = _run("the", "best", "twelve", "minutes", "of", "horror")
+    assert tx.find_repeats(words) == []
+
+
+def test_find_repeats_flags_a_phrase_said_twice_close_together() -> None:
+    """The Scream VO's shape, in miniature: a retake read straight back into
+    the transcript as ordinary, cleanly-timed words."""
+    words = _two_takes(["the", "best", "twelve", "minutes"], gap=0.4)
+    repeats = tx.find_repeats(words)
+    assert len(repeats) == 1
+    hit = repeats[0]
+    assert hit["words"] == 4
+    assert hit["first_word"] == 0 and hit["last_word"] == 7
+    assert hit["second_word"] == 4
+    assert hit["text"] == "the best twelve minutes"
+    assert hit["gap"] == pytest.approx(0.4)
+
+
+def test_find_repeats_respects_max_gap() -> None:
+    """Two readings of the same line ten seconds apart are not back-to-back —
+    reading it as a retake would flag every callback in the film."""
+    words = _two_takes(["the", "best", "twelve", "minutes"], gap=10.0)
+    assert tx.find_repeats(words) == []
+    # Raising max_gap to cover it finds the same hit again.
+    assert len(tx.find_repeats(words, max_gap=10.0)) == 1
+
+
+def test_find_repeats_respects_min_words() -> None:
+    """A two-word echo is below the default floor; explicitly lowering it
+    reaches the same repeat."""
+    words = _two_takes(["stop", "it"], gap=0.2)
+    assert tx.find_repeats(words) == []
+    hits = tx.find_repeats(words, min_words=2)
+    assert len(hits) == 1 and hits[0]["words"] == 2
+
+
+def test_find_repeats_prefers_the_longest_match_at_each_start() -> None:
+    """`a a a a` could be read as two 1-word repeats or one 2-word repeat —
+    the longer reading is preferred, so it is reported once, not twice."""
+    words, _ = _run("a", "a", "a", "a")
+    hits = tx.find_repeats(words, min_words=1, max_words=3, max_gap=1.0)
+    assert len(hits) == 1
+    assert hits[0]["words"] == 2
+    assert hits[0]["first_word"] == 0 and hits[0]["last_word"] == 3
+
+
+def test_find_repeats_on_an_empty_or_single_word_transcript() -> None:
+    assert tx.find_repeats(()) == []
+    assert tx.find_repeats(_words(("alone", 0.0, 0.5))) == []
+
+
 def test_real_whisper_dump_shape(tmp_path) -> None:
     """The exact keys openai-whisper emits, including the probability field."""
     payload = {

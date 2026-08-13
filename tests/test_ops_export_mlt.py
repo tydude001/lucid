@@ -13,6 +13,7 @@ asserted here (melt lives in a flatpak that cannot read `tmp_path`).
 
 from __future__ import annotations
 
+import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -286,3 +287,122 @@ def test_a_single_source_timeline_with_no_cues_still_goes_to_auto_editor(
     result = ops.export(project.root, tmp_path / "out.kdenlive")
 
     assert result["writer"] == "auto-editor"
+
+
+# -- a tail: two ordinary entries after the last frame (PLAN.md § Tail time) -
+
+
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+
+
+@needs_ffmpeg
+def test_a_tail_appends_a_card_and_silence_after_the_last_frame(
+    project: Project, tmp_path: Path
+) -> None:
+    """The card lands on the picture lane's own playlist, a silent WAV of the
+    same length lands on the edit's audio playlist — by construction the two
+    stay equal, so `mlt.document`'s lane-covers-track check needs no change to
+    accept either."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    ops.cue_add(project.root, "vo", 2, "card:red")
+    without_tail = ops.export(project.root, tmp_path / "no-tail.kdenlive")
+
+    ops.tail(project.root, asset="card:red", seconds=1.0)
+    result = ops.export(project.root, tmp_path / "with-tail.kdenlive")
+
+    tail_frames = round(1.0 * EXPORT_FPS)
+    assert result["tail"] == {
+        "asset": "card:red",
+        "seconds": 1.0,
+        "fade": 0.0,
+        "frames": tail_frames,
+    }
+    assert result["frames"] == without_tail["frames"] + tail_frames
+
+    document = _document(Path(result["output"]))
+    assert _declared(Path(result["output"])) == result["frames"]
+
+    audio_playlist = document.find("*[@id='playlist0']")
+    picture_playlist = document.find("*[@id='playlist2']")
+    assert audio_playlist is not None and picture_playlist is not None
+
+    last_audio = audio_playlist.findall("entry")[-1]
+    last_picture = picture_playlist.findall("entry")[-1]
+    assert int(last_audio.get("out", "0")) - int(last_audio.get("in", "0")) + 1 == tail_frames
+    assert int(last_picture.get("out", "0")) - int(last_picture.get("in", "0")) + 1 == tail_frames
+
+    # The silence entry's own producer is a real avformat chain, not a still —
+    # `document()` needed no new MLT concept, just one more of each ordinary
+    # kind of node.
+    silence_node = document.find(f"*[@id='{last_audio.get('producer')}']")
+    assert silence_node is not None and silence_node.tag == "chain"
+    silence_resource = silence_node.find("property[@name='resource']").text
+    assert silence_resource.endswith(".wav")
+    assert Path(silence_resource).is_file()
+
+    card_node = document.find(f"*[@id='{last_picture.get('producer')}']")
+    assert card_node.find("property[@name='mlt_service']").text == "qimage"
+    assert card_node.find("property[@name='resource']").text.endswith("red.png")
+
+
+@needs_ffmpeg
+def test_a_tail_adds_exactly_seconds_never_seconds_plus_fade(
+    project: Project, tmp_path: Path
+) -> None:
+    """The known trap, verified by frame readback rather than by reading the
+    filter graph, exactly as CLAUDE.md's tail item requires: `xfade` finishes
+    a transition at the length it is given, so a `fade` added on top of
+    `seconds` would run the render long by exactly the fade. This asserts the
+    frame count the document actually declares, not the arithmetic that
+    produced it."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    ops.cue_add(project.root, "vo", 2, "card:red")
+    without_tail = ops.export(project.root, tmp_path / "no-tail.kdenlive")
+
+    ops.tail(project.root, asset="card:red", seconds=2.0, fade=0.5)
+    result = ops.export(project.root, tmp_path / "with-tail.kdenlive")
+
+    assert result["frames"] == without_tail["frames"] + round(2.0 * EXPORT_FPS)
+    assert _declared(Path(result["output"])) == result["frames"]
+
+
+def test_a_tail_with_no_picture_lane_is_refused(project: Project, tmp_path: Path) -> None:
+    """No cues at all — the film's own picture, if any, comes straight off its
+    clip, and there is no second lane a card could join without duplicating
+    the whole film onto one just to make room for the last few seconds."""
+    ops.tail(project.root, asset="card:red", seconds=1.0)
+
+    with pytest.raises(ProjectError, match="picture cue lane"):
+        ops.export(project.root, tmp_path / "out.kdenlive")
+
+
+def test_a_tail_asset_that_resolves_to_a_clip_is_refused_at_build_time(
+    project: Project, tmp_path: Path
+) -> None:
+    """`tail()` itself already refuses a non-card asset; this is the same
+    refusal from the writer's own side, reached by a manifest edited by hand
+    or carried over from a project `tail()` never touched."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    manifest = project.read_manifest()
+    manifest["tail"] = {"asset": "film", "seconds": 1.0, "fade": 0.0}
+    project.write_manifest(manifest)
+
+    with pytest.raises(ProjectError, match="not a card"):
+        ops.export(project.root, tmp_path / "out.kdenlive")
+
+
+@needs_ffmpeg
+def test_check_frames_agrees_with_what_a_tail_export_actually_writes(
+    project: Project, tmp_path: Path
+) -> None:
+    """`check_frames`' `expected_frames` and `_build_mlt`'s own `frames` are
+    the same call (`_frame_total_with_tail`) — this is that agreement, against
+    the document actually written rather than against each other's arithmetic."""
+    ops.cue_add(project.root, "vo", 0, "film")
+    ops.cue_add(project.root, "vo", 2, "card:red")
+    ops.tail(project.root, asset="card:red", seconds=1.0)
+
+    result = ops.export(project.root, tmp_path / "out.kdenlive")
+    checked = ops.check_frames(project.root, fps=EXPORT_FPS)
+
+    assert checked["expected_frames"] == result["frames"]

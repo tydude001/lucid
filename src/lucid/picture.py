@@ -57,6 +57,18 @@ BLACKDETECT_TIMEOUT = 300
 #: start of a long file still has to demux up to it.
 FRAME_EXTRACT_TIMEOUT = 60
 
+#: How long to wait on rendering a tail's silence. Trivial work — `anullsrc`
+#: reads nothing — so this is generous only for the same reason the others
+#: are: a cold subprocess start, not the encode.
+SILENCE_TIMEOUT = 30
+
+#: The rate/layout every silent tail WAV is rendered at. Not derived from the
+#: project — a tail's audio-track entry is played back through MLT the same
+#: way any other audio-only clip is, resampled by the consumer to whatever it
+#: needs, and 48kHz stereo is the shape `media.probe` already reports for real
+#: footage on this box (tests/test_picture.py's own fixture).
+SILENCE_SAMPLE_RATE = 48000
+
 _BLACK_RE = re.compile(
     r"black_start:(?P<start>[0-9.]+)\s+black_end:(?P<end>[0-9.]+)\s+black_duration:(?P<duration>[0-9.]+)"
 )
@@ -615,3 +627,52 @@ def extract_frame(target: Path | str, at: float, output: Path | str) -> dict[str
             f"(exit {completed.returncode}):\n{completed.stderr[-2000:]}"
         )
     return parse_signalstats(completed.stderr)
+
+
+def render_silence(output: Path | str, seconds: float) -> Path:
+    """Write a WAV of digital silence, at least `seconds` long.
+
+    There is no silence producer in MLT's own vocabulary, and this is not one
+    either — a tail's audio-track entry is an ordinary avformat clip like any
+    other, and this is where the file it points at comes from, rendered the
+    way a card PNG is rendered rather than checked in (PLAN.md § Tail time —
+    the design note). `anullsrc` over `-t` is exact only to the encoder's own
+    rounding, and a tail's requested length is quantised again onto whatever
+    frame rate the project exports at — two roundings that need not agree — so
+    this pads a half second past what was asked rather than matching it
+    exactly. The MLT `Entry` built over the file states the tail's real frame
+    count itself (`src_in`/`out`); the file only has to outlast it, the same
+    way a still image's `IMAGE_LENGTH_SECONDS` outlasts every shot that could
+    ever hold one.
+    """
+    if seconds <= 0:
+        raise PictureError(f"silence must be a positive number of seconds, not {seconds}")
+
+    dest = Path(output).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"anullsrc=channel_layout=stereo:sample_rate={SILENCE_SAMPLE_RATE}",
+        "-t", f"{seconds + 0.5:.6f}",
+        "-c:a", "pcm_s16le",
+        str(dest),
+    ]  # fmt: skip
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=SILENCE_TIMEOUT, check=False
+        )
+    except FileNotFoundError as exc:
+        raise PictureError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise PictureError(
+            f"ffmpeg did not answer within {SILENCE_TIMEOUT}s rendering {seconds}s of silence"
+        ) from exc
+
+    if completed.returncode != 0 or not dest.exists():
+        raise PictureError(
+            f"ffmpeg could not render {seconds}s of silence to {dest} "
+            f"(exit {completed.returncode}):\n{completed.stderr[-2000:]}"
+        )
+    return dest
