@@ -7125,3 +7125,29 @@ sheet reads the manifest and only the file says what shipped.
 captions burned back through `captions --burn` at the project's own karaoke
 style — a render made without that step carries none and nothing reports it
 (§ The film had no captions in it).
+
+## The essay still had no captions, and burning them is a choice — 2026-08-13
+
+§ The film had no captions in it is three days old and the essay had not been
+fixed by it: `essay-with-endcard.mp4` and `essay-cards-fixed.mp4` are both bare,
+so **no `export --render` of `~/lucid-final-cut/proj` has ever carried
+captions** — the project resolves 178 cues and renders none of them, at exit 0,
+with `status`, `verify` and `check_frames` all silent. That is the documented
+hole doing exactly what the note says it does, in the same project, to somebody
+who had read the note.
+
+**The row it opened said "needs `captions --burn`", and rendering it proved
+that wrong.** Both burns exist now and both carry captions in their pixels, and
+the choice between them is editorial rather than mechanical, because *this*
+film's cards are themselves text on cream:
+
+- the stored `karaoke` style is white with a 3px outline — **1.10:1** against
+  the card, held together only by the outline, which is why it reads as heavy
+  beside the card's own typography;
+- `--preset boxed` buys **20.87:1** and is legible over every card, but it is a
+  preset rather than a box switch and **drops the per-word amber highlight**.
+  Box *and* highlight is a third render nobody has made.
+
+So the queue item is not "run the command", it is a watch — served beside the
+re-cut teaser. **A one-command row is the shape a defect takes before anyone
+renders it.**
