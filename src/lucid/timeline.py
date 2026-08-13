@@ -171,12 +171,13 @@ class _SpanIndex:
 class Edit:
     """An ordered list of source segments — the whole timeline state.
 
-    `segments` is a property so that assigning it drops the cached
-    `_SpanIndex`: an index left standing over a changed timeline would answer
-    every lookup confidently and wrongly, which is this repo's worst failure
-    shape. Every mutator below therefore rebinds `self.segments` rather than
-    mutating the list in place, and a caller holding the list it passed to
-    `Edit(...)` and mutating that is the one way round the guard — so don't.
+    Assigning `segments` drops the cached `_SpanIndex`, via `__setattr__`
+    rather than a property so the dataclass field stays a field: an index left
+    standing over a changed timeline would answer every lookup confidently and
+    wrongly, which is this repo's worst failure shape. Every mutator below
+    therefore rebinds `self.segments` rather than mutating the list in place,
+    and a caller holding the list it passed to `Edit(...)` and mutating that is
+    the one way round the guard — so don't.
     """
 
     segments: list[Segment]

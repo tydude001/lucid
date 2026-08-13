@@ -3600,9 +3600,11 @@ The order was adopted 2026-08-12.
    - **Half of it ran 2026-08-13, and it moved its own premise** (HISTORY.md
      § The scale spike, half-run). The 58m08s recording exists and no lucid doc
      knew it did. **Cue-table size is not the groan point**: `cue_add` is O(n²)
-     over authoring and still sub-second at 450, while **`build_shots` is
-     O(cues × segments)** — `Edit.timeline_span` is an unindexed linear scan,
-     called once per cue, firing on every editing mutation through the web UI.
+     over authoring and still sub-second at 450, while the spike read
+     **`build_shots`** as the compounding one — `Edit.timeline_span` was an
+     unindexed linear scan called once per cue, firing on every editing
+     mutation through the web UI. (Timed rather than projected, that reading
+     did not hold; see below.)
      Windowing is linear and holds. **What is still unrun is the transcribe
      half**, blocked on GPU contention with a desktop rather than on anything
      in lucid, so no GPU rate is measured or claimed; and **melt RSS is still

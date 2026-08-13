@@ -7242,10 +7242,11 @@ random edits, and asserts each branch is actually reached: a parametrisation
 where both cases fall down the same branch would pin the bisect to nothing.
 
 **A cached index over a changed timeline would answer confidently and
-wrongly**, which is this repo's worst failure shape. `segments` is therefore a
-property whose assignment drops the index, and `restore` — which used to splice
-in place with `self.segments[lo0:hi0+1] = own`, the one mutation that would
-have slipped through — now rebinds instead. `timeline_time` reads the index's
+wrongly**, which is this repo's worst failure shape. Assigning `segments`
+therefore drops the index — through `__setattr__`, so the dataclass field stays
+a field — and `restore`, which used to splice in place with
+`self.segments[lo0:hi0+1] = own`, the one mutation that would have slipped
+through, now rebinds instead. `timeline_time` reads the index's
 arrays but walks them exactly rather than bisecting, because a zero-width
 instant on a closing boundary is the one lookup whose answer does not follow
 from an overlap test, and that is precisely what `closed_end` exists for.
