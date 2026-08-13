@@ -2523,7 +2523,10 @@ unswapped project's document byte-identical.
    HISTORY.md § The auto-framing detector, built. `reframe_detect` clears the
    bar at the sampling it actually ships (0.750 / 114.0, never the lost subject
    the centre crop has), the threshold this item flagged as a 3.2× tuning risk
-   is pinned at 0.20 by the control, and the ceiling turns out not to be
+   is pinned — at 0.20 by the control in 2026-08-11, and **at 0.15 from
+   2026-08-12**, when judging the detections rather than matching them against
+   the hand table found 21 real cuts the old floor was discarding (§ The scene
+   threshold, re-pinned in HISTORY.md) — and the ceiling turns out not to be
    detection: an oracle allowed only to pick *which* face reaches 0.863. So the
    pass proposes and `reframe_sheet` disposes, which is why `apply` is off by
    default. **Step 5 is closed; what is left is looking at the sheet.**
@@ -2579,6 +2582,18 @@ being a free parameter:
 | 0.25 | 12 | 8 / 15 | 0.53 | 0.67 |
 | 0.30 | 7 | 5 / 15 | 0.33 | 0.71 |
 | 0.40 | 1 | 1 / 15 | 0.07 | 1.00 |
+
+> **Superseded 2026-08-12 — the floor is 0.15.** The table below is kept
+> because the *way* it is wrong is the finding. Its precision column is the
+> share of detections that matched an approved boundary, so a real camera cut
+> in a shot nobody had chosen to frame counted against the floor: it was
+> measuring the hand table's coverage — fifteen windows over three of the
+> film's nine clips — and not whether a detection was a cut. Judged the other
+> way, on the frames either side of every candidate the film shows across all
+> nine clips, **all 31 candidates from 0.141 to 0.244 are real cuts and the
+> first non-cut is at 0.137**; the 21 detections between 0.15 and 0.20 that
+> this table called imprecise are every one of them a cut. § The scene
+> threshold, re-pinned in HISTORY.md, and `tests/test_scene_threshold.py`.
 
 Recall is **flat** from 0.05 to 0.20 and precision climbs monotonically across
 the same span, then recall collapses. **0.20 is the setting**, and the control

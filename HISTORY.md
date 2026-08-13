@@ -6225,3 +6225,71 @@ and 12 card records survive as the manifest alone in `~/lucid-archive/vertical/`
 (176KB). Nothing in the suite referenced it; the framing-port spike names it as
 a target and would now do nothing. The teaser keeps 17 windows over 3 clips,
 which is the framing that shipped.
+
+## The scene threshold, re-pinned — 2026-08-12
+
+`SCENE_THRESHOLD` moves from **0.20 to 0.15**, and the reason it moved is that
+the first pin was answering a different question than the one it was asked.
+
+PLAN.md § The auto-framing detector, finding 1 scored ffmpeg's candidates
+against the sixteen approved framing boundaries and read the match rate as
+precision. Recall was flat from 0.05 to 0.20 and "precision climbed
+monotonically", so 0.20 looked picked-by-the-control rather than chosen. **What
+that column actually measured is how much of the film the hand table had
+framed** — fifteen windows over three of the film's nine clips — because a real
+camera cut in a shot nobody had chosen to frame counts against the floor in
+exactly the same way a false positive does.
+
+So every candidate the film shows was judged directly, on the frames either
+side, across all nine clips: 81 candidates inside a placement, of which the 59
+in `[0.05, 0.25)` were looked at one pair at a time. Three verdicts — `cut`,
+`same` (the same shot either side), and `again` (a transition the scan reported
+on a second adjacent frame, which is neither a hit nor a mistake).
+
+| band | judged | real cuts | not a cut | same cut twice |
+|---|---|---|---|---|
+| 0.20–0.25 | 13 | **13** | 0 | 0 |
+| 0.15–0.20 | 21 | **21** | 0 | 0 |
+| 0.10–0.15 | 10 | 7 | 1 | 2 |
+| 0.05–0.10 | 15 | 5 | 8 | 2 |
+
+**There is no trade-off in the band the old floor sat in.** Every one of the 31
+candidates from 0.141 to 0.244 is a real change of camera; the first `same` is
+at 0.137, an `s4-overexposed` frame pair inside one continuous car interior.
+0.20 was discarding 21 real cuts and buying nothing at all.
+
+0.14 clears the judgements too and is still rejected: it sits 0.003 from a known
+false positive, which is a coincidence rather than a margin. **0.15 is the
+lowest round value that is all-cut with room**, and
+`tests/test_scene_threshold.py` pins it from both sides — nothing judged above
+the floor is a non-cut, and every step up from it costs real cuts. The 59
+judgements are checked in as `tests/data/scene_cut_judgements.json`, so the
+number is re-derivable rather than remembered.
+
+**What it changes is a framing number, not a detector one.** A cut with no
+window is one the framing walks through, so on the film's own vertical
+projection the stale share goes from 6.3% to **28.0%** of placed seconds, and
+unframed cuts from 3 to 23. None of that is new damage: those 21 cuts were
+always being walked through, and the floor was the reason nothing said so. It
+also means `reframe_detect` now proposes a window per real shot rather than per
+shot-that-scored-well, which is the half of § The three gaps, closed that
+`steps` explicitly could not speak to.
+
+The measurement ran against the deleted vertical cut, rebuilt from
+`~/lucid-archive/vertical/lucid.json` plus the film's own transcript and media
+— the archive earning its keep within the hour. The rebuild reproduces the
+project exactly: 25 placements, 245.745 placed seconds, 35 cuts and 15.557
+stale seconds at the old floor, all matching what the project on disk reported
+before it was deleted.
+
+**On the shipped teaser the re-pin surfaces exactly one stretch, and looking at
+it is what the rule is for.** `s1996-randy` 4.546–6.673 (2.1s, 4.8% of placed)
+is now reported stale: the cut at 4.546 scores 0.183, so the window from 1.960s
+is held across it. Drawn on the frame, that inherited window is *fine* — it
+centres the curly-haired woman and clips the man at its right edge, which is a
+defensible frame for the shot. **`stale` is a structural fact — a window held
+across a cut — and not a claim that the framing is wrong.** What the re-pin
+bought here is a question attached to 2.1s that previously had none, which is
+the whole point of a coverage number; it did not find a defect, and reporting
+it as one would have been the third instance this week of a check's first run
+being read as findings.

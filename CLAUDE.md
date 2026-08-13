@@ -526,11 +526,16 @@ installed package or the upstream repo, not your memory.
           placement's own start; and **a near sub-threshold cut is not evidence
           of a missed one** — score the boundary itself. The first two are 13
           false findings of 15 apiece. HISTORY.md § The three gaps, closed.
-    - **`SCENE_THRESHOLD` was pinned on three clips and the film has nine.** A
-      cut with no window is one the framing walks through, so the floor's miss
-      rate *is* a framing number: 6 of 6 sampled cuts scoring 0.155–0.188 are
-      real, and dropping the floor to 0.15 moves the film's stale share from
-      10% to 32%.
+    - **`SCENE_THRESHOLD` is 0.15, re-pinned 2026-08-12 by judging detections
+      rather than by agreeing with the hand table.** The old 0.20 called a real
+      cut in an unframed shot a false positive, which measured fifteen windows
+      over three clips of nine. Every candidate the film shows was looked at on
+      the frames either side: **all 31 from 0.141 to 0.244 are cuts, the first
+      non-cut is 0.137**, so 0.20 was discarding 21 real cuts and buying
+      nothing. A cut with no window is framing walked through, so the film's
+      stale share going 6.3% → 28.0% is the reporting starting, not a
+      regression. `tests/test_scene_threshold.py` pins it from both sides.
+      HISTORY.md § The scene threshold, re-pinned.
     HISTORY.md § The auto-framing detector, built; § The thirty-nine windows,
     reviewed.
 - Anything that emits times *for playback* maps through the edit, never

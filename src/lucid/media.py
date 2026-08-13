@@ -183,11 +183,12 @@ def scene_cuts(
     """Every place ffmpeg thinks the picture changed, with its score.
 
     A list of `{"src_time", "score"}` in source seconds, ascending — scored, not
-    thresholded. Which threshold is right is not a preference here: scored
-    against the sixteen approved framing boundaries, recall is flat from 0.05 to
-    0.20 while precision climbs monotonically, then recall collapses, so **0.20
-    is picked by the control** and lives with the thing that applies it
-    (`ops.SCENE_THRESHOLD`). PLAN.md § The auto-framing detector, finding 1.
+    thresholded. Which threshold is right is not a preference here, and it is
+    not agreement with a hand table either: **every candidate the film shows was
+    judged on the frames either side**, and from 0.141 up all 31 are real
+    camera cuts while the first non-cut is at 0.137. **0.15 is picked by that**,
+    and it lives with the thing that applies it (`ops.SCENE_THRESHOLD`).
+    HISTORY.md § The scene threshold, re-pinned.
 
     `until` stops the decode early, and it is the only cost knob: a 730s clip
     the film reads 71.8s of has no reason to be walked to the end.

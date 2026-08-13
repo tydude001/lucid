@@ -4630,12 +4630,20 @@ def reframe_sheet(
 
 
 #: The scene score above which a change of picture is a camera cut. **Pinned by
-#: the control, not chosen**: over the sixteen approved framing boundaries
-#: recall is flat from 0.05 to 0.20 while precision climbs monotonically, and
-#: above it recall collapses. § Per-shot framing flagged this as a 3.2× tuning
-#: risk and it stopped being one the moment it was scored rather than counted.
-#: PLAN.md § The auto-framing detector, finding 1.
-SCENE_THRESHOLD = 0.20
+#: judging the detections, not by agreeing with the hand table** — which is the
+#: correction that moved it from 0.20. The first pin scored candidates against
+#: the sixteen approved framing boundaries and called precision the share that
+#: matched one, so a real camera cut in a shot nobody had framed counted
+#: against the floor; precision "climbing" to 0.20 was the hand table's own
+#: coverage, over three clips of nine. Every candidate inside the film's
+#: placements from 0.05 up was then looked at, on the frames either side, over
+#: all nine: **21 real cuts sat between 0.15 and 0.20, and not one false
+#: positive**. The first non-cut is at 0.137, so 0.15 is the lowest round value
+#: that is still all-cut with a margin (0.14 clears too, at 0.003 from the first
+#: mistake — which is not a margin). `tests/test_scene_threshold.py` holds the
+#: judgements and pins this from both sides. HISTORY.md § The scene threshold,
+#: re-pinned; PLAN.md § The auto-framing detector, finding 1.
+SCENE_THRESHOLD = 0.15
 #: Frames sampled per window, and `describe.FRAMES_PER_WINDOW`'s number for
 #: `describe.frame_times`' reason: a window boundary is where a cut is most
 #: likely to be, so samples sit off both edges. Three is what finding 5 was
