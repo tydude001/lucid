@@ -21,6 +21,7 @@ this is a real change, not a config flag — see PLAN.md.
 
 from __future__ import annotations
 
+import bisect
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -96,11 +97,101 @@ class Placement:
         }
 
 
+class _SpanIndex:
+    """One snapshot of an `Edit`, arranged for source->timeline lookup.
+
+    The addressing methods below all walk every segment accumulating a timeline
+    offset, which is O(segments) per call and therefore O(words x segments)
+    across a caption pass — the shape the October scale spike projected and did
+    not run (HISTORY.md § The scale spike, half-run). Measured here rather than
+    reasoned about: the projection's own case, `build_shots` at 400 cues over
+    2000 segments, costs 25 ms and is not a groan point at all. The word loops
+    are, because their product is far larger — `captions.place` over 6000 words
+    of a 2000-segment edit is 0.39 s, and a silence-cut hour (10000 words,
+    6000 segments) is 2.03 s, on every mutation the web UI makes.
+
+    So this precomputes, per clip, that clip's own segment bounds and the
+    timeline offset each one starts at. Two things follow. Restricting the walk
+    to one clip's segments is exact and needs no assumption. Replacing the walk
+    with a bisect needs one, and it is **not** that the segments are sorted: two
+    segments of the same clip may overlap in source (the same footage placed
+    twice, which `import_edit` can produce from a `.kdenlive`), and then an
+    earlier, longer segment is the first overlapper while a bisect on starts
+    walks straight past it. The precondition is sorted *and disjoint*, which is
+    what `ordered` records per clip — every operation this codebase ships
+    produces it, and a clip that does not get the exact linear walk instead.
+    `tests/test_timeline.py` holds the two paths to each other over random
+    edits, overlapping ones included.
+    """
+
+    __slots__ = ("clips",)
+
+    def __init__(self, segments: list[Segment]) -> None:
+        # clip_id -> (starts, ends, offsets, ordered)
+        gathered: dict[str, tuple[list[float], list[float], list[float]]] = {}
+        offset = 0.0
+        for seg in segments:
+            starts, ends, offsets = gathered.setdefault(seg.clip_id, ([], [], []))
+            starts.append(seg.start)
+            ends.append(seg.end)
+            offsets.append(offset)
+            offset += seg.duration
+        self.clips: dict[str, tuple[list[float], list[float], list[float], bool]] = {
+            clip_id: (
+                starts,
+                ends,
+                offsets,
+                all(starts[i] >= ends[i - 1] for i in range(1, len(starts))),
+            )
+            for clip_id, (starts, ends, offsets) in gathered.items()
+        }
+
+    def first_overlapping(self, clip_id: str, start: float, end: float) -> int | None:
+        """Index, within `clip_id`'s own arrays, of the first segment meeting
+        `[start, end)` — the position the linear walk would have stopped at."""
+        entry = self.clips.get(clip_id)
+        if entry is None:
+            return None
+        starts, ends, _, ordered = entry
+        if ordered:
+            # `ends` rises strictly under the precondition, so this is the
+            # first segment that has not already finished by `start`. If it
+            # begins at or after `end`, so does every segment behind it.
+            j = bisect.bisect_right(ends, start)
+            if j < len(starts) and starts[j] < end and min(ends[j], end) > max(starts[j], start):
+                return j
+            return None
+        for j in range(len(starts)):
+            if min(ends[j], end) > max(starts[j], start):
+                return j
+        return None
+
+
 @dataclass
 class Edit:
-    """An ordered list of source segments — the whole timeline state."""
+    """An ordered list of source segments — the whole timeline state.
+
+    `segments` is a property so that assigning it drops the cached
+    `_SpanIndex`: an index left standing over a changed timeline would answer
+    every lookup confidently and wrongly, which is this repo's worst failure
+    shape. Every mutator below therefore rebinds `self.segments` rather than
+    mutating the list in place, and a caller holding the list it passed to
+    `Edit(...)` and mutating that is the one way round the guard — so don't.
+    """
 
     segments: list[Segment]
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "segments":
+            object.__setattr__(self, "_index", None)
+        object.__setattr__(self, name, value)
+
+    def _span_index(self) -> _SpanIndex:
+        index = getattr(self, "_index", None)
+        if index is None:
+            index = _SpanIndex(self.segments)
+            object.__setattr__(self, "_index", index)
+        return index
 
     @property
     def duration(self) -> float:
@@ -132,15 +223,19 @@ class Edit:
         only: passing it for one edge of a range would double-count the join
         between two segments. The default is unchanged, so every other caller
         keeps the half-open convention it was written against.
+
+        Reads `_SpanIndex`'s per-clip arrays, but walks them exactly rather
+        than bisecting: a zero-width instant sitting on a closing boundary is
+        the one lookup whose answer does not follow from an overlap test, and
+        it is precisely the case `closed_end` exists for.
         """
-        offset = 0.0
-        for seg in self.segments:
-            if seg.clip_id == clip_id and (
-                seg.start <= source_time < seg.end
-                or (closed_end and source_time == seg.end)
-            ):
-                return offset + min(source_time - seg.start, seg.duration)
-            offset += seg.duration
+        entry = self._span_index().clips.get(clip_id)
+        if entry is None:
+            return None
+        starts, ends, offsets, _ = entry
+        for j, (a, b) in enumerate(zip(starts, ends, strict=True)):
+            if a <= source_time < b or (closed_end and source_time == b):
+                return offsets[j] + min(source_time - a, b - a)
         return None
 
     def timeline_span(self, clip_id: str, start: float, end: float) -> tuple[float, float] | None:
@@ -152,15 +247,23 @@ class Edit:
         truncated rather than stretched across material that is gone, which
         matters for captions: a word half-removed by a cut should show for the
         half that is still audible, not for its original length.
+
+        The hot one: called once per word by `captions.place` and once per cue
+        by `build_shots`, both of which run on every editing mutation. It is a
+        bisect through `_SpanIndex` where that index is exact and the same
+        first-overlapper walk otherwise — see `_SpanIndex` for which, and for
+        the measurements that put the cost on this method rather than on the
+        one the scale spike named.
         """
-        offset = 0.0
-        for seg in self.segments:
-            if seg.clip_id == clip_id:
-                a, b = max(seg.start, start), min(seg.end, end)
-                if b > a:
-                    return offset + (a - seg.start), offset + (b - seg.start)
-            offset += seg.duration
-        return None
+        entry = self._span_index().clips.get(clip_id)
+        if entry is None:
+            return None
+        j = self._span_index().first_overlapping(clip_id, start, end)
+        if j is None:
+            return None
+        starts, ends, offsets, _ = entry
+        a, b = max(starts[j], start), min(ends[j], end)
+        return offsets[j] + (a - starts[j]), offsets[j] + (b - starts[j])
 
     def timeline_spans(self, clip_id: str, start: float, end: float) -> list[Placement]:
         """Every timeline interval a source interval now plays at, in order.
@@ -176,22 +279,27 @@ class Edit:
         has a cut seam inside it, and those are different facts: merging would
         report the seam as absent. `Placement.contiguous_with` is how a caller
         that only cares about playback re-joins them.
+
+        Every piece is wanted, so there is no bisect to do here — but the walk
+        is over this clip's own segments rather than the whole timeline, which
+        is what `_SpanIndex` buys a multi-clip project.
         """
+        entry = self._span_index().clips.get(clip_id)
+        if entry is None:
+            return []
+        starts, ends, offsets, _ = entry
         placements: list[Placement] = []
-        offset = 0.0
-        for seg in self.segments:
-            if seg.clip_id == clip_id:
-                a, b = max(seg.start, start), min(seg.end, end)
-                if b > a:
-                    placements.append(
-                        Placement(
-                            timeline_start=offset + (a - seg.start),
-                            timeline_end=offset + (b - seg.start),
-                            source_start=a,
-                            source_end=b,
-                        )
+        for j, (seg_start, seg_end) in enumerate(zip(starts, ends, strict=True)):
+            a, b = max(seg_start, start), min(seg_end, end)
+            if b > a:
+                placements.append(
+                    Placement(
+                        timeline_start=offsets[j] + (a - seg_start),
+                        timeline_end=offsets[j] + (b - seg_start),
+                        source_start=a,
+                        source_end=b,
                     )
-            offset += seg.duration
+                )
         return placements
 
     def source_at(self, time: float) -> tuple[str, float] | None:
@@ -394,7 +502,10 @@ class Edit:
         own = self.segments[lo0 : hi0 + 1]
         for piece_start, piece_end in pieces:
             own = _insert_piece(own, clip_id, piece_start, piece_end)
-        self.segments[lo0 : hi0 + 1] = own
+        # Rebound rather than slice-assigned in place: the assignment is what
+        # drops the cached `_SpanIndex`, and an in-place splice of the same
+        # length would leave a stale one answering for a changed timeline.
+        self.segments = self.segments[:lo0] + own + self.segments[hi0 + 1 :]
         return pieces
 
 

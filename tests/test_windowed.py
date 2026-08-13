@@ -310,3 +310,131 @@ def test_the_default_overlap_gives_every_instant_two_readings() -> None:
     for tenth in interior:
         t = tenth / 10
         assert sum(1 for a, b in windows if a <= t <= b) >= 2, f"{t}s has one reading"
+
+
+# -- the ingest path's guard ----------------------------------------------
+#
+# `_drop_stacked` above ran only in the windowed pass, so `lucid transcribe`
+# had no hallucination guard at all. Wiring the same rule across was the
+# obvious fix and it is not sufficient: on the October scale spike's own
+# artifact it drops three of eight. `_drop_dense` is the rest, and its two
+# numbers come from sweeping every transcript on this box — see
+# `asr.CLUSTER_WINDOW`.
+
+
+def test_the_spike_tail_is_not_caught_by_the_stacked_rule_alone() -> None:
+    """The shape that made a second rule necessary, transcribed verbatim.
+
+    whisper's last 0.20 s of a 120 s slice: eight words echoing an earlier
+    sentence. Only the first three share an instant, which is what the
+    identical-instant rule can see.
+    """
+    tail = [
+        _word("people", 119.78, 119.78),
+        _word("were", 119.78, 119.78),
+        _word("really", 119.78, 119.78),
+        _word("well", 119.78, 119.88),
+        _word("people", 119.88, 119.94),
+        _word("of", 119.94, 119.94),
+        _word("you", 119.94, 119.98),
+        _word("know", 119.98, 119.98),
+    ]
+    words = [_word("alive", 118.12, 118.70), _word("you", 118.70, 119.64),
+             _word("know", 119.64, 119.78), *tail]
+
+    _, stacked_only = asr._drop_stacked(words)
+    assert stacked_only == 3
+
+    kept, dropped = asr.clean(words)
+    assert dropped == 8
+    assert [w["word"] for w in kept] == ["alive", "you", "know"]
+
+
+def test_real_speech_at_its_densest_is_left_alone() -> None:
+    """The Scream VO's tightest real cluster: three words inside 0.06 s.
+
+    Whisper's word durations are not to be trusted (CLAUDE.md), so real speech
+    reaches rates no mouth could — which is exactly why the rule counts words
+    in a window rather than scoring a rate, and why the floor is 5 and not 3.
+    """
+    words = [
+        _word("a", 93.90, 93.92),
+        _word("b", 93.92, 93.94),
+        _word("c", 93.94, 93.96),
+        _word("d", 94.30, 94.60),
+    ]
+
+    kept, dropped = asr.clean(words)
+    assert dropped == 0 and len(kept) == 4
+
+
+def test_a_dense_run_gives_up_only_its_dense_head() -> None:
+    """A loop that decays back into ordinary timings keeps its ordinary tail."""
+    words = [
+        *[_word(f"loop{i}", 10.0 + i * 0.02, 10.0 + i * 0.02) for i in range(6)],
+        _word("real", 11.0, 11.4),
+        _word("speech", 11.5, 11.9),
+    ]
+
+    kept, dropped = asr.clean(words)
+    assert dropped == 6
+    assert [w["word"] for w in kept] == ["real", "speech"]
+
+
+def test_clean_payload_rewrites_the_segment_it_emptied() -> None:
+    """A payload must never state a sentence it no longer holds the words for."""
+    payload = {
+        "language": "en",
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.0,
+                "text": " real speech here",
+                "words": [
+                    {"word": " real", "start": 0.0, "end": 0.3},
+                    {"word": " speech", "start": 0.3, "end": 0.6},
+                    {"word": " here", "start": 0.6, "end": 1.0},
+                ],
+            },
+            {
+                "start": 1.0,
+                "end": 1.1,
+                "text": " a b c d e",
+                "words": [
+                    {"word": " a", "start": 1.00, "end": 1.00},
+                    {"word": " b", "start": 1.00, "end": 1.02},
+                    {"word": " c", "start": 1.02, "end": 1.04},
+                    {"word": " d", "start": 1.04, "end": 1.06},
+                    {"word": " e", "start": 1.06, "end": 1.08},
+                ],
+            },
+        ],
+    }
+
+    dropped = asr.clean_payload(payload)
+
+    assert dropped == 5
+    assert payload["segments"][0]["text"] == " real speech here"
+    assert payload["segments"][1]["words"] == []
+    assert payload["segments"][1]["text"] == ""
+
+
+def test_clean_payload_handles_the_flat_shape_too() -> None:
+    """`parse_whisper` takes a top-level `words` list; so does this, and first."""
+    payload = {
+        "words": [
+            {"word": "real", "start": 0.0, "end": 0.5},
+            *[{"word": "x", "start": 1.0 + i * 0.01, "end": 1.0 + i * 0.01} for i in range(5)],
+        ]
+    }
+
+    assert asr.clean_payload(payload) == 5
+    assert [w["word"] for w in payload["words"]] == ["real"]
+
+
+def test_clean_payload_leaves_an_unusable_entry_for_parse_whisper_to_refuse() -> None:
+    """Dropping it here would take away a refusal that is deliberate."""
+    payload = {"words": [{"word": "broken"}, {"word": "fine", "start": 0.0, "end": 0.4}]}
+
+    assert asr.clean_payload(payload) == 0
+    assert len(payload["words"]) == 2

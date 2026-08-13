@@ -41,6 +41,16 @@ installed package or the upstream repo, not your memory.
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
   PLAN.md's older tables say. Why it is not an import: `asr.py`'s docstring.
+  - **Both passes hallucinate, and the two rules that catch it are not one
+    rule.** `asr.clean` is the entry point and the reason it exists is that the
+    windowed path called `_drop_stacked` inline for months while the ingest
+    path had nothing. Identical-instant (`STACKED`) and dense-cluster
+    (`CLUSTER_WINDOW`/`CLUSTER_WORDS`) each miss what the other catches — on
+    the scale spike's own artifact the first drops 3 of 8. **The dense rule
+    counts words in a window and never scores a rate**: real speech reaches 50
+    w/s over three words, because whisper's durations are not to be trusted.
+    Every drop is reported as `hallucinated_words`, never only applied.
+    HISTORY.md § The ingest path's hallucination guard.
   - **`describe`'s vision model is the same shape, and lucid's venv has no
     torch either** — `LUCID_VLM` names an *interpreter*, and `_vlm_worker.py`
     ships in the package to be run by it, never imported. HISTORY.md
@@ -577,6 +587,13 @@ installed package or the upstream repo, not your memory.
     on `timeline_time` is for *instants* only; passing it for one edge of a
     range double-counts the join between two segments. HISTORY.md § The head
     of the parity queue.
+- **`Edit`'s addressing reads a cached `_SpanIndex`, so never mutate
+  `edit.segments` in place** — assigning the attribute is what drops the index,
+  and a stale one answers every lookup confidently and wrongly. All three
+  mutators rebind; `restore` used to splice and no longer does. Its bisect's
+  precondition is sorted **and disjoint** (an import can place the same source
+  twice), and a clip failing it gets the exact walk. HISTORY.md § The scan the
+  spike named was not the one that costs.
 - **`Edit` never stored what it removed** — it is surviving segments and
   nothing else, so "what was cut" is derived (`Edit.gaps` against the clip's
   registered duration), never read back. `restore` is bounded by those gaps,

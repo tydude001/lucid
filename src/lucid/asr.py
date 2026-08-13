@@ -109,6 +109,14 @@ def transcribe(
 
     Deliberately no timeout. A five-minute render legitimately takes minutes on
     this box, and killing a nearly-finished transcription is worse than waiting.
+
+    The payload comes back through `clean_payload`, which is not cosmetic: this
+    path shipped without a hallucination guard while the windowed one had two,
+    on the assumption that a single long pass does not loop. It does — the
+    October scale spike's 120 s slice ran away in its last 0.20 s. The count is
+    stamped on as `hallucinated_words` rather than only logged, because quietly
+    discarding ASR output is how a transcript ends up wrong in a way nobody can
+    see, and every caller here reports it.
     """
     source = Path(media).expanduser()
     if not source.exists():
@@ -150,7 +158,10 @@ def transcribe(
             raise ASRError(
                 f"whisper exited cleanly but wrote no {written.name} ({found} instead)"
             )
-        return json.loads(written.read_text(encoding="utf-8"))
+        payload = json.loads(written.read_text(encoding="utf-8"))
+
+    payload["hallucinated_words"] = clean_payload(payload)
+    return payload
 
 
 # -- the windowed pass ---------------------------------------------------
@@ -415,7 +426,7 @@ def transcribe_windowed(
                 languages[payload["language"]] += 1
             heard.append(_absolute(payload, start))
 
-    words, hallucinated = _drop_stacked(_reconcile(windows, heard))
+    words, hallucinated = clean(_reconcile(windows, heard))
     if not words:
         raise ASRError(
             f"whisper heard no speech in any of the {len(windows)} windows of "
@@ -443,6 +454,29 @@ def transcribe_windowed(
 #: How many words have to be stacked on one instant before the run is read as a
 #: hallucination rather than as speech. Three is already impossible.
 STACKED = 3
+
+#: The second rule, and the one the identical-instant rule does not subsume.
+#:
+#: The October scale spike's 120 s slice degraded into a repeat loop at the tail
+#: — eight words echoing an earlier sentence, crammed into the last 0.20 s
+#: before whisper emitted nine empty segments and stopped. **Only three of those
+#: eight share an instant**, so `_drop_stacked` alone drops three and leaves five
+#: standing, which is what running the windowed guard on the ingest path would
+#: have bought. Measured, not assumed: HISTORY.md § The ingest path's
+#: hallucination guard.
+#:
+#: So the run is addressed by density instead — how many words fit inside a
+#: window — and the numbers are the separation itself. Across every real
+#: transcript on this box (three copies of the 1150-word Scream VO, the 941-word
+#: essay verify pass, the 118-word teaser) the largest cluster inside 0.25 s is
+#: **3 words**; the spike's loop holds **8**, and the cluster is exactly the
+#: eight hallucinated words with no real one either side. A floor of 5 sits two
+#: words clear of both. A *shorter* run does not separate at all — real speech
+#: reaches 50 words/second over three of them, because whisper's word durations
+#: are not to be trusted (CLAUDE.md), which is why this counts words in a window
+#: rather than scoring a rate.
+CLUSTER_WINDOW = 0.25
+CLUSTER_WORDS = 5
 
 
 def _drop_stacked(words: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -478,6 +512,114 @@ def _drop_stacked(words: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], in
             kept.extend(words[start:end])
         start = end
     return kept, dropped
+
+
+def _drop_dense(words: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Remove runs of words packed tighter than anyone can speak.
+
+    `_drop_stacked`'s sibling and the rest of the same failure — see
+    `CLUSTER_WINDOW` for the measurement that set the two numbers, and for why
+    the identical-instant rule does not cover this on its own.
+
+    Greedy from the left, longest run first, so a loop that decays into
+    ordinary timings partway through gives up only its dense head. A run is
+    dropped whole: the words in it are a re-emission of text that appears
+    correctly somewhere else, so there is no half of it worth keeping.
+    """
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    i = 0
+    while i < len(words):
+        j = i
+        while (
+            j + 1 < len(words)
+            and words[j + 1]["end"] - words[i]["start"] <= CLUSTER_WINDOW
+        ):
+            j += 1
+        if j - i + 1 >= CLUSTER_WORDS:
+            dropped += j - i + 1
+            i = j + 1
+        else:
+            kept.append(words[i])
+            i += 1
+    return kept, dropped
+
+
+def clean(words: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Both hallucination rules, in the order they were measured.
+
+    The single entry point for either transcription path, which is the whole
+    point of it existing: the ingest path shipped without a guard for months
+    because the windowed path called `_drop_stacked` inline and there was no
+    named thing for the other one to call.
+    """
+    words, stacked = _drop_stacked(words)
+    words, dense = _drop_dense(words)
+    return words, stacked + dense
+
+
+def clean_payload(payload: dict[str, Any]) -> int:
+    """Apply `clean` to a whisper JSON dump in place; return what it dropped.
+
+    Works on the payload rather than on a parsed transcript because that is
+    where the single-pass path can reach: `asr.transcribe` hands whisper's own
+    JSON straight to `transcript.parse_whisper`, so a guard downstream of the
+    parse would have to be repeated by every caller. Handles both shapes
+    `parse_whisper` accepts and in the same precedence — a flat top-level
+    `words` wins over `segments[].words` — and a segment that loses words has
+    its `text` rewritten from the survivors, so the payload never states a
+    sentence it no longer holds the words for.
+
+    Entries whose timings whisper wrote unusably are passed through untouched
+    rather than guessed at: `parse_whisper` raises on those by design, and
+    silently dropping them here would take that refusal away.
+    """
+    flat: list[dict[str, Any]] = []
+    if isinstance(payload.get("words"), list):
+        segments: list[dict[str, Any]] = []
+        flat = list(payload["words"])
+    else:
+        segments = [s for s in (payload.get("segments") or []) if isinstance(s, dict)]
+        for segment in segments:
+            flat.extend(segment.get("words") or [])
+
+    usable = []
+    for entry in flat:
+        try:
+            float(entry["start"]), float(entry["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        usable.append(entry)
+    if not usable:
+        return 0
+
+    kept, dropped = clean(usable)
+    if not dropped:
+        return 0
+
+    survivors = {id(entry) for entry in kept}
+    judged = {id(entry) for entry in usable}
+
+    def _keep(entry: dict[str, Any]) -> bool:
+        # An unusable entry was never a candidate, so it survives by not having
+        # been judged — membership of `survivors` alone would drop it.
+        return id(entry) in survivors or id(entry) not in judged
+
+    if segments:
+        for segment in segments:
+            words = segment.get("words")
+            if not words:
+                continue
+            left = [w for w in words if _keep(w)]
+            if len(left) != len(words):
+                segment["words"] = left
+                segment["text"] = "".join(
+                    (w.get("word") if "word" in w else w.get("text")) or "" for w in left
+                )
+    else:
+        payload["words"] = [w for w in payload["words"] if _keep(w)]
+
+    return dropped
 
 
 def _absolute(payload: dict[str, Any], offset: float) -> list[dict[str, Any]]:

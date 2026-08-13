@@ -7151,3 +7151,146 @@ film's cards are themselves text on cream:
 So the queue item is not "run the command", it is a watch — served beside the
 re-cut teaser. **A one-command row is the shape a defect takes before anyone
 renders it.**
+
+## The ingest path's hallucination guard — 2026-08-13
+
+The scale spike left a one-line row: `asr.transcribe` has no hallucination
+guard, because `_drop_stacked` runs only in the windowed path. **Wiring that
+same rule across is the obvious fix and it is not sufficient**, which is only
+visible because the spike's own artifact was still on disk
+(`~/lucid-scale-spike/cpu_out/slice_stream0_120s.json`) and got read rather
+than believed.
+
+The failure is eight words in the last 0.20 s of a 120 s slice — an echo of a
+sentence from twenty seconds earlier, followed by nine empty segments:
+
+```
+119.7800-119.7800  people      119.8800-119.9400  people
+119.7800-119.7800  were        119.9400-119.9400  of
+119.7800-119.7800  really      119.9400-119.9800  you
+119.7800-119.8800  well        119.9800-119.9800  know
+```
+
+**Only the first three share an instant.** `_drop_stacked` drops those three
+and leaves five standing, which would have shipped as a fix and closed the row.
+
+### The number that separates them is a count, not a rate
+
+The obvious second signal is words per second, and it does not work: over three
+consecutive words the *real* Scream VO reaches 50 w/s, because whisper's word
+durations are not to be trusted (CLAUDE.md) and a zero-width word makes any
+rate meaningless. Over six it separates, but six is longer than some real
+hallucinations.
+
+Counting words inside a fixed window separates cleanly at the first thing
+tried. Across every transcript on this box — three copies of the 1150-word VO,
+the 941-word essay verify pass, the 118-word teaser — **the largest cluster
+inside 0.25 s is 3 words**. The spike's loop holds **8**, and the cluster is
+exactly the eight hallucinated words with no real one either side. A floor of 5
+sits two clear of both. `asr.CLUSTER_WINDOW` / `CLUSTER_WORDS` carry the
+numbers; `_drop_dense` is the rule and `clean` is both rules together.
+
+Swept over all 22 real transcripts on disk, `clean_payload` touches exactly one
+file — the one holding the loop — and drops exactly its 8 words. The
+identical-instant rule is kept rather than replaced: it is not a subset (three
+words on one instant is under the cluster floor) and it has its own zero false
+positives over the same 22.
+
+### What it is wired to, and what it says
+
+`asr.transcribe` now returns its payload through `clean_payload` and stamps
+`hallucinated_words` on it, so `ops.transcribe` and both single-pass ASR
+callers in `verify`/`unspoken_detect` report the count the windowed pass has
+always reported. The guard is applied and *named*, because a transcript quietly
+shortened is worse than one visibly repaired — every cut and every cue is
+addressed against it afterwards.
+
+`clean_payload` works on whisper's JSON rather than on a parsed transcript,
+because that is the only place a single entry point can sit: the parse is the
+last common step before three callers diverge. It rewrites a touched segment's
+`text` from its survivors, so the payload never states a sentence it no longer
+holds the words for, and it leaves an entry with unusable timings alone —
+`parse_whisper` refuses those by design and dropping them here would take the
+refusal away.
+
+## The scan the spike named was not the one that costs — 2026-08-13
+
+The same row projected `build_shots` as the pipeline's groan point: O(cues ×
+segments), 400 cues against 1000–2000 segments, on every web-UI mutation.
+Measured, that case is **25 ms**. It is not a groan point and never was.
+
+The cost is in the same method with a different caller. `Edit.timeline_span` is
+called once per *cue* by `build_shots` and once per *word* by `captions.place`,
+and the word product is far larger: 6000 words over a 2000-segment edit is
+**0.39 s**, and a silence-cut hour (10000 words, 6000 segments) is **2.03 s**,
+per mutation. The film as it stands is 63 segments and never noticed.
+
+`_SpanIndex` is the fix: per clip, that clip's segment bounds and the timeline
+offset each one starts at, cached on the `Edit`. Measured against the walk it
+replaces — 9.5x on the film, 55x on the projection the row actually named, and
+**520x** on the hour, which goes 2.03 s to 3.9 ms.
+
+Two things it is careful about.
+
+**The bisect's precondition is not "sorted".** Two segments of one clip may
+overlap in *source* — the same footage placed twice, which `import_edit` can
+produce from a `.kdenlive` — and then an earlier, longer segment is the first
+overlapper while a bisect on starts walks past it. The precondition is sorted
+**and disjoint**, recorded per clip, and a clip that fails it gets the exact
+linear walk. `tests/test_timeline.py` holds index and walk to each other over
+random edits, and asserts each branch is actually reached: a parametrisation
+where both cases fall down the same branch would pin the bisect to nothing.
+
+**A cached index over a changed timeline would answer confidently and
+wrongly**, which is this repo's worst failure shape. `segments` is therefore a
+property whose assignment drops the index, and `restore` — which used to splice
+in place with `self.segments[lo0:hi0+1] = own`, the one mutation that would
+have slipped through — now rebinds instead. `timeline_time` reads the index's
+arrays but walks them exactly rather than bisecting, because a zero-width
+instant on a closing boundary is the one lookup whose answer does not follow
+from an overlap test, and that is precisely what `closed_end` exists for.
+
+## The flash in-points, answered against the essay — 2026-08-13
+
+The last thread of § The keyframed move: five shots named by eye as opening on
+a flash of the wrong picture, one of which survived scoring, and four that
+would have been guesswork. The queue's own note had already found that the
+scoring ran over the deleted vertical cut; on the essay the placements turn out
+to be **the same 25 at the same timeline positions**, so the findings land
+directly and the sheet is the essay's own.
+
+**The score could not tell a flash from a fade — so the question was moved to
+the source.** A flash is an in-point sitting the wrong side of a camera cut, so
+`media.scene_cuts` on the *asset* answers it directly: is there a cut just past
+where this shot starts reading? A fade-up from black has none. Three placements
+have a cut within 0.40 s of their in-point and **two of the three are at offset
+0.000** — the in-point sitting on the cut, which is where it should be. One is
+not:
+
+| | offset | scene | head/settled |
+|---|---|---|---|
+| `vi-richie-1` | **+0.124 s** | 0.53 | 62.6 |
+| `cold-open-4` | −0.001 s | 0.264 | 11.1 |
+| `s3-reveal-2` | −0.000 s | 0.173 | 6.6 |
+
+So **one placement of 25 has the fault, and it is the one the old score already
+separated.** The signal's real work is on the other four: the high scorers
+(`s1996-billy-stu-3` at 33.5, `s4-overexposed-1` at 28.9, `cold-open-5` at
+27.2) hold no source cut in their opening at all, so what the score sees is
+movement or light. `cold-open-1` — the film's own fade-up from black, which the
+old scoring ranked third — is answered correctly for the first time.
+
+**The fix is three frames.** The asset is 23.976 fps; frames 0, 1 and 2 are the
+previous shot and frame 3 is Richie, which is the "three-frame head" the review
+named, confirmed frame by frame off the source. The cue is pinned at **0.125**
+— frame 3's own pts is 0.125125 and `plan_picture` rounds `pin × rate`, so any
+pin in 0.104–0.146 lands on frame 3 and 0.125 is dead centre of that. A frame
+of tolerance, never an epsilon.
+
+Re-rendered as `renders/essay-flashfix.mp4`: `check_frames` agrees at 8208
+frames with delta 0, the tail survives, and sampled at 26 points the picture is
+**byte-identical to the previous render everywhere outside the two `vi-richie`
+shots** — inside them it has moved by exactly the three frames asked for, the
+second shot's unpinned cursor carrying the shift as designed. The other 24
+placements are on a served sheet at `~/lucid-flash-review/` (8804), each with
+its opening frame, its settled frame, and what the source says.

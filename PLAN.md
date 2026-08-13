@@ -3539,6 +3539,21 @@ The order was adopted 2026-08-12.
      out to hold the *identical* window, so authoring was `--interp` alone.
      **What is left of this item is the flash in-points above, and nothing
      else.** HISTORY.md § The keyframed move; § The three served answers.
+   - **The flash in-points are answered, 2026-08-13, and the count of five does
+     not survive contact with the essay either.** The sheet was built against
+     the essay as the note demanded, and its placements turn out to be the same
+     25 at the same positions — so the vertical's findings land directly. The
+     signal the score never had is a *source* one: a flash is an in-point on
+     the wrong side of a camera cut, so `media.scene_cuts` on the asset answers
+     it and a fade has no cut to find. **One placement of 25 has the fault** —
+     `vi-richie-1`, cut at +0.124s — and it is the one the score already
+     separated; two more hold a cut at offset 0.000, which is an in-point
+     sitting *on* its cut and correct. The nudge is authored (pin 0.125, frame
+     3 of 23.976) and rendered as `essay-flashfix.mp4`, byte-identical outside
+     the two `vi-richie` shots. **What is left is a watch on the other 24**,
+     served at `~/lucid-flash-review/` (8804) — the answer on record was "all",
+     and the evidence says one. HISTORY.md § The flash in-points, answered
+     against the essay.
 5. **`import-edit` and the film check** — the wrong-cut class (§ Open
    questions, *How does a lucid project know it is the film*). Three builds,
    smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which
@@ -3596,6 +3611,21 @@ The order was adopted 2026-08-12.
      biggest remaining unknown. Two findings ride out of it as their own work:
      the missing hallucination guard on `asr.transcribe`, and that two streams
      are a new `Edit` primitive rather than a parameter.
+   - **Both defects it named are fixed 2026-08-13, and both overturned their
+     own row on the way** — which is the argument for keeping a spike's
+     artifacts rather than its summary. The hallucination guard is not
+     "run `_drop_stacked` on the ingest path too": on the spike's own saved
+     transcript that rule drops three of the eight bad words and would have
+     shipped as a fix. What separates the loop from real speech is a **count in
+     a window** — 3 words per 0.25s across every real transcript on this box
+     against the loop's 8 — never a rate, because whisper's durations put real
+     speech at 50 w/s over three words. And **`build_shots` is not the groan
+     point**: at the projected 400 cues over 2000 segments it costs 25 ms. The
+     same method called once per *word* by `captions.place` costs 2.03 s on a
+     silence-cut hour, which is what `Edit._SpanIndex` now answers in 3.9 ms.
+     HISTORY.md § The ingest path's hallucination guard; § The scan the spike
+     named was not the one that costs. **What is left of this item is its own
+     unrun half** — the transcribe pass and the melt-RSS second data point.
 10. **The parity long tail** — the gap-drag measurement first (§ Three
     uncosted parity items: does a timeline drag usually land on a gap a cut
     left? settle against the Scream project with `Edit.gaps` before writing

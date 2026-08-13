@@ -406,3 +406,116 @@ def test_a_cut_seam_still_counts_as_contiguous() -> None:
     edit = _edit((0.0, 4.0), (6.0, 10.0))
     first, second = edit.timeline_spans("vo", 2.0, 8.0)
     assert first.contiguous_with(second)
+
+
+# -- the span index ------------------------------------------------------
+#
+# `Edit`'s addressing methods went from walking every segment to reading a
+# cached `_SpanIndex`, because the walk is O(words x segments) across a caption
+# pass and that is 2.03 s on a silence-cut hour. Two things have to be pinned:
+# the index answers exactly what the walk answered (including on the edits the
+# bisect's precondition does not hold for), and it cannot survive a mutation.
+
+
+def _walk_span(edit: Edit, clip_id: str, start: float, end: float):
+    """The pre-index implementation, kept here as the control it is."""
+    offset = 0.0
+    for seg in edit.segments:
+        if seg.clip_id == clip_id:
+            a, b = max(seg.start, start), min(seg.end, end)
+            if b > a:
+                return offset + (a - seg.start), offset + (b - seg.start)
+        offset += seg.duration
+    return None
+
+
+def _walk_time(edit: Edit, clip_id: str, t: float, *, closed_end: bool = False):
+    offset = 0.0
+    for seg in edit.segments:
+        if seg.clip_id == clip_id and (
+            seg.start <= t < seg.end or (closed_end and t == seg.end)
+        ):
+            return offset + min(t - seg.start, seg.duration)
+        offset += seg.duration
+    return None
+
+
+@pytest.mark.parametrize("overlapping", [False, True])
+def test_the_index_answers_what_the_walk_answered(overlapping: bool) -> None:
+    """Random edits, random lookups, against the walk the index replaced.
+
+    `overlapping=True` is the case the bisect is *not* allowed to take: two
+    segments of one clip meeting in source, which `import_edit` can produce
+    from a `.kdenlive` that places the same footage twice. The index has to
+    notice and walk instead, so the disagreement would show up here as an
+    off-by-a-segment answer rather than as an error.
+
+    `overlapping=False` builds genuinely disjoint clips and asserts the index
+    said so, because a parametrisation where both cases fall down the same
+    branch would pin the bisect to nothing.
+    """
+    import random
+
+    rng = random.Random(20260813)
+    took_the_bisect = 0
+    for _ in range(200):
+        segs = []
+        if overlapping:
+            for _ in range(rng.randint(1, 20)):
+                cid = rng.choice(["vo", "cam"])
+                a = round(rng.uniform(0.0, 50.0), 3)
+                segs.append(Segment(cid, a, a + round(rng.uniform(0.05, 3.0), 3)))
+        else:
+            cursors = {"vo": 0.0, "cam": 0.0}
+            for _ in range(rng.randint(1, 20)):
+                cid = rng.choice(["vo", "cam"])
+                a = cursors[cid] + round(rng.uniform(0.0, 2.0), 3)
+                b = a + round(rng.uniform(0.05, 3.0), 3)
+                segs.append(Segment(cid, a, b))
+                cursors[cid] = b
+        edit = Edit(segs)
+        index = edit._span_index()
+        took_the_bisect += sum(1 for entry in index.clips.values() if entry[3])
+
+        for _ in range(30):
+            cid = rng.choice(["vo", "cam", "nobody"])
+            a = round(rng.uniform(-2.0, 55.0), 3)
+            b = a + round(rng.uniform(0.0, 4.0), 3)
+            assert edit.timeline_span(cid, a, b) == _walk_span(edit, cid, a, b)
+            assert edit.timeline_time(cid, a) == _walk_time(edit, cid, a)
+            assert edit.timeline_time(cid, a, closed_end=True) == _walk_time(
+                edit, cid, a, closed_end=True
+            )
+
+    if overlapping:
+        # Not "never": a randomly overlapping draw can still come out disjoint
+        # for a one-segment clip. What matters is that the walk is reached.
+        assert took_the_bisect < 200
+    else:
+        assert took_the_bisect > 200
+
+
+def test_a_mutation_drops_the_index() -> None:
+    """The failure the cache would otherwise buy: a confident wrong answer.
+
+    Every mutator rebinds `segments`, which is what clears the index. `restore`
+    is the one that used to splice in place, so it is the one worth naming.
+    """
+    edit = _edit((0.0, 10.0))
+    assert edit.timeline_span("vo", 4.0, 6.0) == (4.0, 6.0)
+
+    edit.remove("vo", 2.0, 3.0)
+    assert edit.timeline_span("vo", 4.0, 6.0) == (3.0, 5.0)
+
+    edit.restore("vo", 2.0, 3.0, duration=10.0)
+    assert edit.timeline_span("vo", 4.0, 6.0) == (4.0, 6.0)
+
+    edit.keep_only("vo", [(5.0, 10.0)])
+    assert edit.timeline_span("vo", 4.0, 6.0) == (0.0, 1.0)
+
+
+def test_the_index_is_not_shared_between_edits() -> None:
+    a = _edit((0.0, 10.0))
+    b = _edit((5.0, 10.0))
+    assert a.timeline_span("vo", 6.0, 7.0) == (6.0, 7.0)
+    assert b.timeline_span("vo", 6.0, 7.0) == (1.0, 2.0)

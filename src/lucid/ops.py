@@ -216,6 +216,11 @@ def transcribe(
     `attach_transcript`'s ASR-driven sibling: use that when the recording
     already has a transcript (common — the Scream VO was transcribed before
     lucid existed), use this when it doesn't and whisper has to make one.
+
+    `hallucinated_words` is reported for the same reason the windowed pass
+    reports it: non-zero means whisper stumbled somewhere in this transcription
+    and the guard contained it, which is worth knowing about a transcript every
+    later cut is addressed against.
     """
     project = Project.open(path)
     clip = media.get_clip(project, clip_id)
@@ -238,6 +243,7 @@ def transcribe(
         "language": parsed.language,
         "cached": str(project.transcript_path(clip_id)),
         "duration": parsed.words[-1].end,
+        "hallucinated_words": payload.get("hallucinated_words", 0),
         "near_duplicates": _near_duplicates(parsed),
         "suspect_durations": _suspect_durations(parsed),
         "overlaps": _overlaps(parsed),
@@ -7856,6 +7862,10 @@ def verify(
         heard_transcript = tx.parse_whisper(
             payload, clip_id="render", origin=f"whisper:{model}"
         )
+        # Reported in both modes now, and it was the single-pass mode that
+        # needed it: a run-away tail read as words the render does not play,
+        # which is a `verify` miss rather than a `verify` finding.
+        result["hallucinated_words"] = payload.get("hallucinated_words", 0)
         # Keep the expensive artifact, but never read it back automatically: a
         # re-render under the same filename would then verify against the
         # previous render's audio and pass. Reuse is explicit, via

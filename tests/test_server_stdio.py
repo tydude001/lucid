@@ -1768,6 +1768,90 @@ def test_transcribe_runs_whisper_and_attaches_the_result(tmp_path: Path) -> None
     assert out["transcribed"]["language"] == "en"
     assert Path(out["transcribed"]["cached"]).exists()
     assert out["found"]["text"] == "hello from the stub"
+    assert out["transcribed"]["hallucinated_words"] == 0
+
+
+def _fake_whisper_runaway(path: Path) -> Path:
+    """A whisper stand-in that ends in a repeat loop, as the real one did.
+
+    The tail is the October scale spike's own artifact, word for word: eight
+    words echoing an earlier sentence inside the last 0.20 s of the audio. The
+    ingest path had no guard against this at all, and the windowed pass's rule
+    only sees the three of the eight that share an instant.
+    """
+    script = path / "runaway-whisper.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import argparse, json\n"
+        "from pathlib import Path\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('media')\n"
+        "p.add_argument('--model')\n"
+        "p.add_argument('--output_format')\n"
+        "p.add_argument('--word_timestamps')\n"
+        "p.add_argument('--output_dir')\n"
+        "p.add_argument('--language', default=None)\n"
+        "args = p.parse_args()\n"
+        "real = [\n"
+        "    {'word': 'them', 'start': 117.78, 'end': 118.12},\n"
+        "    {'word': 'alive', 'start': 118.12, 'end': 118.70},\n"
+        "    {'word': 'you', 'start': 118.70, 'end': 119.64},\n"
+        "    {'word': 'know', 'start': 119.64, 'end': 119.78},\n"
+        "]\n"
+        "loop = [\n"
+        "    {'word': 'people', 'start': 119.78, 'end': 119.78},\n"
+        "    {'word': 'were', 'start': 119.78, 'end': 119.78},\n"
+        "    {'word': 'really', 'start': 119.78, 'end': 119.78},\n"
+        "    {'word': 'well', 'start': 119.78, 'end': 119.88},\n"
+        "    {'word': 'people', 'start': 119.88, 'end': 119.94},\n"
+        "    {'word': 'of', 'start': 119.94, 'end': 119.94},\n"
+        "    {'word': 'you', 'start': 119.94, 'end': 119.98},\n"
+        "    {'word': 'know', 'start': 119.98, 'end': 119.98},\n"
+        "]\n"
+        "out = Path(args.output_dir) / f'{Path(args.media).stem}.json'\n"
+        "out.write_text(json.dumps({'language': 'en', 'segments': [\n"
+        "    {'start': 117.78, 'end': 119.78, 'text': ' them alive you know', 'words': real},\n"
+        "    {'start': 119.78, 'end': 119.98, 'text': ' people were really well', 'words': loop},\n"
+        "]}))\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@needs_ffprobe
+def test_transcribe_drops_a_runaway_tail_and_says_how_many(tmp_path: Path) -> None:
+    """The ingest path's hallucination guard, over the real server.
+
+    The defect the scale spike found: `_drop_stacked` ran only in the windowed
+    path, so a single-pass transcription could write a repeat loop into the
+    project's transcript, where every later cut and cue is addressed against
+    it. The count is reported rather than only applied — a transcript quietly
+    shortened is the failure this repo will not ship.
+    """
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, tones=[(0.0, 2.0)], duration=3.0)
+    project = tmp_path / "proj"
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "lucid.cli", "mcp"],
+        env={"LUCID_WHISPER": str(_fake_whisper_runaway(tmp_path))},
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        transcribed = await client.call("transcribe", path=str(project), clip_id=clip["clip_id"])
+        found = await client.call("get_transcript", path=str(project), clip_id=clip["clip_id"])
+        return {"transcribed": transcribed, "found": found}
+
+    out = anyio.run(lambda: _with_server(body, server))
+
+    assert out["transcribed"]["hallucinated_words"] == 8
+    assert out["transcribed"]["words"] == 4
+    # The real words survive whole, in order, and nothing of the loop is left.
+    assert out["found"]["text"] == "them alive you know"
 
 
 @needs_ffprobe
