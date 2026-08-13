@@ -364,8 +364,12 @@ from a step in the middle of a take.
 rect on top and the pane below, each keeping about twice the width one crop
 gets. It is for the shot one window cannot frame, a two-hander where every face
 is a true positive and only one of them is the shot. `reframe-detect` offers
-one where every sampled frame holds subjects a single window cannot hold, which
-is rare on purpose: 4 of the 59 windows on the film it was measured against.
+one where every sampled frame holds subjects a single window cannot hold — 10
+of the 79 windows on the film it was measured against, a share that moves with
+the scene floor rather than describing the film, since three sampled moments
+agree far more readily over 2 seconds than over 8. Judge one on `pane_overlap`,
+reported beside it: the film's splits separate at 23–30% and duplicate a face
+across both halves at 52–63%.
 
 `--at` is seconds into that clip's own source, so framing is per **shot**
 rather than per clip: a clip used seven times picks up whichever window each

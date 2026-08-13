@@ -430,10 +430,8 @@ installed package or the upstream repo, not your memory.
     - **And a window it *does* sample can still pass while badly wrong**, so a
       clean sheet is not an approval of the span: a rect is a claim about a
       stretch, a tile is evidence about one instant, and a static rect over a
-      moving subject has a best instant. The teaser's opening window was 184px
-      out at the median and its one tile landed at 122px — the shot's least
-      wrong moment, which reads as tight and fine. HISTORY.md § The tile that
-      made a wrong window look right.
+      moving subject has a best instant. HISTORY.md § The tile that made a
+      wrong window look right.
       - **`--extremes` is the answer, and it is opt-in**: the rect does not
         move inside a stretch, so the worst moment is at the subject's own
         leftmost or rightmost by construction — three tiles, worst first. It
