@@ -7020,3 +7020,108 @@ in two `<entry>` elements, and counting it as two reports a phantom cut — but
 none of the fourteen real files has a single instance outside the assemblies
 that already refuse, so it is a guard with no measured case behind it. It is
 written down here rather than built.
+
+## The essay's end card went into the project — 2026-08-13
+
+PLAN.md § Tail time's call 1 — *does the essay's project get a tail at all, or
+does the card stay a finishing pass?* — was Tyler's, and it is **taken: it gets
+a tail.** Call 2 was already settled (a derivation inherits nothing and reports
+`tail_dropped`), so the note has no open calls left.
+
+`~/lucid-final-cut/proj` now holds `card:outro` — the `endcard` template, mark
+and footnote only, at the project's own 1920x816 — as a 6s tail, and
+`essay-with-endcard.mp4` is rendered from it. `status` went 336.269s → an
+`expected_duration` of 342.342, which is the point of the whole item: the
+project is now the thing that knows the card exists, so a reel derived from it
+either keeps the card or names it in `tail_dropped` rather than losing it at
+exit 0.
+
+### Three things the doing of it corrected
+
+**The footnote in the standing write-up was the tagline, and `branding.md`
+forbids it there.** The command as written passed
+`footnote=[em]*[/em] movies are good sometimes`; § The end card had already
+ruled that out on a watch, because near the wordmark the tagline *is* the
+footnote and drawing both tells the joke twice. What shipped is
+`[em]*[/em] Sometimes` — the mark whole, which is the register the watch
+settled.
+
+**A card is authored at the canvas, so the font has to be asked for.** The
+template's `title_font` defaults to Noto Serif; the brand is Zilla Slab Bold,
+which the project's twelve receipt cards already override to. `card new`
+reported `drawn: Zilla Slab, drawn_style: Bold` with no warnings — the report
+comes from a render, which is the only way this has ever been settled
+(§ The approvals round, answered).
+
+**The render was checked in the pixels, not in the status line.** 8208 frames
+expected and 8208 in the container, `agrees: true`, 342.357s — and then a frame
+pulled at 339.5s to see the card itself, because § The film had no captions in
+it is exactly the failure of believing a manifest about what a file contains.
+
+**And that check, run again over the body of the film rather than over the
+card, found the thing it is named after.** `essay-with-endcard.mp4` carries **no
+burned captions** — sampled at 10s, 62s, 150s and 250s, nothing at any of them,
+while the same frames of `essay-cards-fixed.mp4` are bare too. So this is not
+something the tail dropped: **no `export --render` of this project has ever
+carried captions**, and the only captioned essay artifact on disk is
+`out-karaoke.mp4` from 2026-08-10, three days and several cards older than the
+cut. `captions --burn` is a separate opt-in step and nothing reports a render
+made without it, which is the whole of § The film had no captions in it — met a
+second time, in the same project, by the same route, four days later. The
+teaser did get its burn back (§ The three served answers); the essay did not,
+and the difference was invisible in every number either render reports.
+
+## The three served answers — 2026-08-13
+
+`~/lucid-review/` served the three calls the completion queue was holding — two
+renders each for the music and the moving crop, one still for the wrong crop —
+with the answers as buttons writing to its own `decisions.json`. All three came
+back within a minute of each other, which is the argument for serving a
+decision rather than describing one.
+
+### The music bed: the loop lost, and the reason is not length
+
+**"A sounds wrong. I liked B more."** § The music bed, measured against a dumb
+control had ruled out a click and could not rule out a phrase defect, and named
+the candidate: a naive loop restarts the piece's own establishing material at
+4:26, mid-narration.
+
+But the finding is larger than the loop shape, and it is in
+`goodsometimes/ideas/scream.md` rather than in either render: **the control is
+not one bed, it is an arrangement.** *A Cruel World* opens and closes and *A
+Killer Confrontation* carries 1:31→4:08 — two cues placed against the film's
+structure. A was one cue looped. So the listen did not choose hand-typed over
+computed; it chose an arrangement over a loop, and no length-handling makes one
+looped cue into two placed ones.
+
+**What that settles:** nothing gets built on the loop, and the length-agnostic
+*premise* is not what was refuted — it was never the thing being heard. If
+lucid gets music it is cue **placement**, in the shape the cue table already
+has for picture. The "hold" variant § The music bed proposed remains unbuilt
+and is now beside the point.
+
+**And the page mislabelled A.** It described the bed as "holds, then fades",
+which is the *other* candidate shape; the file loops. He judged the audio, so
+the answer stands — but a served page describing the artifact wrongly is the
+served-review version of trusting a status line, and it is worth the same
+suspicion.
+
+### Both framing calls went onto the shipped teaser
+
+The probe renders were `framed-teaser`, a different cut, which is why the
+standing write-up carried that caution. **The window turned out to be identical
+in both** — `s4-reveal` src 7.3428, rect `930,0,450,800` — so authoring the
+approved move onto `~/lucid-teaser/proj` was `--interp` alone, not a rebuild.
+`reframe_sheet` draws it as `slide-from` / `slide-0.50` / `slide-to` rather
+than as face offsets, so the review tool reports a slide as a slide.
+
+The wrong crop moved 780 → 1010 across the frame at src 11.0527, centring the
+subject over the 1.627s she is on screen. **The sheet's own number went 274 →
+44** — and the render was checked as well as the sheet, one frame out of each
+of `teaser-v3.mp4` and `teaser-v4.mp4` at the same timeline second, because the
+sheet reads the manifest and only the file says what shipped.
+
+`teaser-v4.mp4` rendered at 1065 frames expected and 1065 delivered, with
+captions burned back through `captions --burn` at the project's own karaoke
+style — a render made without that step carries none and nothing reports it
+(§ The film had no captions in it).

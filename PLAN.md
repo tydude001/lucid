@@ -2352,6 +2352,14 @@ over the Scream cut and *listened to*. Until that watch happens, music risks
 being costed as a rendering problem when its whole cost is in the length
 model.
 
+**The watch happened, 2026-08-13, and it answered a different question than
+this note asks.** The looped bed lost to the control, and the control is not a
+bed at all — it is *two cues placed against the film's structure*. So the
+length model was never what was being heard, and "loop or hold" is the wrong
+axis: what beat the machine was **arrangement**, which is placement, which is
+the shape `cue_add` already has. Nothing above is wrong; it is aimed at a cost
+that is not the binding one. HISTORY.md § The three served answers.
+
 ### A default font — the premise is dead on measurement
 
 The row reads as "port Daydream's caption/template fonts" — DAYDREAM.md:196-209
@@ -3297,16 +3305,20 @@ Two calls, both Tyler's, neither of which more building answers:
    finishing pass?** The film is built and awaiting a watch; adding project
    state to it now means re-rendering it. The teaser is the case with the
    demonstrated loss.
+
+   **Taken 2026-08-13: it gets a tail.** `card:outro` at 6s, and the film
+   re-rendered from it. HISTORY.md § The essay's end card went into the
+   project.
 2. **Should a derivation inherit a tail** — never (report and drop, above), or
    by asset with a register check? Never is the conservative answer and the one
    that cannot be silently wrong.
 
    **Taken 2026-08-12: never.** A derivation carries nothing and reports
    `tail_dropped`, the way it already reports `cues_dropped` — the answer that
-   cannot be silently wrong. What remains open is call 1 alone.
+   cannot be silently wrong.
 
-Not started. The proofs stand and the renders on the NAS are unaffected either
-way.
+Both calls are now taken, so this note settles nothing further; what it costs
+and what it refuses stand as written above.
 
 ## `vo_extend` — the design note — 2026-08-13
 
@@ -3477,10 +3489,11 @@ The order was adopted 2026-08-12.
    a derivation never inherits a tail, it reports `tail_dropped`. The teaser is
    the demonstrated-loss case either way, and it is the reason this ranks
    second.
-   - **The build shipped 2026-08-13** (HISTORY.md § Tail time, built; § The end
-     card and the bumper became templates). What is left is only call 1, which
-     is Tyler's and not a build: whether the essay's project gets a tail or the
-     card stays a finishing pass.
+   - **Built and applied 2026-08-13, and call 1 is taken: the essay gets a
+     tail.** `card:outro` at 6s, and the film re-rendered from it, so the
+     project is now the thing that knows the card exists. **This item is
+     closed.** HISTORY.md § Tail time, built; § The end card and the bumper
+     became templates; § The essay's end card went into the project.
 3. **Music, the throwaway bed** — the measurement before any design
    (§ Three uncosted parity items, costed): render one bed over the Scream cut
    expressed length-agnostically — loop or hold, fade anchored to the end —
@@ -3489,6 +3502,15 @@ The order was adopted 2026-08-12.
    goodsometimes `music_bed.py`: bed 17 LU under VO, 9 dB sidechain duck,
    −16.1 LUFS / −1.2 dBTP, tame-don't-cut, the no-music twin export. The
    v7→v8 lost-invocation incident is why this belongs in the project at all.
+   - **The listen happened 2026-08-13 and the loop lost, on an axis this item
+     does not have.** The control is not a bed but an *arrangement* — two cues
+     placed against the film's structure — so length handling was never what
+     was being heard, and no length model turns one looped cue into two placed
+     ones. **Nothing gets built on the loop, and the "hold" variant is beside
+     the point.** If lucid gets music it is cue *placement*, in the shape the
+     cue table already has for picture — which is a new item to raise when a
+     video wants it, not this one. **This item is closed.** HISTORY.md § The
+     three served answers.
 4. **The keyframed move** — authoring only; the mechanism is already paid for
    (§ Per-shot framing: the writer emits keyframes and `=` interpolates), and
    keyframes are in source frames, never timeline seconds. The test case is
@@ -3509,12 +3531,14 @@ The order was adopted 2026-08-12.
      unpinned, so the in-points are `plan_picture`'s and the nudge has
      somewhere to land — but a sheet built "for the teaser" would be a sheet of
      shots the teaser does not contain.
-   - The mechanism half shipped 2026-08-13 (HISTORY.md § The keyframed move).
-     What is left of this item is entirely authoring and a watch, and the
-     rendered A/B that exists — `~/lucid-kf-probe` — **is not a control**: it
-     is `framed-teaser`, a different derivation from the shipped cut. Its
-     `s4-reveal` windows match the teaser's exactly, so the *move* is the right
-     one; the file is not the right file to compare against.
+   - **The mechanism shipped, both framing calls came back, and both are
+     authored onto the shipped teaser** — the move at src 7.3428 (approved as
+     intentional) and the wrong crop at src 11.0527 moved 780 → 1010, taking
+     the sheet's own number 274 → 44. `teaser-v4-captioned.mp4` is the render.
+     The A/B that carried the not-a-control caution, `~/lucid-kf-probe`, turned
+     out to hold the *identical* window, so authoring was `--interp` alone.
+     **What is left of this item is the flash in-points above, and nothing
+     else.** HISTORY.md § The keyframed move; § The three served answers.
 5. **`import-edit` and the film check** — the wrong-cut class (§ Open
    questions, *How does a lucid project know it is the film*). Three builds,
    smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which
