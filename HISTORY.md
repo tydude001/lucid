@@ -6800,8 +6800,10 @@ docstring says so rather than implying the pair is exhaustive.
 at attach and returned once, so the Scream VO — attached long before either
 check existed — could never have seen them from its own project.
 
-What is not built is the third item, a real `.kdenlive` import, which is also
-most of what Elf needs. It was scoped out of this pass rather than attempted.
+What is not built *in this pass* is the third item, a real `.kdenlive` import,
+which is also most of what Elf needs. It was scoped out rather than attempted —
+and then built the same day: § The import that was one frame short, sixty-three
+times, below. Read that before believing this paragraph.
 
 ## The keyframed move — 2026-08-13
 

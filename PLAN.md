@@ -528,10 +528,15 @@ timeline being the enabler and the look pass being gated on nothing:
    grid, which the measurement forced), and one new finding on the shipped
    teaser — `s4-reveal`'s window at 11.053 frames the back of someone's head
    and clips Sidney, who is speaking, which a watch decides. HISTORY.md § The
-   sheet samples where the subject is. What that leaves is the
-   `SCENE_THRESHOLD` re-pin, which `steps` says nothing about (every boundary
-   scored 0.002–0.013 at the frame itself). HISTORY.md § The three gaps,
-   closed.
+   sheet samples where the subject is. **The last of it, the
+   `SCENE_THRESHOLD` re-pin, shipped 2026-08-12** — judged by looking at the
+   frames either side of every candidate rather than by agreeing with the hand
+   table, which is what showed 0.20 discarding 21 real cuts; the film's stale
+   share going 6.3% → 28.0% is the reporting starting rather than a regression,
+   and `tests/test_scene_threshold.py` pins the number from both sides. `steps`
+   said nothing about it either way (every boundary scored 0.002–0.013 at the
+   frame itself). **So this item is closed.** HISTORY.md § The three gaps,
+   closed; § The scene threshold, re-pinned.
 
 **What step 6 left is closed, and it was two items rather than one.** The
 picture lane is previewed as of 2026-08-09: clicking a shot shows it, from the
@@ -551,12 +556,15 @@ essay and teaser were declared done. Its status rows live in the wiki, as ever.
 
 ### Parked — deliberately, with the reasoning
 
-- **`vo_extend`, the mirror of `cut_by_time`** — unparked by the gate
-  decision, not yet queued: it is the one item touching `Edit`'s subtractive
-  invariant, it is the same operation as inserting a hold to unblock
-  Billy/Stu without a re-record, and the case for it is editorial — decide on
-  a watch, after the six steps land. Constraints it inherits: HISTORY.md
-  § `cut_by_time`, at *the `vo_extend` mirror*.
+- **`vo_extend`, the mirror of `cut_by_time`** — **no longer parked: it is
+  queued, and it has a design note.** § `vo_extend` — the design note —
+  2026-08-13 is where its shape is settled and § The completion queue is
+  where its order is; what is recorded *here* is only why it sat parked for
+  so long. It is the one item touching `Edit`'s subtractive invariant, it is
+  the same operation as inserting a hold to unblock Billy/Stu without a
+  re-record, and the case for it is editorial — decide on a watch.
+  Constraints it inherits: HISTORY.md § `cut_by_time`, at *the `vo_extend`
+  mirror*.
   - **Its subject is material the source never had, and that is narrower than
     "runtime after the last word."** Tail time for an end card is not this
     item: append real silence to the recording, raise the clip's registered
@@ -3460,11 +3468,19 @@ The order was adopted 2026-08-12.
    box rather than aspirationally. Closes the open call § Direction and order
    has carried since caption styling, in the direction that restyles nothing.
    Settled, as ever, by measuring a render — never by `fc-match`.
+   - **Shipped 2026-08-13** (HISTORY.md § The caption default resolved by
+     coincidence): the faces ship in the package (`src/lucid/fonts/`) rather
+     than being installed on a box, and `fonts.probe()` settles which face
+     libass actually drew by burning a family against an impossible one, which
+     needs no stored reference render. **This item is closed.**
 2. **Tail time, shape B** (§ Tail time — the design note). Call 2 is taken —
-   a derivation never inherits a tail, it reports `tail_dropped` — so the
-   build waits only on call 1: whether the essay's project gets a tail or the
-   card stays a finishing pass. The teaser is the demonstrated-loss case
-   either way, and it is the reason this ranks second.
+   a derivation never inherits a tail, it reports `tail_dropped`. The teaser is
+   the demonstrated-loss case either way, and it is the reason this ranks
+   second.
+   - **The build shipped 2026-08-13** (HISTORY.md § Tail time, built; § The end
+     card and the bumper became templates). What is left is only call 1, which
+     is Tyler's and not a build: whether the essay's project gets a tail or the
+     card stays a finishing pass.
 3. **Music, the throwaway bed** — the measurement before any design
    (§ Three uncosted parity items, costed): render one bed over the Scream cut
    expressed length-agnostically — loop or hold, fade anchored to the end —
@@ -3508,6 +3524,11 @@ The order was adopted 2026-08-12.
    import for a `.kdenlive` playlist, which is also most of what Elf needs
    (inherit a picture cut, re-attach new VO). Lands before the next essay
    starts, because analytics wants one or two before October.
+   - **All three shipped 2026-08-13** (HISTORY.md § The film check, and the
+     repeat that was never lucid's to see; § The import that was one frame
+     short, sixty-three times). The import is the one that paid: read back,
+     `out` is the last frame *index*, and reading it as exclusive lost a frame
+     off the end of all 63 ranges. **This item is closed.**
 6. **`lucid review` — the review round as a feature.** Every version of this
    film moved on a served page, and the serving was rebuilt ad hoc at least
    four times with hand-written decision files. Serve named renders, sheets
@@ -3524,15 +3545,33 @@ The order was adopted 2026-08-12.
    a home. lucid stays generic (`mark` is an empty slot, deliberately);
    goodsometimes ships a loadable pack: palette, faces, the mark as
    `G[em]*[/em]`, caption presets, platform safe zones, and the end card and
-   bumper as card templates — both specs settled on a watch and currently
-   living only in proof scripts. The October palette swap becomes a preset
+   bumper as card templates. The October palette swap becomes a preset
    variant instead of a rebrand.
+   - **Its precondition is met**: tail time shipped and took the two cards with
+     it — `endcard` and `bumper` are `graphics.TEMPLATES` entries as of
+     2026-08-13, so neither spec lives in a proof script any more (HISTORY.md
+     § The end card and the bumper became templates). What is left is the pack
+     itself, which is goodsometimes' side loaded by lucid, not lucid's.
 9. **The October scale spike** — timed to land before the mid-September
    format decisions: one long two-speaker recording through
    transcribe → cut → render, to find where the pipeline groans (windowed
    transcription cost, melt RSS, cue-table size) while the format can still
    route around it. § Parked's *everything one video couldn't establish* is
    the list under test.
+   - **Half of it ran 2026-08-13, and it moved its own premise** (HISTORY.md
+     § The scale spike, half-run). The 58m08s recording exists and no lucid doc
+     knew it did. **Cue-table size is not the groan point**: `cue_add` is O(n²)
+     over authoring and still sub-second at 450, while **`build_shots` is
+     O(cues × segments)** — `Edit.timeline_span` is an unindexed linear scan,
+     called once per cue, firing on every editing mutation through the web UI.
+     Windowing is linear and holds. **What is still unrun is the transcribe
+     half**, blocked on GPU contention with a desktop rather than on anything
+     in lucid, so no GPU rate is measured or claimed; and **melt RSS is still
+     one data point**, a repeat of the same project at the same duration and
+     source count, so whether it tracks duration or source count is the
+     biggest remaining unknown. Two findings ride out of it as their own work:
+     the missing hallucination guard on `asr.transcribe`, and that two streams
+     are a new `Edit` primitive rather than a parameter.
 10. **The parity long tail** — the gap-drag measurement first (§ Three
     uncosted parity items: does a timeline drag usually land on a gap a cut
     left? settle against the Scream project with `Edit.gaps` before writing
