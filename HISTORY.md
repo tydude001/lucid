@@ -7295,3 +7295,59 @@ shots** — inside them it has moved by exactly the three frames asked for, the
 second shot's unpinned cursor carrying the shift as designed. The other 24
 placements are on a served sheet at `~/lucid-flash-review/` (8804), each with
 its opening frame, its settled frame, and what the source says.
+
+## The flash in-points, watched — and a second one, caught by eye — 2026-08-13
+
+The 24-shot watch came back the same day, and the answer on record ("all")
+still does not survive contact with the evidence — but it undercounts by one,
+not four. Of the 24, 23 were **looks fine**, agreeing with the source-cut
+signal on every one. `s1996-billy-stu-3` was marked **opens on the wrong
+picture** — the one the signal itself had called clean, no source cut inside
+its opening.
+
+**He was right, and the scan's own margin explains why it missed it.**
+`media.scene_cuts` on `s1996-billy-stu.mp4` finds a real cut at source
+21.354 s — but the placement's in-point is 20.896 s, **0.458 s** earlier, and
+`flash_scan_essay.py`'s `CUT_REACH` only looked 0.40 s past an in-point before
+giving up (deliberately short, per its own comment, so a cut a second later
+reads as the shot doing its job rather than a flash). This cut landed 0.058 s
+past that window — not absent, just outside where the scan was told to look.
+Confirmed frame-exact off the source at 23.976 fps: frame 511 (21.313 s) is
+still Billy screaming, frame 512 (21.355 s) is Sidney's face, and
+`media.scene_cuts` had already found that boundary (21.353958, score 0.266)
+without anyone reading past `CUT_REACH` to notice.
+
+**The fix is the same shape as `vi-richie-1`'s: pin the cue.** The placement is
+`cue_add(vo, 866, s1996-billy-stu, src_start=...)` (word "It's"); `cue_rm` then
+re-`cue_add` at **21.35** lands `plan_picture` on frame 512 exactly
+(`src_in: 512`, `src_start: 21.354667`) — dead centre of that frame's own
+rounding window, the same tolerance-not-epsilon rule as before. Re-rendered
+over the `vi-richie` fix (not from the original): `export --render` reports
+`agrees: true` at 8208 frames, and sampled at 30 points against the prior
+render the only difference is inside this shot's own span — everything else,
+including the `vi-richie` fix already in place, is byte-identical. The prior
+render is kept as `essay-flashfix-v1-vi-richie-only.mp4`;
+`renders/essay-flashfix.mp4` is now both fixes.
+
+**So the completion queue's flash-in-points item was closed one shot early.**
+Two of 25 had the fault, not one — the second was invisible to the signal by
+5.8 % of its own search window, and visible immediately to a second watch. The
+scan script is a one-off probe outside the repo (like `vo_windows.py`), so
+nothing in lucid itself changes; the lesson is for whoever reads it next: a
+fixed reach past an in-point is itself a claim, and this one was 0.058 s too
+short to hold on a slower dissolve than the one it was tuned against
+(`vi-richie`'s cut, at +0.124 s, well inside 0.40 s). Served results, including
+the fix, are on the same sheet.
+
+## The essay's captions: none, and the teaser is v4 — 2026-08-13
+
+Both remaining calls on `~/lucid-review/` (8803) came back. **Captions: none.**
+Neither the outline (1.10:1, illegible without its outline) nor the box
+(20.87:1, drops the karaoke highlight) — YouTube's own subtitles carry it
+instead, so the essay ships with none burned in, and the queue's captions row
+closes as a deliberate choice rather than a defect. No render changes: this is
+the state every export of the project has already been in.
+
+**Teaser: keep.** `teaser-v4-captioned.mp4` — both framing calls already
+authored onto it (§ The three served answers) — is confirmed as the one to
+publish; the older renders (`v2`, `v3`) stay on disk, untouched, not deleted.

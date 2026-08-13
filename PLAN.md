@@ -3554,6 +3554,16 @@ The order was adopted 2026-08-12.
      served at `~/lucid-flash-review/` (8804) — the answer on record was "all",
      and the evidence says one. HISTORY.md § The flash in-points, answered
      against the essay.
+   - **The watch came back, 2026-08-13, and the count is two of 25, not one.**
+     23 of the 24 agreed with the source-cut signal — `s1996-billy-stu-3` did
+     not. The signal itself had found the real cut (source 21.354s), just 0.058s
+     past `CUT_REACH`'s 0.40s reach from that placement's in-point (20.896s) —
+     a fixed search window, not a wrong test. Fixed the same way as
+     `vi-richie-1` (pin the cue, `src_start=21.35`, lands on frame 512 exactly);
+     re-rendered over the first fix, `agrees: true` at 8208 frames, and 30-point
+     sampling shows a difference only inside this shot's own span. **This item
+     is closed.** HISTORY.md § The flash in-points, watched — and a second one,
+     caught by eye.
 5. **`import-edit` and the film check** — the wrong-cut class (§ Open
    questions, *How does a lucid project know it is the film*). Three builds,
    smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which
