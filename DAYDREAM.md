@@ -359,7 +359,12 @@ indexing and no search**, and Daydream's own metering suggests theirs is
 cloud inference — the one part that must not be copied blind.
 
 **The design is costed, in lucid `PLAN.md` § B-roll by description**
-(2026-08-09), and nothing is built. It picks the agent-reads-the-descriptions
+(2026-08-09), **and it is built** — steps 1–3 shipped 2026-08-09, and the
+watch on 2026-08-10 overturned the index's role: what chooses a clip is a
+per-clip `synopsis`, not the vision index, and lucid does not choose at all
+(HISTORY.md § `describe`, § The pinned cue, § Choosing the b-roll). This
+paragraph's "nothing is built" stood stale for three days; corrected
+2026-08-12. The note picks the agent-reads-the-descriptions
 option — measured sufficient at project scale, ~10k tokens for this project's
 footage — over embeddings, and it describes on this box in about six minutes
 for a whole project. Two corrections it makes to *this* row, both measured:
@@ -520,8 +525,14 @@ and verified through a real render (HISTORY.md § The framing control). The
 detector that frames the rest was costed against those numbers and built
 2026-08-11 (PLAN.md § The auto-framing detector), and **all 25 placements are
 now framed** — 55 windows over 9 clips, of which 39 are the detector's and
-**none has been reviewed one by one on `reframe_sheet`**, which is the
-outstanding risk, because a wrong window reads as deliberate framing.
+**all 39 were reviewed one by one on 2026-08-11** — which cleared the
+placement rule and indicted its *coverage*: every window is right for the shot
+it was placed on, and about a third of the film's placed footage was framed by
+a window placed for a different one. The instrument's own share of that closed
+2026-08-12 (`reframe_coverage`, the row-per-window sheet, `--extremes`); this
+row's "none has been reviewed" claim stood stale for a day and was corrected
+2026-08-12. HISTORY.md § The thirty-nine windows, reviewed; § The three gaps,
+closed.
 **The stacked split shipped 2026-08-11** — a second node with a second
 `qtblend` rect, not the new render path this page assumed — and it fires on 4
 of the film's 59 windows, 6.2% of the picture-seconds against the 24.8% the

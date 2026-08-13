@@ -533,6 +533,10 @@ decode**, shipped 2026-08-11 — with the containment that makes it safe being
 that `media_path()` has no branch for a proxy, so `export` cannot reach one.
 HISTORY.md § The preview proxy.
 
+**What follows the parity queue is § The completion queue — what the Scream
+video left — 2026-08-12**, drawn from a full review of the production once the
+essay and teaser were declared done. Its status rows live in the wiki, as ever.
+
 ### Parked — deliberately, with the reasoning
 
 - **`vo_extend`, the mirror of `cut_by_time`** — unparked by the gate
@@ -3227,5 +3231,102 @@ Two calls, both Tyler's, neither of which more building answers:
    by asset with a register check? Never is the conservative answer and the one
    that cannot be silently wrong.
 
+   **Taken 2026-08-12: never.** A derivation carries nothing and reports
+   `tail_dropped`, the way it already reports `cues_dropped` — the answer that
+   cannot be silently wrong. What remains open is call 1 alone.
+
 Not started. The proofs stand and the renders on the NAS are unaffected either
 way.
+
+## The completion queue — what the Scream video left — 2026-08-12
+
+Provenance: a full review of HISTORY.md, DAYDREAM.md, the design notes above,
+the goodsometimes pipeline, and both decision files
+(`~/lucid-approvals/decisions.json`, `~/lucid-watch/decisions.json`), made the
+day the essay (v8) and its teaser were declared done. The finding that frames
+everything: **the editing core is complete** — the film and the teaser ran end
+to end through lucid — and the queue is exactly the set of things the
+production still did by hand, each of which cost this video real time or
+nearly shipped a defect. Status lives in the wiki's Open items table, never
+here; this section owns the order and the reasoning, cited by name.
+
+The approvals round already answered **build** for three of these (the music
+bed, the keyframed move, `vo_extend`), **vendor** for the caption font, and
+**all** for the flash in-points — those are queue items now, not open calls.
+The order was adopted 2026-08-12.
+
+1. **Vendor the caption font** — taken ("vendor"): put the faces the presets
+   name where fontconfig finds them, so the default resolves on the rendering
+   box rather than aspirationally. Closes the open call § Direction and order
+   has carried since caption styling, in the direction that restyles nothing.
+   Settled, as ever, by measuring a render — never by `fc-match`.
+2. **Tail time, shape B** (§ Tail time — the design note). Call 2 is taken —
+   a derivation never inherits a tail, it reports `tail_dropped` — so the
+   build waits only on call 1: whether the essay's project gets a tail or the
+   card stays a finishing pass. The teaser is the demonstrated-loss case
+   either way, and it is the reason this ranks second.
+3. **Music, the throwaway bed** — the measurement before any design
+   (§ Three uncosted parity items, costed): render one bed over the Scream cut
+   expressed length-agnostically — loop or hold, fade anchored to the end —
+   and *listen*. The length premise is the one most likely to be wrong and it
+   cannot be settled by inspection. The numbers to port either way live in
+   goodsometimes `music_bed.py`: bed 17 LU under VO, 9 dB sidechain duck,
+   −16.1 LUFS / −1.2 dBTP, tame-don't-cut, the no-music twin export. The
+   v7→v8 lost-invocation incident is why this belongs in the project at all.
+4. **The keyframed move** — authoring only; the mechanism is already paid for
+   (§ Per-shot framing: the writer emits keyframes and `=` interpolates), and
+   keyframes are in source frames, never timeline seconds. The test case is
+   named: `s4-reveal`'s 410px follow at src 7.343 in the shipped teaser.
+   Judged on `reframe_sheet`, then a watch. The flash in-points ride the same
+   review round — the answer on record is "all", but only `vi-richie` at
+   59.528 survives scoring, so the procedure taken 2026-08-12 is: nudge that
+   one on its evidence and put the other four on a served sheet before
+   touching them, because the score cannot tell a flash from a fade
+   (HISTORY.md § The thirty-nine windows, reviewed).
+5. **`import-edit` and the film check** — the wrong-cut class (§ Open
+   questions, *How does a lucid project know it is the film*). Three builds,
+   smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which
+   lives outside lucid) into `transcript-checks`; one op comparing a project
+   against a declared reference export (duration, segment count — one line of
+   output would have caught 72s of retakes before a review did); and a real
+   import for a `.kdenlive` playlist, which is also most of what Elf needs
+   (inherit a picture cut, re-attach new VO). Lands before the next essay
+   starts, because analytics wants one or two before October.
+6. **`lucid review` — the review round as a feature.** Every version of this
+   film moved on a served page, and the serving was rebuilt ad hoc at least
+   four times with hand-written decision files. Serve named renders, sheets
+   and A/B pairs over LAN with Range support; record verdicts into the
+   project. One rule carried from the round that went wrong: nothing is
+   labelled a control unless it is byte-identical to what it claims to be
+   (HISTORY.md § The bumper the teaser never had).
+7. **`vo_extend`** — authorized, and it is the one item that bends `Edit`'s
+   subtractive invariant, so it gets its own design note before code
+   (§ Parked's constraints; HISTORY.md § `cut_by_time`). Not needed for tail
+   time — shape B made the tail downstream of `Edit` — its cases are the
+   Billy/Stu hold and manufactured mid-film silence.
+8. **The channel preset pack** — templating, after tail time gives the assets
+   a home. lucid stays generic (`mark` is an empty slot, deliberately);
+   goodsometimes ships a loadable pack: palette, faces, the mark as
+   `G[em]*[/em]`, caption presets, platform safe zones, and the end card and
+   bumper as card templates — both specs settled on a watch and currently
+   living only in proof scripts. The October palette swap becomes a preset
+   variant instead of a rebrand.
+9. **The October scale spike** — timed to land before the mid-September
+   format decisions: one long two-speaker recording through
+   transcribe → cut → render, to find where the pipeline groans (windowed
+   transcription cost, melt RSS, cue-table size) while the format can still
+   route around it. § Parked's *everything one video couldn't establish* is
+   the list under test.
+10. **The parity long tail** — the gap-drag measurement first (§ Three
+    uncosted parity items: does a timeline drag usually land on a gap a cut
+    left? settle against the Scream project with `Edit.gaps` before writing
+    any UI), then the window learning to place a cue — the root of three
+    separate deferrals — then the panes (assets/import roles; properties,
+    whose gate cleared when graphics shipped), multi-project, HTTP transport,
+    filmstrip thumbnails.
+
+Corrected the same day, found by the same review: DAYDREAM.md's two stale
+rows (b-roll's "nothing is built"; aspect swap's "none has been reviewed").
+The goodsometimes side of the review — the teaser workflow absent from
+`pipeline.md`, the unrecorded 3:00 Shorts cap, `branding.md`'s stale
+end-screen row — belongs to that repo, not this queue.
