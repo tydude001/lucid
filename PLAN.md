@@ -3119,3 +3119,113 @@ So the counter-example to every measured guard this item added: **a layout is
 judged on where the ink clusters, and a slot fitting its box says nothing
 about that.** A portrait template gets watched before it is called done.
 HISTORY.md § The orphaned year.
+
+## Tail time — the design note — 2026-08-12
+
+The wiki's first lucid row: the essay's end card and the teaser's bumper both
+exist only as ffmpeg passes over finished renders, in no project. **The
+reported loss is not that they are missing — it is that they cannot survive a
+re-cut.** A bumper applied downstream of `export` is dropped by every
+derivation at exit 0, and `status`, `verify` and `check_frames` are all silent
+about it, because nothing in the project ever knew (HISTORY.md § The bumper the
+teaser never had). Both proofs are built and both were watched, so the
+editorial question PLAN.md § Parked wanted answered on a watch is answered: the
+essay gets bumper A's register at 16:9, mark only, 6s; the teaser keeps B.
+
+### The premise this item carries is wrong
+
+Both HISTORY notes conclude the same thing: *"the honest shape is a cue
+addressed by **source time** instead of word index"*, touching
+`cue_add`/`cue_rm`/`cue_ls`/`_cue_echo`/`build_shots`, both clients, the cue
+lane and their tests. Read against the code rather than reasoned about, that is
+answering a question tail time does not ask.
+
+**A cue addresses a moment inside the film. A tail is not inside the film.**
+`build_shots` resolves every cue through `edit.timeline_span` — it needs the
+cue's word to *survive into the timeline*, because a shot's start is a
+timeline frame. To address six seconds of card that way, the timeline has to
+already contain six seconds to hang the address on. That is why § The end card
+had to append real silence to `media/vo.wav` and raise the clip's registered
+duration first: **the cue change is not the mechanism, it is the second half of
+one.** And the first half does not exist for the teaser at all, which ends on
+live VO at −9.9 dB with no silence to append — so the harder of the two cases
+needs material the source never had, which is `vo_extend`, which is parked for
+reasons that have not moved.
+
+So the cue route costs two mechanisms, and delivers one of the two cases.
+
+### What the writer already accepts
+
+`mlt.document` takes `audio` (the `Edit`) and `picture` (the cue lane), refuses
+a picture lane that does not cover the audio track exactly, and knows how to
+hold a still: `Entry(resource, 0, frames, is_image=True, has_video=True)` is
+what a `card:` cue already becomes. A tail is **two ordinary entries** — the
+card on the picture lane, and something on the audio track of the same length.
+There is no silence producer today, but there does not need to be one: a silent
+wav is a rendered asset exactly the way a card is a rendered png, so the tail
+introduces **no new MLT concept at all**. The lane-covers-the-track invariant
+that would otherwise refuse it is satisfied by construction.
+
+### Three shapes, costed
+
+| | what it touches | cases it covers | derivation inherits it |
+|---|---|---|---|
+| **A. cue by source time** | cue model, both clients, cue lane, tests, + appended silence per project, + `vo_extend` for the teaser | essay only, until `vo_extend` | yes |
+| **B. project-level `tail`** | manifest (one optional key), `export`, `check_frames`, `timeline_status`, `reel` | both | yes |
+| **C. leave it downstream** | nothing | both, by hand | **no — this is the reported defect** |
+
+**B is the recommendation.** One optional manifest key —
+`{"asset": "card:outro", "seconds": 6.0, "fade": 0.167}` — read by `export`
+into two entries after the last frame. `Edit` never changes, so the subtractive
+invariant is untouched and `vo_extend` stays parked and stays irrelevant. The
+teaser and the essay become the same case. And the property PLAN.md § The
+property everything below defends exists to protect is not in danger here,
+which is the part worth stating plainly: **a tail carries a length, and that is
+safe precisely because it is anchored to the end.** The music bed's lengths
+were invalidated by an append because they were pinned to absolute positions in
+a runtime; "after the last frame" moves with every cut by construction. A
+length is only dangerous when something upstream of it can move.
+
+### What B actually costs, stated rather than waved at
+
+**The `Edit` stops describing the whole output.** Today `autoeditor.frame_total`
+is the single answer to "how long is this", and four things read it —
+`check_frames`, `timeline_status`, the web UI's lanes, and `export`'s own
+document check. Adding frames outside it means either every caller learns about
+the tail, or one helper answers "frames including tail" and every caller moves
+to it. It has to be the second: a duration answered two ways is how a render
+disagrees with its own timeline while both report clean, which is the failure
+`check_frames` exists to catch and would now be able to cause.
+
+Three smaller ones, each a decision rather than work:
+
+- **`verify` is unaffected and should stay that way.** It diffs the render's
+  own transcription against the timeline's words; silence adds no words. A
+  tail that ever carries *audio* breaks that, so the key takes a card and a
+  duration and deliberately not a media clip.
+- **`reel` must name what it does with a tail**, the way it already names
+  pruned cues (`cues_dropped`). A teaser derived from a film should not
+  silently inherit the film's end card — bumper B and card A are different
+  register — but it must not silently drop one either, which is the exact
+  defect this item is here to fix. Proposal: carry nothing, report `tail_dropped`.
+- **The frame arithmetic has a known trap already measured**: `xfade` at
+  `offset = DUR - FADE` finishes the transition at `DUR`, so the hold passed
+  in is the time the card is alone, and adding the fade to it runs the tail
+  long by exactly the fade (HISTORY.md § The bumper the teaser never had, four
+  frames). Whatever B emits gets checked by frame readback against
+  `frame_total + tail`, not by reading the filter graph.
+
+### What this note does not settle
+
+Two calls, both Tyler's, neither of which more building answers:
+
+1. **Does the essay's project get a tail at all, or does the card stay a
+   finishing pass?** The film is built and awaiting a watch; adding project
+   state to it now means re-rendering it. The teaser is the case with the
+   demonstrated loss.
+2. **Should a derivation inherit a tail** — never (report and drop, above), or
+   by asset with a register check? Never is the conservative answer and the one
+   that cannot be silently wrong.
+
+Not started. The proofs stand and the renders on the NAS are unaffected either
+way.

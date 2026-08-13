@@ -200,9 +200,15 @@ installed package or the upstream repo, not your memory.
   - **A bumper or end card is applied downstream of `export`, so no derivation
     inherits one** — re-cutting drops it at exit 0 and `status`, `verify` and
     `check_frames` are all silent, because nothing in the project ever knew.
-    Lucid cannot address the tail at all (cues resolve through the transcript;
-    silence has no word), so this stays a finishing pass until that changes.
-    PLAN.md § Parked. HISTORY.md § The bumper the teaser never had.
+    Still a finishing pass, but **not for the reason both HISTORY notes give**:
+    a cue addressed by source time is the wrong mechanism, because a cue
+    addresses a moment *inside* the film and a tail is after it — the timeline
+    has to already contain the six seconds for a cue to hang on, which is why
+    that route needs appended silence first and `vo_extend` for the teaser.
+    A tail is two ordinary MLT entries and **no new writer concept**; what it
+    costs is that `Edit` stops being the single answer to "how long is this".
+    Costed at PLAN.md § Tail time — the design note; the two open calls there
+    are Tyler's. HISTORY.md § The bumper the teaser never had, § The end card.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).
