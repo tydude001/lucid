@@ -7351,3 +7351,40 @@ the state every export of the project has already been in.
 **Teaser: keep.** `teaser-v4-captioned.mp4` — both framing calls already
 authored onto it (§ The three served answers) — is confirmed as the one to
 publish; the older renders (`v2`, `v3`) stay on disk, untouched, not deleted.
+
+## `lucid review`, built — 2026-08-13
+
+The completion queue's item 6, closed the same day it was designed: renders,
+sheets and A/B members now register into an additive `review` manifest key
+(`ops.review_add`/`review_verdict`/`review_list`, mirrored as MCP tools and
+`lucid review add/verdict/list`) — no schema bump, the `tail`/`caption_style`
+shape.
+
+**The rule the round that went wrong exists to enforce is now structural,
+not a comment.** `review add --kind control --baseline <name>` hashes both
+files and refuses the call outright on any mismatch — the bumper incident
+(§ The bumper the teaser never had) was a page that labelled a *different*,
+later render a control; here that page cannot exist, because the item is
+never registered.
+
+**Loopback+Host, `webui.py`'s own guard, does not fit a server built to be
+reached off the machine.** `lucid review serve` (`reviewserver.py`) is meant
+to be watched from a phone on Tailscale, so a random token
+(`secrets.token_urlsafe`, compared with `hmac.compare_digest`) stands in
+instead — every request, GET or POST, carries `?t=`, and the one line printed
+at startup is the whole credential. The blast radius is smaller than
+`webui.py`'s too: the only mutation this server can cause is a verdict string
+against an already-registered item, never an edit.
+
+**Streaming reuses `webui.py`'s Range math rather than a second copy of it.**
+`_stream_file` was a bound method with no way to import it, so it came out as
+a standalone function (`webui._stream_file(handler, source, head_only=...)`),
+the `_ranges`/`_json_body` shape the file already had. `webui.py`'s own test
+suite (87 tests, same pass count before and after) confirmed the refactor
+changed nothing about how it serves media.
+
+Verified against a real socket, not just green tests: no token → 403, correct
+token → 200, a `Range: bytes=` request → 206 with the exact byte slice, a
+mismatched control refused with both sha256 prefixes in the message, and an
+older project with no `review` key still opening clean through
+`Project.open`.

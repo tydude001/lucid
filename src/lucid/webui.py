@@ -217,6 +217,53 @@ def _ranges(spec: str, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1)
 
 
+def _stream_file(handler: BaseHTTPRequestHandler, source: Path, *, head_only: bool) -> None:
+    """Byte-range streaming, shared by every route that hands over a file.
+
+    Takes `handler` rather than being a method, the `_json_body` shape —
+    `reviewserver.py` streams renders and sheets over LAN under a different
+    guard (a token, not loopback+Host) and reuses this rather than
+    reimplementing Range parsing a second time, which is the one piece of
+    HTTP this package hand-rolls in the first place (module docstring).
+    """
+    size = source.stat().st_size
+    ctype = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
+    header = handler.headers.get("Range")
+    window = _ranges(header, size) if header else None
+
+    if window is None:
+        start, end, status = 0, size - 1, HTTPStatus.OK
+    else:
+        start, end = window
+        status = HTTPStatus.PARTIAL_CONTENT
+
+    length = end - start + 1
+    handler.send_response(status)
+    handler.send_header("Content-Type", ctype)
+    handler.send_header("Content-Length", str(length))
+    handler.send_header("Accept-Ranges", "bytes")
+    if status == HTTPStatus.PARTIAL_CONTENT:
+        handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    handler.end_headers()
+    if head_only:
+        return
+
+    with source.open("rb") as fh:
+        fh.seek(start)
+        remaining = length
+        while remaining > 0:
+            chunk = fh.read(min(_CHUNK, remaining))
+            if not chunk:
+                break
+            try:
+                handler.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                # A seek aborts the in-flight range. Routine, not an error.
+                return
+            remaining -= len(chunk)
+
+
 def _revision(project_root: Path) -> list[float | int]:
     """`project.otio` mtime, the manifest's, and undo depth (PLAN.md § View
     invalidation).
@@ -1018,42 +1065,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _stream_file(self, source: Path, *, head_only: bool) -> None:
         """Byte-range streaming, shared by every route that hands over a file."""
-        size = source.stat().st_size
-        ctype = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
-        header = self.headers.get("Range")
-        window = _ranges(header, size) if header else None
-
-        if window is None:
-            start, end, status = 0, size - 1, HTTPStatus.OK
-        else:
-            start, end = window
-            status = HTTPStatus.PARTIAL_CONTENT
-
-        length = end - start + 1
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(length))
-        self.send_header("Accept-Ranges", "bytes")
-        if status == HTTPStatus.PARTIAL_CONTENT:
-            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        if head_only:
-            return
-
-        with source.open("rb") as fh:
-            fh.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = fh.read(min(_CHUNK, remaining))
-                if not chunk:
-                    break
-                try:
-                    self.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    # A seek aborts the in-flight range. Routine, not an error.
-                    return
-                remaining -= len(chunk)
+        _stream_file(self, source, head_only=head_only)
 
     def _send_events(self) -> None:
         """`GET /api/events` — a long-lived `text/event-stream`.

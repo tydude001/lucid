@@ -3585,6 +3585,13 @@ The order was adopted 2026-08-12.
    project. One rule carried from the round that went wrong: nothing is
    labelled a control unless it is byte-identical to what it claims to be
    (HISTORY.md § The bumper the teaser never had).
+   - **Shipped 2026-08-13** (HISTORY.md § `lucid review`, built): an additive
+     `review` manifest key, `ops.review_add`/`review_verdict`/`review_list`
+     (MCP tools and `lucid review add/verdict/list`), and `lucid review
+     serve` — **token-gated rather than loopback+Host**, since this server is
+     built to be reached off the machine. The control rule is enforced at
+     registration (a byte mismatch refuses the call) rather than left as a
+     convention to remember. **This item is closed.**
 7. **`vo_extend`** — authorized, and it is the one item that bends `Edit`'s
    subtractive invariant, so it gets its own design note before code
    (§ Parked's constraints; HISTORY.md § `cut_by_time`). Not needed for tail

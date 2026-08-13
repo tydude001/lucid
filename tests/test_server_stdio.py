@@ -71,6 +71,9 @@ EXPECTED_TOOLS = {
     "canvas",
     "tail",
     "reel",
+    "review_add",
+    "review_verdict",
+    "review_list",
     "reframe",
     "reframe_detect",
     "reframe_coverage",
@@ -212,6 +215,9 @@ TOOL_TO_COMMAND = {
     "canvas": "canvas",
     "tail": "tail",
     "reel": "reel",
+    "review_add": "review",
+    "review_verdict": "review",
+    "review_list": "review",
     "reframe": "reframe",
     "reframe_detect": "reframe-detect",
     "reframe_coverage": "reframe-coverage",
@@ -2071,6 +2077,102 @@ def test_tail_refuses_a_media_clip_asset(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "card" in out["text"]
+
+
+def test_review_add_registers_a_render_and_a_matching_control(tmp_path: Path) -> None:
+    """A control whose bytes match its baseline registers with `control_ok:
+    true` — the enforcement of "nothing is labelled a control unless it is
+    byte-identical to what it claims to be" (HISTORY.md § The bumper the
+    teaser never had)."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        (project / "renders" / "teaser.mp4").write_bytes(b"same bytes")
+        (project / "renders" / "teaser-copy.mp4").write_bytes(b"same bytes")
+        render = await client.call(
+            "review_add", path=str(project), name="teaser", source="renders/teaser.mp4", kind="render"
+        )
+        control = await client.call(
+            "review_add",
+            path=str(project),
+            name="teaser-control",
+            source="renders/teaser-copy.mp4",
+            kind="control",
+            baseline="teaser",
+        )
+        listed = await client.call("review_list", path=str(project))
+        return {"render": render, "control": control, "listed": listed}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["render"]["kind"] == "render"
+    assert out["render"]["control_ok"] is None
+    assert out["control"]["kind"] == "control"
+    assert out["control"]["control_ok"] is True
+    names = {item["name"] for item in out["listed"]["items"]}
+    assert names == {"teaser", "teaser-control"}
+
+
+def test_review_add_refuses_a_control_whose_bytes_dont_match(tmp_path: Path) -> None:
+    """A mismatched control is refused outright, and nothing is registered for
+    it — the failure mode the bumper incident is named for was a page that
+    labelled a *different* render a control, not one that refused to."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        (project / "renders" / "teaser.mp4").write_bytes(b"same bytes")
+        (project / "renders" / "different.mp4").write_bytes(b"different bytes entirely")
+        await client.call(
+            "review_add", path=str(project), name="teaser", source="renders/teaser.mp4", kind="render"
+        )
+        result = await session.call_tool(
+            "review_add",
+            {
+                "path": str(project),
+                "name": "bad-control",
+                "source": "renders/different.mp4",
+                "kind": "control",
+                "baseline": "teaser",
+            },
+        )
+        listed = await client.call("review_list", path=str(project))
+        return {"is_error": result.is_error, "text": result.content[0].text, "listed": listed}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "byte-identical" in out["text"] or "not byte-identical" in out["text"]
+    names = {item["name"] for item in out["listed"]["items"]}
+    assert names == {"teaser"}
+
+
+def test_review_verdict_is_recorded_and_read_back(tmp_path: Path) -> None:
+    """A verdict is a free-form string, not an enum — past review rounds have
+    answered yes/no, a shape choice, or a specific description."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        (project / "renders" / "teaser.mp4").write_bytes(b"a render")
+        await client.call(
+            "review_add", path=str(project), name="teaser", source="renders/teaser.mp4", kind="render"
+        )
+        recorded = await client.call(
+            "review_verdict", path=str(project), name="teaser", verdict="ship it", note="watched twice"
+        )
+        listed = await client.call("review_list", path=str(project))
+        return {"recorded": recorded, "listed": listed}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["recorded"]["verdict"] == "ship it"
+    assert out["recorded"]["note"] == "watched twice"
+    assert out["listed"]["verdicts"]["teaser"]["verdict"] == "ship it"
 
 
 def test_reframe_over_the_wire(tmp_path: Path) -> None:

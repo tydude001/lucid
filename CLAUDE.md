@@ -136,6 +136,15 @@ installed package or the upstream repo, not your memory.
     Never infer the reason in JS — `media.playability()` behind
     `/api/preview/<asset>` has it, and three of its four refusal classes pass a
     naive codec-name check.
+- **`lucid review serve` (`reviewserver.py`) is a fourth client, on purpose
+  not `webui.py`'s guard.** It exists to be reached off the machine (a phone
+  on Tailscale), so loopback+Host is replaced by a token every request must
+  carry (`?t=`), never widened by binding `webui.py` itself off loopback.
+  `review add --kind control --baseline <name>` hashes both files and refuses
+  the call on any mismatch — the byte-identical-control rule is enforced at
+  registration, not left as a comment. Streaming reuses `webui._stream_file`
+  (a standalone function, not a second copy of the Range math). PLAN.md § The
+  completion queue, item 6. HISTORY.md § `lucid review`, built.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a

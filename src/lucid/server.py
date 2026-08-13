@@ -1669,6 +1669,50 @@ def proxy_transcode(path: str, clip_id: str, force: bool = False) -> dict[str, A
     return ops.proxy_transcode(path, clip_id, force=force)
 
 
+@_tool()
+def review_add(
+    path: str,
+    name: str,
+    source: str,
+    kind: str,
+    baseline: str | None = None,
+) -> dict[str, Any]:
+    """Register a rendered file, sheet or A/B member for `lucid review serve`.
+
+    Never copies `source` — a render already lives in `renders/`, a sheet in
+    `reframe_sheet`'s own directory — this just points `name` at it, so a
+    served round has something to stream and a verdict has something to
+    attach to.
+
+    `kind` is one of `render`, `sheet`, `ab`, `control`. **A `control`
+    requires `baseline`, the name of an already-registered item, and the two
+    files' sha256 must match — a mismatch refuses the call.** This is the
+    rule the round that went wrong exists to enforce (HISTORY.md § The
+    bumper the teaser never had): a page once served three cuts, one
+    mislabelled "control" when it was a different, later render. Nothing is
+    labelled a control here unless it is byte-identical to what it claims.
+    """
+    return ops.review_add(path, name, source, kind=kind, baseline=baseline)
+
+
+@_tool()
+def review_verdict(path: str, name: str, verdict: str, note: str | None = None) -> dict[str, Any]:
+    """Record a verdict against a review item registered by `review_add`.
+
+    `verdict` is a free string, not an enum — past review rounds answered
+    yes/no, "loop"/"hold", or a specific choice by name, and a fixed
+    vocabulary would misfit whichever question the next round is actually
+    asking.
+    """
+    return ops.review_verdict(path, name, verdict, note=note)
+
+
+@_tool()
+def review_list(path: str) -> dict[str, Any]:
+    """Every item registered for this project's review round, and its verdict."""
+    return ops.review_list(path)
+
+
 def serve(root: str | Path | None = None) -> None:
     """Run the server on stdio. Blocks until the client disconnects.
 

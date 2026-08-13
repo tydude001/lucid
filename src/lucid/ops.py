@@ -11,6 +11,7 @@ wants something to print as JSON.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import statistics
@@ -20,6 +21,7 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from itertools import pairwise
 from math import gcd, hypot
 from pathlib import Path
@@ -8423,3 +8425,179 @@ def reel(
         raise
 
     return report
+
+
+# `lucid review` — PLAN.md § The completion queue, item 6. Every version of
+# the Scream video moved on a served page rebuilt ad hoc at least four times
+# (`~/lucid-approvals/`, `~/lucid-watch/`, `~/lucid-review/`,
+# `~/lucid-flash-review/`), each its own throwaway server and its own
+# `decisions.json`. This is that serving, in the project instead of beside it.
+REVIEW_KEY = "review"
+REVIEW_KINDS = ("render", "sheet", "ab", "control")
+
+
+def _stored_review(project: Project) -> dict[str, Any]:
+    """The project's review round: registered items and recorded verdicts.
+
+    Validated on every read, the `_stored_tail` shape. Absent means what
+    every older manifest already meant: no review round yet — additive and
+    optional, so no schema bump.
+    """
+    stored = project.read_manifest().get(REVIEW_KEY)
+    if stored is None:
+        return {"items": {}, "verdicts": {}}
+    if not isinstance(stored, dict):
+        raise ProjectError(f"{project.manifest_path}'s {REVIEW_KEY!r} must be a JSON object")
+    items = stored.get("items", {})
+    verdicts = stored.get("verdicts", {})
+    if not isinstance(items, dict) or not isinstance(verdicts, dict):
+        raise ProjectError(
+            f"{project.manifest_path}'s {REVIEW_KEY!r} must hold 'items' and "
+            "'verdicts' objects"
+        )
+    return {"items": items, "verdicts": verdicts}
+
+
+def _review_resolve_path(project: Project, source: Path | str) -> Path:
+    """Resolve a review item's file against the project root, refusing an escape.
+
+    Most op file arguments are left free for the caller's own filesystem
+    (`server._confine`'s docstring: only the project *selector* is normally
+    confined). A review item is different in kind — it is later streamed by
+    `lucid review serve` to whatever device holds the review URL, over the
+    network, so `review add leak /etc/passwd` must not become a way to read
+    the box rather than the project. Both sides resolved, the same way
+    `_confine` refuses a symlink out.
+    """
+    candidate = Path(source)
+    resolved = (candidate if candidate.is_absolute() else project.root / candidate).resolve()
+    if resolved != project.root and project.root not in resolved.parents:
+        raise ProjectError(
+            f"review item {source!r} resolves outside the project ({resolved}) "
+            f"— only files under {project.root} can be served"
+        )
+    if not resolved.is_file():
+        raise ProjectError(f"review item {source!r} does not exist ({resolved})")
+    return resolved
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def review_add(
+    path: Path | str,
+    name: str,
+    source: Path | str,
+    *,
+    kind: str,
+    baseline: str | None = None,
+) -> dict[str, Any]:
+    """Register a rendered file, sheet or A/B member for a review round.
+
+    Never copies `source` — a render already lives in `renders/`, a sheet in
+    `project.sheet_dir` (`reframe_sheet`'s own precedent) — this just points
+    `name` at it, so `lucid review serve` has something to stream and a
+    verdict has something to attach to.
+
+    `kind` is one of `"render"`, `"sheet"`, `"ab"`, `"control"`. **A
+    `"control"` requires `baseline`, the name of an already-registered item,
+    and the two files' sha256 must match — a mismatch refuses the whole call
+    rather than registering something as a control that isn't.** This is the
+    enforcement of the one rule carried out of the round that went wrong
+    (HISTORY.md § The bumper the teaser never had): a page served three cuts,
+    one mislabelled "Hand-built ... control" when it was a different, later
+    render with no bumper. "Settle a served control by its own measurement —
+    duration, shot count — not by its filename." Here the measurement is the
+    file's own bytes.
+    """
+    if kind not in REVIEW_KINDS:
+        raise ProjectError(f"review kind must be one of {REVIEW_KINDS}, not {kind!r}")
+    if kind != "control" and baseline is not None:
+        raise ProjectError("`baseline` only applies to kind='control'")
+
+    project = Project.open(path)
+    resolved = _review_resolve_path(project, source)
+    digest = _sha256(resolved)
+    stored = _stored_review(project)
+
+    control_ok: bool | None = None
+    if kind == "control":
+        if not baseline:
+            raise ProjectError(
+                "a control needs `baseline`, the name of the item it claims to "
+                "match — nothing is labelled a control unless it is "
+                "byte-identical to what it claims to be"
+            )
+        base_item = stored["items"].get(baseline)
+        if base_item is None:
+            raise ProjectError(f"no registered review item named {baseline!r}")
+        control_ok = digest == base_item["sha256"]
+        if not control_ok:
+            raise ProjectError(
+                f"{source!r} is not byte-identical to {baseline!r} "
+                f"(sha256 {digest[:12]}… vs {base_item['sha256'][:12]}…) — "
+                "refusing to register it as a control. Re-render it from the "
+                "same source, or register it as a plain 'render' instead."
+            )
+
+    record = {
+        "kind": kind,
+        "path": str(resolved.relative_to(project.root)),
+        "baseline": baseline,
+        "sha256": digest,
+        "control_ok": control_ok,
+        "added_at": datetime.now(UTC).isoformat(),
+    }
+
+    manifest = project.read_manifest()
+    items = dict(stored["items"])
+    items[name] = record
+    manifest[REVIEW_KEY] = {"items": items, "verdicts": dict(stored["verdicts"])}
+    project.write_manifest(manifest)
+
+    return {"project": str(project.root), "name": name, **record}
+
+
+def review_verdict(
+    path: Path | str, name: str, verdict: str, *, note: str | None = None
+) -> dict[str, Any]:
+    """Record a verdict against a registered review item.
+
+    `verdict` is a free-form string, not an enum — past rounds answered
+    yes/no, "loop"/"hold", or a specific choice by name, and a fixed
+    vocabulary would misfit the next round the same way a fixed threshold
+    misfits a new video.
+    """
+    project = Project.open(path)
+    stored = _stored_review(project)
+    if name not in stored["items"]:
+        raise ProjectError(f"no registered review item named {name!r}")
+
+    verdicts = dict(stored["verdicts"])
+    verdicts[name] = {
+        "verdict": str(verdict),
+        "note": str(note) if note is not None else None,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    manifest = project.read_manifest()
+    manifest[REVIEW_KEY] = {"items": dict(stored["items"]), "verdicts": verdicts}
+    project.write_manifest(manifest)
+
+    return {"project": str(project.root), "name": name, **verdicts[name]}
+
+
+def review_list(path: Path | str) -> dict[str, Any]:
+    """Every item registered for this project's review round, and its verdict.
+
+    Read straight off the manifest — `lucid review list` and the page
+    `lucid review serve` draws both call this, never the file directly.
+    """
+    project = Project.open(path)
+    stored = _stored_review(project)
+    items = [{"name": name, **record} for name, record in stored["items"].items()]
+    return {"project": str(project.root), "items": items, "verdicts": stored["verdicts"]}

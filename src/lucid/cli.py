@@ -12,7 +12,7 @@ import json
 import sys
 from typing import Any
 
-from lucid import __version__, asr, captions, describe, energy, ops, webui
+from lucid import __version__, asr, captions, describe, energy, ops, reviewserver, webui
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.describe import DescribeError
@@ -650,6 +650,52 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="resolve the spans and the clips it would link, and create nothing",
     )
+
+    p_review = sub.add_parser("review", help="serve a review round: named renders, sheets, A/B pairs")
+    review_sub = p_review.add_subparsers(dest="review_command", required=True)
+
+    p_review_add = review_sub.add_parser(
+        "add", help="register a rendered file, sheet or A/B member for review"
+    )
+    p_review_add.add_argument("name", help="how this item is addressed and displayed")
+    p_review_add.add_argument("source", help="the file, relative to the project or absolute")
+    p_review_add.add_argument(
+        "--kind", required=True, choices=list(ops.REVIEW_KINDS), help="what this item is"
+    )
+    p_review_add.add_argument(
+        "--baseline",
+        help="the already-registered item this claims to be byte-identical to "
+        "(required, and checked, for --kind control)",
+    )
+
+    p_review_verdict = review_sub.add_parser(
+        "verdict", help="record a verdict against a registered review item"
+    )
+    p_review_verdict.add_argument("name")
+    p_review_verdict.add_argument("verdict", help="free-form — yes/no, a choice, a description")
+    p_review_verdict.add_argument("--note", help="anything else worth keeping beside the verdict")
+
+    review_sub.add_parser("list", help="list every registered review item and its verdict")
+
+    p_review_serve = review_sub.add_parser(
+        "serve", help="serve the review round over HTTP, with a token in the URL"
+    )
+    p_review_serve.add_argument(
+        "--host",
+        default=reviewserver.DEFAULT_HOST,
+        help=f"bind address ({reviewserver.DEFAULT_HOST}); pass a Tailscale/LAN "
+        "address to reach this from a phone",
+    )
+    p_review_serve.add_argument(
+        "--port",
+        type=int,
+        default=reviewserver.DEFAULT_PORT,
+        help=f"port ({reviewserver.DEFAULT_PORT}); 0 picks a free one",
+    )
+    p_review_serve.add_argument(
+        "--token", help="use this token instead of minting a random one"
+    )
+    p_review_serve.add_argument("--verbose", action="store_true", help="log every request")
 
     p_reframe = sub.add_parser(
         "reframe", help="read or set which part of each clip survives into the frame"
@@ -1386,6 +1432,26 @@ def _cmd_reel(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_review(args: argparse.Namespace) -> int:
+    if args.review_command == "add":
+        return _emit(
+            ops.review_add(args.project, args.name, args.source, kind=args.kind, baseline=args.baseline)
+        )
+    if args.review_command == "verdict":
+        return _emit(ops.review_verdict(args.project, args.name, args.verdict, note=args.note))
+    if args.review_command == "list":
+        return _emit(ops.review_list(args.project))
+    # "serve" — blocks until Ctrl-C, like `web`; prints the URL rather than JSON.
+    reviewserver.serve(
+        args.project,
+        host=args.host,
+        port=args.port,
+        token=args.token,
+        verbose=args.verbose,
+    )
+    return 0
+
+
 def _cmd_reframe(args: argparse.Namespace) -> int:
     # Same rule as `canvas` above: the raw `X,Y,W,H` goes through, because
     # `ops._parse_rect` and `ops._fit_rect_to_canvas` own every refusal.
@@ -1589,6 +1655,7 @@ _COMMANDS = {
     "fonts": _cmd_fonts,
     "tail": _cmd_tail,
     "reel": _cmd_reel,
+    "review": _cmd_review,
     "reframe": _cmd_reframe,
     "reframe-detect": _cmd_reframe_detect,
     "reframe-coverage": _cmd_reframe_coverage,
