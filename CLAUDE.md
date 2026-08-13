@@ -468,13 +468,21 @@ installed package or the upstream repo, not your memory.
     apart. The pane node is switched off by **opacity 0 keyed at every window
     boundary** — a step not written is a value that carries on — and the sheet
     draws the lower rect dashed, which is where a split gets judged. It fires
-    on 4 of the film's 59 windows; **`reframe_detect`'s `faces` is detections
-    summed over the sampled frames and is not a subject count** (33 is eleven
-    people), `subjects` is. HISTORY.md § The stacked split, built.
-    - **Judge a split on how much its panes overlap each other**: the film's
-      four separate at 23–24% (distinct groups) against 52–59%, where the same
-      face is in both halves and stacking shows it twice. HISTORY.md § The
-      thirty-nine windows, reviewed.
+    on 10 of the film's 79 windows at the 0.15 floor — **a count like that
+    moves with the floor rather than describing the film**, since three moments
+    spanning 8s agree far less often than three spanning 2s, and six of the ten
+    sit on windows the old floor also had. **`reframe_detect`'s `faces` is
+    detections summed over the sampled frames and is not a subject count** (33
+    is eleven people), `subjects` is. HISTORY.md § The stacked split, built;
+    § What the re-pin did to the detector.
+    - **Judge a split on how much its panes overlap each other**, and the
+      number is `pane_overlap` — on the proposal and on the sheet row, where it
+      used to be worked out by hand off the two rects. The film's separate at
+      23–24% (distinct groups) against 52–63%, where the same face is in both
+      halves and stacking shows it twice; **4 of its 10 proposals are the
+      duplicating kind**, 3 of them predating the 0.15 floor. Reported, never
+      enforced. HISTORY.md § The thirty-nine windows, reviewed; § What the
+      re-pin did to the detector.
   - **An export preset never sets the canvas — `tiktok-reels` *checks* it and
     refuses.** The obvious build is the wrong one: a flag that reshapes the
     project is an export argument rewriting project state, the same failure as

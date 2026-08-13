@@ -174,6 +174,33 @@ def pane_boxes(resolution: tuple[int, int]) -> tuple[tuple[int, int, int, int], 
     return ((0, 0, width, half), (0, half, width, height - half))
 
 
+def pane_overlap(rect: tuple[int, int, int, int], pane: tuple[int, int, int, int]) -> float:
+    """How much of the narrower pane the two panes share, 0.0 to 1.0.
+
+    **The number a stacked split is judged on**, and until now the one nobody
+    reported. Nothing masks a pane, so two crops that overlap are showing the
+    same strip of source twice — once in each half — and a viewer reads that as
+    a duplicated face rather than as two subjects. Where the line sits was
+    measured on the film rather than chosen: its splits separate at 23–24%,
+    where the halves hold distinct groups, against 52–63%, where the same face
+    is in both (HISTORY.md § The thirty-nine windows, reviewed).
+
+    It is reported and never enforced, for `reframe_detect`'s standing reason:
+    the pass proposes and `reframe_sheet` disposes, and a duplicating split is
+    sometimes the least bad answer for a shot one window cannot hold. What was
+    wrong was making a reviewer compute it by hand every time the tool offered
+    one.
+
+    Horizontal only, because a pane is full source height by construction —
+    growing a crop shorter than the source is what scales one pane into the
+    other, which is a different failure and `_fit_pane_rect`'s job.
+    """
+    lower, upper = sorted((rect, pane), key=lambda box: box[0])
+    shared = max(0, (lower[0] + lower[2]) - upper[0])
+    narrower = min(rect[2], pane[2])
+    return round(shared / narrower, 3) if narrower else 0.0
+
+
 @dataclass(frozen=True)
 class Reframe:
     """A source's size, and the rects of it that survive into the frame.

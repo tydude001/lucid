@@ -4578,6 +4578,19 @@ def reframe_sheet(
                 # Whether any sampled frame of this placement is drawn as a
                 # stacked split, which is what a review page filters on.
                 "split": any(sample["pane"] for sample in samples),
+                # And how much of the two panes is the same strip of source,
+                # which is what the split is *judged* on — the sheet draws the
+                # lower pane dashed so a reviewer can see the duplication, and
+                # this is the number under it. None where the row is not a
+                # split. `mlt.pane_overlap`.
+                "pane_overlap": next(
+                    (
+                        mlt.pane_overlap(_parse_rect(sample["crop"]), _parse_rect(sample["pane"]))
+                        for sample in samples
+                        if sample["pane"] and sample["crop"]
+                    ),
+                    None,
+                ),
                 # How the tiles were chosen, and what the probing found. A row
                 # says "no face in N probes" rather than reporting extremes it
                 # does not have — an unsupported claim of evidence is the same
@@ -4866,6 +4879,13 @@ def reframe_detect(
             "current": current,
             "rect": None,
             "pane": None,
+            # How much of the two panes is the same strip of source, when this
+            # window is offered as a split. **The number that decides whether a
+            # split is worth having**, and it used to be worked out by hand off
+            # the two rects every single time: the film's own separate at
+            # 23–24% and its duplicating ones at 52–63%. Reported, never
+            # enforced — `mlt.pane_overlap`.
+            "pane_overlap": None,
             "applied": False,
             "refused": None,
             "falls_back_to": None,
@@ -4913,8 +4933,11 @@ def reframe_detect(
                 # Two panes clamped to the same column are one window drawn
                 # twice — the split gains nothing and costs half the height.
                 if near != far:
-                    entry["rect"] = _rect_text((near, 0, pane_width, source[1]))
-                    entry["pane"] = _rect_text((far, 0, pane_width, source[1]))
+                    upper = (near, 0, pane_width, source[1])
+                    lower = (far, 0, pane_width, source[1])
+                    entry["rect"] = _rect_text(upper)
+                    entry["pane"] = _rect_text(lower)
+                    entry["pane_overlap"] = mlt.pane_overlap(upper, lower)
         report.append(entry)
 
     # **A refused window is not a centre-cropped one, and saying so was wrong.**

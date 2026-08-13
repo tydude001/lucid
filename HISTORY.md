@@ -6293,3 +6293,53 @@ bought here is a question attached to 2.1s that previously had none, which is
 the whole point of a coverage number; it did not find a defect, and reporting
 it as one would have been the third instance this week of a check's first run
 being read as findings.
+
+## What the re-pin did to the detector, and the number nobody reported — 2026-08-12
+
+§ The scene threshold, re-pinned changed what `reframe_detect` sees on every
+project, so it was run against the film's own vertical projection before being
+believed. The floor at 0.15 gives **79 windows against 59**, and the 20 the
+lower floor created behave like the ones that were already there: 17 proposed,
+3 refused, against 8 refusals in the old 59 — a refusal rate of 15% either way.
+So the extra cuts are not extra blind spots, which was the thing worth
+checking: a refused window is worse than an unframed one, because whatever is
+in force carries over and a stale window looks deliberate.
+
+**The stacked split fired 10 times against the 3 the docs still claimed, and
+almost none of that is new two-handers.** Six of the ten sit on windows the old
+floor also had. The rule is unchanged — every sampled frame must hold subjects
+one window cannot — and what changed is the *unit* it is asked about: three
+moments spanning 8 seconds are far less likely to agree than three spanning 2.
+**The split rule's measured strictness was partly an artifact of window
+length**, and any number quoted as "N of 59" moves with the floor rather than
+describing the film.
+
+### The line a split is judged on was never in the output
+
+CLAUDE.md has said since 2026-08-11 to judge a split on how much its panes
+overlap — the film's separate at 23–24% and duplicate at 52–59% — and the tool
+has never reported that number. It was computed by hand off the two rects,
+every time, which is the same defect as a coverage check that reports a
+boundary and leaves you to work out whether a cut explains it. Measured across
+the ten proposals:
+
+| overlap | windows | reading |
+|---|---|---|
+| 23–30% | 4 | distinct groups, one in each half |
+| 40–45% | 2 | neither, and worth a look |
+| 52–63% | **4** | the same face in both halves, twice on screen |
+
+**Four of ten proposals are the duplicating kind, and three of those four
+predate the re-pin** — this is not damage the new floor did, it is what the
+pass has always offered with nothing saying so. `mlt.pane_overlap` is now that
+number, on every `reframe_detect` window and on the `reframe_sheet` row that draws
+one, where the lower pane is already dashed for exactly this judgement. It is
+**reported and never enforced**, for the pass's standing reason: it proposes
+and the sheet disposes, and a duplicating split is sometimes the least bad
+answer for a shot one window cannot hold. What was wrong was making the
+reviewer derive the number.
+
+The two values in the test are real proposals off the film rather than round
+ones, so the assertion is that the measure separates the cases it was drawn
+from — a threshold that could not tell `s4-overexposed` at 7.632 from
+`vi-bailey` at 19.937 would be worth nothing to whoever is reading the sheet.

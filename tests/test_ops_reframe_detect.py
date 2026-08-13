@@ -544,3 +544,29 @@ def test_applying_a_split_stores_both_halves(
     assert any("pane" in record for record in records)
     entry = ops._reframe_map(project, (1080, 1920))["clipa"]
     assert entry.panes, "and it reaches the writer as a split"
+
+
+@needs_ffmpeg
+def test_a_proposed_split_carries_the_number_it_is_judged_on(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**A split is judged on how much its panes overlap**, and until this the
+    tool made a reviewer work that out off the two rects by hand — every time,
+    on a film whose ten proposals include four of the duplicating kind. It is
+    reported and not enforced, the same as every other thing this pass says.
+    """
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    _stub(monkeypatch, lambda _job: [_face(300.0), _face(1500.0)])
+
+    windows = ops.reframe_detect(project.root)["windows"]
+
+    split = [w for w in windows if w["pane"]]
+    assert split, "two faces this far apart is the case a split exists for"
+    for window in split:
+        assert window["pane_overlap"] == mlt.pane_overlap(
+            tuple(int(v) for v in window["rect"].split(",")),
+            tuple(int(v) for v in window["pane"].split(",")),
+        )
+    assert all(w["pane_overlap"] is None for w in windows if not w["pane"]), (
+        "a window that is not a split has no panes to overlap"
+    )

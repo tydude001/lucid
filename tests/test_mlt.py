@@ -758,3 +758,30 @@ def test_the_edit_lanes_split_pane_is_silent() -> None:
     assert pane is not None
     assert pane.find("property[@name='audio_index']").text == "-1"
     assert pane.find("property[@name='set.test_audio']").text == "1"
+
+
+def test_pane_overlap_is_the_share_of_the_narrower_pane() -> None:
+    """The number a stacked split is judged on. Nothing masks a pane, so what
+    the two share is source shown twice — once in each half."""
+    assert mlt.pane_overlap((0, 0, 900, 816), (900, 0, 900, 816)) == 0.0
+    assert mlt.pane_overlap((0, 0, 900, 816), (450, 0, 900, 816)) == 0.5
+    assert mlt.pane_overlap((450, 0, 900, 816), (0, 0, 900, 816)) == 0.5, "order does not matter"
+    assert mlt.pane_overlap((0, 0, 900, 816), (0, 0, 900, 816)) == 1.0
+
+
+def test_pane_overlap_separates_the_films_own_splits_from_its_duplicating_ones() -> None:
+    """**The line is measured, not chosen.** These are real proposals off the
+    Scream cut: the two that hold distinct groups against the two where the
+    same face lands in both halves. A rule that could not tell them apart
+    would be a number worth nothing to a reviewer.
+    """
+    distinct = [
+        mlt.pane_overlap((153, 0, 900, 816), (845, 0, 900, 816)),  # s4-overexposed 7.632
+        mlt.pane_overlap((131, 0, 904, 812), (810, 0, 904, 812)),  # s2022-reveal 4.087
+    ]
+    duplicating = [
+        mlt.pane_overlap((447, 0, 904, 812), (878, 0, 904, 812)),  # vi-bailey 10.052
+        mlt.pane_overlap((683, 0, 904, 812), (1016, 0, 904, 812)),  # vi-bailey 19.937
+    ]
+    assert max(distinct) < 0.30
+    assert min(duplicating) > 0.50
