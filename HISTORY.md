@@ -7388,3 +7388,58 @@ token → 200, a `Range: bytes=` request → 206 with the exact byte slice, a
 mismatched control refused with both sha256 prefixes in the message, and an
 older project with no `review` key still opening clean through
 `Project.open`.
+
+## The window learning to place a cue — 2026-08-13
+
+PLAN.md § The completion queue, item 10: the third b-roll entry point,
+drag-select on the timeline (DAYDREAM.md's "right-click-drag on the timeline
+selects a range"). Its premise was already settled by measurement
+(§ The gap that was never on the timeline, below): 85–87% of drags land
+directly on a word, the rest are inter-word silence with a 0.54s median gap,
+and only a drag's *start* needs an address because `cue_add` is in-point
+only. That finding is what made this small — no gap-anchored address space
+to build, just a snap onto the word-index one `Edit` already has.
+
+**Nothing in `Edit`'s addressing changed, and nothing needed to.**
+`timeline.js` already drew a selection box (`drawSelectionHighlight`) off a
+`'selection'` bus event `{indices: [...]}` that nothing had ever emitted —
+dead code since the tier-3 rebuild, commented "speculative." The gesture
+built here is the first real emitter: `handleLanesMouseDown`/`Move`/`Up`
+resolve pixel position to timeline seconds to a word index via
+`nearestWordAt`, a client-side mirror of `ops._nearest_word` (overlap test
+first, nearest-by-edge-distance fallback) over `state.words`'s own
+`timeline_start`/`timeline_end` — the client already had that array for
+drawing, so no server round trip is needed to place the highlight live
+during a drag. A plain click with no movement is left alone entirely
+(`seekOnClick`'s existing `'click'` listener still owns it); a real drag
+sets a flag that a capture-phase `'click'` listener on `#track-lanes`
+swallows, so the native click a mouseup can still fire never also seeks.
+
+**The confirm step is a free-text asset field, not a picker, and that was
+the one real design call.** The next item on the same list is the assets
+pane — drag-and-drop from a library of clip_ids and cards — and it does not
+exist yet. Building a picker now risked throwaway UI once that pane ships,
+so the floating toolbar (reusing `.selection-toolbar`'s CSS, the same class
+transcript.js's Cut/Restore bar uses, for visual consistency without
+importing between pane modules — which this repo's pane contract forbids)
+just takes a typed `clip_id` or `card:name` and posts straight to a new
+`/api/cue`, a fourth caller into `ops.cue_add` alongside the CLI and MCP
+tool. The gesture and word-resolution logic — the actual hard part — are
+not throwaway regardless of what the picker becomes.
+
+`webui.py` gained one route, `_cue_add`, mirroring `_cut_at`'s shape exactly
+in `_POST_ROUTES`. Three new real-socket tests in `test_webui_http.py`
+cover it (a cue lands in the manifest at the right word, a duplicate word is
+refused, a missing asset is refused) — 91/91 pass. A live server check
+against a throwaway project confirmed the whole path end to end: static
+`timeline.js` served with the new functions in it, `POST /api/cue` placing
+a cue, and the duplicate-word refusal surfacing through the same
+`WebUIError`/`TranscriptError` handling every other route uses.
+
+**What this session could not verify: the drag gesture itself, in a real
+browser.** `lucid web` binds loopback only by design (CLAUDE.md), and no
+browser automation was available to this session. The backend is proven;
+the pointer math, the toolbar's positioning, and whether a real drag feels
+right are not — CLAUDE.md's own rule (headless Chrome does not composite
+what a person would see) applies here as much as it does to the picture
+layer. Needs a real-browser pass before this item is fully closed.

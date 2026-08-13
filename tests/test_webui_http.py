@@ -230,6 +230,31 @@ def test_a_word_a_cut_only_half_removes_is_reported_partial(server: str) -> None
     assert word["covered"] == pytest.approx(0.5)
 
 
+def test_cue_add_lands_in_the_manifest(project: Path, server: str) -> None:
+    """`/api/cue` is the timeline drag gesture's landing point — a fourth
+    caller into `ops.cue_add`, same as the CLI and MCP tool."""
+    status, payload = _post(f"{server}/api/cue", {"clip_id": "vo", "word_index": 3, "asset": "card:title"})
+    assert status == 200
+    assert payload["clip_id"] == "vo"
+    assert payload["asset"] == "card:title"
+
+    cues = Project.open(project).read_manifest()["cues"]
+    assert cues == [{"clip_id": "vo", "word_index": 3, "asset": "card:title"}]
+
+
+def test_cue_add_refuses_a_duplicate_word(server: str) -> None:
+    _post(f"{server}/api/cue", {"clip_id": "vo", "word_index": 3, "asset": "card:title"})
+    status, payload = _post(f"{server}/api/cue", {"clip_id": "vo", "word_index": 3, "asset": "card:other"})
+    assert status != 200
+    assert "already has a cue" in payload["error"]
+
+
+def test_cue_add_requires_asset(server: str) -> None:
+    status, payload = _post(f"{server}/api/cue", {"clip_id": "vo", "word_index": 3})
+    assert status != 200
+    assert "asset" in payload["error"]
+
+
 def test_view_of_a_clip_without_a_transcript_still_draws_the_edit(
     project: Path, server: str, tmp_path: Path
 ) -> None:

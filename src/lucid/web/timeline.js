@@ -56,8 +56,19 @@ let lastState = null;
 let zoomMultiplier = 1; // multiplies the fit-to-window base — #zoom is 1..10
 let currentPxPerSec = 1; // cached for the per-frame playhead handler, which
 // must not pay for a full re-render 60 times a second
-let selection = null; // word indices to highlight — see the 'selection'
-// subscription in init() for why this degrades to a no-op today
+let selection = null; // word indices to highlight — set by this file's own
+// drag gesture below, or by the 'selection' bus event for any other pane
+// that wants to drive the highlight
+let cueDrag = null; // {anchorIndex, currentIndex, moved} while a mousedown
+// on the lanes is live — anchorIndex is the drag's *start* word, which is
+// the only address `cue_add` uses (PLAN.md § Three uncosted parity items:
+// "only a drag's start needs an address")
+let cueSelection = null; // {wordIndex, boxLeft, boxTop} once a real drag
+// (cueDrag.moved) finishes — drives the floating cue-placement toolbar
+let cueToolbarEl = null;
+let cueInfoEl = null;
+let suppressNextClick = false; // set when a drag moved, so the native
+// 'click' a mouseup can still fire doesn't also trigger seekOnClick
 
 const MIN_PX_PER_SEC = 4; // guards a zero/near-zero duration from a divide
 const LANE_H_FALLBACK = 42; // matches app.css's --lane-h if the var lookup fails
@@ -341,12 +352,14 @@ function drawWaveformLane(canvas, segments, pxPerSec, laneHeight, contentWidth) 
   }
 }
 
-/** The selected words' span, if the shell exposes one. Nothing in the
- * documented `ctx`/bus contract names a selection event today — this
- * listens for a speculative `'selection'` event `{indices: [wordIndex,
- * …]}` (mirroring `'playing-word'`'s `{index}`) and degrades to a plain
- * timeline, unhighlighted, until some pane actually emits it. See this
- * stage's report for the exact contract assumed. */
+/** The selected words' span, if there is one. Driven by this file's own
+ * drag gesture (below) — a click-and-drag on any lane resolves to a pair
+ * of word indices — or by an external `'selection'` event `{indices:
+ * [wordIndex, …]}` (mirroring `'playing-word'`'s `{index}`), for any other
+ * pane that wants to drive the highlight without owning the box math. Only
+ * the extremal two of `indices` matter: `state.words` is filtered to the
+ * given set and the box spans their min `timeline_start` to max
+ * `timeline_end`, so `[first, last]` alone is enough. */
 function drawSelectionHighlight(lanes, indices, pxPerSec, state) {
   if (!state.words || !indices || !indices.length) return;
   const set = new Set(indices);
@@ -358,6 +371,169 @@ function drawSelectionHighlight(lanes, indices, pxPerSec, state) {
   box.style.left = `${(start * pxPerSec).toFixed(1)}px`;
   box.style.width = `${Math.max(1, (end - start) * pxPerSec).toFixed(1)}px`;
   lanes.append(box);
+}
+
+/** Timeline second -> nearest word, client-side mirror of `ops._nearest_word`
+ * (overlap test first, nearest by edge distance across a gap otherwise) —
+ * but over `state.words`' own `timeline_start`/`timeline_end`, since the
+ * client already has that array for drawing and a drag needs no server
+ * round trip to resolve. Settled by measurement, not guessed at (PLAN.md §
+ * Three uncosted parity items: 85-87% of drags land on a word directly; the
+ * residual is inter-word silence with a 0.54s median gap, snapped here to
+ * whichever word is closer). Present words only — a cut word has no
+ * meaningful timeline position to measure from. */
+function nearestWordAt(words, t) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const w of words) {
+    if (!w.present) continue;
+    if (t >= w.timeline_start && t < w.timeline_end) return w;
+    const dist = t < w.timeline_start ? w.timeline_start - t : t - w.timeline_end;
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = w;
+    }
+  }
+  return nearest;
+}
+
+function laneTimeFromEvent(event) {
+  const lanes = $("track-lanes");
+  const rect = lanes.getBoundingClientRect();
+  return Math.max(0, (event.clientX - rect.left) / currentPxPerSec);
+}
+
+/** Word-range echo, three either side (CLAUDE.md) — the placement word
+ * bracketed so it reads correctly even if it lands one off from what the
+ * drag looked like it meant. */
+function cueEcho(words, wordIndex) {
+  return words
+    .filter((w) => w.index >= wordIndex - 3 && w.index <= wordIndex + 3)
+    .map((w) => (w.index === wordIndex ? `[${w.text}]` : w.text))
+    .join(" ");
+}
+
+function refreshCueToolbar() {
+  if (!cueToolbarEl) return;
+  if (!cueSelection || !lastState || !lastState.words) {
+    cueToolbarEl.hidden = true;
+    return;
+  }
+  cueInfoEl.textContent = cueEcho(lastState.words, cueSelection.wordIndex);
+  cueToolbarEl.style.left = `${cueSelection.boxLeft.toFixed(1)}px`;
+  cueToolbarEl.style.top = `${cueSelection.boxTop.toFixed(1)}px`;
+  cueToolbarEl.hidden = false;
+}
+
+function cancelCueSelection() {
+  cueDrag = null;
+  cueSelection = null;
+  selection = null;
+  refreshCueToolbar();
+  render();
+}
+
+/** `POST /api/cue` — the fourth caller into `ops.cue_add`, alongside the
+ * CLI and MCP tool (CLAUDE.md: every mutation posts to the same `ops`
+ * function). The result is never rendered here, same rule as Cut/Restore
+ * in transcript.js — it goes on the shared bus and agent.js draws it into
+ * the feed; 'project-changed' brings the new shot through the normal
+ * update() path. */
+async function placeCue(assetInput) {
+  if (!cueSelection || !ctx || !lastState) return;
+  const asset = assetInput.value.trim();
+  if (!asset) {
+    assetInput.focus();
+    return;
+  }
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/cue", {
+      clip_id: lastState.clip_id,
+      word_index: cueSelection.wordIndex,
+      asset,
+    });
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error) {
+    assetInput.value = "";
+    cancelCueSelection();
+  }
+}
+
+function buildCueToolbar() {
+  const bar = el("div", "selection-toolbar cue-toolbar");
+  bar.hidden = true;
+
+  const info = el("div", "quote");
+  const assetInput = document.createElement("input");
+  assetInput.type = "text";
+  assetInput.placeholder = "asset — clip_id or card:name";
+  assetInput.style.width = "18em";
+  const placeBtn = el("button", null, "Place cue");
+  const cancelBtn = el("button", null, "Cancel");
+
+  placeBtn.addEventListener("click", () => placeCue(assetInput));
+  assetInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") placeCue(assetInput);
+    if (event.key === "Escape") cancelCueSelection();
+  });
+  cancelBtn.addEventListener("click", cancelCueSelection);
+
+  bar.append(info, assetInput, placeBtn, cancelBtn);
+  cueToolbarEl = bar;
+  cueInfoEl = info;
+}
+
+/** Drag-select on the timeline, the third b-roll entry point beside the
+ * agent prompt and the transcript selection (DAYDREAM.md). Only the drag's
+ * *start* resolves to a word — that measured premise (see `nearestWordAt`'s
+ * comment) is what makes this cheap: no gap-anchored address space to
+ * build, just a snap onto the existing word-index one. A plain click with
+ * no movement is left alone, so `seekOnClick` still owns it. */
+function handleLanesMouseDown(event) {
+  if (event.button !== 0) return;
+  if (cueToolbarEl && cueToolbarEl.contains(event.target)) return;
+  if (!lastState || !lastState.words || !lastState.words.length) return;
+  const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
+  if (!word) return;
+  cueSelection = null;
+  refreshCueToolbar();
+  cueDrag = { anchorIndex: word.index, currentIndex: word.index, moved: false };
+  selection = [word.index];
+  render();
+}
+
+function handleLanesMouseMove(event) {
+  if (!cueDrag || !lastState || !lastState.words) return;
+  const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
+  if (!word) return;
+  if (word.index !== cueDrag.anchorIndex) cueDrag.moved = true;
+  cueDrag.currentIndex = word.index;
+  selection = [cueDrag.anchorIndex, cueDrag.currentIndex];
+  render();
+}
+
+function handleLanesMouseUp(event) {
+  if (!cueDrag) return;
+  if (cueDrag.moved) {
+    suppressNextClick = true;
+    const rect = $("track-lanes").getBoundingClientRect();
+    cueSelection = {
+      wordIndex: cueDrag.anchorIndex,
+      boxLeft: Math.max(0, event.clientX - rect.left),
+      boxTop: Math.max(0, event.clientY - rect.top + 10),
+    };
+    refreshCueToolbar();
+  } else {
+    selection = null;
+    render();
+  }
+  cueDrag = null;
 }
 
 function render() {
@@ -429,6 +605,12 @@ function render() {
 
   if (selection) drawSelectionHighlight(lanes, selection, pxPerSec, state);
 
+  // Persistent node, re-appended every render — `lanes.textContent = ""`
+  // above would otherwise drop it along with the rows, and a fresh element
+  // each time would lose whatever the asset field has typed in it.
+  lanes.append(cueToolbarEl);
+  refreshCueToolbar();
+
   // Deferred until the rows are actually in the DOM: drawWaveformLane reads
   // row.clientHeight, which is 0 for a detached node.
   for (const draw of waveformDraws) draw();
@@ -436,6 +618,26 @@ function render() {
 
 export function init(passedCtx) {
   ctx = passedCtx;
+  buildCueToolbar();
+
+  const lanes = $("track-lanes");
+  if (lanes) {
+    lanes.addEventListener("mousedown", handleLanesMouseDown);
+    window.addEventListener("mousemove", handleLanesMouseMove);
+    window.addEventListener("mouseup", handleLanesMouseUp);
+    // Capture phase, so this runs before any row's own bubble-phase
+    // seekOnClick listener — a drag that moved should not also seek.
+    lanes.addEventListener(
+      "click",
+      (event) => {
+        if (!suppressNextClick) return;
+        suppressNextClick = false;
+        event.stopPropagation();
+        event.preventDefault();
+      },
+      true,
+    );
+  }
 
   const zoomInput = $("zoom");
   if (zoomInput) {
@@ -466,7 +668,10 @@ export function init(passedCtx) {
     if (line) line.style.left = `${now * currentPxPerSec}px`;
   });
 
-  // Speculative — see drawSelectionHighlight's comment above.
+  // This file's own drag gesture (handleLanesMouseDown/Move/Up) sets
+  // `selection` directly rather than round-tripping through the bus — this
+  // subscription is for any other pane that wants to drive the highlight
+  // without duplicating drawSelectionHighlight's box math.
   ctx.on("selection", (payload) => {
     selection = payload && Array.isArray(payload.indices) && payload.indices.length ? payload.indices : null;
     if (lastState) render();

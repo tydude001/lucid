@@ -3652,6 +3652,31 @@ The order was adopted 2026-08-12.
     separate deferrals — then the panes (assets/import roles; properties,
     whose gate cleared when graphics shipped), multi-project, HTTP transport,
     filmstrip thumbnails.
+    - **The window learning to place a cue shipped 2026-08-13.** The
+      settled premise (§ Three uncosted parity items: 85–87% of drags are
+      word-anchorable, no gap-anchored address space needed) meant nothing
+      in `Edit`'s addressing had to change — just a gesture and a route. A
+      click-and-drag on any timeline lane resolves its *start* to a word
+      index (`timeline.js`'s own client-side mirror of `ops._nearest_word`,
+      over `state.words` it already had for drawing — no server round trip
+      to place the highlight), and feeds the already-drawn but previously
+      dead `drawSelectionHighlight`/`'selection'` plumbing for the first
+      time. A small floating toolbar (the same `.selection-toolbar` CSS
+      transcript.js's Cut/Restore bar uses) takes a free-text asset name —
+      `clip_id` or `card:name`, typed by hand, since the assets pane this
+      would otherwise drag from is the *next* item on this list and does
+      not exist yet — and posts to a new `/api/cue`, a fourth caller into
+      `ops.cue_add` alongside the CLI and MCP tool, matching every other
+      mutating route in `webui.py`'s `_POST_ROUTES`. A plain click with no
+      drag is left alone (`seekOnClick` still owns it; a capture-phase
+      click listener swallows the one native `click` a real drag can still
+      fire, so it never double-fires a seek). Backend covered by three new
+      real-socket tests in `test_webui_http.py` (91/91 pass); the drag
+      gesture itself is the one piece this session could not verify —
+      `lucid web` binds loopback only and no browser tool was available
+      here, so it needs a real-browser pass before being called done for
+      the UI half. **What is left of this item: that browser pass, then the
+      panes, multi-project, HTTP transport, and filmstrip thumbnails.**
 
 Corrected the same day, found by the same review: DAYDREAM.md's two stale
 rows (b-roll's "nothing is built"; aspect swap's "none has been reviewed").

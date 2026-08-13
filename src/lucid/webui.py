@@ -1368,6 +1368,32 @@ def _undo(root: str, _payload: dict[str, Any]) -> dict[str, Any]:
     return ops.undo(root)
 
 
+def _cue_add(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/cue` — the timeline drag gesture's landing point.
+
+    A fourth caller into `ops.cue_add`, alongside the CLI and MCP tool,
+    matching every other route in this table (CLAUDE.md: the web UI draws
+    and plays, it never decides — every mutation posts to the same `ops`
+    function the CLI and MCP call).
+    """
+    asset = payload.get("asset")
+    if not isinstance(asset, str) or not asset:
+        raise WebUIError("'asset' is required")
+    word_index = payload.get("word_index")
+    try:
+        word_index = int(word_index)
+    except (TypeError, ValueError):
+        raise WebUIError("'word_index' must be an integer") from None
+    src_start = payload.get("src_start")
+    return ops.cue_add(
+        root,
+        _clip_arg(payload),
+        word_index,
+        asset,
+        src_start=None if src_start is None else _float_arg(payload, "src_start"),
+    )
+
+
 def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     """`POST /api/agent/thumbs` — append one rating to `Project.thumbs_path`.
 
@@ -1430,6 +1456,7 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/cut-at": _cut_at,
     "/api/restore": _restore,
     "/api/undo": _undo,
+    "/api/cue": _cue_add,
     "/api/agent/thumbs": _agent_thumb,
 }
 
