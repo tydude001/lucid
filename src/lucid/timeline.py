@@ -509,6 +509,54 @@ class Edit:
         self.segments = self.segments[:lo0] + own + self.segments[hi0 + 1 :]
         return pieces
 
+    def insert(self, clip_id: str, at: float, new_clip_id: str, new_start: float, new_end: float) -> None:
+        """Open a gap for material the source never had — `vo_extend`'s mutator.
+
+        Unlike every other method here, this **grows** the timeline: it splices
+        `new_clip_id`'s `[new_start, new_end)` in at `clip_id`'s source instant
+        `at`, splitting `clip_id`'s own segment there if `at` falls strictly
+        inside one. This is the one deliberate exception to the module
+        docstring's subtractive model (PLAN.md § `vo_extend` — the design
+        note); nothing else in this file adds source that was not already on
+        the timeline.
+
+        `at` must land on material `clip_id` currently plays — the first
+        segment (in timeline order) whose `[start, end]` contains it, `end`
+        inclusive so a boundary shared by two segments picks the earlier one,
+        splicing the new material in right after it rather than before its
+        neighbour. A gap (already cut, or never on the timeline) has no
+        segment to find and is refused rather than guessed at: opening a hold
+        is "after this word", and a word that is not currently playing has no
+        "after" to be at.
+
+        The new segment is a real, separate `Segment` of `new_clip_id` — never
+        folded into `clip_id`'s own run — so `restore`'s contiguity check sees
+        it and refuses across the hold by construction (its docstring already
+        names this future). Word indices into `clip_id`'s transcript are
+        unaffected: every source coordinate already on the timeline keeps its
+        meaning, only the timeline positions downstream of `at` move later.
+        """
+        if new_end <= new_start:
+            raise TimelineError(f"interval {new_start:.3f}-{new_end:.3f} is empty or backwards")
+
+        for j, seg in enumerate(self.segments):
+            if seg.clip_id == clip_id and seg.start <= at <= seg.end:
+                break
+        else:
+            raise TimelineError(
+                f"source instant {at:.3f}s of clip {clip_id!r} is not on the timeline "
+                "(already cut, or never present) — insert only opens a gap inside "
+                "material that currently plays"
+            )
+
+        pieces: list[Segment] = []
+        if at - seg.start >= MIN_SEGMENT:
+            pieces.append(replace(seg, end=at))
+        pieces.append(Segment(clip_id=new_clip_id, start=new_start, end=new_end))
+        if seg.end - at >= MIN_SEGMENT:
+            pieces.append(replace(seg, start=at))
+        self.segments = self.segments[:j] + pieces + self.segments[j + 1 :]
+
 
 def _subtract(seg: Segment, start: float, end: float) -> list[Segment]:
     """Remove `[start, end)` from one segment: 0, 1 or 2 segments come back."""

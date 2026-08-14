@@ -70,6 +70,7 @@ EXPECTED_TOOLS = {
     "caption_style",
     "canvas",
     "tail",
+    "vo_extend",
     "reel",
     "review_add",
     "review_verdict",
@@ -214,6 +215,7 @@ TOOL_TO_COMMAND = {
     "caption_style": "caption-style",
     "canvas": "canvas",
     "tail": "tail",
+    "vo_extend": "vo-extend",
     "reel": "reel",
     "review_add": "review",
     "review_verdict": "review",
@@ -2077,6 +2079,76 @@ def test_tail_refuses_a_media_clip_asset(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "card" in out["text"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_vo_extend_over_the_wire(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """Registration and the `-C` binding for the one op authorized to grow the
+    timeline (PLAN.md § `vo_extend` — the design note). `plan=True` reports
+    the same shape as the real call but writes neither the manifest nor the
+    timeline; the real call then lands the hold and reports `covered_by`
+    against a cue that would otherwise freeze silently across it.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        clip_id = clip["clip_id"]
+        await client.call(
+            "attach_transcript", path=str(project), clip_id=clip_id, transcript_path=str(transcript)
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip_id, remove_silences=False
+        )
+        Project.open(project).cards_dir.joinpath("cold-open.png").write_bytes(b"\x89PNG")
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip_id, word_index=0, asset="card:cold-open"
+        )
+        manifest_before = Project.open(project).manifest_path.read_text()
+
+        planned = await client.call(
+            "vo_extend", path=str(project), clip_id=clip_id, word_index=1, seconds=2.0, plan=True
+        )
+        manifest_after_plan = Project.open(project).manifest_path.read_text()
+        real = await client.call(
+            "vo_extend", path=str(project), clip_id=clip_id, word_index=1, seconds=2.0
+        )
+        status = await client.call("timeline_status", path=str(project))
+        refused = await session.call_tool(
+            "vo_extend",
+            {"path": str(project), "clip_id": clip_id, "word_index": 1, "seconds": -1.0},
+        )
+        return {
+            "clip": clip,
+            "planned": planned,
+            "manifest_before": manifest_before,
+            "manifest_after_plan": manifest_after_plan,
+            "real": real,
+            "status": status,
+            "refused_is_error": refused.is_error,
+            "refused_text": refused.content[0].text,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["written"] is False
+    assert out["manifest_after_plan"] == out["manifest_before"], "a plan touched the manifest"
+    assert out["planned"]["duration_after"] == pytest.approx(14.0)
+
+    assert out["real"]["written"] is True
+    assert out["real"]["text"] == "w01"
+    assert out["real"]["duration_before"] == pytest.approx(12.0)
+    assert out["real"]["duration_after"] == pytest.approx(14.0)
+    assert [c["asset"] for c in out["real"]["covered_by"]] == ["card:cold-open"]
+
+    assert out["status"]["timeline_duration"] == pytest.approx(14.0)
+
+    assert out["refused_is_error"]
+    assert "positive" in out["refused_text"]
 
 
 def test_review_add_registers_a_render_and_a_matching_control(tmp_path: Path) -> None:

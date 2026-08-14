@@ -3597,6 +3597,19 @@ The order was adopted 2026-08-12.
    (§ Parked's constraints; HISTORY.md § `cut_by_time`). Not needed for tail
    time — shape B made the tail downstream of `Edit` — its cases are the
    Billy/Stu hold and manufactured mid-film silence.
+   - **Built 2026-08-14** (HISTORY.md § `vo_extend`, built), exactly the shape
+     the design note settled: `Edit.insert` splices a real generated-silence
+     clip in via a new mutator rather than widening a clip_id past its
+     registered duration, `restore`'s existing interleaved-segments check and
+     `_is_layered`'s existing clip-count test both catch the two named
+     consequences with no changes of their own, and word indices upstream of
+     a hold are untouched. `ops.vo_extend`/CLI `vo-extend`/the MCP tool report
+     `covered_by` — the reporting obligation the note flagged as the one
+     unbudgeted piece, since `build_shots` would otherwise auto-extend stale
+     picture across a hold with every other check staying clean. **This item
+     is closed.** What it does not settle, because it was never in scope: the
+     design note's own open question — whether the Billy/Stu hold is worth
+     using on the actual film — stays editorial, decided on a watch.
 8. **The channel preset pack** — templating, after tail time gives the assets
    a home. lucid stays generic (`mark` is an empty slot, deliberately);
    goodsometimes ships a loadable pack: palette, faces, the mark as

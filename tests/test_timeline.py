@@ -201,6 +201,112 @@ def test_restore_raises_when_the_clips_segments_are_interleaved() -> None:
         edit.restore("vo", 4.0, 6.0, duration=10.0)
 
 
+# -- insert (vo_extend) -----------------------------------------------------
+
+
+def test_insert_splits_a_segment_at_an_interior_instant() -> None:
+    edit = _edit((0.0, 10.0))
+    edit.insert("vo", 4.0, "hold", 0.0, 2.0)
+    assert [(s.clip_id, s.start, s.end) for s in edit.segments] == [
+        ("vo", 0.0, 4.0),
+        ("hold", 0.0, 2.0),
+        ("vo", 4.0, 10.0),
+    ]
+    assert edit.duration == pytest.approx(12.0)
+
+
+def test_insert_at_a_segment_end_needs_no_split() -> None:
+    edit = _edit((0.0, 4.0), (4.0, 10.0))
+    edit.insert("vo", 4.0, "hold", 0.0, 2.0)
+    assert [(s.clip_id, s.start, s.end) for s in edit.segments] == [
+        ("vo", 0.0, 4.0),
+        ("hold", 0.0, 2.0),
+        ("vo", 4.0, 10.0),
+    ]
+
+
+def test_insert_at_the_very_start_prepends() -> None:
+    edit = _edit((0.0, 10.0))
+    edit.insert("vo", 0.0, "hold", 0.0, 2.0)
+    assert [(s.clip_id, s.start, s.end) for s in edit.segments] == [
+        ("hold", 0.0, 2.0),
+        ("vo", 0.0, 10.0),
+    ]
+
+
+def test_insert_at_the_very_end_appends() -> None:
+    edit = _edit((0.0, 10.0))
+    edit.insert("vo", 10.0, "hold", 0.0, 2.0)
+    assert [(s.clip_id, s.start, s.end) for s in edit.segments] == [
+        ("vo", 0.0, 10.0),
+        ("hold", 0.0, 2.0),
+    ]
+
+
+def test_insert_picks_the_earlier_segment_on_a_shared_boundary() -> None:
+    """A boundary an earlier cut left behind: `at` sits at both the end of one
+    segment and the start of the next. The hold goes right after the first,
+    never before the second — the same segment `first_overlapping`'s
+    `ends`-inclusive walk would land on."""
+    edit = _edit((0.0, 4.0), (4.0, 10.0))
+    edit.insert("vo", 4.0, "hold", 0.0, 2.0)
+    assert [(s.clip_id, s.start, s.end) for s in edit.segments] == [
+        ("vo", 0.0, 4.0),
+        ("hold", 0.0, 2.0),
+        ("vo", 4.0, 10.0),
+    ]
+
+
+def test_insert_leaves_other_clips_alone() -> None:
+    edit = Edit([Segment("vo", 0.0, 10.0), Segment("cam", 0.0, 10.0)])
+    edit.insert("vo", 5.0, "hold", 0.0, 2.0)
+    clip_ids = [s.clip_id for s in edit.segments]
+    assert clip_ids == ["vo", "hold", "vo", "cam"]
+
+
+def test_insert_refuses_a_backwards_or_empty_new_range() -> None:
+    edit = _edit((0.0, 10.0))
+    with pytest.raises(TimelineError, match="empty or backwards"):
+        edit.insert("vo", 4.0, "hold", 2.0, 2.0)
+    with pytest.raises(TimelineError, match="empty or backwards"):
+        edit.insert("vo", 4.0, "hold", 3.0, 2.0)
+
+
+def test_insert_refuses_an_instant_that_is_not_on_the_timeline() -> None:
+    """A cut source instant (in a gap) has no segment to split — `vo_extend`
+    is "open a gap after this word", not "resurrect a cut one"."""
+    edit = _edit((0.0, 4.0), (6.0, 10.0))
+    with pytest.raises(TimelineError, match="not on the timeline"):
+        edit.insert("vo", 5.0, "hold", 0.0, 2.0)
+
+
+def test_insert_refuses_a_clip_with_no_surviving_segment() -> None:
+    edit = _edit((0.0, 10.0), clip_id="cam")
+    with pytest.raises(TimelineError, match="not on the timeline"):
+        edit.insert("vo", 5.0, "hold", 0.0, 2.0)
+
+
+def test_insert_then_restore_across_it_is_refused() -> None:
+    """§ `vo_extend` — the design note's item 1: `restore`'s existing
+    interleaved-segments check catches a hold by construction, needing no
+    change of its own."""
+    edit = _edit((0.0, 10.0))
+    edit.remove("vo", 2.0, 3.0)
+    edit.insert("vo", 6.0, "hold", 0.0, 2.0)
+    with pytest.raises(TimelineError, match="not contiguous"):
+        edit.restore("vo", 2.0, 3.0, duration=10.0)
+
+
+def test_insert_then_export_routing_sees_two_clip_ids() -> None:
+    """§ `vo_extend` — the design note's item 2: once a hold lands, the
+    timeline holds more than one clip_id, which is `_is_layered`'s own test
+    in ops.py — nothing in `Edit` has to say so itself, but the segment list
+    it produces is what that test reads."""
+    edit = _edit((0.0, 10.0))
+    edit.insert("vo", 5.0, "hold", 0.0, 2.0)
+    assert len({s.clip_id for s in edit.segments}) == 2
+
+
 # -- addressing ----------------------------------------------------------
 
 

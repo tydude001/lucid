@@ -7443,3 +7443,75 @@ the pointer math, the toolbar's positioning, and whether a real drag feels
 right are not — CLAUDE.md's own rule (headless Chrome does not composite
 what a person would see) applies here as much as it does to the picture
 layer. Needs a real-browser pass before this item is fully closed.
+
+## `vo_extend`, built — 2026-08-14
+
+PLAN.md § `vo_extend` — the design note, read against real code rather than
+reasoned about further, held on every point: the addressing work everyone
+expected was not there, and the reporting obligation the note flagged as
+unbudgeted is what most of this session went into.
+
+**`Edit.insert`** is the one new mutator, and the one deliberate exception to
+`timeline.py`'s subtractive module docstring: it splices a new `clip_id`'s
+`[new_start, new_end)` in at an existing clip's source instant, splitting the
+segment there if the instant falls strictly inside one. The instant has to
+land on material the clip currently plays — `seg.start <= at <= seg.end`,
+first match wins, so a boundary shared by two segments (an existing cut)
+picks the earlier one and the hold lands right after it rather than before
+its neighbour. An instant in a gap has no segment to find and is refused,
+same failure shape as everything else that resolves a word index against a
+timeline that has moved. Ten new tests in `test_timeline.py` pin the shape:
+interior split, exact-boundary (both directions), head, tail, the
+shared-boundary tie-break, leaving other clips alone, the two refusals, and
+the two "already true of the machinery" claims the note made —
+`restore`'s interleaved-segments check firing across a hold with no change of
+its own, and `_is_layered`'s clip-count test seeing two `clip_id`s the moment
+one lands.
+
+**`ops.vo_extend(path, clip_id, word_index, seconds, plan=)`** is the op.
+`word_index` names the last word before the gap — the hold opens at that
+word's own end, read through `_cue_echo` the same way every other word-index
+tool here does, so the echo carries the resolved word and its three
+neighbours either side for free. The manufactured stretch is a real WAV
+(`picture.render_silence`, already built for `tail` and reused as-is —
+`_tail_silence`'s cache-by-seconds means two holds of the same length in one
+project share one registered clip, the same dedup `import_media` gives any
+re-imported path) — never a clip_id's registered duration widened past what
+the file has, the design note's shape A, which would hand melt frames that do
+not exist.
+
+**The reporting obligation:** `build_shots` runs each shot from its cue to
+the next, so whichever picture was already playing auto-extends across a
+hold by default, and `shots_error`/`verify`/`check_frames` all stay clean
+because nothing was orphaned and nothing went missing — a silent success,
+exactly the failure shape this repo is least able to see on its own. Answering
+it needed one small widening: `build_shots` and `_picture_plan` both grew an
+`edit: Edit | None` override, so `vo_extend` can ask what the picture lane
+would look like over the *mutated, not-yet-saved* edit before deciding
+whether to write it. `covered_by` is the shots (if any) whose span now
+overlaps the opened gap — `[]`, truthfully, for a project with no cue table
+at all, since there is no picture layer to freeze in the first place.
+
+**`plan=True` writes neither the manifest nor the timeline** — `import_media`
+is what would actually register the clip, and a plan stops one step short of
+it, reporting a placeholder `hold_clip_id` rather than one that does not yet
+exist. The silence WAV itself is still rendered under `plan`, the same cached
+artifact a real call would reuse, so `covered_by` is computed exactly the way
+the real edit would produce it rather than approximated.
+
+CLI (`lucid vo-extend clip_id word_index seconds [--plan]`) and MCP tool
+wired the same way `tail` is, registered in `EXPECTED_TOOLS` and
+`TOOL_TO_COMMAND` (`test_server_stdio.py`'s parity assertion, CLAUDE.md).
+12 new ops-level tests (`test_ops_vo_extend.py`) plus one real-stdio test
+covering the whole wire: `plan` leaves the manifest byte-identical, the real
+call lands the hold and reports `covered_by` against a cue that would
+otherwise freeze across it, and a negative `seconds` refuses over the wire
+with the right text. Full suite: 1178 passed, the same 4 melt-rendering
+failures this session's environment always produces (no desktop behind it —
+CLAUDE.md, § Rendering through `melt`) and nowhere else; confirmed by reading
+every failure rather than trusting the count.
+
+Not measured here, because it was never in scope: whether the hold is worth
+using on the actual Billy/Stu case. That is the design note's own open
+question, editorial, decided on a watch — this session built the mechanism
+the note authorized, not the cut.

@@ -1391,7 +1391,9 @@ def _resolve_asset(project: Project, asset: str) -> dict[str, Any]:
     return {"asset_path": str(resolved), "is_image": is_image, "asset_duration": duration}
 
 
-def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]:
+def build_shots(
+    path: Path | str, *, fps: float | None = None, edit: tl.Edit | None = None
+) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 
     Step 2 of the layered timeline (PLAN.md § The layered timeline):
@@ -1441,9 +1443,13 @@ def build_shots(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
     rate instead (`_export_fps`), so `export` passes its own rate through
     rather than converting the answer afterwards: two roundings of the same
     number are how a picture ends up a frame off the audio it was cut to.
+
+    `edit` overrides the timeline read off disk — for a caller (`vo_extend`)
+    that needs the projection over an edit it has mutated in memory but not
+    yet decided to save, never for an ordinary read.
     """
     project = Project.open(path)
-    edit = _load_edit(project)
+    edit = edit if edit is not None else _load_edit(project)
     rate = float(fps) if fps else _rate(project)
     total_frames = autoeditor.frame_total(edit, rate)
 
@@ -1520,7 +1526,9 @@ _PICTURE_REFUSALS = (
 )
 
 
-def _picture_plan(project: Project, rate: float) -> tuple[list[dict[str, Any]], list[mlt.Entry]]:
+def _picture_plan(
+    project: Project, rate: float, *, edit: tl.Edit | None = None
+) -> tuple[list[dict[str, Any]], list[mlt.Entry]]:
     """The picture track, projected and planned, on one frame grid.
 
     Two steps that have to travel together: `build_shots` (step 2) says when
@@ -1540,10 +1548,13 @@ def _picture_plan(project: Project, rate: float) -> tuple[list[dict[str, Any]], 
 
     `([], [])` for a project with no cues, which is not a refusal: the edit's
     own track is the whole picture then.
+
+    `edit` is passed straight through to `build_shots`, for the same
+    not-yet-saved-edit case that parameter exists for.
     """
     if not project.read_manifest().get("cues"):
         return [], []
-    shots = build_shots(project.root, fps=rate)["shots"]
+    shots = build_shots(project.root, fps=rate, edit=edit)["shots"]
     entries = mlt.plan_picture(shots, rate)
     annotated = [
         {**shot, "src_in": entry.src_in, "src_out": entry.src_out, "src_start": entry.src_in / rate}
@@ -5980,6 +5991,133 @@ def tail(
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),
+    }
+
+
+def vo_extend(
+    path: Path | str,
+    clip_id: str,
+    word_index: int,
+    seconds: float,
+    *,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Open a gap in `clip_id`'s track for material the recording never had.
+
+    PLAN.md § `vo_extend` — the design note: the one item authorized to bend
+    `Edit`'s subtractive invariant, for the case (and it is one case, not two —
+    the note's own finding) of letting a line the film's own footage carries
+    play under a hold in the VO, or manufacturing silence mid-film for the
+    same reason. It is **not** the tail — that is downstream of `Edit` and
+    unaffected by this (`tail`) — and it is not `restore`, which only ever
+    walks the subtractive invariant backward.
+
+    `word_index` names the last word *before* the gap; the hold opens
+    immediately after that word's own end, in `clip_id`'s source time. The
+    word must currently be on the timeline — an index that names cut material
+    has nothing for "after" to mean, and is refused rather than guessed at,
+    the same refusal `Edit.insert` raises for the case with no echo to give it
+    a face.
+
+    The manufactured stretch is real source, never a `clip_id` widened past
+    its registered duration (the design note's shape A, disallowed as
+    unreadable — `_build_mlt` would hand melt frames the file does not have).
+    It is a silent WAV rendered by `picture.render_silence`, imported like any
+    other asset (`media.import_media`) and spliced in as its own segment via
+    `Edit.insert` — so a second call for the same `seconds` reuses the same
+    registered clip, the same dedup `import_media` gives any re-imported path.
+    Nothing about `clip_id`'s own word indices moves: `Edit.insert` adds
+    timeline length downstream of the hold, never renumbers a source
+    coordinate upstream of it (the line this note draws and forbids crossing
+    — a manufactured stretch spliced into the *recording itself* would).
+
+    **What this reports, and the reason the design note exists at all:**
+    `build_shots` runs every shot from its cue's frame to the next, so
+    whichever picture was already playing auto-extends across a hold by
+    default — a silent success, with `shots_error`/`verify`/`check_frames`
+    all staying clean, because nothing was orphaned and nothing went missing.
+    `covered_by` names every shot (if any) whose span now overlaps the opened
+    gap, computed over the *mutated* edit before it is decided whether to
+    save it — a project with no cue table at all has no picture layer to
+    freeze and reports `covered_by: []` truthfully, not as a lie of omission.
+
+    Two real, one-way consequences ride along, both already true of the
+    machinery rather than new code here: `restore` refuses across the hold
+    the moment `clip_id`'s segments stop being contiguous (its own
+    interleaved-segments check, unchanged), and export permanently switches
+    to the MLT writer once the timeline holds more than one `clip_id`
+    (`_is_layered`'s existing test) — there is no path back to auto-editor
+    for a project that has ever been extended.
+
+    `plan=True` resolves and reports `covered_by` without writing anything —
+    not the timeline and not the manifest, `cut_by_time`'s and `tail`'s own
+    rule. It renders the silence WAV (a cached, unregistered file under
+    `tail_dir`, the same one a real call would reuse) so the preview's
+    `covered_by` is computed exactly the way the real edit would be, but
+    stops short of `import_media`, which is what would actually add the clip
+    to the project — that write happens only once this runs for real, and a
+    plan therefore reports a placeholder `hold_clip_id` rather than the one
+    that will exist.
+    """
+    seconds = float(seconds)
+    if seconds <= 0:
+        raise tl.TimelineError(f"seconds must be positive, not {seconds!r}")
+
+    project = Project.open(path)
+    media.get_clip(project, clip_id)
+    parsed = _transcript(project, clip_id)
+    word_index = int(word_index)
+    echo = _cue_echo(parsed, word_index)
+    at = echo["end"]
+
+    edit = _load_edit(project)
+    timeline_at = edit.timeline_time(clip_id, at, closed_end=True)
+    if timeline_at is None:
+        raise tl.TimelineError(
+            f"word {word_index} ({echo['text']!r}) of clip {clip_id!r} is not on "
+            "the timeline (already cut) — vo_extend opens a gap after material "
+            "that currently plays, and this word does not"
+        )
+
+    silence_path = _tail_silence(project, seconds)
+    if plan:
+        hold_clip_id = f"hold-{round(seconds * 1000)}ms"
+    else:
+        hold_clip_id = media.import_media(project, silence_path)["clip_id"]
+
+    before = edit.duration
+    edit.insert(clip_id, at, hold_clip_id, 0.0, seconds)
+
+    rate = _rate(project)
+    shots, _ = _picture_plan(project, rate, edit=edit)
+    gap_start, gap_end = timeline_at, timeline_at + seconds
+    covered_by = [
+        {
+            "clip_id": shot["clip_id"],
+            "word_index": shot["word_index"],
+            "asset": shot["asset"],
+            "start": shot["start"],
+            "duration": shot["duration"],
+        }
+        for shot in shots
+        if shot["start"] < gap_end and shot["start"] + shot["duration"] > gap_start
+    ]
+
+    if not plan:
+        _save_edit(project, edit)
+
+    return {
+        "clip_id": clip_id,
+        "hold_clip_id": hold_clip_id,
+        "seconds": seconds,
+        "timeline_start": timeline_at,
+        "timeline_end": gap_end,
+        "duration_before": before,
+        "duration_after": edit.duration,
+        "covered_by": covered_by,
+        "written": not plan,
+        "plan": bool(plan),
+        **echo,
     }
 
 

@@ -620,6 +620,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_vo_extend = sub.add_parser(
+        "vo-extend",
+        help="open a gap in a clip's track for material the recording never had",
+    )
+    p_vo_extend.add_argument("clip_id")
+    p_vo_extend.add_argument(
+        "word_index", type=int, help="the last word before the gap — the hold opens right after it"
+    )
+    p_vo_extend.add_argument("seconds", type=float, help="the hold's length")
+    p_vo_extend.add_argument(
+        "--plan", action="store_true", help="resolve and report covered_by without writing"
+    )
+
     p_reel = sub.add_parser(
         "reel", help="derive a new project holding one span of this one's timeline"
     )
@@ -1416,6 +1429,14 @@ def _cmd_tail(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_vo_extend(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.vo_extend(
+            args.project, args.clip_id, args.word_index, args.seconds, plan=args.plan
+        )
+    )
+
+
 def _cmd_reel(args: argparse.Namespace) -> int:
     start, end = args.keep
     return _emit(
@@ -1654,6 +1675,7 @@ _COMMANDS = {
     "canvas": _cmd_canvas,
     "fonts": _cmd_fonts,
     "tail": _cmd_tail,
+    "vo-extend": _cmd_vo_extend,
     "reel": _cmd_reel,
     "review": _cmd_review,
     "reframe": _cmd_reframe,

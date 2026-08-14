@@ -1040,6 +1040,55 @@ def tail(
     return ops.tail(path, asset=asset, seconds=seconds, fade=fade, reset=reset, plan=plan)
 
 
+@_tool()
+def vo_extend(
+    path: str,
+    clip_id: str,
+    word_index: int,
+    seconds: float,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Open a gap in `clip_id`'s track for material the recording never had.
+
+    The one item authorized to bend `Edit`'s subtractive invariant (PLAN.md
+    § `vo_extend` — the design note) — a real hold in the VO, e.g. to let a
+    line the film's own footage carries play under it, or manufactured
+    mid-film silence for the same reason. Not the tail (`tail`, downstream of
+    `Edit`), and not `restore` (which only ever walks the invariant backward).
+
+    `word_index` names the last word *before* the gap; the hold opens
+    immediately after that word's own end. The word must currently be on the
+    timeline — an index naming cut material is refused rather than guessed
+    at. `seconds` is the hold's length, an editorial call this makes no
+    attempt to derive.
+
+    The manufactured stretch is a real silent WAV, imported and registered
+    like any other clip (never a clip_id widened past its registered
+    duration, which is unreadable — melt would be asked for frames the file
+    does not have). A second call at the same `seconds` reuses the same
+    registered clip.
+
+    **`covered_by` is the reason this needs its own design note.**
+    `build_shots` runs each shot to the next cue, so whichever picture was
+    already playing auto-extends across a hold by default — a silent
+    success, with `shots_error`/`verify`/`check_frames` all staying clean.
+    `covered_by` names every shot the opened gap now overlaps, so a stale
+    freeze is visible instead of invisible; `[]` with no cue table at all,
+    truthfully, since there is no picture layer to freeze.
+
+    Two consequences ride along for free once a hold lands: `restore`
+    refuses the moment `clip_id`'s segments stop being contiguous (its own
+    existing check), and export permanently switches to the MLT writer
+    (`_is_layered`'s existing multi-clip test) — there is no path back to
+    auto-editor for a project that has ever been extended.
+
+    `plan=True` resolves and reports `covered_by` without writing the
+    manifest or the timeline; its `hold_clip_id` is a placeholder, since
+    nothing was actually registered.
+    """
+    return ops.vo_extend(path, clip_id, word_index, seconds, plan=plan)
+
+
 @_tool("path", "dest")
 def reel(
     path: str,
