@@ -229,6 +229,17 @@ installed package or the upstream repo, not your memory.
     why `status` and `check_frames` read `expected_duration` rather than the
     edit. HISTORY.md § Tail time, built; § The end card and the bumper became
     templates.
+  - **`vo_extend` is built, and it is the one op authorized to grow `Edit`
+    rather than only cut it.** `Edit.insert` splices a real generated-silence
+    clip in — never a clip_id widened past its registered duration — and
+    `restore`/export routing need no changes of their own: `restore` already
+    refuses once a clip's segments stop being contiguous, and `_is_layered`
+    already routes to melt on a second `clip_id`, both permanently once a
+    hold lands. **The one thing to check is `covered_by`** — `build_shots`
+    runs each shot to the next cue, so a hold with no cue of its own gets
+    whichever picture was already playing frozen across it by default, with
+    `shots_error`/`verify`/`check_frames` all staying clean. HISTORY.md
+    § `vo_extend`, built.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).
@@ -598,8 +609,9 @@ installed package or the upstream repo, not your memory.
     of the parity queue.
 - **`Edit`'s addressing reads a cached `_SpanIndex`, so never mutate
   `edit.segments` in place** — assigning the attribute is what drops the index,
-  and a stale one answers every lookup confidently and wrongly. All three
-  mutators rebind; `restore` used to splice and no longer does. Its bisect's
+  and a stale one answers every lookup confidently and wrongly. All four
+  mutators rebind (`remove`/`keep_only`/`restore`/`insert`); `restore` used to
+  splice and no longer does. Its bisect's
   precondition is sorted **and disjoint** (an import can place the same source
   twice), and a clip failing it gets the exact walk. HISTORY.md § The scan the
   spike named was not the one that costs.
@@ -607,7 +619,8 @@ installed package or the upstream repo, not your memory.
   nothing else, so "what was cut" is derived (`Edit.gaps` against the clip's
   registered duration), never read back. `restore` is bounded by those gaps,
   which is what keeps the timeline a subset of the source and separates it
-  from the parked `vo_extend`. PLAN.md § Parked.
+  from `vo_extend` (built — see the `TAIL_KEY` bullet above), the one
+  mutator allowed to add source the recording never had.
   - **A dogfood project can be the wrong cut while every check passes.** The
     Scream project held the *silence-cut* VO, not the shipped one — 411s
     against 351s, 72s of retakes — and the render, `verify`, the cue table and
