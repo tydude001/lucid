@@ -3635,14 +3635,17 @@ The order was adopted 2026-08-12.
      unindexed linear scan called once per cue, firing on every editing
      mutation through the web UI. (Timed rather than projected, that reading
      did not hold; see below.)
-     Windowing is linear and holds. **What is still unrun is the transcribe
-     half**, blocked on GPU contention with a desktop rather than on anything
-     in lucid, so no GPU rate is measured or claimed; and **melt RSS is still
-     one data point**, a repeat of the same project at the same duration and
-     source count, so whether it tracks duration or source count is the
-     biggest remaining unknown. Two findings ride out of it as their own work:
-     the missing hallucination guard on `asr.transcribe`, and that two streams
-     are a new `Edit` primitive rather than a parameter.
+     Windowing is linear and holds. Two findings ride out of it as their own
+     work: the missing hallucination guard on `asr.transcribe`, and that two
+     streams are a new `Edit` primitive rather than a parameter.
+   - **The transcribe half ran 2026-08-14, once the GPU that blocked it was
+     idle** (HISTORY.md § The scale spike's GPU half, measured): 7.42×
+     real-time on the same 120s slice, peak VRAM 6.47 GiB, 0 hallucinated
+     words — a point-in-time number on an idle card, not a throughput promise
+     against real contention. **Melt RSS is still one data point** — a repeat
+     of the same project at the same duration and source count, so whether it
+     tracks duration or source count is the one thing left unmeasured from
+     this item.
    - **Both defects it named are fixed 2026-08-13, and both overturned their
      own row on the way** — which is the argument for keeping a spike's
      artifacts rather than its summary. The hallucination guard is not

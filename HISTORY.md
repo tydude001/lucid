@@ -6625,6 +6625,30 @@ the genuinely new part: a way for the `Edit`'s single spine to say which
 speaker is authoritative at each instant. That is the audio twin of the picture
 cue, and it is a primitive rather than a parameter.
 
+## The scale spike's GPU half, measured — 2026-08-14
+
+The blocker was contention, not code, and today the card was idle (577 MiB of
+12227 MiB used, nothing else running) — so the same 120s slice
+(`~/lucid-scale-spike/slice_stream0_120s.m4a`) went through `asr.transcribe`
+itself, the real `lucid transcribe` path, `turbo` model, resolved to the
+sibling venv exactly as `asr.py` documents.
+
+**16.16s wall for 120s of audio — 7.42× real-time, peak VRAM 6.47 GiB** (1s
+`nvidia-smi` polling, baseline 577 MiB), **0 hallucinated words**, 336 words
+back. Extrapolated, not measured further: ~470s (~7.8 min) per 58m08s stream,
+~15.7 min for both dual-mic streams run one after another — against the CPU
+floor's ~2.45h per stream from the half-run. `clean_payload`'s hallucination
+guard (closed 2026-08-13, same section) held on this slice with room to
+spare — the loop it was built for doesn't reappear on a clean run.
+
+**This is one point-in-time number on an idle GPU, not a throughput promise.**
+The failure mode that blocked it the first time was a game and an unrelated
+python process eating the card mid-session; nothing about this measurement
+changes what happens if either is running when the real spike goes. What it
+does close is the absence itself — § The scale spike, half-run's "no GPU rate
+is measured or claimed" no longer holds. **Melt RSS is still one data point**
+(same section) — untouched here, still the open half.
+
 ## Tail time, built — 2026-08-13
 
 PLAN.md § Tail time — the design note recommended shape B and this is it: an
