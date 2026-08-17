@@ -7,7 +7,10 @@ order. The competitor/dependency survey behind those decisions is in
 evidence said — including the first real video's findings — is
 [HISTORY.md](HISTORY.md). The Daydream parity plan — the product observed,
 its design system, the feature map and its build order — is
-[DAYDREAM.md](DAYDREAM.md). Open-item status lives in the wiki, not here.
+[DAYDREAM.md](DAYDREAM.md). The Studio reshape — the workspace reorganized
+around Home/Edit/Frame/Finish with direct manipulation and the truth strip —
+is [STUDIO.md](STUDIO.md), which supersedes DAYDREAM.md § Build order where
+they conflict. Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
