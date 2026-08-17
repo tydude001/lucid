@@ -93,6 +93,8 @@ composer from any mode.
 
 ## Step 01 — the truth strip and Finish mode
 
+Shipped — see HISTORY.md § The truth strip and Finish mode.
+
 The highest value per line of code, and it closes the captionless-film class
 of failure. Ships alone.
 

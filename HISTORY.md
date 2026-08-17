@@ -8304,3 +8304,122 @@ schema v2 and among the four that refuse to open. So the misleading half is
 unreachable on current data and the fix is cheap insurance; the *empty* half,
 with its wrong advice, was live on the flagship project and is what a person
 would actually have hit.
+
+## The truth strip and Finish mode — 2026-08-17
+
+STUDIO.md § Step 01, built and verified against the shipped cut rather than a
+scratch project.
+
+`ops.finish_report` composes; it derives nothing new. `duration` is `status`'s
+own numbers split into edit/tail/total. `canvas` is `_check_preset_canvas`
+itself, called once per `EXPORT_PRESETS` entry and caught rather than left to
+raise — the exact helper `export` already uses, not a restatement of the
+cross-multiplied aspect check. `captions`, `picture`, `marks`, and `seams` are
+`caption_style`/`timeline_view`/`unspoken_ls`/`transcript_checks`'s own
+returns, filtered or summed. The `ops.properties` precedent held exactly:
+`tests/test_ops_finish_report.py` proves it by monkeypatching one component to
+lie and watching the lie surface in `finish_report`'s own output, the same
+shape `properties`'s own test uses.
+
+The missing half of the captionless-film failure was never "does
+`caption_style` exist" — the manifest could answer that the whole time. It was
+"did a render ever burn it in," and nothing on disk recorded that.
+`cache/renders.jsonl` (`project.RENDERS_LOG`) now does — a cache artifact, no
+manifest key, no schema bump, mirroring `Project.thumbs_path`'s own precedent.
+`renderlog.append` is the only writer, `renderlog.last`/`all_runs` the only
+readers, and `finish_report` reads the last line for `captions.burned`:
+`"unknown"` with no log or no `burn` stage recorded, `"yes"`/`"no"` off that
+stage's own outcome.
+
+`RenderJob` grew stages rather than a second job class — export → optional
+burn → check_frames → verify, each published as a `"stage"` render-bus event
+the SSE handler already served, each appended to the render log on every exit
+path: success, error, and cancelled all reach `append_run`. Only export and
+burn can actually fail or be cancelled; check_frames and verify are read off
+`_run_checks`'s own return, which already turns a per-check `EXPECTED` into
+`{"skipped": ...}` rather than raising, so those two stages are always
+`"done"` or `"skipped"`. Burn defaults on when `caption_style` is configured
+and off otherwise, with `burn: true/false/null` overriding it explicitly
+either way — and a visible checkbox regardless of the default, so the choice
+is never silent.
+
+The window gained mode tabs — Edit, Frame (disabled until Frame mode ships, so
+the shell reflows once rather than twice), Finish — and the truth strip, four
+chips fed by one `GET /api/finish` fetch that `finish.js` alone makes; every
+other consumer, the strip included, gets the bundle off the `finish-report`
+event `finish.js` re-broadcasts.
+
+### The finding worth recording
+
+A flag has to be something an action in the window can clear, and three
+candidates were built, measured against the real film, and demoted to
+report-only:
+
+- **A refusing preset.** `tiktok-reels` refuses every 16:9 film for as long as
+  it stays 16:9 — flagging that says the film is wrong for having chosen
+  landscape. The refusal draws on the preset's own card, with its fix, and
+  nowhere else.
+- **A seam count.** 40 of them in the film, a property of the recording,
+  unchanged by anything the window can do. STUDIO.md forbids inventing a
+  nearness rule for "seams near a kept edge," so the total is reported under
+  `seams` and flagged nowhere.
+- **An unstyled project's unknown burn state.** Nothing to burn, nothing to
+  warn about — `burned: "unknown"` still reports, but it only becomes a flag
+  once a style exists, which is the shape the captionless-film incident
+  actually had.
+
+With all three flagging, the shipped cut showed 3 flags, 2 of them permanent
+(the preset refusal and the seam count, with no action in the window able to
+touch either). `~/lucid-brief-check/proj` showed 3 and could never reach 0
+either. This is CLAUDE.md's own rule stated back at itself — a guard that has
+to be suppressed every time is the thing to fix, not the thing to document —
+and it cost nothing to catch here because both permanent candidates were
+measured before being wired in, not after.
+
+The truth strip had the same shape of bug once, in miniature: the canvas chip
+warned whenever any preset refused, and the caption chip warned on
+`burned !== "yes"` — both computed in `app.js`, both opinions the page had no
+business forming. A chip now warns iff the op raised a flag of that kind, a
+plain membership test (`flagged.has("canvas")`) against `finish_report`'s own
+`flags.items`, never a second read of the numbers.
+
+The manifest panel had a smaller version of the same trap: it listed
+`edit + tail = total`, and that arithmetic is false. `total_seconds` is
+`expected_duration`, frame-quantised per segment edge (CLAUDE.md § A frame
+count comes from `autoeditor.frame_layout`), so it and `edit + tail` differ
+from the sum by up to a frame or two. The three numbers are listed now and
+never added on the page.
+
+### Verified on `~/lucid-threshold/proj`
+
+Confirmed the shipped cut first: 336.269s edit against the 336.27s CLAUDE.md
+already records for it — the render-measured number, not the silence-cut
+project's 410.96s.
+
+- One flag before the render — "captions are styled, but no render log says
+  whether any render ever burned them in" — zero after, driven entirely from
+  the window.
+- The render log's line: `export`/`burn`/`check_frames`/`verify` all `"done"`,
+  `check_frames.agrees: true`, `verify.similarity: 0.967`,
+  `expected_duration: 336.336`.
+- The burn is in the pixels, not just in a status line — the point of the
+  whole feature. Regional PSNR between the pre-burn render and the burned one,
+  sampled at t=12s/40s/95s: the caption band (1080×400 at y=1350) measures
+  23.28 / 13.75 / 17.90 dB; bands with no captions (y=0, y=700) measure
+  44.09 / 44.21 / 48.02 and 43.92 / 43.90 / 48.65. Whole-frame PSNR alone would
+  have proved nothing — the burn re-encoded 229MB down to 121MB, and
+  re-encode loss and burnt-in text read identically in one number.
+- Browser pass at CDP's default 0ms dwell and at ~120ms: Frame's tab stays
+  disabled and switches nothing at either; Finish opens at both with
+  `display: flex` and `visibility: visible`; the preset click does not rebuild
+  the node under the gesture (`document.contains` on the watched card stays
+  true through the click); no console errors.
+- Page-level overflow clean at 700/900/1200px — `body.scrollWidth ===
+  innerWidth` at all three. The per-element sweep's hits were all inside
+  deliberately scrollable or cropped containers (the timeline ruler,
+  `#frame`'s own crop).
+- The strip moved within 1s of a CLI-only `caption-style` change with the page
+  open — the `_revision`-watches-the-manifest case — verified on a scratch
+  copy, not the dogfood project.
+
+1321 passed before this work, 1336 after. `ruff check` clean.
