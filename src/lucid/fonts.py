@@ -71,20 +71,28 @@ def user_font_dir() -> Path:
     return root / "fonts"
 
 
-def vendored() -> list[Path]:
-    """Every face shipped in the package, in a stable order."""
-    if not VENDORED_DIR.is_dir():
+def vendored(source: Path | str | None = None) -> list[Path]:
+    """Every face shipped at `source` (lucid's own package dir, by default).
+
+    `source` is additive: a channel preset pack (`pack.py`) may carry its own
+    font directory alongside its JSON, and this is how `ops.pack_apply` asks
+    "what faces does *this* directory ship" with the identical scan
+    `VENDORED_DIR` always got, rather than a second read-the-directory
+    written just for packs.
+    """
+    directory = Path(source).expanduser() if source is not None else VENDORED_DIR
+    if not directory.is_dir():
         return []
-    return sorted(p for p in VENDORED_DIR.iterdir() if p.suffix.lower() in {".ttf", ".otf"})
+    return sorted(p for p in directory.iterdir() if p.suffix.lower() in {".ttf", ".otf"})
 
 
-def install(*, dest: Path | str | None = None) -> dict[str, Any]:
-    """Put the vendored faces where fontconfig looks. Idempotent.
+def install(*, source: Path | str | None = None, dest: Path | str | None = None) -> dict[str, Any]:
+    """Put the faces at `source` (lucid's own, by default) where fontconfig looks.
 
-    Compares by *content*, not by name or mtime: a box that already has the
-    face — this one does, byte-identical, from the NAS copy `branding.md`
-    names as canonical — is left alone and reports `unchanged`, so running
-    this is never a reason for a render to move.
+    Idempotent, and compares by *content*, not by name or mtime: a box that
+    already has the face — this one does, byte-identical, from the NAS copy
+    `branding.md` names as canonical — is left alone and reports `unchanged`,
+    so running this is never a reason for a render to move.
 
     Copying a file into `$HOME` is a real side effect, which is why it is an
     explicit op rather than something `burn` does on the way past. The
@@ -92,12 +100,18 @@ def install(*, dest: Path | str | None = None) -> dict[str, Any]:
     subprocess that resolves a font — is more hermetic and was rejected as the
     first build: it touches `fc-match`, ffmpeg and `magick` call sites for no
     measured benefit over a directory fontconfig already reads.
+
+    `source` is additive for the same reason `vendored` takes it: a pack's
+    own font directory gets the identical content-hash-idempotent,
+    fc-cache-refreshing treatment lucid's own vendored set gets, through this
+    one function rather than a parallel installer.
     """
     target = Path(dest).expanduser() if dest is not None else user_font_dir()
-    faces = vendored()
+    origin = Path(source).expanduser() if source is not None else VENDORED_DIR
+    faces = vendored(origin)
     if not faces:
         raise FontError(
-            f"no vendored faces in {VENDORED_DIR} — the package is incomplete, "
+            f"no vendored faces in {origin} — the package is incomplete, "
             "and the caption default will resolve to whatever fontconfig substitutes"
         )
 

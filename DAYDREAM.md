@@ -319,20 +319,17 @@ shipped with the workspace; the two gaps below closed 2026-08-08
   `Edit.gaps` against the clip's registered duration, which also covers the
   head/tail case a stored table would have missed.
 
-### Timeline — V1/V2/A1/CC built; two small items left
+### Timeline — V1/V2/A1/CC and filmstrips built; one small item left
 
-Shipped: lanes as projections, waveform canvas, zoom, ruler, and the pastel
-palette from the look pass. Left, both with real (small) machinery — plus
-clip *filename* labels, held back on purpose because a block labelled by
-`clip_id` is the name every other surface in lucid uses:
+Shipped: lanes as projections, waveform canvas, zoom, ruler, the pastel
+palette from the look pass, and filmstrip thumbnails. Left, with real (small)
+machinery — plus clip *filename* labels, held back on purpose because a
+block labelled by `clip_id` is the name every other surface in lucid uses:
 
-* **Filmstrip thumbnails** on V1 clips: ffmpeg frame-samples per clip,
-  cached like waveforms (`cache/thumbs/`, keyed media size+mtime); drawn
-  through the edit the same way the waveform maps timeline→source slices.
-  The gate it shared with the preview proxy turned out to be already met —
-  `~/lucid-scream-v2/proj` is real footage, and the picture layer shipped
-  against it 2026-08-09 (HISTORY.md § The preview picture layer). What is left
-  here is the work itself, unblocked.
+* **Filmstrip thumbnails**, on V1 segment blocks and V2 non-still shot
+  blocks — **built 2026-08-17**, drawn through `ops.thumbnail`
+  (`picture.extract_frame`, cached per clip instant). HISTORY.md § The
+  assets, properties and filmstrip backend, and its panes.
 * **Snap and link toggles, lock/visibility per lane**: deferred until there
   is more than one *real* track to lock or link — meaningful post-layered
   timeline, decorative before it.
@@ -390,9 +387,10 @@ cards are pre-rendered stills placed as cues and rendered by `melt`. Motion
 graphics generalise exactly that mechanism: **the agent authors an asset, it
 lands as a cue on the picture track, `melt` composites it** — full-frame or
 overlay. Templates are a starter library of those assets with editable
-text/colour slots, which is also what makes a Properties pane meaningful
-later. Their docs' advice ("iterate one graphic at a time") is a
-prompt-guidance line, free to adopt.
+text/colour slots — the same slots the Properties pane (§ Properties pane,
+built) already inspects on a static card, which is why that pane's gate was
+graphics, not motion graphics specifically. Their docs' advice ("iterate one
+graphic at a time") is a prompt-guidance line, free to adopt.
 
 **The design is settled, in lucid `PLAN.md` § Motion graphics and templates**
 (2026-08-09) — asset format, generator, canvas, and the measurements behind
@@ -583,31 +581,83 @@ platforms re-encode the upload. A caller-supplied `resolution` stays refused
 on the melt path for the memory reason above — a refusal of the *argument*,
 not an inability of the renderer.
 
-### MCP over HTTP — optional, unranked
+### MCP over HTTP — built
 
 Daydream's always-on local HTTP server is what lets an *already-running*
-editor be driven from outside. lucid's MCP is stdio (a client spawns its own
-server). The MCP SDK v2 supports HTTP transport; `lucid web` already owns a
-port and the Host-header guard. Worth doing the day two clients need the
-same live project; not before.
+editor be driven from outside; lucid's MCP was stdio only, a client spawning
+its own server per project.
 
-### Import roles + assets pane — rides the b-roll design
+**Built 2026-08-17** (PLAN.md § The completion queue, the HTTP-transport
+item). `lucid mcp` gains `--transport {stdio,http}`, **default stdio,
+unchanged** — every existing client still spawns the server the old way —
+plus `--host`, `--port` (default 8711, one above webui's own; 0 picks a free
+port), `--allow-remote`, and repeatable `--allow-remote-host NAME`.
 
-`import` and `attach-transcript` exist; the role split (transcribe-me vs
-index-me) only means something once indexing exists, so it lands with the
-b-roll design, as does any assets pane in the left rail.
+**The guard is loopback plus Host — `webui.py`'s model, not
+`reviewserver.py`'s token**, which is the parity answer this row owed: an
+always-on local server is for local clients, and the thing that makes
+`review serve` need a token is that it is meant to leave the machine. What
+the SDK actually offers, why the app is assembled by hand rather than
+through `mcp.run(transport="streamable-http")`, and the `--allow-remote`
+defect that was dishonest in both directions: HISTORY.md § MCP over HTTP,
+built.
 
-### Multi-project — late, small
+### Import roles + assets pane — built
 
-`lucid web` serves one project per process; Daydream's breadcrumb implies a
-project list. A picker page over a `--root` scan covers it. Nothing blocks
-on it.
+Rode the b-roll design as this section predicted: the role split (voiceover
+vs footage) only meant something once indexing existed, and it shipped as
+the assets pane's own grouping key.
 
-### Properties pane — only when graphics exist
+**Built 2026-08-17.** **It is a declaration the assets pane groups by, and
+deliberately nothing more**: the obvious reading of "role" is that it
+changes what import *does* — which footage gets transcribed, which gets
+indexed — and it does not. Neither `transcribe`/`attach_transcript` nor
+`describe` reads it; both still gate on their own evidence exactly as before
+the role existed, asserted by
+`test_setting_a_role_does_not_touch_describe_eligibility`. Widening its
+meaning to actually steer eligibility was deliberately left out of scope.
 
-Deliberately removed from the workspace in favour of the agent feed; returns
-when there are graphics with text/colour/transform to inspect, i.e. after
-motion graphics.
+The assets pane lists both halves of the cue vocabulary — a `clip_id` or a
+`card:name` — grouped by role, and clicking a row hands the properties pane
+something to inspect. HISTORY.md § The assets, properties and filmstrip
+backend, and its panes.
+
+### Multi-project — built, still one project per process
+
+**Shipped 2026-08-17, and deliberately the small option.** Daydream's
+breadcrumb implies a project list; lucid now has one too, via `lucid web
+--root DIR` serving a picker over a bounded scan rather than one fixed
+project. The deliberate choice is that a picker widens what can be
+**listed**, never what one server can **serve**: the first project a person
+picks is a one-way bind for that process's life, so two projects open at
+once is still two processes, exactly as `-C` always required. `--root` is
+confined the same way an MCP tool's project selector already is — a path
+resolving outside the scanned root is refused, not opened. MCP itself is
+untouched, since a client already spawns its own server per project.
+HISTORY.md § The multi-project picker, built.
+
+### Properties pane — built
+
+Deliberately removed from the workspace shell at first, in favour of the
+agent feed, on a stated condition: return once there is something with
+text/colour/transform to inspect. That condition was never "after motion
+graphics" specifically — it was graphics, full stop — and PLAN.md § The
+completion queue has carried it as **"properties, whose gate cleared when
+graphics shipped"** since 2026-08-12, the static-template card work (quote/
+receipt, safe zones) being graphics with text, colour and a canvas to
+transform same as a motion graphic would be. This row still framed the gate
+as a future condition past that date, and a reviewer reading it flagged the
+built pane as shipped ahead of its own gate — a round trip that cost time on
+a fact PLAN.md already had right.
+
+**Built 2026-08-17.** `ops.properties` is composition, not a new
+derivation — it assembles existing pieces (`status`, `canvas`,
+`caption_style`, and once given a `clip_id`, `clip`/`reframe`/`cues`/`cue`),
+proved by a monkeypatch test that makes `ops.canvas` lie and watches the lie
+surface through `properties`, rather than asserted. `properties.js` draws
+the returned bundle generically and listens for `inspect-asset`/
+`inspect-word` off the existing ctx bus. HISTORY.md § The assets, properties
+and filmstrip backend, and its panes.
 
 ### Languages — expected free, verify once
 
@@ -663,10 +713,13 @@ item is unchanged — real Scream VO, real browser (wiki `tooling.md`
 3. **Caption styling** — the style object, agent-settable, burn-in at
    export.
 4. **Motion graphics + templates** — design note, then agent-authored assets
-   as cues; Properties pane follows once there is something to inspect.
+   as cues; static templates shipped ahead of this rung and cleared the
+   Properties pane's own gate on the way, so the pane no longer waits on
+   animation (§ Properties pane, built).
 5. **B-roll by description** — costed local design note first, then
    indexing, search, and the placement flows (agent / transcript selection /
    timeline range).
-6. **The long tail** — aspect swap, import roles + assets pane,
-   multi-project picker, HTTP MCP transport, thumbnails/snapping/lock as
-   their gates clear.
+6. **The long tail** — import roles + assets pane, multi-project picker, HTTP
+   MCP transport and filmstrip thumbnails are **all built** (their own rows
+   above); what is left is aspect swap and snap/lock lane toggles as their
+   gates clear.

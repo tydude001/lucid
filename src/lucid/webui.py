@@ -56,7 +56,7 @@ from lucid.energy import EnergyError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
 from lucid.picture import PictureError
-from lucid.project import Project, ProjectError
+from lucid.project import MANIFEST_NAME, SCHEMA_VERSION, Project, ProjectError
 from lucid.timeline import TimelineError
 from lucid.transcript import TranscriptError
 from lucid.verify import VerifyError
@@ -185,6 +185,118 @@ def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise WebUIError("body must be a JSON object")
     return payload
+
+
+#: How far beneath `--root` the scan looks for a project. Real dogfood
+#: layouts put one at depth 1 (`~/lucid-dogfood/scream-vo` is itself the
+#: project, two path segments under a `~/` root) and at depth 2
+#: (`~/lucid-teaser/proj`, an explicit `proj` subdirectory) — this covers
+#: both without wandering into an unrelated deep tree. A directory a scan
+#: finds a project in is never descended into further: its own `history/`
+#: backups are named `lucid-vN.json`, never `lucid.json` (`Project.migrate`),
+#: so there is no false positive to worry about, but stopping there also
+#: keeps a big `--root` cheap to scan on every picker load.
+_SCAN_MAX_DEPTH = 3
+
+#: Directories a scan never opens, whether or not they hold a project one
+#: level down — dev-tooling trees that can be enormous and are never where a
+#: project lives.
+_SCAN_SKIP_NAMES = frozenset({".git", ".venv", "venv", "node_modules", "__pycache__"})
+
+
+def scan_projects(root: Path) -> list[dict[str, Any]]:
+    """Find lucid projects under `root` (DAYDREAM.md § Multi-project).
+
+    A project is a directory holding `lucid.json` (`Project.MANIFEST_NAME`)
+    directly — not a directory containing one somewhere inside it, which
+    would also match every project's own `history/` backups' *parent*.
+    Never opens a manifest at the wrong schema and never migrates one
+    (CLAUDE.md: `Project.open` refuses an old manifest and a read must never
+    rewrite a project someone only looked at) — each entry says what was
+    found instead:
+
+    * `status: "ok"` — opened cleanly; `name`, `timeline_duration`,
+      `segments` and `clips` are `ops.status`'s own cheap read, the same one
+      the workspace's top bar uses.
+    * `status: "needs_migration"` — a manifest at a schema `Project.open`
+      refuses; `schema_version` names what was found. Listed, not skipped
+      and not opened — `lucid migrate -C <path>` is the way forward, and the
+      picker says so without taking it.
+    * `status: "unreadable"` — any other `ProjectError` (bad JSON, a
+      manifest that is not a JSON object, or a read that raced the
+      directory listing) — `error` carries `Project.open`'s own message.
+    * `status: "error"` — the manifest itself read fine at the current
+      schema, but `ops.status` (the same cheap read the `ok` case uses)
+      raised one of `EXPECTED` — an un-seeded project (`lucid init` with no
+      `lucid seed` yet) is the ordinary way to hit this, not a corrupt
+      project. Listed with `error` carrying the message, same as
+      `unreadable` — one bad project must never take the whole `/api/projects`
+      listing down with it.
+
+    A directory with no `lucid.json` at all is not a project and is not in
+    the returned list — that is the "skip a non-project directory" case, and
+    it produces no entry rather than a fifth kind of failure.
+    """
+    root = Path(root)
+    found: list[dict[str, Any]] = []
+
+    def walk(directory: Path, depth: int) -> None:
+        if depth > _SCAN_MAX_DEPTH:
+            return
+        try:
+            # `is_symlink()` excludes a symlinked directory, not just a
+            # symlinked file — a symlink placed under `--root` can point
+            # anywhere on disk, and `is_dir()` alone follows it. `/api/open`
+            # confines by `.resolve()` at bind time regardless, but the scan
+            # must not *report* metadata (name, segment/clip counts) for a
+            # directory `--root` was never scanned to include.
+            children = sorted(p for p in directory.iterdir() if p.is_dir() and not p.is_symlink())
+        except OSError:
+            return
+        for child in children:
+            if child.name.startswith(".") or child.name in _SCAN_SKIP_NAMES:
+                continue
+            if (child / MANIFEST_NAME).is_file():
+                found.append(_scan_one(child))
+                continue  # never descend into a project's own subdirectories
+            walk(child, depth + 1)
+
+    walk(root, 1)
+    found.sort(key=lambda entry: entry["path"])
+    return found
+
+
+def _scan_one(path: Path) -> dict[str, Any]:
+    """Classify one directory already known to hold `lucid.json`."""
+    entry: dict[str, Any] = {"path": str(path), "name": path.name}
+    project = Project(path)
+    try:
+        manifest = project.read_manifest()
+    except (ProjectError, OSError) as exc:
+        entry["status"] = "unreadable"
+        entry["error"] = str(exc)
+        return entry
+    found_version = manifest.get("schema_version")
+    if found_version != SCHEMA_VERSION:
+        entry["status"] = "needs_migration"
+        entry["schema_version"] = found_version
+        return entry
+    try:
+        info = ops.status(path)
+    except EXPECTED as exc:
+        # A current-schema project whose manifest reads fine can still fail
+        # here — no timeline seeded yet is the ordinary case. One bad
+        # project must not take the whole listing down (webui.py's own
+        # `_route_picker` would otherwise turn this into a 400 for
+        # everyone under `--root`, not just the broken one).
+        entry["status"] = "error"
+        entry["error"] = str(exc)
+        return entry
+    entry["status"] = "ok"
+    entry["timeline_duration"] = info["timeline_duration"]
+    entry["segments"] = info["segments"]
+    entry["clips"] = len(info["clips"])
+    return entry
 
 
 def _ranges(spec: str, size: int) -> tuple[int, int] | None:
@@ -872,9 +984,20 @@ class ProxyJob:
 
 
 class Handler(BaseHTTPRequestHandler):
-    """One request. `project_root` and `verbose` are set by `make_server`."""
+    """One request. `project_root` and `verbose` are set by `make_server`.
+
+    `root_dir` is the picker's own flag: `None` (its default, unchanged for
+    every `-C` server `make_server` builds) means this class has a fixed
+    `project_root` and behaves exactly as it always has. Set (by
+    `make_picker_server`) it means `project_root` does not exist *yet* —
+    `self.server.bound_root` is `None` until `POST /api/open` picks one, and
+    every route below is reachable only after that (`_route_picker`,
+    `_handle_open`). Once open, `project_root` is set the same way `-C`
+    always set it and this instance is, for the rest of the process, an
+    ordinary single-project handler."""
 
     project_root: Path
+    root_dir: Path | None = None
     verbose: bool = False
     server_version = "lucid"
     sys_version = ""
@@ -939,6 +1062,20 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(HTTPStatus.FORBIDDEN, "this server answers loopback requests only")
             return
         url = urlparse(self.path)
+        if self.root_dir is not None:
+            # Picker mode. `/api/open` is reachable whether or not a project
+            # is bound yet — `_handle_open` is what makes a second call on
+            # the same project a no-op and a call naming a *different* one a
+            # 409, rather than either being "no such endpoint". Every other
+            # route below needs `self.server.agent`/`render_job`/`proxy_job`
+            # or a fixed `project_root`, none of which exist before the
+            # first successful open.
+            if url.path == "/api/open":
+                self._handle_open()
+                return
+            if not self._project_bound():
+                self._fail(HTTPStatus.NOT_FOUND, "no project open yet — pick one at /")
+                return
         if url.path == "/api/agent":
             self._handle_agent_prompt()
             return
@@ -972,12 +1109,25 @@ class Handler(BaseHTTPRequestHandler):
             # reads the message and picks a different word.
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
 
+    def _project_bound(self) -> bool:
+        """Picker mode only: has `POST /api/open` picked a project yet?
+
+        Always `False` on a plain `-C` server, but never checked there —
+        `root_dir is None` short-circuits every caller before this runs, so
+        a single-project server never even looks at `self.server.bound_root`
+        (which does not exist on it).
+        """
+        return getattr(self.server, "bound_root", None) is not None
+
     def _route(self, *, head_only: bool) -> None:
         if not self._host_is_loopback():
             self._fail(HTTPStatus.FORBIDDEN, "this server answers loopback requests only")
             return
         url = urlparse(self.path)
         path = url.path
+        if self.root_dir is not None and not self._project_bound():
+            self._route_picker(path)
+            return
         try:
             if path in ("/", "/index.html"):
                 self._send_static("index.html")
@@ -991,6 +1141,16 @@ class Handler(BaseHTTPRequestHandler):
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
                 self._send_json(ops.caption_view(str(self.project_root), clip_id=clip_id))
+            elif path == "/api/assets":
+                self._send_json(ops.assets(str(self.project_root)))
+            elif path == "/api/properties":
+                query = parse_qs(url.query)
+                clip_id = (query.get("clip_id") or [None])[0]
+                raw_word = (query.get("word_index") or [None])[0]
+                word_index = self._int_query(raw_word, "word_index")
+                self._send_json(
+                    ops.properties(str(self.project_root), clip_id=clip_id, word_index=word_index)
+                )
             elif path == "/api/events":
                 self._send_events()
             elif path.startswith("/api/waveform/"):
@@ -998,6 +1158,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not clip_id:
                     raise WebUIError("clip id is required")
                 self._send_json(ops.waveform(str(self.project_root), clip_id))
+            elif path.startswith("/api/thumb/"):
+                clip_id = unquote(path[len("/api/thumb/") :])
+                if not clip_id:
+                    raise WebUIError("clip id is required")
+                self._send_thumb(clip_id, url.query, head_only=head_only)
             elif path.startswith("/api/media/"):
                 self._send_media(unquote(path[len("/api/media/") :]), head_only=head_only)
             elif path.startswith("/api/asset/"):
@@ -1027,6 +1192,30 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(HTTPStatus.NOT_FOUND, f"no such asset: {name}")
             return
         self._send(HTTPStatus.OK, target.read_bytes(), _STATIC_TYPES[target.suffix])
+
+    def _route_picker(self, path: str) -> None:
+        """GET routing while `root_dir` is set and no project is open yet.
+
+        Three routes only — the picker page, its own static assets, and the
+        scan itself — because everything else on a normal server needs a
+        bound `project_root` or the singletons `/api/open` has not built
+        yet. `POST /api/open` is handled in `do_POST`, not here; this method
+        only ever answers GET/HEAD.
+        """
+        try:
+            if path in ("/", "/index.html"):
+                self._send_static("picker.html")
+            elif path.startswith("/static/"):
+                self._send_static(path[len("/static/") :])
+            elif path == "/api/projects":
+                assert self.root_dir is not None
+                self._send_json({"root": str(self.root_dir), "projects": scan_projects(self.root_dir)})
+            else:
+                self._fail(HTTPStatus.NOT_FOUND, "no project open yet — pick one at /")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
 
     def _send_media(self, clip_id: str, *, head_only: bool) -> None:
         """Stream a clip's media, honouring Range so the browser can seek.
@@ -1062,6 +1251,43 @@ class Handler(BaseHTTPRequestHandler):
             raise WebUIError("asset key is required")
         resolved = ops.preview_source(str(self.project_root), asset)
         self._stream_file(Path(resolved["path"]), head_only=head_only)
+
+    def _send_thumb(self, clip_id: str, query: str, *, head_only: bool) -> None:
+        """`GET /api/thumb/<clip_id>?at=<seconds>` — one filmstrip frame.
+
+        `ops.thumbnail` does the caching and the containment (it writes
+        under `cache/thumbs/`, never the manifest, and is never resolved by
+        `media.media_path`/`preview_path` — CLAUDE.md's split); this is only
+        the fourth caller into `_stream_file`, so a thumbnail seeks and
+        Ranges exactly like every other picture asset the viewer draws.
+        """
+        params = parse_qs(query)
+        at = self._float_query((params.get("at") or [None])[0], "at", required=True)
+        interval_raw = (params.get("interval") or [None])[0]
+        parsed_interval = self._float_query(interval_raw, "interval")
+        interval = ops.THUMB_INTERVAL if parsed_interval is None else parsed_interval
+        resolved = ops.thumbnail(str(self.project_root), clip_id, at, interval=interval)
+        self._stream_file(Path(resolved["path"]), head_only=head_only)
+
+    @staticmethod
+    def _int_query(raw: str | None, name: str) -> int | None:
+        if raw is None:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            raise WebUIError(f"{name!r} must be an integer, not {raw!r}") from None
+
+    @staticmethod
+    def _float_query(raw: str | None, name: str, *, required: bool = False) -> float | None:
+        if raw is None:
+            if required:
+                raise WebUIError(f"{name!r} is required")
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            raise WebUIError(f"{name!r} must be a number, not {raw!r}") from None
 
     def _stream_file(self, source: Path, *, head_only: bool) -> None:
         """Byte-range streaming, shared by every route that hands over a file."""
@@ -1273,6 +1499,77 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
 
+    def _handle_open(self) -> None:
+        """`POST /api/open {"path": "..."}` — the picker's one mutation.
+
+        Binds this process to one project, permanently: the same work
+        `make_server` already does for `-C` at process start
+        (`_bind_singletons`), just deferred to the moment a person picks one
+        instead of decided in advance. There is no unbind and no switch —
+        once this returns 200, `project_root` is set on the handler class
+        and `self.server.bus`/`agent`/`render_job`/`proxy_job` exist, and
+        every request after this one (from any tab, any connection) is an
+        ordinary single-project request against that project for the rest
+        of the process's life. Wanting a second project open at the same
+        time still means a second process, exactly as `-C` always required
+        — that is what keeps two projects from ever sharing one
+        `AgentSession` or `RenderJob` (CLAUDE.md: cross-wiring those is a
+        data-corruption bug, not a UI bug).
+
+        The path is confined to `root_dir` the same way `server.py`'s
+        `_confine` confines an MCP tool's project selector — resolved, and
+        refused if it lands outside the scanned root rather than followed —
+        because a `--root` a user passed must not become a way to open a
+        directory it never scanned. And it goes through `Project.open`
+        itself, so an old-schema or unreadable project (already visible to
+        `/api/projects` as `needs_migration`/`unreadable`) is refused here
+        exactly as it always refuses `-C`, not skipped and not migrated.
+        """
+        try:
+            payload = _json_body(self)
+            raw = payload.get("path")
+            if not isinstance(raw, str) or not raw:
+                raise WebUIError("'path' is required")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        assert self.root_dir is not None  # only reachable in picker mode
+        root_dir = self.root_dir
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = root_dir / candidate
+        resolved = candidate.resolve()
+        if resolved != root_dir and root_dir not in resolved.parents:
+            self._fail(
+                HTTPStatus.FORBIDDEN,
+                f"this server was started with --root {root_dir} and {raw!r} resolves "
+                f"outside it ({resolved}); pass a path at or under the scanned root",
+            )
+            return
+
+        try:
+            project = Project.open(resolved)
+        except ProjectError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        lock: threading.Lock = self.server.open_lock  # type: ignore[attr-defined]
+        with lock:
+            bound = getattr(self.server, "bound_root", None)
+            if bound is not None:
+                if bound != project.root:
+                    self._fail(HTTPStatus.CONFLICT, f"this server already opened {bound}")
+                    return
+                # Idempotent: a second click on the same project (or a second
+                # tab that raced the first) is not an error.
+                self._send_json({"opened": True, "root": str(project.root)})
+                return
+            type(self).project_root = project.root
+            _bind_singletons(self.server, project.root)  # type: ignore[arg-type]
+            self.server.bound_root = project.root  # type: ignore[attr-defined]
+        self._send_json({"opened": True, "root": str(project.root)})
+
 
 # -- the mutating endpoints ----------------------------------------------
 #
@@ -1394,6 +1691,22 @@ def _cue_add(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _clip_role(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/clip-role` — the assets pane's role toggle.
+
+    A fourth caller into `ops.clip_role`, alongside the CLI and MCP tool,
+    matching every other route in this table (CLAUDE.md: the web UI draws
+    and plays, it never decides).
+    """
+    clip_id = payload.get("clip_id")
+    if not isinstance(clip_id, str) or not clip_id:
+        raise WebUIError("'clip_id' is required")
+    role = payload.get("role")
+    if role is not None and not isinstance(role, str):
+        raise WebUIError("'role' must be a string")
+    return ops.clip_role(root, clip_id, role, reset=bool(payload.get("reset")))
+
+
 def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     """`POST /api/agent/thumbs` — append one rating to `Project.thumbs_path`.
 
@@ -1457,11 +1770,38 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/restore": _restore,
     "/api/undo": _undo,
     "/api/cue": _cue_add,
+    "/api/clip-role": _clip_role,
     "/api/agent/thumbs": _agent_thumb,
 }
 
 
 # -- lifecycle -----------------------------------------------------------
+
+
+def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
+    """One bus, one agent session, one render job and one proxy job — the
+    per-project state a `Handler` reaches through `self.server`.
+
+    Called exactly once per server: at construction for a plain `-C` server
+    (`make_server`), or once from `Handler._handle_open` on a picker
+    server's first successful `POST /api/open`. Never both, and never twice
+    — a picker server starts with none of these attributes set at all
+    (`make_picker_server`), so a route reached before `/api/open` fails
+    loudly (`AttributeError` in tests, refused by `do_POST`/`_route` in
+    production) rather than reading a stale project's job.
+
+    This is the whole answer to DAYDREAM.md § Multi-project's "a second
+    project would need a second everything here": it does not get one.
+    `--root` lets a process defer *which* project these four belong to, but
+    only ever binds one — a second project open at once still means a
+    second process. The render and the proxy hold *separate* slots for the
+    reason they always have: different work on different files, and sharing
+    one would make an export refuse while a preview transcoded.
+    """
+    server.bus = EventBus()  # type: ignore[attr-defined]
+    server.agent = AgentSession(project_root, server.bus)  # type: ignore[attr-defined]
+    server.render_job = RenderJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.proxy_job = ProxyJob(project_root, server.bus)  # type: ignore[attr-defined]
 
 
 def make_server(
@@ -1487,16 +1827,45 @@ def make_server(
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
-    #: One bus, one agent session, one render job and one proxy job per
-    #: server, because one server serves one project (§ Multi-project in
-    #: PLAN.md's open questions — unanswered, and this is why: a second
-    #: project would need a second everything here). The render and the proxy
-    #: hold *separate* slots: they are different work on different files, and
-    #: sharing one would make an export refuse while a preview transcoded.
-    server.bus = EventBus()  # type: ignore[attr-defined]
-    server.agent = AgentSession(project.root, server.bus)  # type: ignore[attr-defined]
-    server.render_job = RenderJob(project.root, server.bus)  # type: ignore[attr-defined]
-    server.proxy_job = ProxyJob(project.root, server.bus)  # type: ignore[attr-defined]
+    _bind_singletons(server, project.root)
+    return server
+
+
+def make_picker_server(
+    root: Path | str,
+    *,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    verbose: bool = False,
+) -> ThreadingHTTPServer:
+    """Build a server over a `--root` scan (DAYDREAM.md § Multi-project).
+
+    Opens nothing: a scan can find a project at an old schema or with a
+    broken manifest (`scan_projects`), and `Project.open` must never migrate
+    one on a read (CLAUDE.md), so nothing here may call it before a person
+    picks. The server starts with `bound_root = None` and no `bus`/`agent`/
+    `render_job`/`proxy_job` at all; `Handler._route_picker` and
+    `Handler._handle_open` are the only routes reachable until `POST
+    /api/open` succeeds, at which point `_bind_singletons` runs (the same
+    call `make_server` makes at construction, just later) and this server is
+    an ordinary single-project server for the rest of its life — see
+    `_bind_singletons`'s docstring for why that is the whole design.
+    """
+    root_dir = Path(root).expanduser().resolve()
+    handler = type(
+        "RootHandler",
+        (Handler,),
+        {"root_dir": root_dir, "verbose": verbose},
+    )
+    server = ThreadingHTTPServer((host, port), handler)
+    server.daemon_threads = True
+    server.bound_root = None  # type: ignore[attr-defined]
+    #: Guards the check-then-bind in `Handler._handle_open` — two requests
+    #: racing to open two *different* projects on the same fresh server must
+    #: not both win, or the second `_bind_singletons` call would silently
+    #: replace the first project's agent/render/proxy jobs out from under
+    #: whoever was about to use them.
+    server.open_lock = threading.Lock()  # type: ignore[attr-defined]
     return server
 
 
@@ -1530,3 +1899,42 @@ def serve(
         server.shutdown()
         server.server_close()
         server.agent.close()  # type: ignore[attr-defined]
+
+
+def serve_root(
+    root: Path | str,
+    *,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    verbose: bool = False,
+    open_browser: bool = False,
+) -> None:
+    """Run the picker until interrupted. `port=0` picks a free one.
+
+    Once `POST /api/open` binds a project, this is functionally `serve`
+    running on a server that happened to start life unbound — same loop,
+    same shutdown. `open_browser` opens the picker, not a project: nothing
+    is open yet at startup by construction.
+    """
+    server = make_picker_server(root, host=host, port=port, verbose=verbose)
+    bound = server.server_address[1]
+    url = f"http://{host}:{bound}/"
+    root_dir = server.RequestHandlerClass.root_dir  # type: ignore[attr-defined]
+    print(f"lucid web: {url}  (projects under: {root_dir})", flush=True)
+    print("Ctrl-C to stop.", flush=True)
+
+    if open_browser:
+        import webbrowser
+
+        threading.Timer(0.3, webbrowser.open, args=(url,)).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        server.shutdown()
+        server.server_close()
+        agent = getattr(server, "agent", None)
+        if agent is not None:
+            agent.close()

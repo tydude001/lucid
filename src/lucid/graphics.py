@@ -431,6 +431,131 @@ def identify(image: Path | str) -> tuple[int, int]:
     return width, height
 
 
+def _region_mean(png: Path, rect: tuple[float, float, float, float]) -> float:
+    """Mean luminance (0-255) of `png` cropped to `rect`, `(x0, y0, x1, y1)`."""
+    x0, y0, x1, y1 = rect
+    w, h = max(1, round(x1 - x0)), max(1, round(y1 - y0))
+    if w <= 0 or h <= 0:
+        return 0.0
+    command = [
+        *magick_command(),
+        str(png),
+        "-crop",
+        f"{w}x{h}+{round(x0)}+{round(y0)}",
+        "+repage",
+        "-format",
+        "%[fx:mean]",
+        "info:",
+    ]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GraphicsError(f"could not run {command[0]} to measure a region: {exc}") from exc
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout or "").strip() or "no output"
+        raise GraphicsError(f"magick could not measure a region of {png}: {detail}")
+    try:
+        return float(done.stdout.strip().split()[0]) * 255.0
+    except (IndexError, ValueError):
+        raise GraphicsError(
+            f"magick measured a region as {done.stdout.strip()!r}, which is not a mean"
+        ) from None
+
+
+def _rect_area(rect: tuple[float, float, float, float]) -> float:
+    x0, y0, x1, y1 = rect
+    return max(0.0, x1 - x0) * max(0.0, y1 - y0)
+
+
+def _rect_intersect(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+
+
+def _hex_luminance(colour: str) -> float:
+    """Mean of a `#rrggbb`(`aa`) colour's own channels, 0-255.
+
+    Computed directly rather than by rendering a swatch through `magick`: a
+    solid colour's mean is its own arithmetic mean, and skipping the
+    subprocess is one fewer thing that can disagree with the reading it is
+    the baseline for.
+    """
+    text = colour.lstrip("#")
+    r, g, b = (int(text[i : i + 2], 16) for i in (0, 2, 4))
+    return (r + g + b) / 3.0
+
+
+def safe_zone_ink(
+    png: Path | str, canvas: tuple[int, int], band: dict[str, Any], background: str
+) -> dict[str, Any]:
+    """Mean luminance inside a platform's reserved band, and beside it.
+
+    **Three numbers, never one.** A brightness bbox has already misread the
+    same render twice in this repo — once as worse than a pillarbox, once as
+    a pillarbox — because a black *source* reads exactly like a black *bar*
+    (CLAUDE.md). So nothing here is trusted as an absolute reading: every
+    number is reported **relative to the card's own recorded background
+    swatch**, `background`, which is `TEMPLATE_BACKGROUND`'s palette slot as
+    the card was actually authored — never assumed to be paper or ink.
+
+    `band` is one of `SAFE_ZONES`'s entries, or a project's own from an
+    applied pack — declared at a 1080x1920 reference canvas, scaled here by
+    `canvas`'s own height / 1920. The reserved region is the bottom
+    `bottom_px` band, unioned with the `action_rail` rectangle where the zone
+    declares one; the union's mean corrects for the corner the two overlap
+    in rather than double-counting it. `ink_outside_band` samples an
+    **equal-area** rectangle from the part of the frame nothing reserves —
+    a same-size comparison is the whole point, not a fixed crop that happens
+    to be nearby.
+
+    **Report only.** No default floor and nothing here blocks a render, the
+    same restraint `card_safe_zones` keeps — `SCENE_THRESHOLD`'s own history
+    is that a threshold gets pinned by looking at real output, not picked
+    cold, and this has had exactly one look so far.
+    """
+    path = Path(png)
+    width, height = canvas
+    scale = height / 1920.0
+    bottom_px = float(band["bottom_px"]) * scale
+    band_top = max(0.0, height - bottom_px)
+    band_rect = (0.0, band_top, float(width), float(height))
+
+    rail = band.get("action_rail")
+    if rail:
+        rail_width = float(rail["width"]) * scale
+        rail_top = float(rail.get("rail_below_ratio", 0.5)) * height
+        rail_rect = (max(0.0, width - rail_width), rail_top, float(width), float(height))
+        overlap = _rect_intersect(band_rect, rail_rect)
+        band_area, rail_area, overlap_area = (
+            _rect_area(band_rect),
+            _rect_area(rail_rect),
+            _rect_area(overlap),
+        )
+        union_area = band_area + rail_area - overlap_area
+        band_mean = _region_mean(path, band_rect)
+        rail_mean = _region_mean(path, rail_rect)
+        overlap_mean = _region_mean(path, overlap) if overlap_area > 0 else 0.0
+        weighted = band_mean * band_area + rail_mean * rail_area - overlap_mean * overlap_area
+        in_band = weighted / union_area if union_area > 0 else 0.0
+    else:
+        union_area = _rect_area(band_rect)
+        in_band = _region_mean(path, band_rect)
+
+    outside_height = min(band_top, (union_area / width) if width else 0.0)
+    outside = _region_mean(path, (0.0, 0.0, float(width), outside_height))
+
+    background_ink = _hex_luminance(background)
+    return {
+        "canvas": f"{width}x{height}",
+        "reserved_area_px": round(union_area),
+        "ink_in_band": round(in_band, 3),
+        "ink_outside_band": round(outside, 3),
+        "background_ink": round(background_ink, 3),
+        "ink_vs_background": round(in_band - background_ink, 3),
+    }
+
+
 # -- templates -------------------------------------------------------------
 #
 # Step 2 of PLAN.md § Motion graphics and templates. Templates are SVG files
@@ -465,7 +590,26 @@ FONTS = {
     "title_font": "'Noto Serif', 'Liberation Serif', serif",
     "body_font": "'Lato', 'Noto Sans', sans-serif",
     "quote_font": "'Noto Serif', 'Liberation Serif', serif",
+    # Declared for a pack to name and validate against, but **no shipped
+    # template's `mark` slot reads it yet** — that slot's own `font` key
+    # still says `title_font`, on purpose: `test_the_wordmark_is_drawn_in_
+    # title_type` (test_graphics.py, not this session's to edit) pins it
+    # there, and the goodsometimes brand this pack ships for needs no
+    # separate wordmark face anyway — Zilla Slab is both its title and its
+    # mark, Bold vs SemiBold, which `weight_role` alone already expresses.
+    # The role exists so a *future* template that wants a distinct wordmark
+    # face has a name to ask for without a second FONTS entry; until one
+    # does, a pack naming it is validated and stored and simply unread.
+    "mark_font": "'Noto Serif', 'Liberation Serif', serif",
 }
+
+#: The two weights a wordmark/footnote pair can diverge on without a second
+#: font role. A card's `<text>` element bakes its own `font-weight` in the
+#: SVG (never a placeholder there before this), so these are what
+#: `{{mark_weight}}`/`{{footnote_weight}}` in `templates/*.svg` now resolve
+#: to — 700 for both, matching every shipped card's literal `font-weight="700"`
+#: byte-for-byte, so a project with no pack applied renders unchanged.
+WEIGHTS = {"mark_weight": 700, "footnote_weight": 700}
 
 #: The card a template is authored against. Geometry inside a template is in
 #: these units — 1920 wide, whatever the canvas aspect makes it tall — so a
@@ -1060,7 +1204,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "end",
                 "width": 1640,
                 "size": 52,
-                "weight": 700,
+                "weight_role": "mark_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1140,7 +1284,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "end",
                 "width": 1640,
                 "size": 52,
-                "weight": 700,
+                "weight_role": "mark_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1220,7 +1364,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "end",
                 "width": 1640,
                 "size": 52,
-                "weight": 700,
+                "weight_role": "mark_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1267,7 +1411,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "middle",
                 "width": 1640,
                 "size": 210,
-                "weight": 700,
+                "weight_role": "mark_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1282,7 +1426,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "middle",
                 "width": 1640,
                 "size": 60,
-                "weight": 700,
+                "weight_role": "footnote_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1319,7 +1463,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "middle",
                 "width": 1640,
                 "size": 220,
-                "weight": 700,
+                "weight_role": "mark_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1333,7 +1477,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
                 "anchor": "middle",
                 "width": 1640,
                 "size": 56,
-                "weight": 700,
+                "weight_role": "footnote_weight",
                 "font": "title_font",
                 "default": "",
                 "description": (
@@ -1400,7 +1544,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
 #: Slots every template gets: the palette, the font stacks, and the geometry
 #: lucid computes from the canvas. Style slots are overridable; the geometry
 #: ones are not, because they are the canvas the caller already chose.
-STYLE_SLOTS = {**PALETTE, **FONTS}
+STYLE_SLOTS = {**PALETTE, **FONTS, **WEIGHTS}
 RESERVED_SLOTS = frozenset({"width", "height", "view_height", "mid_y", "note_y", "foot_y"})
 
 #: The variants a template may be drawn in, and the canvas that selects each.
@@ -1432,6 +1576,57 @@ VARIANTS: dict[str, Callable[[int, int], bool]] = {
 #: the like button. Portrait draws it bottom *left*. PLAN.md § The vertical
 #: card layout.
 BASE_GEOMETRY: dict[str, float] = {"mid_ratio": 0.44, "note_gap": 130, "foot_margin": 110}
+
+#: Which palette slot a template's own background rect draws — not a slot a
+#: caller sets, because the SVG's `<rect fill="...">` is fixed markup, one
+#: colour per template. `card_safe_zones` needs to know it to measure ink
+#: *relative to the background the card actually has*, since a brightness
+#: number alone has already misread a render twice in this repo (once as
+#: worse than a pillarbox, once as a pillarbox) — a dark source and a dark
+#: bar read identically to a bare luminance check.
+TEMPLATE_BACKGROUND: dict[str, str] = {
+    "receipt": "paper",
+    "reveal": "ink",
+    "rerate": "paper",
+    "endcard": "ink",
+    "bumper": "ink",
+}
+
+#: Reserved-band platform safe zones, at 1080x1920 (the vertical canvas every
+#: number below was measured against — a caller at a different canvas scales
+#: these by its own height / 1920). Numbers lifted verbatim from the note
+#: `mlt.py`'s reframe geometry already carries in `BASE_GEOMETRY`'s own
+#: comment history, not invented here: the platform UI eats the bottom band
+#: on every short-form surface, and an action rail (share/comment/like) sits
+#: on the right below the halfway line on every one of them too.
+#: `card_safe_zones` reports ink in and out of this band; it never blocks a
+#: render on it, the same way `reframe_detect` never writes a framing
+#: decision without being asked — a threshold is pinned by looking at real
+#: output, not picked cold (HISTORY.md § The scene threshold, re-pinned).
+SAFE_ZONES: dict[str, dict[str, Any]] = {
+    "tiktok-organic": {
+        "bottom_px": 324,
+        "action_rail": {"width": 240, "side": "right", "rail_below_ratio": 0.5},
+    },
+    "tiktok-ads": {
+        "bottom_px": 370,
+        "action_rail": {"width": 240, "side": "right", "rail_below_ratio": 0.5},
+    },
+    "reels": {
+        "bottom_px": 320,
+        "action_rail": {"width": 200, "side": "right", "rail_below_ratio": 0.5},
+    },
+    "shorts": {
+        "bottom_px": 300,
+        "action_rail": {"width": 180, "side": "right", "rail_below_ratio": 0.5},
+    },
+    # The bottom fifth of a 1920-tall frame — no particular platform, the
+    # floor to design against when the target is unannounced.
+    "worst-case": {
+        "bottom_px": 384,
+        "action_rail": {"width": 300, "side": "right", "rail_below_ratio": 0.5},
+    },
+}
 
 
 def template_path(name: str, variant: str | None = None) -> Path:
@@ -1655,12 +1850,24 @@ def line_parts(
     the slot's size and weight unless it states otherwise, so the declaration
     stays as short as the file's own markup is.
     """
+    # A slot's own weight is a literal `weight` when it declares one — the
+    # older contract, unchanged — or, for a slot that opted into the pack
+    # axis instead (`mark`/`footnote`, since HISTORY.md § The channel preset
+    # pack), `resolved[weight_role]`. The two never coexist on a real
+    # declaration; a literal wins if both are present, which is what keeps a
+    # caller free to override a slot's weight for one measurement (as a test
+    # does) without knowing whether the slot behind it uses either axis.
+    if "weight" in declared:
+        slot_weight = declared["weight"]
+    else:
+        slot_weight = resolved[declared["weight_role"]]
+
     parts = declared.get("parts") or [{"text": "{" + slot + "}"}]
     filled = []
     for part in parts:
         text = str(part["text"]).format(**resolved)
         size = part.get("size", declared["size"])
-        weight = part.get("weight", declared["weight"])
+        weight = part.get("weight", slot_weight)
         gap = part.get("gap", 0)
         if not has_runs(text):
             filled.append({"text": text, "size": size, "weight": weight, "gap": gap})

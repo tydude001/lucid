@@ -140,6 +140,30 @@
           </div>
         </form>
       </aside>
+
+      <!-- The parity long tail's own rail: every asset a cue can point at
+           (assets.js, GET /api/assets), and a read-only inspector for
+           whatever is currently selected (properties.js, GET /api/properties)
+           — two panes stacked in one column rather than two more grid
+           tracks, since neither needs the width a transcript or the agent
+           feed does. Filled entirely by the two modules; this file only
+           owns the shell (app.css § Assets pane / § Properties pane). -->
+      <aside id="inspector-pane" class="pane">
+        <div class="pane-head">
+          assets
+          <span class="hint">click to inspect · role sets voiceover / footage</span>
+        </div>
+        <div id="assets-list"></div>
+        <div class="pane-head">
+          properties
+          <span class="hint">read-only, composed from the same ops the CLI uses</span>
+          <span class="spacer"></span>
+          <button id="properties-clear" type="button" title="back to project-wide properties" hidden>
+            project ⌫
+          </button>
+        </div>
+        <div id="properties-body"></div>
+      </aside>
     </div>
 
     <section id="timeline-pane">

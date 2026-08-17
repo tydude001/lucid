@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lucid</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+    <!-- Classic, before the body, same reason as index.html's: a module is
+         deferred, so the page would paint in the wrong theme first. -->
+    <script src="/static/theme.js"></script>
+  </head>
+  <body class="picker">
+    <div class="picker-shell">
+      <div class="picker-header">
+        <span class="brand serif-accent">lucid</span>
+        <span class="sep">/</span>
+        <span>projects</span>
+        <span class="spacer"></span>
+        <button id="theme" type="button" title="theme">◐</button>
+      </div>
+      <p class="picker-root">under <span id="root">…</span></p>
+      <div id="list" class="picker-list">
+        <p class="picker-empty">scanning…</p>
+      </div>
+    </div>
+    <div id="toast" hidden></div>
+    <script type="module" src="/static/picker.js"></script>
+  </body>
+</html>

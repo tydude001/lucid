@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any
 
 from lucid import __version__, asr, captions, describe, energy, ops, reviewserver, webui
 from lucid.asr import ASRError
@@ -20,6 +19,7 @@ from lucid.energy import EnergyError
 from lucid.graphics import GraphicsError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
+from lucid.pack import PackError
 from lucid.picture import PictureError
 from lucid.project import ProjectError
 from lucid.timeline import TimelineError
@@ -114,7 +114,49 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-C", "--project", help="project directory (default: .)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("mcp", help="run the MCP server on stdio")
+    p_mcp = sub.add_parser("mcp", help="run the MCP server, over stdio (default) or HTTP")
+    p_mcp.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="stdio (default — every existing client spawns the server this way) or http",
+    )
+    # `default=None` rather than `webui.DEFAULT_HOST`/`server.DEFAULT_HTTP_PORT`
+    # directly: `lucid.server` imports the MCP SDK and is only ever imported
+    # lazily (inside `_cmd_mcp`), and resolving the real default here would
+    # force that import on every `lucid` invocation, not just `mcp`.
+    p_mcp.add_argument(
+        "--host",
+        default=None,
+        help="bind address for --transport http (default: loopback, like `lucid web`)",
+    )
+    p_mcp.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="port for --transport http (default: one past `lucid web`'s; 0 picks a free one)",
+    )
+    p_mcp.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help=(
+            "allow --host to bind off loopback for --transport http; the "
+            "Host-header guard still runs, widened to also accept that host "
+            "rather than turned off"
+        ),
+    )
+    p_mcp.add_argument(
+        "--allow-remote-host",
+        action="append",
+        default=None,
+        dest="allow_remote_hosts",
+        metavar="NAME",
+        help=(
+            "a Host value a remote client will actually present (repeatable); "
+            "required with --allow-remote when --host is a wildcard address "
+            "(0.0.0.0, ::) since that address is never what a real client sends"
+        ),
+    )
     sub.add_parser("ping", help="print the same payload the MCP ping tool returns")
 
     p_init = sub.add_parser("init", help="create a project directory")
@@ -146,6 +188,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--clip-id", help="override the generated clip id")
     p_import.add_argument(
         "--copy", action="store_true", help="copy the media in rather than linking it"
+    )
+
+    p_role = sub.add_parser(
+        "role", help="read or set a clip's import role — voiceover vs footage"
+    )
+    p_role.add_argument("clip_id")
+    p_role.add_argument(
+        "role", nargs="?", choices=sorted(ops.CLIP_ROLES), help="omit to read what is stored"
+    )
+    p_role.add_argument(
+        "--reset", action="store_true", help="clear it back to undeclared"
     )
 
     p_attach = sub.add_parser("attach-transcript", help="ingest a word-timed whisper JSON")
@@ -255,6 +308,71 @@ def _build_parser() -> argparse.ArgumentParser:
     p_card_reauthor.add_argument(
         "--plan", action="store_true", help="report what would be redrawn, writing nothing"
     )
+
+    p_card_safe_zones = card_sub.add_parser(
+        "safe-zones",
+        help="measure a rendered card's ink in and around a platform's reserved band",
+    )
+    p_card_safe_zones.add_argument("name", help="the <name> in card:<name>, without an extension")
+    p_card_safe_zones.add_argument(
+        "--platform",
+        required=True,
+        help="a zone in `lucid pack show`'s safe_zones, or one of lucid's own "
+        "(tiktok-organic, tiktok-ads, reels, shorts, worst-case)",
+    )
+
+    p_pack = sub.add_parser("pack", help="load, activate and inspect a channel preset pack")
+    pack_sub = p_pack.add_subparsers(dest="pack_command", required=True)
+
+    p_pack_apply = pack_sub.add_parser(
+        "apply", help="load a pack file, resolve and snapshot every variant, activate one"
+    )
+    p_pack_apply.add_argument("pack_path", help="path to the pack's JSON file")
+    p_pack_apply.add_argument(
+        "--variant", default="default", help="which declared variant to activate (default)"
+    )
+    p_pack_apply.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="use a font role's own declared fallback stack when its primary "
+        "family does not draw on this box, instead of refusing",
+    )
+    p_pack_apply.add_argument(
+        "--install-fonts",
+        action="store_true",
+        help="vendor the pack's own fonts/ directory, if it ships one (writes into $HOME)",
+    )
+    p_pack_apply.add_argument(
+        "--plan", action="store_true", help="resolve and probe without writing"
+    )
+
+    p_pack_activate = pack_sub.add_parser(
+        "activate", help="switch the active variant to one already snapshotted by pack apply"
+    )
+    p_pack_activate.add_argument("variant")
+    p_pack_activate.add_argument(
+        "--plan", action="store_true", help="report without writing"
+    )
+
+    p_pack_captions = pack_sub.add_parser(
+        "captions", help="apply the active variant's caption preset via caption-style"
+    )
+    p_pack_captions.add_argument("preset")
+    p_pack_captions.add_argument(
+        "--plan", action="store_true", help="resolve without writing"
+    )
+
+    p_pack_show = pack_sub.add_parser(
+        "show", help="what a pack declares — from its file, a project's snapshot, or both"
+    )
+    p_pack_show.add_argument(
+        "--pack-path", help="read and resolve this pack file fresh (no project needed)"
+    )
+    p_pack_show.add_argument(
+        "--variant", help="which snapshotted variant to show (default: the active one)"
+    )
+
+    pack_sub.add_parser("status", help="active variant, and which cards/captions have gone stale")
 
     p_cue = sub.add_parser("cue", help="manage the picture cue table (word_index -> asset)")
     cue_sub = p_cue.add_subparsers(dest="cue_command", required=True)
@@ -474,11 +592,33 @@ def _build_parser() -> argparse.ArgumentParser:
         "--clip-id", help="which clip's words to report (default: the one the timeline opens with)"
     )
 
+    sub.add_parser("assets", help="every clip and card a cue can point at, with usage counts")
+
+    p_properties = sub.add_parser(
+        "properties", help="project/clip/cue detail for a properties inspector"
+    )
+    p_properties.add_argument("--clip-id", help="narrow to one clip")
+    p_properties.add_argument(
+        "--word-index", type=int, help="narrow to one cue on --clip-id's own words"
+    )
+
     p_waveform = sub.add_parser(
         "waveform", help="RMS envelope for the timeline's waveform lane (cached)"
     )
     p_waveform.add_argument(
         "--clip-id", help="which clip's media to measure (default: the one the timeline opens with)"
+    )
+
+    p_thumb = sub.add_parser(
+        "thumbnail", help="one filmstrip frame for a clip, at a source time (cached)"
+    )
+    p_thumb.add_argument("clip_id")
+    p_thumb.add_argument("at", type=float, help="seconds into the clip's own source")
+    p_thumb.add_argument(
+        "--interval",
+        type=float,
+        default=ops.THUMB_INTERVAL,
+        help=f"grid `at` snaps to, in seconds ({ops.THUMB_INTERVAL})",
     )
 
     p_preview = sub.add_parser(
@@ -493,6 +633,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_web.add_argument("--open", action="store_true", help="open a browser at it")
     p_web.add_argument("--verbose", action="store_true", help="log every request, media ranges included")
+    # Serves a picker over a scan instead of one fixed project (DAYDREAM.md §
+    # Multi-project). Mutually exclusive with -C in practice, checked in
+    # `_cmd_web` rather than here because -C is a *global* flag shared with
+    # every other subcommand and always carries a value by the time a
+    # subcommand runs (`main`'s own `args.project_given`).
+    p_web.add_argument(
+        "--root",
+        help="serve a picker over every lucid project found under this directory, "
+        "instead of one project (default: none — serve -C's project, as always)",
+    )
 
     sub.add_parser("undo", help="roll back the last timeline mutation")
 
@@ -1094,35 +1244,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
-    from lucid.project import Project
-
-    return _emit(_summarise(Project.open(args.project).read_manifest(), raw=args.raw))
-
-
-def _summarise(manifest: dict[str, Any], *, raw: bool) -> dict[str, Any]:
-    """Stand the descriptions down to a count, unless `--raw`.
-
-    `info` prints the manifest, and the manifest is where descriptions live —
-    which took a described project's `info` to 103 KB of prose, in a command
-    whose whole job is being readable at a glance. `describe-ls` is where the
-    text is meant to be read, so this points at it rather than inlining it.
-    Substituting a summary is a lie unless the escape hatch exists, hence
-    `--raw`: nothing else in lucid can show you the stored bytes.
-    """
-    if raw or not manifest.get("descriptions"):
-        return manifest
-    descriptions = manifest["descriptions"]
-    per_clip: dict[str, int] = {}
-    for entry in descriptions:
-        per_clip[entry["clip_id"]] = per_clip.get(entry["clip_id"], 0) + 1
-    return {
-        **manifest,
-        "descriptions": {
-            "count": len(descriptions),
-            "clips": per_clip,
-            "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
-        },
-    }
+    return _emit(ops.info(args.project, raw=args.raw))
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
@@ -1133,6 +1255,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return _emit(
         ops.import_media(args.project, args.source, clip_id=args.clip_id, copy=args.copy)
     )
+
+
+def _cmd_role(args: argparse.Namespace) -> int:
+    return _emit(ops.clip_role(args.project, args.clip_id, args.role, reset=args.reset))
 
 
 def _cmd_attach_transcript(args: argparse.Namespace) -> int:
@@ -1207,7 +1333,39 @@ def _cmd_card(args: argparse.Namespace) -> int:
         )
     if args.card_command == "reauthor":
         return _emit(ops.card_reauthor(args.project, args.name, plan=args.plan))
+    if args.card_command == "safe-zones":
+        return _emit(ops.card_safe_zones(args.project, args.name, args.platform))
     return _emit(ops.card_render(args.project, args.name, width=args.width, height=args.height))
+
+
+def _cmd_pack(args: argparse.Namespace) -> int:
+    if args.pack_command == "apply":
+        return _emit(
+            ops.pack_apply(
+                args.project,
+                args.pack_path,
+                variant=args.variant,
+                allow_fallback=args.allow_fallback,
+                install_fonts=args.install_fonts,
+                plan=args.plan,
+            )
+        )
+    if args.pack_command == "activate":
+        return _emit(ops.pack_activate(args.project, args.variant, plan=args.plan))
+    if args.pack_command == "captions":
+        return _emit(ops.pack_apply_captions(args.project, args.preset, plan=args.plan))
+    if args.pack_command == "show":
+        # `pack_path` alone needs no project (`fonts`'s own `project_given`
+        # shape) — asked with neither, ops.pack_show raises the message
+        # naming what it needs.
+        return _emit(
+            ops.pack_show(
+                args.pack_path,
+                path=args.project if (args.project_given or not args.pack_path) else None,
+                variant=args.variant,
+            )
+        )
+    return _emit(ops.pack_status(args.project))
 
 
 def _cmd_cue(args: argparse.Namespace) -> int:
@@ -1327,8 +1485,22 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return _emit(ops.timeline_view(args.project, clip_id=args.clip_id))
 
 
+def _cmd_assets(args: argparse.Namespace) -> int:
+    return _emit(ops.assets(args.project))
+
+
+def _cmd_properties(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.properties(args.project, clip_id=args.clip_id, word_index=args.word_index)
+    )
+
+
 def _cmd_waveform(args: argparse.Namespace) -> int:
     return _emit(ops.waveform(args.project, clip_id=args.clip_id))
+
+
+def _cmd_thumbnail(args: argparse.Namespace) -> int:
+    return _emit(ops.thumbnail(args.project, args.clip_id, args.at, interval=args.interval))
 
 
 def _cmd_preview(args: argparse.Namespace) -> int:
@@ -1338,6 +1510,22 @@ def _cmd_preview(args: argparse.Namespace) -> int:
 def _cmd_web(args: argparse.Namespace) -> int:
     # Blocks until Ctrl-C. Unlike every other subcommand this one prints no
     # JSON — its output is the page.
+    if args.root is not None:
+        if args.project_given:
+            raise ProjectError(
+                f"web was given two ways to pick a project: -C {args.project!r} and "
+                f"--root {args.root!r}. Pass one — --root serves a picker over every "
+                "project found under it, -C serves exactly one, and there is no "
+                "sensible way to pick between them."
+            )
+        webui.serve_root(
+            args.root,
+            host=args.host,
+            port=args.port,
+            verbose=args.verbose,
+            open_browser=args.open,
+        )
+        return 0
     webui.serve(
         args.project,
         host=args.host,
@@ -1630,7 +1818,7 @@ def _cmd_ping(_args: argparse.Namespace) -> int:
 
 
 def _cmd_mcp(args: argparse.Namespace) -> int:
-    from lucid.server import serve
+    from lucid.server import DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT, serve
 
     # `-C` binds the server to one project, and is honoured only when it was
     # actually typed: `main()` defaults it to ".", so binding unconditionally
@@ -1639,7 +1827,14 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     # bound is what the web UI's agent panel spawns (`webui.py`'s generated
     # MCP config), and what confines that agent to the project it was opened
     # on rather than to lucid's ops in general.
-    serve(root=args.project if args.project_given else None)
+    serve(
+        root=args.project if args.project_given else None,
+        transport=args.transport,
+        host=args.host if args.host is not None else DEFAULT_HTTP_HOST,
+        port=args.port if args.port is not None else DEFAULT_HTTP_PORT,
+        allow_remote=args.allow_remote,
+        allow_remote_hosts=args.allow_remote_hosts,
+    )
     return 0
 
 
@@ -1648,6 +1843,7 @@ _COMMANDS = {
     "info": _cmd_info,
     "migrate": _cmd_migrate,
     "import": _cmd_import,
+    "role": _cmd_role,
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
@@ -1655,6 +1851,7 @@ _COMMANDS = {
     "describe": _cmd_describe,
     "describe-ls": _cmd_describe_ls,
     "card": _cmd_card,
+    "pack": _cmd_pack,
     "cue": _cmd_cue,
     "unspoken": _cmd_unspoken,
     "shots": _cmd_shots,
@@ -1665,7 +1862,10 @@ _COMMANDS = {
     "locate": _cmd_locate,
     "status": _cmd_status,
     "view": _cmd_view,
+    "assets": _cmd_assets,
+    "properties": _cmd_properties,
     "waveform": _cmd_waveform,
+    "thumbnail": _cmd_thumbnail,
     "preview": _cmd_preview,
     "web": _cmd_web,
     "undo": _cmd_undo,
@@ -1719,6 +1919,9 @@ _EXPECTED = (
     # that refusal fired for real on the Scream assembly (HISTORY.md
     # § Rendering through `melt`) — it is a message to read, not a traceback.
     MLTError,
+    # A pack file that does not resolve — an unknown top-level key, a font
+    # role with no fallback stack, and the rest of `pack.py`'s own refusals.
+    PackError,
 )
 
 

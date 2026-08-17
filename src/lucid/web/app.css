@@ -58,6 +58,10 @@
  *   #bar                  top bar: brand/project left, Export/Undo/theme
  *                         right (DAYDREAM.md § Workspace shell)
  *   #workspace             grid: transcript-pane | preview-pane | agent-pane
+ *                          | inspector-pane — the parity long tail's rail
+ *                          (assets.js + properties.js, one pane split two
+ *                          ways rather than two more grid tracks — neither
+ *                          needs a transcript's or the agent feed's width)
  *   #timeline-pane          full-width strip under the workspace, ~22vh —
  *                          the picture in #preview-pane is the largest thing
  *                          on screen, not this strip and not the transcript.
@@ -146,6 +150,15 @@
  *   .clip-block.shot-card        …that shot is a held still, not footage
  *   .lane-refusal               why V2 has no shots to draw — the picture
  *                             plan refused, and the message is the point
+ *   .filmstrip / .filmstrip img  V1/V2 thumbnails (timeline.js's
+ *                             `buildFilmstrip`, `/api/thumb/<clip_id>`) —
+ *                             fixed-width frames reading the block's OWN
+ *                             source second forward, never from 0 (CLAUDE.md:
+ *                             a clip used three times reads three different
+ *                             stretches of itself)
+ *   .clip-label                  a block's clip_id/shot label, positioned
+ *                             so it wins the paint order over `.filmstrip`
+ *                             sitting under it
  *   .waveform-canvas            the <canvas> an A1 lane draws its envelope
  *                             into (from `/api/waveform/<clip_id>`)
  *   .seam-tick                  a cut boundary, drawn as a 1px line
@@ -183,6 +196,30 @@
  *                                    the @-mention completion list, anchored
  *                                 to .agent-composer (not caret-precise —
  *                                 pure composer sugar)
+ *
+ * Assets pane (#assets-list, filled by assets.js — `GET /api/assets`):
+ *   .asset-section-label          "clips · N" / "cards · N" divider
+ *   .asset-row                     one clip or card; click asks
+ *                                 properties.js to inspect it
+ *     .asset-row.inspected           the row currently driving the
+ *                                 properties pane (not the same fact as the
+ *                                 top bar's own loaded-clip picker)
+ *   .asset-id                      clip_id / `card:name`, mono
+ *   .asset-meta                    the probe-metadata / template summary line
+ *   .asset-flags / .asset-flag       small pill badges (video/audio/
+ *                                 transcript/described/playable/recorded/…);
+ *                                 .ok and .fail colour two of the states,
+ *                                 a third (unknown/unchecked) stays neutral
+ *   .asset-roles                    the voiceover/footage `.toggle` chips
+ *                                 (`POST /api/clip-role`)
+ *
+ * Properties pane (#properties-body, filled by properties.js — `GET
+ * /api/properties`, composed read-only, never re-derived here):
+ *   .prop-section / .prop-section h3   one titled block per bundle
+ *                                    (status/canvas/caption style/clip/
+ *                                    reframe/cues/…) — see `.rows` below,
+ *                                    the table every section actually draws
+ *                                    its fields into
  *
  * Shared, reused wherever an op's result is echoed — op results render into
  * the agent feed (PLAN.md § Where the cut controls go), but the transcript's
@@ -328,11 +365,13 @@
 
   --pane-transcript-w: 26rem;
   --pane-agent-w: 24rem;
-  /* Floors for the three workspace tracks. They exist because the two side
-     widths above sum to exactly 800px — see #workspace. */
+  --pane-inspector-w: 22rem;
+  /* Floors for the four workspace tracks. The first three exist because
+     those side widths sum to exactly 800px — see #workspace. */
   --pane-transcript-min: 13rem;
   --pane-preview-min: 19rem;
   --pane-agent-min: 13rem;
+  --pane-inspector-min: 15rem;
   --timeline-h: 22vh;
   --timeline-h-min: 180px;
   --track-header-w: 84px;
@@ -544,13 +583,18 @@ textarea {
    way first and keep the picture the last thing to shrink, which is the same
    priority the layout is arguing for at every other width. Measured in a real
    browser at 700/800/900/1400, the way the `auto` track above was. */
+/* A fourth track, added for the assets/properties rail — same `minmax()`
+   discipline as the note above and for the same reason: a bare width here
+   would be the next way for a pane to disappear at an ordinary window size
+   with no scrollbar and nothing in the console. */
 #workspace {
   grid-row: 2;
   display: grid;
   grid-template-columns:
     minmax(var(--pane-transcript-min), var(--pane-transcript-w))
     minmax(var(--pane-preview-min), 1fr)
-    minmax(var(--pane-agent-min), var(--pane-agent-w));
+    minmax(var(--pane-agent-min), var(--pane-agent-w))
+    minmax(var(--pane-inspector-min), var(--pane-inspector-w));
   min-height: 0;
 }
 
@@ -568,6 +612,25 @@ textarea {
 
 #agent-pane {
   border-left: 1px solid var(--line);
+}
+
+#inspector-pane {
+  border-left: 1px solid var(--line);
+}
+
+/* Two `.pane-head`/body pairs stacked in one flex-column pane, each getting
+   an even share of the height and its own scroll — see app.css § Assets
+   pane / § Properties pane below for what fills each. */
+#assets-list,
+#properties-body {
+  flex: 1 1 50%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#properties-body {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 24px;
 }
 
 .pane-head {
@@ -1090,6 +1153,97 @@ textarea {
   font-family: var(--font-mono);
 }
 
+/* -- assets pane (assets.js) ---------------------------------------------- */
+
+.asset-section-label {
+  padding: 6px 14px 3px;
+  color: var(--dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--panel-2);
+}
+
+.asset-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line-2);
+  cursor: pointer;
+}
+
+.asset-row:hover {
+  background: var(--panel-2);
+}
+
+/* The catalogue entry currently driving the properties pane — not the same
+   fact as "· loaded" below, which is `view.clip_id`, a different selection
+   owned by the top bar's own picker. */
+.asset-row.inspected {
+  background: var(--wash-accent);
+  box-shadow: inset 2px 0 0 var(--sel);
+}
+
+.asset-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.asset-meta {
+  margin-top: 2px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.asset-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.asset-flag {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.asset-flag.ok {
+  border-color: var(--kept);
+  background: var(--wash-kept);
+  color: var(--kept);
+}
+
+.asset-flag.fail {
+  border-color: var(--cut);
+  background: var(--wash-cut);
+  color: var(--cut);
+}
+
+.asset-roles {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* -- properties pane (properties.js) --------------------------------------- */
+
+.prop-section {
+  margin: 0 0 14px;
+}
+
+.prop-section h3 {
+  margin: 0 0 4px;
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* -- timeline pane --------------------------------------------------------- */
 
 #timeline-pane {
@@ -1267,6 +1421,42 @@ textarea {
   white-space: nowrap;
 }
 
+/* Filmstrip thumbnails (timeline.js's `buildFilmstrip`) — V1 segments and
+   V2 non-still shots only. A row of fixed-width `<img>`s filling the block
+   behind its own label, never fitted to the block's total width: each frame
+   keeps the on-screen size it was given so a block wider than an exact
+   multiple of that size just clips its last frame, the same tolerance the
+   picture lane already has for its own frame-grid/ruler mismatch. */
+.filmstrip {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.filmstrip img {
+  flex: 0 0 auto;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Slightly desaturated so the label reads over any frame without a second
+     backing box behind it — see .clip-label. */
+  filter: saturate(0.85) brightness(0.96);
+}
+
+/* Positioned so it wins the (position-before-DOM-order) paint rule against
+   the filmstrip sitting under it — an unpositioned label would be painted
+   *behind* an absolutely-positioned sibling regardless of markup order. */
+.clip-label {
+  position: relative;
+  z-index: 1;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: light-dark(hsl(0 0% 100% / 0.74), hsl(0 0% 0% / 0.58));
+}
+
 /* An overlay rather than a second fill: it reads the same over any pastel,
    in either theme, so hover is one rule instead of five. */
 .clip-block:hover {
@@ -1394,4 +1584,122 @@ textarea {
   color: var(--ink);
   box-shadow: light-dark(0 8px 28px hsl(42 14% 40% / 0.26), 0 8px 28px hsl(0 0% 0% / 0.55));
   z-index: 10;
+}
+
+/* -- picker page (DAYDREAM.md § Multi-project) ----------------------------
+ * `picker.html` is a separate page, not a workspace pane — served instead
+ * of `index.html` while `lucid web --root` has no project open yet
+ * (webui.py's `Handler._route_picker`). `body.picker` overrides the
+ * workspace shell's `body` grid above with a plain scrolling column, since
+ * there is no timeline or transcript here; every colour below is still one
+ * of the tokens in :root, never a new one.
+ */
+
+body.picker {
+  display: block;
+  overflow: auto;
+  min-height: 100%;
+}
+
+.picker-shell {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
+}
+
+.picker-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.picker-header .sep {
+  color: var(--dim);
+}
+
+.picker-header .spacer {
+  align-self: center;
+}
+
+.picker-root {
+  margin: 0 0 22px;
+  overflow-wrap: anywhere;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.picker-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.picker-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.picker-path {
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-meta {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.picker-meta.picker-error {
+  color: var(--cut);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.picker-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--wash-kept);
+  color: var(--kept);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.picker-badge.warn {
+  background: var(--wash-partial);
+  color: var(--partial);
+}
+
+.picker-badge.bad {
+  background: var(--wash-cut);
+  color: var(--cut);
+}
+
+.picker-empty {
+  padding: 32px 0;
+  color: var(--dim);
+  text-align: center;
 }

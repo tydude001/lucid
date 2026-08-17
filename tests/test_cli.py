@@ -85,6 +85,20 @@ def test_init_refuses_two_different_directories(
     assert "two directories" in capsys.readouterr().err
 
 
+def test_web_refuses_both_dash_c_and_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--root` and `-C` pick a project two different ways (a picker over a
+    scan vs. exactly one project) — same "no sensible way to pick between
+    them" refusal `init`'s two-directories case uses above, and it fires
+    before `webui.serve_root`/`webui.serve` is ever called, so nothing binds
+    a socket either way."""
+    assert (
+        main(["-C", str(tmp_path / "proj"), "web", "--root", str(tmp_path), "--port", "0"]) == 1
+    )
+    assert "two ways" in capsys.readouterr().err
+
+
 def test_init_with_neither_uses_the_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -713,3 +727,150 @@ def test_import_edit_flags_parse_and_reach_ops(
     )
     capsys.readouterr()
     assert seen == {"document": "cut.kdenlive", "clip_id": "vo", "plan": True}
+
+
+# -- `role`, `assets`, `properties`, `thumbnail` -----------------------------
+#
+# These landed this session with no CLI-level parsing coverage of their own,
+# unlike their siblings above. Each has a shape the stdio suite's tool-level
+# tests do not exercise: `role`'s optional positional plus `--reset` (and
+# argparse's own `choices` guard on the positional), `properties`'s two
+# independent `--clip-id`/`--word-index` narrowing flags, and `thumbnail`'s
+# positional `at` (typed float) plus `--interval`'s real default reaching
+# `ops.thumbnail` under the right keyword. `assets` takes no arguments at
+# all, so its coverage is just that the subcommand dispatches and returns
+# the shape a properties inspector expects.
+
+
+def _write_clip(project: Path, clip_id: str = "c1", **fields: object) -> None:
+    """A clip record written straight into the manifest — no real media
+    needed for `role` (manifest-only) or to prove `thumbnail`'s own parsing
+    reaches `ops.thumbnail` (which fails cleanly at "media is missing from
+    disk" only after `clip_id`/`at`/`interval` have already been parsed and
+    the clip has already been found, which is what is under test here).
+    """
+    manifest = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    clip = {
+        "clip_id": clip_id,
+        "source": "/nonexistent/media.mp4",
+        "duration": 12.0,
+        "has_video": True,
+        "has_audio": True,
+        "width": 1920,
+        "height": 1080,
+        **fields,
+    }
+    manifest.setdefault("clips", []).append(clip)
+    (project / "lucid.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_role_reads_with_no_role_and_sets_and_resets_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    _write_clip(project)
+
+    assert main(["-C", str(project), "role", "c1"]) == 0
+    assert json.loads(capsys.readouterr().out)["role"] is None
+
+    assert main(["-C", str(project), "role", "c1", "voiceover"]) == 0
+    assert json.loads(capsys.readouterr().out)["role"] == "voiceover"
+
+    assert main(["-C", str(project), "role", "c1", "--reset"]) == 0
+    assert json.loads(capsys.readouterr().out)["role"] is None
+
+
+def test_role_positional_choices_refuse_before_reaching_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`choices=sorted(ops.CLIP_ROLES)` is argparse's own guard — a value
+    outside it is a usage error (exit 2) that never reaches `ops.clip_role`,
+    which is what separates this from `ops.clip_role`'s own message for the
+    same bad value (a `ProjectError`, exit 1) — both refuse, but only one of
+    them is this command's own plumbing.
+    """
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["-C", str(project), "role", "c1", "not-a-role"])
+    assert excinfo.value.code == 2
+
+
+def test_assets_takes_no_arguments_and_reports_both_kinds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    _write_clip(project)
+
+    assert main(["-C", str(project), "assets"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [c["clip_id"] for c in out["clips"]] == ["c1"]
+    assert out["cards"] == []
+
+
+@needs_ffprobe
+def test_properties_narrows_on_clip_id_and_refuses_word_index_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`properties` composes `ops.status`, which needs a seeded timeline —
+    unlike `role`/`assets`/`thumbnail` above, a bare manifest clip is not
+    enough, so this one goes through the real `import`/`seed` pipeline
+    `_make_sources` already builds for the tests above it."""
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "properties"]) == 0
+    whole = json.loads(capsys.readouterr().out)
+    assert "clip" not in whole
+
+    assert main(["-C", str(project), "properties", "--clip-id", clip_id]) == 0
+    narrowed = json.loads(capsys.readouterr().out)
+    assert narrowed["clip"]["clip_id"] == clip_id
+
+    # `--word-index` alone, with no `--clip-id`, is ops.properties's own
+    # refusal — reached here rather than an argparse usage error, since
+    # nothing about the pair is mutually exclusive at the parser level.
+    assert main(["-C", str(project), "properties", "--word-index", "3"]) == 1
+    assert "word_index needs a clip_id" in capsys.readouterr().err
+
+
+@needs_ffprobe
+def test_thumbnail_parses_at_and_interval_and_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`at` (positional, `type=float`) and `--interval` (optional, defaulting
+    to `ops.THUMB_INTERVAL`) both reach `ops.thumbnail` under the right
+    keywords — proven by getting *past* clip lookup and failing at the next
+    guard (missing media on disk), rather than at an argparse usage error or
+    at "no such clip"."""
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    _write_clip(project)
+
+    assert main(["-C", str(project), "thumbnail", "c1", "4.25"]) == 1
+    assert "media is missing from disk" in capsys.readouterr().err
+
+    assert main(["-C", str(project), "thumbnail", "c1", "4.25", "--interval", "2"]) == 1
+    assert "media is missing from disk" in capsys.readouterr().err
+
+    # A non-numeric `at` never reaches ops at all — argparse's `type=float`
+    # rejects it as a usage error.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["-C", str(project), "thumbnail", "c1", "not-a-number"])
+    assert excinfo.value.code == 2

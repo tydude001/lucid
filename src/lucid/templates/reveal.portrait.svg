@@ -3,5 +3,5 @@
   <text x="960" y="{{mid_y}}" text-anchor="middle" font-family="{{title_font}}" font-size="240" font-weight="700" fill="{{paper}}">{{title}}<tspan dy="-118" font-size="127" fill="{{amber}}">*</tspan></text>
   <text x="960" y="{{note_y}}" text-anchor="middle" font-family="{{title_font}}" font-size="80" font-weight="700" fill="{{paper}}"><tspan fill="{{amber}}">*&#160;</tspan>{{note}}</text>
   <text x="960" y="{{note_y}}" dy="190" text-anchor="middle" font-family="{{body_font}}" font-size="68" fill="{{muted}}">({{year}})</text>
-  <text x="140" y="{{foot_y}}" font-family="{{title_font}}" font-size="80" font-weight="700" fill="{{muted}}">{{mark}}</text>
+  <text x="140" y="{{foot_y}}" font-family="{{title_font}}" font-size="80" font-weight="{{mark_weight}}" fill="{{muted}}">{{mark}}</text>
 </svg>

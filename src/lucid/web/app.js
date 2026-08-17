@@ -22,6 +22,8 @@ import * as player from "./player.js";
 import * as transcript from "./transcript.js";
 import * as timeline from "./timeline.js";
 import * as agent from "./agent.js";
+import * as assets from "./assets.js";
+import * as properties from "./properties.js";
 
 let view = null; // the /api/view payload — the whole read model, shared read-only
 let captions = null; // the /api/captions payload: cues in timeline seconds and
@@ -102,6 +104,8 @@ async function load(clipId) {
   transcript.update(view);
   timeline.update(view);
   agent.update(view);
+  assets.update(view);
+  properties.update(view);
   player.update(view);
   player.captions(captions);
   player.player.seek(Math.min(at, Math.max(0, view.timeline_duration - 0.01)));
@@ -179,6 +183,8 @@ player.init(ctx);
 transcript.init(ctx);
 timeline.init(ctx);
 agent.init(ctx);
+assets.init(ctx);
+properties.init(ctx);
 load(null);
 
 // Started last, after the panes exist and the first load is underway: the

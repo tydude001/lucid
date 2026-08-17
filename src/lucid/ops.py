@@ -46,6 +46,7 @@ from lucid import describe as dsc
 # `fonts` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time — the `describe`/`verify` fix.
 from lucid import fonts as lucid_fonts
+from lucid import pack as pk
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -93,6 +94,37 @@ def _save_edit(project: Project, edit: tl.Edit) -> None:
 def init(path: Path | str, *, name: str | None = None) -> dict[str, Any]:
     project = Project.create(path, name=name)
     return {"project": str(project.root), "manifest": project.read_manifest()}
+
+
+def info(path: Path | str, *, raw: bool = False) -> dict[str, Any]:
+    """The project's manifest, summarised for reading at a glance.
+
+    `describe` is the fastest way to make a manifest huge — a described
+    project's `info` used to run 103 KB of prose in a command whose whole job
+    is being readable at a glance. Descriptions are stood down to a per-clip
+    count here; `describe_ls` is where the text is meant to be read, and
+    `raw=True` is the escape hatch back to the exact stored bytes, since
+    nothing else can show them.
+
+    Was CLI-only, reading the manifest straight off disk rather than through
+    an op — a parity violation (CLAUDE.md: the CLI is a thin wrapper, never a
+    second implementation). This is that fixed, with the same behaviour.
+    """
+    manifest = Project.open(path).read_manifest()
+    if raw or not manifest.get("descriptions"):
+        return manifest
+    descriptions = manifest["descriptions"]
+    per_clip: dict[str, int] = {}
+    for entry in descriptions:
+        per_clip[entry["clip_id"]] = per_clip.get(entry["clip_id"], 0) + 1
+    return {
+        **manifest,
+        "descriptions": {
+            "count": len(descriptions),
+            "clips": per_clip,
+            "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
+        },
+    }
 
 
 def migrate(path: Path | str, *, plan: bool = False) -> dict[str, Any]:
@@ -818,6 +850,446 @@ def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str,
     return report
 
 
+# -- channel preset pack -----------------------------------------------------
+#
+# PLAN.md § The completion queue, item 8. A pack is one external JSON file
+# (`pack.load_pack`, pure — no project, no write), applied once: every
+# variant it declares is resolved and *snapshotted* into the manifest, hashed
+# on its own resolved content. Every op below reads that snapshot, never the
+# file again, which is the whole design — no op ever depends on an external
+# path staying reachable or unchanged after the moment it was applied.
+#
+# Additive and optional, the `CANVAS_KEY`/`CAPTION_STYLE_KEY`/`TAIL_KEY`
+# precedent exactly: an older manifest with no `pack` key means what it
+# always meant, nothing applied, so this is not a `SCHEMA_VERSION` bump.
+PACK_KEY = "pack"
+
+
+def _stored_pack(project: Project) -> dict[str, Any] | None:
+    stored = project.read_manifest().get(PACK_KEY)
+    if stored is None:
+        return None
+    if not isinstance(stored, dict):
+        raise ProjectError(f"{project.manifest_path}'s {PACK_KEY!r} must be a JSON object")
+    return stored
+
+
+def _pack_variant(
+    project: Project, stored: dict[str, Any], variant: str | None
+) -> tuple[str, dict[str, Any]]:
+    name = variant or str(stored.get("active_variant"))
+    variants = stored.get("variants", {})
+    if name not in variants:
+        raise ProjectError(
+            f"pack has no variant {name!r} (has: {sorted(variants)}) — re-run "
+            "pack_apply to add it, it is not read from the file again here"
+        )
+    return name, variants[name]
+
+
+def _active_pack_style(project: Project) -> tuple[dict[str, Any], str | None]:
+    """The active pack variant's palette+fonts+weights, and its hash.
+
+    `({}, None)` with no pack applied, which is what makes `card_new`'s
+    pre-merge a no-op for a project that has never touched this — the same
+    "additive, no behaviour change" discipline every optional key here keeps.
+    """
+    stored = _stored_pack(project)
+    if stored is None:
+        return {}, None
+    payload = stored.get("variants", {}).get(stored.get("active_variant"))
+    if payload is None:
+        return {}, None
+    style = {
+        **payload.get("palette", {}),
+        **payload.get("fonts", {}),
+        **payload.get("weights", {}),
+    }
+    return style, payload.get("hash")
+
+
+def _primary_family(stack: str) -> str:
+    """The first font-family in a CSS stack, unquoted — what `fonts.probe` asks about."""
+    return stack.split(",", 1)[0].strip().strip("'\"")
+
+
+def _family_vendored(family: str, *directories: Path | None) -> bool:
+    """Is `family` (loosely) one of the faces at any of `directories`?
+
+    A filename-contains check rather than a read of the font's own `name`
+    table: lucid's vendored `Outfit[wght].ttf` does not share a byte-for-byte
+    name with the family `Outfit`, and this only ever gates a *provenance
+    label* — never a refusal — so an exact parse is not worth a second
+    subprocess per font role.
+    """
+    needle = family.replace(" ", "").lower()
+    for directory in directories:
+        if directory is None:
+            continue
+        for face in lucid_fonts.vendored(directory):
+            if needle in face.stem.replace(" ", "").replace("-", "").lower():
+                return True
+    return False
+
+
+def pack_apply(
+    path: Path | str,
+    pack_path: Path | str,
+    *,
+    variant: str = "default",
+    allow_fallback: bool = False,
+    install_fonts: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Load `pack_path`, resolve and hash every variant it declares, activate one.
+
+    **Every declared variant is snapshotted, not only the one activated** —
+    `pack_activate` switches between them later with no file re-read, which
+    is only possible if every one was already resolved here. Nothing is
+    written to `caption_style`; a pack's caption presets are separate state
+    a project opts into with `pack_apply_captions`, so a later pack swap can
+    never silently overwrite a hand-tuned style underneath a project.
+    Nothing under `assets/cards/` is touched either — a card picks up new
+    defaults only when `card_new` or `card_reauthor` next draws it.
+
+    For every font role across every variant, `fonts.probe` asks whether the
+    declared family actually draws *on this box* — not whether fontconfig
+    merely claims to have it (`captions.font_match`'s own limits, CLAUDE.md).
+    A family that does not draw refuses the whole call, unless
+    `allow_fallback` — which uses the declared CSS stack's own fallback
+    instead and **records that it did** (`font_fallback_used`), never
+    silently. A family that does draw but is in neither lucid's own vendored
+    set nor a font directory shipped beside the pack file gets
+    `font_provenance: "unvendored"` on the record permanently — not refused,
+    because the render on *this* box is genuinely correct today, but the risk
+    (a second machine substituting silently) is recorded rather than lost.
+
+    `install_fonts` vendors a pack's own font directory (a `fonts/` folder
+    beside the pack JSON, if it ships one) the same idempotent,
+    content-hashed way `lucid fonts --install` vendors lucid's own —
+    `fonts.install(source=...)`. Off by default, like that flag: it writes
+    into `$HOME`, a side effect worth asking for rather than one a report
+    performs on the way past.
+
+    `plan` resolves, probes and reports without writing.
+    """
+    project = Project.open(path)
+    loaded = pk.load_pack(pack_path)
+    if variant not in loaded["variants"]:
+        raise ProjectError(
+            f"{pack_path} has no variant {variant!r} (has: {sorted(loaded['variants'])})"
+        )
+
+    resolved_pack_path = Path(pack_path).expanduser().resolve()
+    fonts_source = resolved_pack_path.parent / "fonts"
+    pack_fonts_dir = fonts_source if fonts_source.is_dir() else None
+
+    probed: dict[str, dict[str, Any]] = {}
+
+    def probe(family: str) -> dict[str, Any]:
+        if family not in probed:
+            try:
+                probed[family] = lucid_fonts.probe(family)
+            except lucid_fonts.FontError as exc:
+                probed[family] = {"font": family, "drew": None, "error": str(exc)}
+        return probed[family]
+
+    snapshot: dict[str, Any] = {}
+    font_report: dict[str, Any] = {}
+    for vname, payload in loaded["variants"].items():
+        record = dict(payload)
+        record["hash"] = pk.pack_hash(payload)
+        provenance: dict[str, str] = {}
+        fallback_used: dict[str, str] = {}
+        for role, stack in payload["fonts"].items():
+            family = _primary_family(stack)
+            result = probe(family)
+            font_report[f"{vname}.{role}"] = result
+            if result.get("drew") is False:
+                if not allow_fallback:
+                    raise ProjectError(
+                        f"pack variant {vname!r}'s {role!r} names {family!r}, which "
+                        f"does not draw on this box ({result.get('warning', 'it substitutes')})"
+                        " — pass allow_fallback to use its declared fallback stack "
+                        "instead, which is then recorded rather than silent"
+                    )
+                fallback_used[role] = stack
+            elif result.get("drew") is True and not _family_vendored(
+                family, lucid_fonts.VENDORED_DIR, pack_fonts_dir
+            ):
+                provenance[role] = "unvendored"
+        if fallback_used:
+            record["font_fallback_used"] = fallback_used
+        if provenance:
+            record["font_provenance"] = provenance
+        snapshot[vname] = record
+
+    installed = None
+    if install_fonts and pack_fonts_dir is not None:
+        installed = lucid_fonts.install(source=pack_fonts_dir)
+
+    write = not plan
+    if write:
+        manifest = project.read_manifest()
+        previous = manifest.get(PACK_KEY) or {}
+        manifest[PACK_KEY] = {
+            "name": loaded["name"],
+            "source": str(resolved_pack_path),
+            "active_variant": variant,
+            "variants": snapshot,
+            "caption_preset_applied": previous.get("caption_preset_applied"),
+        }
+        project.write_manifest(manifest)
+
+    return {
+        "project": str(project.root),
+        "pack": loaded["name"],
+        "source": str(resolved_pack_path),
+        "variants": sorted(snapshot),
+        "active_variant": variant,
+        "fonts": font_report,
+        "fonts_installed": installed,
+        "written": write,
+        "plan": bool(plan),
+    }
+
+
+def pack_activate(path: Path | str, variant: str, *, plan: bool = False) -> dict[str, Any]:
+    """Switch the active variant to one already snapshotted by `pack_apply`.
+
+    No file re-read — refuses an unknown variant by name rather than
+    guessing, and the message says to re-run `pack_apply` rather than trying
+    to load one here, because this op never touches the file.
+    """
+    project = Project.open(path)
+    stored = _stored_pack(project)
+    if stored is None:
+        raise ProjectError("no pack applied yet — run pack_apply first")
+    variants = stored.get("variants", {})
+    if variant not in variants:
+        raise ProjectError(
+            f"pack has no variant {variant!r} (has: {sorted(variants)}) — re-run "
+            "pack_apply to add it, it is not read from the file again here"
+        )
+    was = stored.get("active_variant")
+    write = not plan
+    if write:
+        manifest = project.read_manifest()
+        manifest[PACK_KEY]["active_variant"] = variant
+        project.write_manifest(manifest)
+    return {
+        "project": str(project.root),
+        "was": was,
+        "active_variant": variant,
+        "written": write,
+        "plan": bool(plan),
+    }
+
+
+def pack_apply_captions(path: Path | str, preset: str, *, plan: bool = False) -> dict[str, Any]:
+    """Apply the active pack variant's caption preset through `caption_style`.
+
+    **Concrete resolved fields, never a live pointer** — this reads the
+    preset's already-resolved dict off the snapshot and hands it to the
+    ordinary `caption_style(**overrides)` call, so `captions.py` stays
+    untouched and a later pack swap can never silently overwrite a project's
+    caption look out from under it. Separate from `pack_apply` on purpose:
+    applying a pack never restyles captions on its own.
+    """
+    project = Project.open(path)
+    stored = _stored_pack(project)
+    if stored is None:
+        raise ProjectError("no pack applied yet — run pack_apply first")
+    active, payload = _pack_variant(project, stored, None)
+    presets = payload.get("caption_presets", {})
+    if preset not in presets:
+        raise ProjectError(
+            f"pack variant {active!r} has no caption preset {preset!r} "
+            f"(has: {sorted(presets)})"
+        )
+    overrides = presets[preset]
+    result = caption_style(path, plan=plan, **overrides)
+    if not plan:
+        manifest = project.read_manifest()
+        manifest[PACK_KEY]["caption_preset_applied"] = {
+            "preset": preset,
+            "variant": active,
+            "hash": payload.get("hash"),
+        }
+        project.write_manifest(manifest)
+    return {"pack_variant": active, "preset": preset, **result}
+
+
+def pack_show(
+    pack_path: Path | str | None = None,
+    *,
+    path: Path | str | None = None,
+    variant: str | None = None,
+) -> dict[str, Any]:
+    """What a pack declares — from the file, from a project's snapshot, or both.
+
+    `pack_path` alone reads and resolves the file fresh, `card_templates`'s
+    no-project shape. `path` alone asks what a project actually has applied —
+    its stored snapshot, never the file again, which is the point of
+    snapshotting one. Both together is how to compare "what the file says
+    now" against "what the project is still running."
+    """
+    if pack_path is None and path is None:
+        raise ProjectError("pack_show needs a pack_path, a project path, or both")
+    result: dict[str, Any] = {}
+    if pack_path is not None:
+        loaded = pk.load_pack(pack_path)
+        result["file"] = {
+            "source": str(Path(pack_path).expanduser().resolve()),
+            "name": loaded["name"],
+            "variants": {
+                vname: {**payload, "hash": pk.pack_hash(payload)}
+                for vname, payload in loaded["variants"].items()
+            },
+        }
+    if path is not None:
+        project = Project.open(path)
+        stored = _stored_pack(project)
+        if stored is None:
+            result["project"] = {"applied": False}
+        else:
+            vname, payload = _pack_variant(project, stored, variant)
+            result["project"] = {
+                "applied": True,
+                "name": stored.get("name"),
+                "source": stored.get("source"),
+                "active_variant": stored.get("active_variant"),
+                "variants": sorted(stored.get("variants", {})),
+                "variant": vname,
+                "resolved": payload,
+                "caption_preset_applied": stored.get("caption_preset_applied"),
+            }
+    return result
+
+
+def pack_status(path: Path | str) -> dict[str, Any]:
+    """Active variant, which cards have drifted from it, and whether captions did.
+
+    A card's own `pack_hash` (recorded by `card_new`/`card_reauthor`)
+    compared against the active variant's *current* hash — **stale, not
+    wrong**: `card_new` only pre-merges a pack's style slots and a per-call
+    slot still wins, so a stale card is not necessarily drawing incorrectly,
+    only from a superseded snapshot. `card_reauthor` is how to catch it up.
+    """
+    project = Project.open(path)
+    stored = _stored_pack(project)
+    if stored is None:
+        return {"project": str(project.root), "applied": False}
+    active = stored.get("active_variant")
+    variants = stored.get("variants", {})
+    active_hash = (variants.get(active) or {}).get("hash")
+
+    stale_cards = [
+        {"card": record.get("card"), "recorded_hash": record.get("pack_hash")}
+        for record in _card_records(project)
+        if record.get("pack_hash") is not None and record.get("pack_hash") != active_hash
+    ]
+
+    applied = stored.get("caption_preset_applied")
+    captions_stale = None
+    if applied:
+        # Stale if the pack moved *or* the project activated a different
+        # variant since the burn — comparing only against the recorded
+        # variant's own current hash (the old bug) never notices the second
+        # case, because that variant's hash hasn't changed at all.
+        active_payload = variants.get(active) or {}
+        captions_stale = applied.get("variant") != active or applied.get(
+            "hash"
+        ) != active_payload.get("hash")
+
+    return {
+        "project": str(project.root),
+        "applied": True,
+        "name": stored.get("name"),
+        "active_variant": active,
+        "variants": sorted(variants),
+        "stale_cards": stale_cards,
+        "caption_preset_applied": applied,
+        "caption_preset_stale": captions_stale,
+    }
+
+
+def card_safe_zones(path: Path | str, card: str, platform: str) -> dict[str, Any]:
+    """Measure a rendered card's ink in and around `platform`'s reserved band.
+
+    **Report only.** No default floor, no `--strict`, and this never blocks
+    a render — `SCENE_THRESHOLD`'s own history is the reason (CLAUDE.md): a
+    threshold gets pinned by looking at real output, not picked cold, and
+    this check has had exactly one look so far. Refuses only on a named card
+    with no rendered PNG (never guesses dimensions from the manifest) or a
+    platform in neither `graphics.SAFE_ZONES` nor the active pack variant's
+    own `safe_zones`. The reserved-band *definition* (`platform`) is always
+    the pack's current active variant; the card's own *background* is
+    resolved against whichever variant the card was actually drawn from
+    (its recorded `pack_hash`) — a `pack_activate` since authoring must not
+    change what a rendered card's own pixels are measured against.
+    """
+    project = Project.open(path)
+    _card_name(card)
+    png = project.cards_dir / f"{card}.png"
+    if not png.is_file():
+        raise ProjectError(
+            f"no rendered PNG for card {card!r} at {png} — card_new or card_render it first"
+        )
+
+    zones = dict(graphics.SAFE_ZONES)
+    stored = _stored_pack(project)
+    active_payload: dict[str, Any] | None = None
+    if stored is not None:
+        active_payload = stored.get("variants", {}).get(stored.get("active_variant"))
+        if active_payload:
+            zones.update(active_payload.get("safe_zones", {}))
+    if platform not in zones:
+        raise ProjectError(f"no safe zone named {platform!r} (has: {sorted(zones)})")
+
+    width, height = graphics.identify(png)
+    record = _card_record(project, card)
+    background = None
+    if record is not None:
+        bg_slot = graphics.TEMPLATE_BACKGROUND.get(str(record.get("template")))
+        if bg_slot:
+            slots = record.get("slots") or {}
+            if bg_slot in slots:
+                background = slots[bg_slot]
+            else:
+                # The variant the card was actually authored from — its own
+                # recorded `pack_hash` — never the pack's *current* active
+                # variant. A later `pack_activate` must not change what this
+                # reports an already-drawn card's background as; the pixels
+                # on disk did not move.
+                authoring_payload = active_payload
+                recorded_hash = record.get("pack_hash")
+                if recorded_hash is not None and stored is not None:
+                    authoring_payload = next(
+                        (
+                            payload
+                            for payload in stored.get("variants", {}).values()
+                            if payload.get("hash") == recorded_hash
+                        ),
+                        None,
+                    )
+                if authoring_payload:
+                    background = authoring_payload.get("palette", {}).get(bg_slot)
+            if background is None:
+                background = graphics.PALETTE.get(bg_slot)
+    if background is None:
+        background = graphics.PALETTE["paper"]
+
+    ink = graphics.safe_zone_ink(png, (width, height), zones[platform], str(background))
+    return {
+        "project": str(project.root),
+        "card": card,
+        "platform": platform,
+        "zone": zones[platform],
+        **ink,
+    }
+
+
 def card_new(
     path: Path | str,
     name: str,
@@ -856,6 +1328,14 @@ def card_new(
     what lets `card_reauthor` draw it again at a different canvas. The record
     is written after both files land, so a template error leaves no record of
     a card that does not exist.
+
+    **If a pack is applied, its active variant's style slots are pre-merged
+    underneath `slots`** — a project's palette, fonts and mark/footnote
+    weights, with a slot this call passes explicitly still winning. Only the
+    caller's own `slots` are recorded, never the merge: `card_reauthor`
+    re-does this pre-merge against whatever pack is active *then*, which is
+    what lets a later pack swap reach a card that already exists rather than
+    freezing today's colours into its record.
     """
     project = Project.open(path)
     _card_name(name)
@@ -887,7 +1367,8 @@ def card_new(
     # up to date. Additive and optional — absent means the record predates
     # variants, which is the same as none, so it is not a schema bump.
     variant = graphics.template_layout(template, width, height)["variant"]
-    svg = graphics.fill_template(template, dict(slots), width=width, height=height)
+    pack_style, pack_hash_value = _active_pack_style(project)
+    svg = graphics.fill_template(template, {**pack_style, **dict(slots)}, width=width, height=height)
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(svg, encoding="utf-8")
     rendered = card_render(path, name)
@@ -899,6 +1380,7 @@ def card_new(
             "slots": dict(slots),
             "canvas": f"{width}x{height}",
             **({"variant": variant} if variant else {}),
+            **({"pack_hash": pack_hash_value} if pack_hash_value else {}),
         },
     )
     return {
@@ -907,6 +1389,7 @@ def card_new(
         "canvas_from": canvas_from,
         "variant": variant,
         "recorded": True,
+        "pack_applied": bool(pack_hash_value),
         **rendered,
     }
 
@@ -1003,6 +1486,7 @@ def card_reauthor(
     project = Project.open(path)
     width, height = _mlt_resolution(project)
     canvas_now = f"{width}x{height}"
+    _, active_pack_hash = _active_pack_style(project)
 
     records = _card_records(project)
     known = {r.get("card") for r in records}
@@ -1038,6 +1522,8 @@ def card_reauthor(
             why = f"{was or 'unrecorded canvas'} -> {canvas_now}"
         elif variant_was != variant_now:
             why = f"layout {variant_was or 'base'} -> {variant_now or 'base'}"
+        elif record.get("pack_hash") and record.get("pack_hash") != active_pack_hash:
+            why = "the pack moved"
         else:
             why = ""
         entry: dict[str, Any] = {
@@ -1236,6 +1722,144 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
             }
         )
     return {"cues": entries, "count": len(entries)}
+
+
+#: Daydream's own split (DAYDREAM.md § Import roles + assets pane):
+#: "voiceover" for footage that becomes the transcript-as-document,
+#: "footage" for what `describe` indexes for b-roll search.
+CLIP_ROLES = ("voiceover", "footage")
+
+
+def clip_role(
+    path: Path | str, clip_id: str, role: str | None = None, *, reset: bool = False
+) -> dict[str, Any]:
+    """Read or set a clip's import role — the assets pane's grouping, and
+    nothing else.
+
+    Called with no `role` and no `reset` it just reports what is stored.
+    `role` must be one of `CLIP_ROLES`; `reset` clears it back to undeclared.
+
+    **Absent means undeclared, not "neither," and setting one changes no
+    other op's behaviour.** `transcribe`/`attach_transcript` gate on their
+    own evidence (a transcript file) and `describe` gates on `has_video` —
+    neither reads this field, so a clip with no role declared is exactly as
+    eligible for both as it always was. That is what keeps every project
+    written before this existed reading exactly as it always did, and it is
+    why this is not a schema bump: an additive optional field on an existing
+    clip record, the same shape `interp` has on a reframe window (CLAUDE.md)
+    rather than a new list a migration would need to own.
+    """
+    if role is not None and reset:
+        raise ProjectError("pass a role or `reset`, not both")
+    if role is not None and role not in CLIP_ROLES:
+        raise ProjectError(f"role {role!r} is not one of {', '.join(CLIP_ROLES)}")
+
+    project = Project.open(path)
+    media.get_clip(project, clip_id)  # the known-ids message if it doesn't exist
+
+    manifest = project.read_manifest()
+    clip = next(c for c in manifest["clips"] if c["clip_id"] == clip_id)
+
+    write = role is not None or reset
+    if write:
+        if reset:
+            clip.pop("role", None)
+        else:
+            clip["role"] = role
+        project.write_manifest(manifest)
+
+    return {"clip_id": clip_id, "role": clip.get("role"), "written": write, "reset": bool(reset)}
+
+
+def assets(path: Path | str) -> dict[str, Any]:
+    """Every asset a cue can point at — clip or card — with what an
+    inspector pane needs to show about it.
+
+    The cue vocabulary is `clip_id` or `card:name` (CLAUDE.md), so a list
+    that only shows clips is half the catalogue; this reports both, each
+    with how many cues reference it (`cues`) — an assets pane that cannot
+    say "this is used 3 times" is a list, not an inspector.
+
+    Per clip: the resolved media path (`media.media_path`, never a raw
+    manifest field — CLAUDE.md), the probe metadata captured at import
+    (duration, has_video/has_audio, fps, width/height, sample_rate,
+    channels, codecs, vfr), whether a transcript is attached, whether
+    `describe` has indexed it, its declared `role` (`clip_role`), and
+    `media.playability`'s verdict when the file is actually reachable on
+    disk — `playable: null` when it is not, which is a different claim than
+    "unplayable".
+
+    Per card: what `card_new` recorded it from (`template`, `canvas`,
+    `variant`, all null when there is no record), whether its files exist
+    under `assets/cards/`, and `recorded` — **a card with files and no
+    record cannot be re-authored by anything, and this is where that is
+    reported rather than guessed at** (CLAUDE.md, `card_reauthor`'s own
+    `unrecorded` list). A name can appear with files and no record, or a
+    record and no files; both halves are reported so they can disagree.
+
+    Read-only, and composed entirely from state other ops already
+    maintain — the cue table, the card records, the manifest's own clip
+    rows — nothing here is a new derivation.
+    """
+    project = Project.open(path)
+    manifest = project.read_manifest()
+
+    usage: dict[str, int] = {}
+    for cue in manifest.get("cues", []):
+        usage[cue["asset"]] = usage.get(cue["asset"], 0) + 1
+
+    described = {d["clip_id"] for d in _descriptions(project)}
+
+    clip_entries = []
+    for clip in manifest.get("clips", []):
+        clip_id = clip["clip_id"]
+        source = media.media_path(project, clip)
+        exists = source.is_file()
+        clip_entries.append(
+            {
+                "clip_id": clip_id,
+                "kind": "clip",
+                "media_path": str(source),
+                "media_exists": exists,
+                "duration": clip.get("duration"),
+                "has_video": clip.get("has_video"),
+                "has_audio": clip.get("has_audio"),
+                "width": clip.get("width"),
+                "height": clip.get("height"),
+                "fps": clip.get("fps"),
+                "sample_rate": clip.get("sample_rate"),
+                "channels": clip.get("channels"),
+                "video_codec": clip.get("video_codec"),
+                "audio_codec": clip.get("audio_codec"),
+                "vfr": clip.get("vfr"),
+                "role": clip.get("role"),
+                "transcript": project.transcript_path(clip_id).is_file(),
+                "described": clip_id in described,
+                "cues": usage.get(clip_id, 0),
+                "playable": media.playability(source) if exists else None,
+            }
+        )
+
+    records = {r["card"]: r for r in _card_records(project)}
+    on_disk = set(_cards_on_disk(project))
+    card_entries = []
+    for name in sorted(records.keys() | on_disk):
+        record = records.get(name)
+        card_entries.append(
+            {
+                "name": name,
+                "kind": "card",
+                "asset": f"card:{name}",
+                "template": record.get("template") if record else None,
+                "canvas": record.get("canvas") if record else None,
+                "variant": record.get("variant") if record else None,
+                "files_exist": name in on_disk,
+                "recorded": record is not None,
+                "cues": usage.get(f"card:{name}", 0),
+            }
+        )
+
+    return {"clips": clip_entries, "cards": card_entries}
 
 
 def broll_brief(path: Path | str, *, fps: float | None = None) -> dict[str, Any]:
@@ -1794,6 +2418,27 @@ def status(path: Path | str) -> dict[str, Any]:
     edit = _load_edit(project)
     rate = _export_fps(_clips_by_id(project))
     expected = _frame_total_with_tail(project, edit, rate)
+    stored_pack = _stored_pack(project)
+    pack_section = (
+        {"applied": False}
+        if stored_pack is None
+        else {
+            "applied": True,
+            "name": stored_pack.get("name"),
+            "active_variant": stored_pack.get("active_variant"),
+            # Named, the way `reel`'s `cues_dropped` is — a count alone
+            # is not enough to know which card `card reauthor` needs.
+            "stale_cards": [
+                r.get("card")
+                for r in _card_records(project)
+                if r.get("pack_hash") is not None
+                and r.get("pack_hash")
+                != (stored_pack.get("variants", {}).get(stored_pack.get("active_variant")) or {}).get(
+                    "hash"
+                )
+            ],
+        }
+    )
     return {
         "project": str(project.root),
         "timeline_duration": edit.duration,
@@ -1804,7 +2449,71 @@ def status(path: Path | str) -> dict[str, Any]:
         "tail": _stored_tail(project),
         "expected_frames": expected,
         "expected_duration": expected / rate,
+        "pack": pack_section,
     }
+
+
+def properties(
+    path: Path | str, *, clip_id: str | None = None, word_index: int | None = None
+) -> dict[str, Any]:
+    """Everything a properties inspector needs, for the project or one selection.
+
+    **Composes only** — every field here is another read-only op's own
+    return, assembled rather than re-derived, so this can never disagree
+    with the pane it borrowed a number from: `status`, `canvas` and
+    `caption_style`'s reports project-wide; `assets`, `reframe` and `cue_ls`
+    filtered to one clip when `clip_id` is given.
+
+    `word_index` needs `clip_id` — a cue addresses one clip's own words, so a
+    bare word index names nothing. With both: `cue` is the matching entry
+    from that same `cue_ls` call, or null when the selected word carries none
+    (a selection is not required to already have a cue). When it is null,
+    `context` fills in from `get_transcript` instead — the word plus three
+    either side, the same echo convention every word-indexed tool uses
+    (CLAUDE.md), applied to a selection rather than a mutation. When `cue`
+    is not null its own entry already carries that context (`cue_ls`'s
+    `_cue_echo`), so `context` is left unset rather than duplicated.
+    """
+    if word_index is not None and clip_id is None:
+        raise ProjectError(
+            "word_index needs a clip_id — a cue addresses one clip's own words"
+        )
+
+    project = Project.open(path)
+    result: dict[str, Any] = {
+        "status": status(path),
+        "canvas": canvas(path),
+        "caption_style": caption_style(path),
+    }
+    if clip_id is None:
+        return result
+
+    media.get_clip(project, clip_id)  # the known-ids message if it doesn't exist
+    clip_assets = assets(path)
+    result["clip"] = next((c for c in clip_assets["clips"] if c["clip_id"] == clip_id), None)
+    clip_reframe = reframe(path)
+    result["reframe"] = next(
+        (r for r in clip_reframe["clips"] if r["clip_id"] == clip_id), None
+    )
+    clip_cues = cue_ls(path, clip_id=clip_id)
+    result["cues"] = clip_cues["cues"]
+
+    if word_index is None:
+        return result
+
+    word_index = int(word_index)
+    total_words = len(_transcript(project, clip_id))
+    if not 0 <= word_index < total_words:
+        raise ProjectError(
+            f"word_index {word_index} is out of range for {clip_id!r} "
+            f"(has {total_words} words)"
+        )
+    cue = next((c for c in clip_cues["cues"] if c["word_index"] == word_index), None)
+    result["cue"] = cue
+    if cue is None:
+        lo, hi = max(0, word_index - 3), word_index + 3
+        result["context"] = get_transcript(path, clip_id, first=lo, last=hi)
+    return result
 
 
 def _placed_segments(edit: tl.Edit) -> list[dict[str, Any]]:
@@ -2253,6 +2962,127 @@ def waveform(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
         encoding="utf-8",
     )
     return result
+
+
+#: `cache/thumbs/` — one directory per clip, mirroring `waveform`'s cache
+#: *shape* (a `cache/` subdirectory, keyed by the resolved media's size and
+#: mtime) but deliberately not its all-at-once contract. `energy.envelope`
+#: decodes the whole file in one linear pass, so caching the whole envelope
+#: on first touch costs one decode; `picture.extract_frame` spawns one
+#: ffmpeg per sample, so caching an entire multi-minute clip's filmstrip on
+#: first touch would cost one process per `THUMB_INTERVAL` seconds of it.
+#: Each requested instant is cached independently instead, lazily, the way
+#: `_tail_silence` creates its own cache directory on demand.
+THUMBS_DIR = "cache/thumbs"
+
+#: Grid spacing a request snaps to, so a timeline lane sweeping past one shot
+#: reuses a handful of cached frames instead of extracting a fresh one per
+#: pixel of scroll. Coarser than a caption word, fine enough that a filmstrip
+#: reads as motion rather than as one still held across a whole clip.
+THUMB_INTERVAL = 1.0
+
+
+def _thumb_dir(project: Project, clip_id: str) -> Path:
+    return project.root / THUMBS_DIR / clip_id
+
+
+def _thumb_key_path(project: Project, clip_id: str) -> Path:
+    """One key file per clip — `proxy_key_path`'s shape, not `waveform`'s:
+    cheap to check, and a source change invalidates every bucket without
+    deleting any of them. Each stale bucket is only actually re-extracted the
+    next time something asks for it."""
+    return _thumb_dir(project, clip_id) / "_source.json"
+
+
+def thumbnail(
+    path: Path | str, clip_id: str, at: float, *, interval: float = THUMB_INTERVAL
+) -> dict[str, Any]:
+    """One filmstrip frame for `clip_id`, at the source time nearest `at`.
+
+    **Deliberately addressed in source time, not by index or by timeline
+    position.** DAYDREAM.md's filmstrip lane is "drawn through the edit the
+    same way the waveform maps timeline->source slices" — the caller (a
+    timeline lane walking `Edit`'s segments) already has a source second in
+    hand, and this is the primitive it needs from there (CLAUDE.md: reloading
+    each asset from its head looks right and is a different film — the same
+    reason the picture layer previews from `src_start` rather than 0). `at`
+    snaps to a multiple of `interval` before anything is read or written, so
+    a lane sweeping across one shot asks for the same handful of buckets
+    rather than a new one per pixel.
+
+    **Containment.** The result is a path under `cache/thumbs/`, never
+    written into the manifest and never resolved by `media.media_path` or
+    `media.preview_path` — nothing downstream of an edit (`export`, `verify`,
+    `check_frames`) can reach it, because none of them call this function or
+    read anywhere near where it writes. It is a picture *of* the source, not
+    a source, and the only paths to its bytes are this function and the web
+    route that calls it (`webui._send_thumb`) — a third caller resolving it
+    into anything render-facing would be the whole hole, the same one
+    `media.preview_path`'s docstring names for the proxy.
+
+    Cached like `waveform` in shape (a `cache/` subdirectory, keyed by the
+    resolved media's size and mtime, not a hash) but not in contract — see
+    `THUMBS_DIR`'s comment for why this is lazy per bucket instead of
+    computed whole on first touch.
+
+    Refuses a clip with no video (a thumbnail is a picture) and a clip whose
+    media is not actually reachable on disk, the same two guards `waveform`
+    applies on the audio side.
+    """
+    if interval <= 0:
+        raise ProjectError(f"interval must be positive, not {interval}")
+
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    if not clip.get("has_video"):
+        raise ProjectError(
+            f"clip {clip_id!r} has no video track — a thumbnail is a picture, "
+            "and this clip has none to draw one from"
+        )
+    source = media.media_path(project, clip)
+    if not source.is_file():
+        raise ProjectError(f"{clip_id}'s media is missing from disk: {source}")
+
+    duration = clip.get("duration")
+    at = max(0.0, float(at))
+    bucket = round(at / interval) * interval
+    if duration:
+        # A full frame period short of the end, not half: `-ss` landing
+        # between the last frame's own timestamp and the file's declared
+        # duration decodes zero frames on real footage (measured — ffmpeg
+        # 8.1.2 against a 24fps testsrc refuses everything from half a frame
+        # past the last frame's pts up to EOF), where landing exactly on the
+        # last frame's own pts always works.
+        fps = clip.get("fps") or 30.0
+        max_time = max(0.0, float(duration) - 1.0 / fps)
+        bucket = min(bucket, max_time)
+
+    stat = source.stat()
+    key = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    key_path = _thumb_key_path(project, clip_id)
+    frame_path = _thumb_dir(project, clip_id) / f"{round(bucket * 1000)}.jpg"
+
+    fresh = False
+    if key_path.is_file():
+        try:
+            fresh = json.loads(key_path.read_text(encoding="utf-8")) == key
+        except (OSError, json.JSONDecodeError):
+            fresh = False
+    hit = fresh and frame_path.is_file()
+
+    if not hit:
+        frame_path.parent.mkdir(parents=True, exist_ok=True)
+        picture.extract_frame(source, bucket, frame_path)
+        key_path.write_text(json.dumps(key), encoding="utf-8")
+
+    return {
+        "clip_id": clip_id,
+        "src_time": bucket,
+        "requested": at,
+        "interval": interval,
+        "path": str(frame_path),
+        "cached": hit,
+    }
 
 
 #: Cards are written as PNG by every path that makes one, but a person can

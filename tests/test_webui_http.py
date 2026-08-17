@@ -710,6 +710,136 @@ def test_waveform_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> No
     assert "nope" in payload["error"]
 
 
+# -- assets, properties, roles ----------------------------------------------
+#
+# The three backend items behind the assets pane and properties inspector
+# (DAYDREAM.md § Import roles + assets pane, § Properties pane): a catalogue
+# of everything a cue can point at, a composed detail view, and the role
+# toggle each clip carries in the catalogue.
+
+
+def test_assets_lists_the_seeded_clip(server: str) -> None:
+    status, payload = _json(f"{server}/api/assets")
+    assert status == 200
+    assert {c["clip_id"] for c in payload["clips"]} == {"vo"}
+    vo = payload["clips"][0]
+    assert vo["has_audio"] is True
+    assert vo["role"] is None
+    assert vo["cues"] == 0
+
+
+def test_clip_role_lands_in_the_manifest_and_reaches_assets(
+    project: Path, server: str
+) -> None:
+    """`/api/clip-role` is a fourth caller into `ops.clip_role`, same as the
+    CLI and MCP tool — the web UI never decides on its own (CLAUDE.md)."""
+    status, payload = _post(f"{server}/api/clip-role", {"clip_id": "vo", "role": "voiceover"})
+    assert status == 200
+    assert payload["role"] == "voiceover"
+
+    clips = Project.open(project).read_manifest()["clips"]
+    assert next(c for c in clips if c["clip_id"] == "vo")["role"] == "voiceover"
+
+    _, assets = _json(f"{server}/api/assets")
+    assert assets["clips"][0]["role"] == "voiceover"
+
+
+def test_clip_role_reset_clears_it(server: str) -> None:
+    _post(f"{server}/api/clip-role", {"clip_id": "vo", "role": "footage"})
+    status, payload = _post(f"{server}/api/clip-role", {"clip_id": "vo", "reset": True})
+    assert status == 200
+    assert payload["role"] is None
+
+
+def test_clip_role_requires_clip_id(server: str) -> None:
+    status, payload = _post(f"{server}/api/clip-role", {"role": "footage"})
+    assert status == 400
+    assert "clip_id" in payload["error"]
+
+
+def test_properties_with_no_query_is_project_state(server: str) -> None:
+    status, payload = _json(f"{server}/api/properties")
+    assert status == 200
+    assert set(payload) == {"status", "canvas", "caption_style"}
+
+
+def test_properties_narrows_to_a_clip_and_word(server: str) -> None:
+    status, payload = _json(f"{server}/api/properties?clip_id=vo&word_index=3")
+    assert status == 200
+    assert payload["clip"]["clip_id"] == "vo"
+    assert payload["cue"] is None
+    assert "context" in payload
+
+
+def test_properties_word_index_without_clip_id_is_refused(server: str) -> None:
+    status, payload = _json(f"{server}/api/properties?word_index=3")
+    assert status == 400
+    assert "clip_id" in payload["error"]
+
+
+# -- filmstrip thumbnails -----------------------------------------------------
+#
+# DAYDREAM.md's filmstrip lane: a cached frame per source instant, addressed
+# the way the timeline lane will address it — a clip and a source second.
+
+
+@pytest.fixture
+def video_clip(project: Path) -> str:
+    """A second, video clip in the same project the `server` fixture opened."""
+    path = project.parent / "vid.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=24:duration=5",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    ops.import_media(project, path, clip_id="vid")
+    return "vid"
+
+
+def test_thumb_serves_a_real_jpeg(video_clip: str, server: str) -> None:
+    status, headers, body = _get(f"{server}/api/thumb/{video_clip}?at=2.3")
+    assert status == 200
+    assert headers["Content-Type"] == "image/jpeg"
+    assert body[:3] == b"\xff\xd8\xff"
+
+
+def test_thumb_requires_at(video_clip: str, server: str) -> None:
+    status, payload = _json(f"{server}/api/thumb/{video_clip}")
+    assert status == 400
+    assert "at" in payload["error"]
+
+
+def test_thumb_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> None:
+    status, payload = _json(f"{server}/api/thumb/nope?at=1.0")
+    assert status == 400
+    assert "nope" in payload["error"]
+
+
+def test_thumb_honours_an_interval(video_clip: str, server: str) -> None:
+    """Two different grids for the same instant land in different cache
+    buckets (`ops.thumbnail`'s own snapping), so both must independently
+    succeed rather than one masking the other as a cache hit."""
+    coarse_status, coarse_headers, _ = _get(
+        f"{server}/api/thumb/{video_clip}?at=2.3&interval=2.0"
+    )
+    fine_status, fine_headers, _ = _get(f"{server}/api/thumb/{video_clip}?at=2.3&interval=0.5")
+    assert coarse_status == fine_status == 200
+    assert coarse_headers["Content-Type"] == fine_headers["Content-Type"] == "image/jpeg"
+
+
+def test_thumb_rejects_an_explicit_zero_interval(video_clip: str, server: str) -> None:
+    """`interval=0` used to fall through `... or ops.THUMB_INTERVAL` (0.0 is
+    falsy) straight to the 1.0s default, silently skipping `ops.thumbnail`'s
+    own refusal that every negative interval already hit."""
+    status, payload = _json(f"{server}/api/thumb/{video_clip}?at=2.3&interval=0")
+    assert status == 400
+    assert "interval must be positive" in payload["error"]
+
+
 # -- captions ---------------------------------------------------------------
 #
 # The second read model. It is a separate endpoint from /api/view because it is
@@ -1955,3 +2085,248 @@ def test_render_on_an_empty_timeline_is_refused_before_a_job_starts(
         httpd.server_close()
         httpd.agent.close()
         thread.join(timeout=5)
+
+
+# -- multi-project: the picker over a --root scan --------------------------
+#
+# DAYDREAM.md § Multi-project. `webui.scan_projects` and the picker-mode
+# routes it feeds (`Handler._route_picker`, `Handler._handle_open`) — see
+# webui.py's own docstrings for the design (a picker binds this process to
+# at most one project, permanently, deferring `make_server`'s own binding
+# rather than adding a second one).
+
+
+@pytest.fixture
+def picker_server(tmp_path: Path) -> Iterator[str]:
+    """A picker server over `tmp_path`, torn down after the test — nothing
+    is open on it yet, unlike `server` above."""
+    httpd = webui.make_picker_server(tmp_path, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        agent = getattr(httpd, "agent", None)
+        if agent is not None:
+            agent.close()
+        thread.join(timeout=5)
+
+
+def _write_manifest(directory: Path, text: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "lucid.json").write_text(text, encoding="utf-8")
+
+
+def test_scan_finds_a_project_and_skips_a_non_project_directory(
+    project: Path, picker_server: str
+) -> None:
+    not_a_project = project.parent / "not-a-project"
+    not_a_project.mkdir()
+    (not_a_project / "readme.txt").write_text("nope", encoding="utf-8")
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert str(project) in entries
+    entry = entries[str(project)]
+    assert entry["status"] == "ok"
+    assert entry["segments"] == 1  # the seeded, uncut timeline
+    assert entry["clips"] == 1
+    assert not any(p.endswith("not-a-project") for p in entries)
+
+
+def test_an_old_schema_project_is_listed_as_needing_migration_not_skipped_or_opened(
+    project: Path, picker_server: str
+) -> None:
+    old = project.parent / "old-schema"
+    _write_manifest(old, json.dumps({"schema_version": 2, "clips": []}))
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entry = {entry["path"]: entry for entry in payload["projects"]}[str(old)]
+    assert entry["status"] == "needs_migration"
+    assert entry["schema_version"] == 2
+
+
+def test_an_unreadable_manifest_is_listed_not_skipped(
+    project: Path, picker_server: str
+) -> None:
+    bad = project.parent / "bad-manifest"
+    _write_manifest(bad, "{not json")
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entry = {entry["path"]: entry for entry in payload["projects"]}[str(bad)]
+    assert entry["status"] == "unreadable"
+    assert entry["error"]
+
+
+def test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone(
+    project: Path, picker_server: str
+) -> None:
+    """A current-schema project whose manifest reads fine can still fail
+    `ops.status` (no timeline seeded yet is the ordinary way) — that must be
+    one bad entry, never a listing-wide failure (webui.py's `_scan_one`)."""
+    unseeded = project.parent / "unseeded"
+    ops.init(unseeded)
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert entries[str(unseeded)]["status"] == "error"
+    assert "seed" in entries[str(unseeded)]["error"]
+    # And the healthy project alongside it still lists normally.
+    assert entries[str(project)]["status"] == "ok"
+
+
+def test_scan_does_not_follow_a_symlink_outside_root(
+    project: Path, picker_server: str, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """A symlink under `--root` pointing at a project outside it must not
+    have its metadata reported by the scan (webui.py's `walk`) — confinement
+    at `/api/open` time doesn't help if the listing already leaked it."""
+    outside = tmp_path_factory.mktemp("outside-root") / "proj"
+    ops.init(outside)
+    link = project.parent / "escape-link"
+    link.symlink_to(outside)
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entries = {entry["path"] for entry in payload["projects"]}
+    assert str(outside) not in entries
+    assert str(link) not in entries
+
+
+def test_the_picker_page_serves_before_a_project_is_open(picker_server: str) -> None:
+    status, headers, body = _get(f"{picker_server}/")
+    assert status == 200
+    assert headers["Content-Type"].startswith("text/html")
+    assert b'id="list"' in body
+    assert b'src="/static/picker.js"' in body
+
+
+def test_no_route_needs_a_project_before_one_is_open(picker_server: str) -> None:
+    status, payload = _json(f"{picker_server}/api/view")
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+    status, payload = _post(f"{picker_server}/api/agent", {"prompt": "hi"})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+
+def test_open_binds_the_server_and_the_workspace_loads(
+    project: Path, picker_server: str
+) -> None:
+    status, payload = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+    assert payload["opened"] is True
+    assert payload["root"] == str(project.resolve())
+
+    status, _, body = _get(f"{picker_server}/")
+    assert status == 200
+    assert b'id="workspace"' in body  # the ordinary shell now, not the picker
+
+    status, view = _json(f"{picker_server}/api/view")
+    assert status == 200
+    assert view["clip_id"] == "vo"
+
+    # A second click on the already-open project is a no-op, not an error.
+    status, payload = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+    assert payload["opened"] is True
+
+
+def test_open_refuses_a_second_different_project(
+    project: Path, picker_server: str
+) -> None:
+    second = project.parent / "second-proj"
+    ops.init(second)
+
+    status, _ = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+
+    status, payload = _post(f"{picker_server}/api/open", {"path": str(second)})
+    assert status == 409
+    assert str(project.resolve()) in payload["error"]
+
+    # And the first project is still the one actually bound.
+    status, view = _json(f"{picker_server}/api/view")
+    assert status == 200
+    assert view["clip_id"] == "vo"
+
+
+def test_open_refuses_a_path_outside_the_scanned_root(tmp_path: Path) -> None:
+    root_dir = tmp_path / "root"
+    root_dir.mkdir()
+    outside = tmp_path / "outside"
+    ops.init(outside)
+
+    httpd = webui.make_picker_server(root_dir, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        status, payload = _post(f"{base}/api/open", {"path": str(outside)})
+        assert status == 403
+        assert "outside" in payload["error"]
+
+        # A traversal spelled relative to the root is refused the same way.
+        status, payload = _post(f"{base}/api/open", {"path": "../outside"})
+        assert status == 403
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def test_open_refuses_an_old_schema_project_rather_than_migrating_it(
+    project: Path, picker_server: str
+) -> None:
+    old = project.parent / "old-schema-2"
+    _write_manifest(old, json.dumps({"schema_version": 2, "clips": []}))
+
+    status, payload = _post(f"{picker_server}/api/open", {"path": str(old)})
+    assert status == 400
+    assert "schema_version" in payload["error"]
+    # Never migrated as a side effect of merely attempting to open it.
+    assert json.loads((old / "lucid.json").read_text())["schema_version"] == 2
+
+
+def test_open_requires_loopback_and_json_like_every_other_mutation(
+    picker_server: str,
+) -> None:
+    request = urllib.request.Request(
+        f"{picker_server}/api/open",
+        data=b'{"path": "x"}',
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+    status, payload = _post(f"{picker_server}/api/open", {"path": "x"}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_a_plain_single_project_server_has_no_picker_routes(server: str) -> None:
+    """The default `-C` path is unchanged: no `/api/open`, no picker page,
+    every existing endpoint answers exactly as it always has."""
+    status, _ = _post(f"{server}/api/open", {"path": "whatever"})
+    assert status == 404  # not a route on a plain server
+
+    status, _, body = _get(f"{server}/")
+    assert status == 200
+    assert b'id="workspace"' in body
+    assert b'id="list"' not in body
+
+    status, view = _json(f"{server}/api/view")
+    assert status == 200
+    assert view["clip_id"] == "vo"

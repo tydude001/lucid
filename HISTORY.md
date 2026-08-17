@@ -7539,3 +7539,548 @@ Not measured here, because it was never in scope: whether the hold is worth
 using on the actual Billy/Stu case. That is the design note's own open
 question, editorial, decided on a watch — this session built the mechanism
 the note authorized, not the cut.
+
+## The multi-project picker, built — 2026-08-17
+
+DAYDREAM.md § Multi-project, the parity long tail's last item, ranked "late,
+small": `lucid web` serves one project per process, and `make_server`
+(`webui.py`) baked that in as a class attribute plus one bus/agent/render/
+proxy job on the server object, with a comment naming the reason —
+"a second project would need a second everything here" — and leaving the
+question unanswered. It stayed unanswered on purpose: the honest small
+build and the honest big one solve different problems, and the doc's own
+scope note ruled out the big one before this session started.
+
+**The scan.** `webui.scan_projects(root)` walks `--root` to depth 3 (a
+directory holding `lucid.json` directly is a project; `~/lucid-dogfood/
+scream-vo` is one at depth 1 under its parent, `~/lucid-teaser/proj` at
+depth 2 — both real layouts on this box, and the depth is chosen to cover
+both without wandering a large tree) and never descends into a directory
+once it finds a project in it — a project's own `history/` backups are
+named `lucid-vN.json`, never `lucid.json`, so there is no false positive to
+guard against, but stopping there is also what keeps a big root cheap to
+rescan on every picker load, since the scan is not cached. A directory with
+no manifest is not in the list at all — silently absent is what "not a
+project" means here — and everything that is a project gets one of four
+statuses. A manifest at the wrong `schema_version` comes back
+`needs_migration` with the version found, read directly off
+`Project.read_manifest()` rather than through `Project.open` — the same
+refusal `Project.open` would raise, without raising it, so a scan never
+touches a project it cannot fully open. A manifest that fails to parse (bad
+JSON, not a JSON object, a read that raced the directory listing) comes back
+`unreadable` with `Project.open`'s own message. A clean entry calls
+`ops.status`, the same cheap read the workspace's own top bar uses.
+
+**The fourth status is `error`, and it exists because the first three let
+one broken project hide every other one.** `ops.status` was called with no
+handler, so an ordinary `init`-ed-but-never-`seed`-ed project raised
+straight through the scan and turned all of `GET /api/projects` into a 400 —
+a picker showing nothing at all, because one directory under the root was
+half-built. The refusal now belongs to the row it came from. Its sibling,
+found the same way: **`Path.is_dir()` follows symlinks, and confining at
+open time is too late for a listing that has already leaked.** A symlink
+under `--root` pointing at a project elsewhere on disk was scanned and its
+name and counts returned, and `POST /api/open`'s own `resolve()` check —
+which correctly refused it — never got the chance to matter, because
+nobody had to open it to read what the listing already said. The walk
+filters `p.is_dir() and not p.is_symlink()`.
+
+**The serving model — one process still binds at most one project, ever.**
+The alternative the task allowed and priced honestly: make `bus`/
+`agent`/`render_job`/`proxy_job` per-project dictionaries, so one process
+could hold several open at once. That is the real multi-tenant rewrite the
+doc's own scope note rules out, and it is also where a bug would stop being
+a UI bug — a keyed-wrong lookup hands one project's agent turn or render
+job to another, silently, and lucid has no test shape for "wrong project's
+data landed in the right project's response." The build here sidesteps the
+whole class of bug by construction: `make_picker_server(root, ...)` starts a
+server with **no** `bus`/`agent`/`render_job`/`proxy_job` at all and
+`bound_root = None`. `Handler._route_picker` (GET) and the picker branch of
+`do_POST` are the only routes reachable before a bind — everything else
+answers "no project open yet" rather than touching state that does not
+exist. `POST /api/open {"path": ...}` is the one door through: it resolves
+the path, confines it to `root` (below), opens it with `Project.open` (so
+an old-schema or unreadable project is refused here exactly as `/api/projects`
+already said it would be, never migrated as a side effect of the attempt),
+and — guarded by a `threading.Lock` on the server, so two requests racing to
+open two *different* projects on a fresh server cannot both win — calls
+`_bind_singletons`, the exact function `make_server` calls at construction
+for `-C`, just called later. From that request on, the process is an
+ordinary single-project server for the rest of its life: same class
+attribute, same four objects, same everything downstream. A second `/api/open`
+naming the *same* project is a no-op 200 (a doubleclick, or two tabs racing
+the first open, is not an error); naming a *different* one is a 409 naming
+what is already bound. There is no unbind and no switch — wanting two
+projects open at once still means two processes, precisely what `-C` always
+required, so nothing downstream of the bind (export, the agent subprocess,
+the render/proxy job locks) needed to change at all.
+
+**The guard.** A `--root` a person passes must not become a way to open a
+directory it never scanned, so `/api/open` confines its `path` the same way
+`server.py`'s `_confine` confines an MCP tool's project selector: resolved
+against the root if relative, and refused — 403, naming the root and what it
+resolved to — if the resolved path is not the root or under it. Loopback and
+the `Host` header are checked before the picker branch even runs (the
+existing top of `do_GET`/`do_POST`, untouched), and `/api/open`'s content
+type is enforced through the same `_json_body` every other mutation uses.
+Verified directly: a path naming a sibling of the scanned root, and a `../`
+traversal spelled relative to it, both come back 403; a bad `Host` header on
+`/api/open` comes back 403 before the body is even read.
+
+**The default is unchanged.** `make_server`/`serve` (`-C`, no `--root`) call
+the same `_bind_singletons` they always effectively ran inline; `Handler`'s
+new `root_dir` class attribute defaults to `None`, which is what every
+picker-mode branch in `do_GET`/`do_POST` gates on, so a plain server never
+evaluates `self.server.bound_root` at all (`test_a_plain_single_project_server_has_no_picker_routes`
+pins this: no `/api/open` route, no picker page, `/api/view` answers exactly
+as before). `lucid web` gained `--root`, refusing to be given alongside an
+explicit `-C` (`ProjectError`, same "no sensible way to pick between them"
+shape `init`'s two-directories refusal uses) rather than silently picking
+one. MCP is untouched on purpose: an MCP client spawns its own server
+process per project already (`server.serve(root=...)`'s docstring), so
+there is no "one server, several projects" case on that side to solve.
+
+**The front end.** `web/picker.html` + `web/picker.js` are a separate page,
+not a workspace pane — served instead of `index.html` while no project is
+bound — so they join no `ctx`/event-bus wiring; `picker.js` still goes
+through `api.js`'s `api()` for the same reason every pane does. New tokens
+are additive to `app.css`'s existing palette (`.picker-*` classes built from
+the same `--kept`/`--partial`/`--cut` washes the rest of the app already
+uses), never a second palette.
+
+**Verification.** 11 new tests in `test_webui_http.py` (the scan finding a
+project and skipping a bare directory; an old-schema and an unreadable
+manifest both listed rather than skipped; the picker page serving pre-bind;
+every route refusing pre-bind; open binding and the workspace loading;
+idempotent re-open; a conflicting second project refused 409; a path outside
+root refused 403 by path and by `../` traversal; an old-schema open refused
+without migrating; loopback/JSON guards on `/api/open`; the plain-server
+default unchanged) plus one in `test_cli.py` for the `-C`+`--root` refusal.
+Full suite: **1310 passed**, 0 failed, 0 errors.
+
+Then a real browser, chrome-headless-shell over CDP, against a scratch
+`--root` holding COPIES of three real projects — `~/lucid-final-cut/proj`
+and `~/lucid-teaser/proj` (current schema) and `~/lucid-dogfood/scream-vo`
+(genuinely v2) — never an original. The picker listed all three correctly
+(two "ready", one "schema v2" with the `lucid migrate -C ...` hint and no
+Open button); clicking Open on `teaser` at 0ms dwell landed in its real
+workspace, confirmed against `/api/view` rather than the DOM alone; a second,
+independent server opened `final-cut` at 120ms dwell and loaded the real
+63-segment timeline (the manifest's own `name` field reads `scream-v2` — an
+internal rename predating the directory's current name, not a mis-open;
+segment count off the wire is what actually settles which project is live).
+`curl` against the running servers confirmed the 403/409 paths a screenshot
+cannot show.
+
+**Left alone, and why:** switching the bound project within one running
+process — the doc's own scope note prices that as the real rewrite, and nothing
+in the completion queue asked for it. A "back to picker" link from inside an
+open workspace — there is nothing to go back to once bound, by design. Any
+change to the MCP server — argued above, not silently skipped.
+
+## The melt RSS matrix, and the scale spike's last half — 2026-08-17
+
+§ The scale spike, half-run left one number: melt peak RSS was 2.02 GiB on
+`~/lucid-final-cut/proj`, one data point with duration and source count moving
+together, so which one drove it was unanswered. § The scale spike's GPU half,
+measured closed the transcribe side; this closes the other.
+
+**The tool the original spike should have left and did not now exists**:
+`~/lucid-scale-spike/poll_rss.sh`. The first spike's polling loop was run
+inline at a shell prompt and did not survive the session — measuring melt's
+memory a second time meant writing it again from nothing. It BFS-walks
+`pgrep -P` down the whole descendant tree (python → systemd-run → nice →
+flatpak → bwrap → melt), summing `VmRSS` across every process in it, because
+the launcher's own RSS reads near zero on its own and would report "melt uses
+no memory" if polled directly.
+
+Six cells, each at `~/lucid-scale-spike/rss-matrix/<cell>/` with its own
+pid.txt, start_time.txt, end_time.txt, rss_poll.log, export.log, render.mp4
+and the project copy it rendered — no real project under `~/` was mutated to
+build any of them:
+
+| cell | project | duration | sources | segments | peak RSS | wall |
+|---|---|---|---|---|---|---|
+| orig 2026-08-13 | lucid-final-cut | 336.269s | 22 | 63 | 1.972 GiB | 161.2s |
+| sanity-A repeat | copy of same | 336.269s | 24 | 63 | 1.995 GiB | 91.5s |
+| B duration up | lucid-scream-v2 copy | 410.963s | 22 | 73 | **2.005 GiB** | 123.6s |
+| C floor | lucid-teaser copy | 44.400s | 4 | 9 | **1.707 GiB** | 31.6s |
+| D sources up | teaser + 16 cues, generated | 44.400s | 20 | 9 | **2.240 GiB** | 20.4s |
+| E long + few sources | teaser + cold-open + vo_extend 292s, generated | 336.400s | 5 | 11 | **1.754 GiB** | 157.9s |
+
+sanity-A reproduces the original within 1.2%, which is what proves the
+subtree walk is catching melt at all rather than undercounting it the way a
+direct poll of the launcher would. D and E did not exist and had to be built:
+D by `cue add`-ing 16 cues at evenly spaced present word indices onto a copy
+of the teaser, E by re-pointing the teaser's last cue at `cold-open` (730s of
+runway on that asset) and `vo_extend`-ing 292s of hold into it. Every cell
+passed export's own frame/resolution agreement check (`agrees: true`).
+
+**THE VERDICT: RSS does not track duration. It tracks source density —
+sources per second of timeline — not duration and not raw source count on its
+own.**
+- Duration at low source count (C→E): 7.6× the duration, +2.8% RSS. Flat.
+- Duration at 22 sources (A→B): +22% duration, +0.5% RSS. Flat. This is the
+  comparison the original one-point spike could not make at all.
+- Sources at fixed duration (C→D): 4→20 sources, **+31% RSS** — the largest
+  effect measured anywhere in the matrix.
+- **The wrinkle that is the whole reason the answer is density and not raw
+  count**: D (44s, 20 sources, 2.240 GiB) peaks *higher* than B (411s, 22
+  sources, 2.005 GiB) — fewer sources, 9× less duration, more memory. D packs
+  0.45 sources per second of timeline against B's 0.05. Source count alone
+  predicts B > D; density predicts the opposite, and the opposite is what the
+  matrix shows.
+
+**Confidence, stated precisely because the two halves of this finding are not
+the same strength.** That duration is not the driver is high-confidence — two
+independent comparisons (C→E, A→B) both hold RSS flat across a large duration
+swing. That source count is *a* driver but not the whole story is moderate.
+That the mechanism is specifically source *density* is low-to-moderate: no
+cell in the matrix holds density constant while varying something else, so
+density is inferred from the shape of six points, not isolated by a
+controlled comparison. Say so rather than upgrade it — the matrix answers
+"not duration" cleanly and "density, probably" as a pattern read across the
+whole table, and those are different kinds of claim.
+
+`RENDER_MAX_MEMORY=6G` capped nothing across any cell — every peak stayed
+under 3 GiB, so the env var this repo already has for melt is not what is
+holding it back on projects this size. Every table number reconciles against
+its own raw `rss_poll.log` and `export.log`; the poll traces show real
+decoder ramp-up curves rather than a flat number sampled once, which is a
+second confirmation the walk is reading the right processes.
+
+## The cue-drag browser pass, and six defects — 2026-08-17
+
+§ The window learning to place a cue shipped 2026-08-13 with three backend
+tests that `POST` straight to `/api/cue` — proof the route works, nothing
+about whether the gesture that is supposed to reach it does, which is exactly
+the gap that section flagged as its own open item. This pass closes it: real
+`Input.dispatchMouseEvent` over CDP against chrome-headless-shell, against a
+copy of `~/lucid-final-cut/proj`. Six defects found and fixed, all in
+`src/lucid/web/timeline.js`:
+
+1. **`render()` on mousedown silently broke click-to-seek on every lane, for
+   any clip carrying a transcript.** `render()` sets `lanes.textContent = ""`
+   and rebuilds from scratch, which removes the DOM node the mousedown just
+   landed on; Chrome suppresses the trailing native `click` when its
+   mousedown target has already left the document by the time mouseup fires.
+   **Found by A/B against a clip with no transcript**, where
+   `handleLanesMouseDown` never runs at all — seeking worked there and nowhere
+   else, which is what pointed at the mousedown handler rather than the click
+   listener itself.
+2. **`laneTimeFromEvent` ignored `scrollLeft`.** `getBoundingClientRect()`
+   answers the container's on-screen box, which does not move when its
+   content scrolls, so after scrolling the timeline a drag resolved whatever
+   was under that screen x-coordinate at `scrollLeft` 0 — the wrong word,
+   silently. `seekOnClick` never had this bug, because it reads the *row's*
+   own rect, which does move with scroll.
+3. **The toolbar rendered off-screen on a drop in the bottom-most lane** —
+   past `#track-lanes`'s own `overflow-y: hidden` and past the viewport
+   entirely. No error, just nothing a person could see or click. Now clamped
+   to the lanes pane's visible box, measured after unhiding it — a `hidden`
+   element reports a zero-size rect, which would have clamped every toolbar
+   to (0, 0).
+4. **`suppressNextClick` could go stale.** A drag's trailing native click is
+   not guaranteed to arrive, so a stale `true` left over from one drag would
+   swallow the *next* click — which, immediately after a drag, is the
+   toolbar's own "Place cue" button.
+5. **Two lanes were missing `seekOnClick` entirely** — the caption row and the
+   picture row's own refusal branch — against that function's doc comment
+   that it is shared by every lane.
+6. An empty asset name in the toolbar's text field failed silently on submit;
+   it now reports why.
+
+16/16 browser assertions pass, each click driven at both 0ms and 120ms dwell
+(see the dwell-timing section below for why both), including proof that a
+clip reused across shots reads each shot's own in-point rather than always
+seeking to the head, and that placed cues actually land in the manifest at
+the resolved word index.
+
+## The dwell-timing lesson — 2026-08-17
+
+Worth its own section because it is the most transferable thing this session
+found, and it will bite again on anything else driven by CDP.
+
+The first fix for defect (1) above was `setTimeout(render, 0)` — defer the
+rebuild one tick so the native click has already fired against the old DOM.
+It passed the CDP harness. A dwell probe
+(`/home/<user>/.claude/jobs/c23505b8/tmp/dwell/dwell_probe.py`) measured what
+it actually bought:
+
+| dwell between mousePressed and mouseReleased | seeks? |
+|---|---|
+| 0ms | yes |
+| 5ms | yes |
+| 10ms | **no** |
+| 20ms | **no** |
+| 30ms | **no** |
+| 50ms | **no** |
+| 120ms | **no** |
+| 250ms | **no** |
+
+**CDP dispatches press and release back-to-back at zero dwell; a real click
+dwells 60–150ms.** The pass/fail transition sits at 5–10ms — inside a range
+no real hand can hit and no test that only exercises CDP's own default
+timing would ever probe. The `setTimeout(render, 0)` fix was still racing:
+the timer fires *during* any real click's dwell, rips the mousedown's target
+out of the document before mouseup, and the click is suppressed exactly as
+before the fix — green in the harness, dead in the hand, because the harness
+was testing the one dwell value (0ms) that happens to dodge the race.
+
+The real fix was different in kind, not degree: **`updateSelectionHighlight()`**
+removes and redraws only the standalone `.drag-box` element and never tears
+down the lane DOM at all, applied at every former `render()` call site
+(mousedown, mousemove, the non-drag mouseup branch). Re-measured, every dwell
+from 0 to 250ms seeks correctly, and all ten of the original drag assertions
+still pass.
+
+**A second bug was later caught by the same discipline, and nothing else
+would have caught it.** The assets pane's role toggle (§ The assets,
+properties and filmstrip backend, below) wrote the manifest correctly on
+every dwell, but the DOM reverted — deterministically at 120ms dwell, never
+at 0ms. A post-mutation refresh was racing the SSE `project-changed` reload
+with no request sequencing, so the older of the two responses could land
+last and overwrite the newer one. Fixed with the same `refreshSeq` guard
+`properties.js` already documented for its own fetches. Neither bug would
+have shown up in a suite that only ever drives CDP at its own native
+zero-dwell timing — the rule this session is leaving behind is to sweep
+dwell, not just click, whenever a test drives the browser instead of a
+person.
+
+## MCP over HTTP, built — 2026-08-17
+
+§ The parity long tail names HTTP transport as one of the pieces left after
+the drag-to-cue window shipped. `lucid mcp` gains `--transport {stdio,http}`
+(**default stdio, unchanged** — every existing client keeps spawning the
+server the way it always has), `--host`, `--port` (default 8711, one past
+`webui.py`'s 8710; `0` picks a free ephemeral port), `--allow-remote`, and a
+repeatable `--allow-remote-host NAME`.
+
+Verified against the installed `mcp` 2.0.0 rather than trusted from training
+prior: `MCPServer.run()` takes `transport: Literal["stdio", "sse",
+"streamable-http"]`, and `streamable_http_app()` returns a Starlette app with
+its lifespan already wired. **The build does not call
+`mcp.run(transport="streamable-http")`** — that method builds the ASGI app
+and the uvicorn `Config` internally, with no injection point for middleware
+and no way to learn a `port=0` ephemeral port before the call blocks. Instead
+it assembles the same pieces by hand, so the loopback guard wraps the app
+directly and the bound port is knowable before serving starts, and it calls
+`sock.listen()` itself after `bind_socket()` — which only binds, and not
+calling `listen()` afterward produced a real `ConnectionRefusedError` race
+during development.
+
+**The guard is `_LoopbackGuard`**, real ASGI middleware that checks the
+`Host` header on every http scope and passes the lifespan protocol through
+untouched, mirroring `webui.Handler._host_is_loopback` and importing
+`webui._LOOPBACK_NAMES` directly rather than restating the same list of
+names a second time. A loopback bind refuses a non-loopback `--host` at
+startup unless opted in. `-C` confinement holds identically over HTTP,
+asserted by test rather than assumed from the stdio behaviour.
+
+**The defect all three reviewers found, and it was dishonest in both
+directions**: `--allow-remote` on its own added the literal `--host` string
+to the allow-list. For the standard wildcard bind (`0.0.0.0` or `::`) that is
+wrong both ways at once — a real remote client sends the address it actually
+dialed (say `192.168.1.50`), which never matches `0.0.0.0`, so the feature
+refuses the very traffic it exists to admit; while an attacker can simply
+send `Host: 0.0.0.0` — which is printed in the server's own startup banner —
+and that matches trivially. Fixed by refusing a wildcard bind outright unless
+`--allow-remote-host` names the actual addresses real clients will present.
+
+8 tests in `tests/test_server_http.py`, spawning real subprocesses and
+speaking real HTTP rather than calling handler functions directly.
+
+## The assets, properties and filmstrip backend, and its panes — 2026-08-17
+
+§ The parity long tail's remaining pieces after HTTP transport: the panes
+(assets/import roles, and properties, whose gate cleared when `graphics`
+shipped) and filmstrip thumbnails. Both landed together because the browser
+half needed the backend shapes to exist first.
+
+**Backend.** `ops.info(path, *, raw=False)` fixes a standing parity
+violation — `lucid info` read the manifest directly, bypassing `ops`
+entirely; CLI-only, recorded in `CLI_ONLY`. `ops.CLIP_ROLES = ("voiceover",
+"footage")` and `ops.clip_role(path, clip_id, role=None, *, reset=False)`
+are DAYDREAM.md's transcribe-me/index-me role split, whose gate cleared when
+indexing shipped: stored as an additive `"role"` key on the clip's own
+record, **no schema bump** (the `interp`/`caption_style`/`tail` precedent —
+absent means undeclared, which is what every older manifest already meant).
+Deliberately **neither `transcribe`/`attach_transcript` nor `describe` reads
+it** — both still gate on their own evidence, asserted by
+`test_setting_a_role_does_not_touch_describe_eligibility`. It is a
+declaration the pane groups by; widening its meaning was out of scope here.
+
+`ops.assets(path)` returns `{"clips": [...], "cards": [...]}` — both halves
+of the cue vocabulary, since a cue addresses either a `clip_id` or a
+`card:name`. Per clip: `media_path` via `media.media_path`, probe metadata,
+transcript/described/role state, cue usage count, and `playable` via
+`media.playability` (null when the file is not on disk). Composed entirely
+from existing derivations, nothing new computed. In passing, confirmed that
+`ops.preview_source` already calls `media.playability` — the gap this
+session went looking for there was not real.
+
+`ops.properties(path, *, clip_id=None, word_index=None)` composes
+`status`/`canvas`/`caption_style`, plus `clip`/`reframe`/`cues` given a
+clip_id, plus `cue` and — only when there is no cue at that word — `context`
+from `get_transcript` at word ± 3, the same echo convention as everything
+else that resolves a word index. Proved to be composition rather than
+reimplementation by a monkeypatch test that makes `ops.canvas` lie and
+confirms the lie surfaces unchanged through `properties`. Caught a real bug
+on the way: a negative `word_index` used to widen silently — `hi = word_index
++ 3` stays negative and `Transcript.window`'s own slice then counts from the
+end, so word −100 pulled in most of a 1150-word VO as "context." Now
+bounds-checked and refused outright.
+
+`ops.thumbnail(path, clip_id, at, *, interval=THUMB_INTERVAL)`,
+`THUMB_INTERVAL = 1.0` — one filmstrip frame at the source time nearest
+`at`, snapped to a grid, through `picture.extract_frame`. Cached per instant
+under `cache/thumbs/<clip_id>/<ms>.jpg`, keyed by the resolved media file's
+size and mtime. It deliberately mirrors `waveform`'s cache *shape* but not
+its all-at-once contract — `waveform` decodes the file once for the whole
+clip, while a filmstrip frame is one ffmpeg spawn per sample, so an
+all-at-once cache would cost one process per interval-second up front rather
+than on demand. **Containment held**: a thumbnail never enters the manifest
+and adds no new caller to `media.preview_path()`, so `export` has no path
+that can reach one — the same hole CLAUDE.md already names for the preview
+proxy stays closed here too.
+
+New routes `GET /api/assets`, `POST /api/clip-role`, `GET /api/properties`,
+`GET /api/thumb/…`, with matching CLI subcommands and `@_tool()` MCP tools
+throughout. One more found in review: `webui._send_thumb` treated
+`interval=0` as falsy and silently fell back to the default instead of
+reaching `ops.thumbnail`'s own "must be positive" refusal — every negative
+value got that refusal correctly, zero alone slipped past it.
+
+**Browser.** New `src/lucid/web/assets.js` and `properties.js`; `#workspace`
+gains a fourth track, `#inspector-pane`, split into `#assets-list` and
+`#properties-body`. The assets pane draws `/api/assets`, with
+voiceover/footage role chips posting to `/api/clip-role`; clicking a row
+emits `inspect-asset` on the existing ctx bus. The properties pane draws
+`/api/properties` generically — a bundle shape it does not special-case
+still renders rather than silently vanishing — and listens for both
+`inspect-asset` and `inspect-word`. A filmstrip appears on V1 segment blocks
+and V2 non-still shot blocks, walking forward from each block's *own* source
+offset (`seg.start` / `shot.src_start`), never from 0.
+
+**The trap it hit before shipping, and it is exactly the class of bug
+CLAUDE.md's own preview-layer warning names — "a clip used three times
+previews from three places."** The first draft thumbnailed `shot.clip_id`,
+which is the *cue's own addressing clip* — `"vo"` on every shot of this
+project, since it is audio-only — never `shot.asset`, the footage actually
+shown on screen. Every V2 thumbnail request built this way would have 400'd
+against an asset that is not footage at all. Caught by reading real
+`/api/view` data before wiring the harness, rather than assuming the shot
+dict's shape from memory; now guarded permanently by
+`6b_filmstrip_never_requests_the_cues_own_addressing_clip`.
+
+16/16 browser assertions pass, each click driven at both 0ms and 120ms dwell
+(§ The dwell-timing lesson), including proof that a clip reused across shots
+reads each shot's own in-point — `cold-open` reused at 0, 20.4, 31.5, 44.5,
+57.1s produced filmstrip requests at those five offsets, not all clustered
+near 0 — and that the returned thumbnails actually decoded (`naturalWidth >
+0`, real 1920×816 frames, not broken-image placeholders).
+
+Deliberately not built: transcript-click → properties wiring (`transcript.js`
+belongs to another agent's file, and this repo's pane contract forbids
+importing across pane modules); card previews inside the assets pane (a
+third resolution path near `preview_source` — the exact hole the
+proxy/preview split exists to prevent).
+
+## The channel preset pack, built — 2026-08-17
+
+**PLAN.md's own claim about this item was false, and the correction matters
+more than the feature does.** The completion queue said what was left was
+"the pack itself, which is goodsometimes' side loaded by lucid, not lucid's."
+In fact lucid had **no loader at all**: `captions.PRESETS` and
+`graphics.TEMPLATES`/`PALETTE`/`FONTS` were closed literal dicts with no
+extension point, nothing anywhere read an external config file, and platform
+safe zones existed only as prose inside `BASE_GEOMETRY`'s own comment. Most
+of this item turned out to be lucid-side work, not content goodsometimes
+could just hand over.
+
+**The decision**: a pack is one external JSON file, applied once, whose
+fully-resolved payload is snapshotted into the manifest and hashed. Every
+later op reads the snapshot, never the file — so no render ever depends on a
+sibling repo's file staying reachable or unchanged after the fact. `pack_hash`
+is sha256 of the *resolved* payload, not the file's raw bytes, so a
+whitespace reformat upstream cannot trigger a spurious re-author sweep across
+every card.
+
+New pure `src/lucid/pack.py`: `load_pack`, `pack_hash`, `PackError`. Every
+variant but `default` implicitly extends it — there is no literal `extends`
+field, a deliberate departure from the format that was actually specced,
+made because it kept the JSON simpler — merged per section, with
+`caption_presets` merging per preset *name* so a variant can restate one
+field of one preset without repeating the rest. It refuses, each with its
+own test: unknown format version, a missing `default` variant, an unknown
+top-level or per-variant key, a `default` missing palette/fonts/mark, a
+malformed hex colour, an unknown slot name, a font stack with no CSS-generic
+fallback, an unknown mark key, an unknown caption_style field, a preset
+naming an unknown base, an unresolvable `$palette.`/`$fonts.` token, and
+malformed JSON outright.
+
+`graphics.py` gains `FONTS["mark_font"]` and a new `WEIGHTS = {mark_weight,
+footnote_weight}`, folded into `STYLE_SLOTS = {**PALETTE, **FONTS,
+**WEIGHTS}`. **The weight axis is the piece none of the three candidate
+designs had, and without it branding.md's own words — "Zilla Slab Bold for
+the wordmark, SemiBold for the footnote" — are simply not expressible**:
+every mark and footnote slot hardcoded `"weight": 700` before this. Slots now
+declare a `weight_role` instead of a literal number.
+
+New `graphics.SAFE_ZONES` turns `BASE_GEOMETRY`'s prose comment into actual
+data: tiktok-organic 324, tiktok-ads 370, reels 320, shorts 300, worst-case
+384 (the bottom fifth of 1920), each carrying the 180–300px right-hand action
+rail below the halfway line that the comment also described but nothing
+read. `graphics.safe_zone_ink` reports **three numbers, never one**: ink
+inside the safe-zone band, ink in a same-area sample outside it, and both
+measured against the card's own recorded background swatch. That third
+number is deliberate — a brightness bbox has already misread the same render
+twice in this repo (once as worse than a pillarbox, once as a pillarbox
+itself), because a black *source* reads exactly like a black *bar*.
+`card_safe_zones` is report-only, no floor and no `--strict`, on
+`SCENE_THRESHOLD`'s own precedent that a threshold gets pinned by looking at
+real output, not picked cold before any exists.
+
+`fonts.vendored(source=)` / `install(source=)` both gain an additive `source`
+param so a pack can carry its own font directory and get the same
+content-hash-idempotent, fc-cache-refreshing treatment lucid's own vendored
+set already gets — no second font-install code path.
+
+ops gains `pack_apply`, `pack_activate`, `pack_apply_captions`, `pack_show`,
+`pack_status`, `card_safe_zones` — each with a `lucid pack` CLI subcommand
+(and `card safe-zones`) and an `@_tool()`. `pack_apply_captions` is kept
+separate from `pack_apply` on purpose, so nothing silently overwrites a
+hand-edited `caption_style` underneath a later pack swap.
+
+**The font answer needs two checks, and they do not substitute for each
+other.** `fonts.probe` reporting `drew: False` refuses outright unless
+`allow_fallback` is passed, which then *records* the fallback rather than
+applying it silently. `drew: True` but not vendored is *not* refused — the
+render on this box is genuinely correct — but `font_provenance:
+"unvendored"` is written permanently onto the record, so a project whose
+cards depend on a font nobody actually ships can say so later without
+re-probing. Zilla Slab is exactly that case today, and the test asserts it.
+
+**Manifest**: a new optional top-level `"pack"` key plus an optional
+`pack_hash` on each card record. **No schema bump** — the
+`CANVAS_KEY`/`CAPTION_STYLE_KEY`/`TAIL_KEY` precedent again; bumping would
+make `Project.open` refuse every project already on disk to gain nothing.
+Tested both directions: an older manifest with no `pack` key still opens
+clean, and a card authored with no pack in play is byte-identical to what it
+rendered before this change existed.
+
+Two silent-failure defects found in review and fixed before shipping:
+`pack_status`'s `caption_preset_stale` check compared only against the
+*same-named* variant, so a `pack_activate` to a *different* variant left it
+reporting `false` while the live `caption_style` had actually diverged; and
+`card_safe_zones` resolved a card's background from the currently-active
+variant rather than the variant the card was actually authored under,
+producing readings that were numerically backwards after any `pack_activate`
+call.
+
+**The goodsometimes pack itself now exists in that repo**, carrying
+branding.md's real values — palette #FAF5EC/#1A1714/#E8A13C, an October
+variant swapping amber to pumpkin #D95F18, Zilla Slab + Outfit, the mark
+`Good[em]*[/em]` / compact `G[em]*[/em]` / footnote `[em]*[/em] Sometimes`,
+and the safe zones above. Its own branding.md gained the pack's record and a
+note on the `title_font` departure — that repo's fact, not restated here.

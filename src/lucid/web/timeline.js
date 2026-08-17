@@ -44,6 +44,21 @@
  * segment's own `start`/`end` every time it draws, so a cut needs no
  * recompute and no timeline-space envelope is ever built or cached here.
  *
+ * **Filmstrip thumbnails, V1 and V2, same trap the waveform names above.** A
+ * shot (or a segment) plays a stretch of its own source starting at
+ * `src_start` (V2) or `start` (V1/A1) — never from the head of the file, so
+ * a clip used three times reads from three different places and a filmstrip
+ * that reloaded each block from 0 would draw a real-looking, wrong film
+ * (CLAUDE.md). `buildFilmstrip` below is given exactly the one source second
+ * each block already carries and walks forward from there — the same
+ * source-second-plus-offset arithmetic `drawWaveformLane` already does one
+ * lane down, just against `/api/thumb/<clip_id>?at=<seconds>` (`ops.thumbnail`,
+ * itself bucketed to `THUMB_INTERVAL` and cached under `cache/thumbs/`)
+ * instead of a cached RMS array. No client-side cache is kept for it —
+ * unlike the waveform, a thumbnail is a plain `<img src>`, and the browser's
+ * own HTTP cache already dedupes identical URLs across re-renders.
+ *
+
  * See transcript.js's header comment for the full pane-module interface —
  * `ctx` shape, bus event names, and the `state` shape — this file does not
  * repeat it.
@@ -73,6 +88,8 @@ let suppressNextClick = false; // set when a drag moved, so the native
 const MIN_PX_PER_SEC = 4; // guards a zero/near-zero duration from a divide
 const LANE_H_FALLBACK = 42; // matches app.css's --lane-h if the var lookup fails
 const LABEL_MIN_PX = 70; // minimum on-screen spacing before a ruler label repeats
+const THUMB_TARGET_PX = 64; // desired on-screen width per filmstrip frame
+const THUMB_MIN_BLOCK_PX = 24; // below this a block is too narrow for even one legible frame
 
 //: "Nice" ruler intervals, seconds — the smallest one that keeps labels this
 //: side of LABEL_MIN_PX apart at the current zoom is picked.
@@ -170,6 +187,10 @@ function buildCaptionRow(captions, pxPerSec, duration) {
   if (!captions || captions.cues_error) {
     const why = captions ? captions.cues_error : "captions unavailable";
     row.append(el("div", "lane-refusal", `no captions — ${why}`));
+    // Same fix as buildPictureRow's identical branch, same reason: a
+    // refusal should not silently drop the lane out of seekOnClick's "every
+    // lane" guarantee.
+    seekOnClick(row, pxPerSec);
     return row;
   }
 
@@ -179,11 +200,66 @@ function buildCaptionRow(captions, pxPerSec, duration) {
     block.style.width = `${Math.max(1, (cue.end - cue.start) * pxPerSec).toFixed(1)}px`;
     block.textContent = cue.text;
     block.title = `${fmt(cue.start)}–${fmt(cue.end)} · ${cue.words.length} words\n${cue.text}`;
+    // A CueWord (captions.py) carries text/start/end only, no transcript word
+    // index — grouping is a placed, styled derivation and does not keep one.
+    // Nearest-by-time against the transcript's own words is the same
+    // approximation `nearestWordAt` already makes for a lane drag, applied to
+    // a cue's start instead of a click point.
+    block.addEventListener("click", () => {
+      if (!ctx || !lastState || !lastState.words) return;
+      const word = nearestWordAt(lastState.words, cue.start);
+      if (word) ctx.emit("inspect-word", { clipId: lastState.clip_id, wordIndex: word.index });
+    });
     row.append(block);
   }
 
   seekOnClick(row, pxPerSec);
   return row;
+}
+
+/** One filmstrip: a row of `<img>` elements reading `clipId`'s own source
+ * forward from `sourceStart`, one every `THUMB_TARGET_PX`-ish on-screen
+ * pixels — the mapping this file's header comment names as the trap. Each
+ * frame's `at=` is `/api/thumb`'s own address (source seconds, snapped
+ * server-side to `THUMB_INTERVAL`), never a timeline second and never 0.
+ *
+ * Every image gets an explicit pixel width up front rather than sizing off
+ * its own decoded aspect ratio — an unset width collapses to 0 until the
+ * network round trip finishes, which would draw an empty lane on first
+ * paint and reflow every block under it once thumbnails arrived. `object-fit:
+ * cover` (app.css) crops each frame to that fixed box instead.
+ *
+ * A block wider than its own duration's worth of pixels near its right edge
+ * (the last frame, clipped by the block's own `overflow: hidden`) is normal
+ * and left alone — matching how the picture lane already tolerates its own
+ * frame-grid/ruler-seconds mismatch (this file's header comment, one
+ * paragraph up). Returns `null` for a block too narrow to bother (below
+ * `THUMB_MIN_BLOCK_PX`), so a caller can skip appending it. */
+function buildFilmstrip(clipId, sourceStart, durationSec, pxPerSec) {
+  if (!(durationSec > 0) || !(pxPerSec > 0) || durationSec * pxPerSec < THUMB_MIN_BLOCK_PX) {
+    return null;
+  }
+  const strip = el("div", "filmstrip");
+  const stepSec = Math.max(1, THUMB_TARGET_PX / pxPerSec);
+  for (let t = 0; t < durationSec; t += stepSec) {
+    const widthPx = Math.min(stepSec, durationSec - t) * pxPerSec;
+    if (widthPx < 2) continue;
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.style.width = `${widthPx.toFixed(1)}px`;
+    img.src = `/api/thumb/${encodeURIComponent(clipId)}?at=${(sourceStart + t).toFixed(3)}`;
+    // A clip with no video track (audio-only, or media missing from disk)
+    // 400s — same "refused" discipline as the picture lane's own
+    // `shots_error`, but at single-frame granularity a toast per image would
+    // be noise, so this just leaves the block's own label showing through
+    // an empty strip rather than a broken-image glyph.
+    img.addEventListener("error", () => {
+      img.style.display = "none";
+    });
+    strip.append(img);
+  }
+  return strip;
 }
 
 /** One row: a `.clip-block` per timeline segment (hover/title/hit-testing,
@@ -192,16 +268,23 @@ function buildCaptionRow(captions, pxPerSec, duration) {
  * row itself so a click anywhere in the lane — including on a child block —
  * seeks the player (event bubbling; the handler reads the row's own
  * bounding rect, so it works regardless of scroll or which child was hit). */
-function buildLaneRow(kind, segments, pxPerSec, duration, state) {
+function buildLaneRow(kind, segments, pxPerSec, duration, state, withFilmstrip) {
   const row = el("div", `lane lane-${kind.toLowerCase()}`);
   row.style.width = `${Math.max(1, duration * pxPerSec)}px`;
 
   for (const seg of segments) {
     const block = el("div", "clip-block");
+    const blockWidth = Math.max(1, (seg.timeline_end - seg.timeline_start) * pxPerSec);
     block.style.left = `${(seg.timeline_start * pxPerSec).toFixed(1)}px`;
-    block.style.width = `${Math.max(1, (seg.timeline_end - seg.timeline_start) * pxPerSec).toFixed(1)}px`;
-    block.textContent = seg.clip_id;
+    block.style.width = `${blockWidth.toFixed(1)}px`;
     block.title = `${seg.clip_id} · source ${secs(seg.start)}–${secs(seg.end)} · timeline ${fmt(seg.timeline_start)}–${fmt(seg.timeline_end)}`;
+    if (withFilmstrip) {
+      const strip = buildFilmstrip(seg.clip_id, seg.start, seg.end - seg.start, pxPerSec);
+      if (strip) block.append(strip);
+      block.append(el("span", "clip-label", seg.clip_id));
+    } else {
+      block.textContent = seg.clip_id;
+    }
     row.append(block);
   }
 
@@ -275,6 +358,13 @@ function buildPictureRow(state, pxPerSec, duration) {
 
   if (state.shots_error) {
     row.append(el("div", "lane-refusal", `picture refused — ${state.shots_error}`));
+    // seekOnClick is "shared by every lane so the picture lane cannot drift
+    // into being the one that does not seek" (this file's own doc comment
+    // on seekOnClick) — a refusal is exactly the state that comment is
+    // guarding against silently losing, so it still applies here. Found via
+    // the browser pass's assertion-5 control click landing on a refused V2
+    // lane and doing nothing.
+    seekOnClick(row, pxPerSec);
     return row;
   }
 
@@ -282,8 +372,32 @@ function buildPictureRow(state, pxPerSec, duration) {
     const block = el("div", `clip-block shot-block${shot.is_image ? " shot-card" : ""}`);
     block.style.left = `${(shot.start * pxPerSec).toFixed(1)}px`;
     block.style.width = `${Math.max(1, shot.duration * pxPerSec).toFixed(1)}px`;
-    block.textContent = shotLabel(shot);
     block.title = shotTitle(shot, state, index);
+    // A card is a still asset, not a clip's own footage — /api/thumb only
+    // ever answers for a video-carrying clip_id (ops.thumbnail refuses one
+    // with no video track), so there is nothing to sample for one.
+    //
+    // **`shot.asset` is the footage being shown; `shot.clip_id` is the cue's
+    // OWN address — the transcript clip its word_index lives on, which on
+    // this project is `vo`, an audio-only clip with no video track of its
+    // own.** Sampling `shot.clip_id` here would ask `/api/thumb` for a frame
+    // of the voiceover on every single shot and 400 every time — exactly
+    // the reload-from-the-wrong-source trap this file's header comment
+    // names, just one field over rather than one asset-use over. `asset` is
+    // what `shotLabel`/`shotTitle` already draw the block's own label from.
+    if (!shot.is_image) {
+      const strip = buildFilmstrip(shot.asset, shot.src_start, shot.duration, pxPerSec);
+      if (strip) block.append(strip);
+      block.append(el("span", "clip-label", shotLabel(shot)));
+    } else {
+      block.textContent = shotLabel(shot);
+    }
+    // Target-phase listener: fires before the row's own bubble-phase
+    // seekOnClick (below), so a shot click both inspects its cue AND seeks —
+    // harmless, and it means this needs no stopPropagation.
+    block.addEventListener("click", () => {
+      if (ctx) ctx.emit("inspect-word", { clipId: shot.clip_id, wordIndex: shot.word_index });
+    });
     row.append(block);
   });
 
@@ -400,7 +514,17 @@ function nearestWordAt(words, t) {
 function laneTimeFromEvent(event) {
   const lanes = $("track-lanes");
   const rect = lanes.getBoundingClientRect();
-  return Math.max(0, (event.clientX - rect.left) / currentPxPerSec);
+  // `getBoundingClientRect` is the container's own on-screen box, which does
+  // NOT move when its content scrolls (only `overflow-x: auto`'s content
+  // does) — so a click after scrolling the timeline needs `scrollLeft` added
+  // back in, or it resolves against whatever was under this same screen x at
+  // scrollLeft 0. Confirmed by driving a real drag at a fixed screen point
+  // under two scroll positions: unpatched, both resolved the same word
+  // regardless of which part of the transcript was actually under the
+  // cursor (browser pass, CLAUDE.md's discipline of verifying against the
+  // real running service). `seekOnClick` does not have this bug because it
+  // reads the *row's* rect, which does move with scroll.
+  return Math.max(0, (event.clientX - rect.left + lanes.scrollLeft) / currentPxPerSec);
 }
 
 /** Word-range echo, three either side (CLAUDE.md) — the placement word
@@ -413,6 +537,17 @@ function cueEcho(words, wordIndex) {
     .join(" ");
 }
 
+/** Clamps a floating toolbar's raw drop point to the lanes pane's own
+ * *visible* box — never trusted as-is (browser pass: an unclamped drop on
+ * the bottom-most lane rendered the whole toolbar past both `#track-lanes`'s
+ * own `overflow-y: hidden` clip and the browser viewport, at zero opacity of
+ * "found" — no error, just nothing a person could see or click). Unhide
+ * before measuring: a `hidden` element reports a zero-size rect, which would
+ * clamp everything to (0, 0). `boxLeft` is in the same content-relative
+ * coordinate space `laneTimeFromEvent` resolves a click into (scrollLeft
+ * already folded in at drag time), so the clamp's own bounds are the visible
+ * window converted into that same space — `[lanes.scrollLeft, scrollLeft +
+ * clientWidth]` — not `[0, clientWidth]`. */
 function refreshCueToolbar() {
   if (!cueToolbarEl) return;
   if (!cueSelection || !lastState || !lastState.words) {
@@ -420,9 +555,50 @@ function refreshCueToolbar() {
     return;
   }
   cueInfoEl.textContent = cueEcho(lastState.words, cueSelection.wordIndex);
-  cueToolbarEl.style.left = `${cueSelection.boxLeft.toFixed(1)}px`;
-  cueToolbarEl.style.top = `${cueSelection.boxTop.toFixed(1)}px`;
   cueToolbarEl.hidden = false;
+
+  const lanes = $("track-lanes");
+  if (lanes) {
+    const minLeft = lanes.scrollLeft;
+    const maxLeft = Math.max(minLeft, minLeft + lanes.clientWidth - cueToolbarEl.offsetWidth);
+    const maxTop = Math.max(0, lanes.clientHeight - cueToolbarEl.offsetHeight);
+    cueToolbarEl.style.left = `${Math.min(Math.max(cueSelection.boxLeft, minLeft), maxLeft).toFixed(1)}px`;
+    cueToolbarEl.style.top = `${Math.min(cueSelection.boxTop, maxTop).toFixed(1)}px`;
+  } else {
+    cueToolbarEl.style.left = `${cueSelection.boxLeft.toFixed(1)}px`;
+    cueToolbarEl.style.top = `${cueSelection.boxTop.toFixed(1)}px`;
+  }
+}
+
+/** Redraws only the drag-box, leaving every lane/row/block untouched.
+ *
+ * `render()` is not safe to call from `handleLanesMouseDown`/`Move`, or from
+ * `handleLanesMouseUp`'s non-drag branch — it does `lanes.textContent = ""`
+ * then rebuilds every lane wholesale, which removes whatever node the
+ * in-progress gesture is anchored to. A `setTimeout(render, 0)` used to sit
+ * in those three spots instead of a synchronous call, and it is not a fix,
+ * only a race it usually wins: CDP's back-to-back mousePressed/mouseReleased
+ * has no gap for the timer to land in before mouseup, so it read as correct
+ * against a scripted test. Driven with a realistic human dwell between press
+ * and release (measured 10ms-250ms; a real click dwells roughly 60-150ms),
+ * the timer fires *during* the dwell, the mousedown target is gone by the
+ * time mouseup arrives, and Chrome suppresses the trailing native 'click'
+ * exactly as it did before the timer existed — click-to-seek stayed broken
+ * for every real click on a transcript lane, just no longer for a
+ * script-driven one. Measured with a dwell-time probe:
+ * `/home/<user>/.claude/jobs/c23505b8/tmp/dwell/dwell_probe.py` — seeks at
+ * 0ms and 5ms dwell, silently fails at 10ms and every dwell above it.
+ *
+ * The highlight is the only thing a mousedown/mousemove/plain-click-release
+ * changes, and `drawSelectionHighlight` already draws it as one standalone
+ * `.drag-box` appended to `lanes` — so removing that element and redrawing
+ * it (if `selection` is set) is the whole update, and it never touches the
+ * row/block elements a gesture or a pending click is anchored to. */
+function updateSelectionHighlight() {
+  const lanes = $("track-lanes");
+  if (!lanes || !lastState) return;
+  for (const box of lanes.querySelectorAll(".drag-box")) box.remove();
+  if (selection) drawSelectionHighlight(lanes, selection, currentPxPerSec, lastState);
 }
 
 function cancelCueSelection() {
@@ -444,6 +620,7 @@ async function placeCue(assetInput) {
   const asset = assetInput.value.trim();
   if (!asset) {
     assetInput.focus();
+    ctx.emit("toast", "Type an asset — a clip_id or card:name — before placing the cue.");
     return;
   }
   let payload = null;
@@ -497,15 +674,36 @@ function buildCueToolbar() {
  * no movement is left alone, so `seekOnClick` still owns it. */
 function handleLanesMouseDown(event) {
   if (event.button !== 0) return;
+  // A drag's own trailing native 'click' is not guaranteed to follow its
+  // mouseup — measured by driving real Input events: a press/release pair at
+  // different points produced no 'click' at all here, so a stale `true` left
+  // by a drag would otherwise swallow the *next* click instead of the drag's
+  // own, which — right after placing a drag selection — is a click on the
+  // toolbar's own "Place cue" button (browser pass). Any new mousedown means
+  // that window has closed either way, so clear it unconditionally before
+  // anything else below runs, including the toolbar-click early return.
+  suppressNextClick = false;
   if (cueToolbarEl && cueToolbarEl.contains(event.target)) return;
   if (!lastState || !lastState.words || !lastState.words.length) return;
   const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
-  if (!word) return;
+  if (!word) {
+    if (ctx) ctx.emit("toast", "No word here to anchor a cue to — every word in this clip is cut.");
+    return;
+  }
   cueSelection = null;
   refreshCueToolbar();
   cueDrag = { anchorIndex: word.index, currentIndex: word.index, moved: false };
   selection = [word.index];
-  render();
+  // properties.js's word-inspection input — raised on every lane mousedown
+  // that resolves to a word, drag or plain click alike, since a plain click
+  // throws the resolved word away below (no cue gesture follows it) and
+  // inspecting it is a reasonable thing for a click to do along the way.
+  if (ctx) ctx.emit("inspect-word", { clipId: lastState.clip_id, wordIndex: word.index });
+  // See updateSelectionHighlight's own comment: a full render() here (even
+  // deferred) tears down whatever node this mousedown landed on, and a
+  // realistic human dwell before mouseup gives a deferred one time to fire
+  // before the click is dispatched — measured, not assumed.
+  updateSelectionHighlight();
 }
 
 function handleLanesMouseMove(event) {
@@ -515,23 +713,35 @@ function handleLanesMouseMove(event) {
   if (word.index !== cueDrag.anchorIndex) cueDrag.moved = true;
   cueDrag.currentIndex = word.index;
   selection = [cueDrag.anchorIndex, cueDrag.currentIndex];
-  render();
+  // Same reason as handleLanesMouseDown: a full render() on every mousemove
+  // tore down and rebuilt every lane dozens of times over one drag, for a
+  // change that is only ever the highlight box.
+  updateSelectionHighlight();
 }
 
 function handleLanesMouseUp(event) {
   if (!cueDrag) return;
   if (cueDrag.moved) {
     suppressNextClick = true;
-    const rect = $("track-lanes").getBoundingClientRect();
+    const lanes = $("track-lanes");
+    const rect = lanes.getBoundingClientRect();
+    // boxLeft lives in the same content-relative space laneTimeFromEvent
+    // resolves a click into — scrollLeft folded back in, for the same
+    // reason (the container's own rect does not move when its content
+    // scrolls). refreshCueToolbar's clamp expects this space.
     cueSelection = {
       wordIndex: cueDrag.anchorIndex,
-      boxLeft: Math.max(0, event.clientX - rect.left),
+      boxLeft: Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
       boxTop: Math.max(0, event.clientY - rect.top + 10),
     };
     refreshCueToolbar();
   } else {
     selection = null;
-    render();
+    // Same reason as handleLanesMouseDown: this mouseup's handlers run
+    // before the browser decides whether to dispatch the trailing 'click'
+    // for this exact gesture, and any render() here — deferred or not —
+    // risks removing the clicked node out from under that decision.
+    updateSelectionHighlight();
   }
   cueDrag = null;
 }
@@ -583,7 +793,7 @@ function render() {
         ? buildPictureRow(state, pxPerSec, duration)
         : kind === "CC"
           ? buildCaptionRow(captions, pxPerSec, duration)
-          : buildLaneRow(kind, state.segments, pxPerSec, duration, state);
+          : buildLaneRow(kind, state.segments, pxPerSec, duration, state, kind === "V1");
     if (kind === "A1") {
       const canvas = el("canvas", "waveform-canvas");
       // The blocks underneath still carry hover/title/hit-testing; letting

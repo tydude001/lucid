@@ -938,8 +938,12 @@ guesses:
 
 #### What this design still does not answer
 
-* **Multi-project.** `lucid web` serves one project per process. Daydream's
-  breadcrumb implies a project list; nothing here builds one.
+* **Multi-project.** *Answered 2026-08-17 — built, and still one project per
+  process.* `lucid web --root DIR` serves a picker over `webui.scan_projects`;
+  `POST /api/open` is a one-way bind, the first project picked becomes the
+  process's project for the rest of its life, so two projects at once still
+  means two processes exactly as `-C` always required. HISTORY.md § The
+  multi-project picker, built; DAYDREAM.md § Multi-project.
 * **Video, and the codec wall under it.** *Answered in part, 2026-08-09 — the
   picture is verified against real footage now (HISTORY.md § The preview
   picture layer), and the wall turned out not to stand in front of this
@@ -1441,8 +1445,10 @@ measured ceiling.** ~130 windows for this project at ~60 words each is roughly
 No embedding runtime, no vector store, no similarity threshold to tune. The
 ceiling is real and worth writing down: at ~1000 windows (≈5.5 hours of footage
 at 20s) it is ~80k tokens and stops being reasonable. Embeddings become the
-right answer only when a **cross-project** library exists, which lucid does not
-have — multi-project is late and small in § Next. So `describe_ls` returns the
+right answer only when a **cross-project** library exists, which lucid still
+does not have — multi-project (built, HISTORY.md § The multi-project picker,
+built) is a picker over `lucid web --root`, one project per process still, not
+an index. So `describe_ls` returns the
 table, optionally filtered by clip, and the agent picks. Keyword filtering is a
 convenience on top, not a subsystem.
 
@@ -3619,8 +3625,15 @@ The order was adopted 2026-08-12.
    - **Its precondition is met**: tail time shipped and took the two cards with
      it — `endcard` and `bumper` are `graphics.TEMPLATES` entries as of
      2026-08-13, so neither spec lives in a proof script any more (HISTORY.md
-     § The end card and the bumper became templates). What is left is the pack
-     itself, which is goodsometimes' side loaded by lucid, not lucid's.
+     § The end card and the bumper became templates).
+   - **Built 2026-08-16, and the line above it was wrong: what was left was not
+     the pack, it was the loader.** The queue's own premise going in was that
+     the pack was goodsometimes' content, loaded by lucid — in fact lucid had
+     no extension point at all: `captions.PRESETS` and
+     `graphics.TEMPLATES`/`PALETTE`/`FONTS` were closed literal dicts and
+     nothing anywhere read a config file, so this was mostly lucid-side work,
+     not content waiting on goodsometimes. **This item is closed.** HISTORY.md
+     § The channel preset pack, built.
 9. **The October scale spike** — timed to land before the mid-September
    format decisions: one long two-speaker recording through
    transcribe → cut → render, to find where the pipeline groans (windowed
@@ -3661,6 +3674,19 @@ The order was adopted 2026-08-12.
      HISTORY.md § The ingest path's hallucination guard; § The scan the spike
      named was not the one that costs. **What is left of this item is its own
      unrun half** — the transcribe pass and the melt-RSS second data point.
+   - **The melt half ran 2026-08-16, and it moved its own premise again: RSS
+     tracks source DENSITY, not duration and not raw source count.** Six cells
+     against a reusable poll tool settled it: holding source count fixed and
+     swinging duration moved RSS almost nothing, twice over, while the cell
+     that separates count from density is the tell — fewer sources over far
+     less duration peaked *higher* than more sources over far more duration.
+     **Confidence is split and stays split, not upgraded for tidiness**: high
+     that duration is not the driver (two independent near-zero-delta
+     comparisons), moderate that source count is a driver but not the whole
+     story, low-to-moderate on density specifically — no cell held density
+     constant, so density is inferred from the pattern across six points, not
+     isolated. **This item is closed.** HISTORY.md § The melt RSS matrix, and
+     the scale spike's last half.
 10. **The parity long tail** — the gap-drag measurement first (§ Three
     uncosted parity items: does a timeline drag usually land on a gap a cut
     left? settle against the Scream project with `Edit.gaps` before writing
@@ -3693,6 +3719,24 @@ The order was adopted 2026-08-12.
       here, so it needs a real-browser pass before being called done for
       the UI half. **What is left of this item: that browser pass, then the
       panes, multi-project, HTTP transport, and filmstrip thumbnails.**
+    - **All five are built, 2026-08-16/17, and the browser pass did not
+      merely confirm the gesture — it found six defects.** Driven for real
+      over CDP rather than through the three backend tests that only POST to
+      `/api/cue`, the worst of the six was silent: a re-render on mousedown
+      tore out the very DOM node the gesture had landed on, which **broke
+      click-to-seek on every lane, for any clip with a transcript**, found
+      only by A/B against a transcript-less clip where the handler never
+      runs. The first fix passed every drag assertion in the harness and was
+      dead in the hand — a dwell probe showed it only worked at dwell times no
+      real click produces, the same lesson the assets pane's role toggle
+      needed a second time on an unrelated race. Built alongside: the
+      assets/properties/filmstrip panes, the multi-project picker, and
+      `lucid mcp --transport http`, whose own review caught an allow-list bug
+      admitting the attacker it was meant to exclude, fixed before ship.
+      **This item is closed.** HISTORY.md § The cue-drag browser pass, and six
+      defects; § The dwell-timing lesson; § The assets, properties and
+      filmstrip backend, and its panes; § The multi-project picker, built;
+      § MCP over HTTP, built.
 
 Corrected the same day, found by the same review: DAYDREAM.md's two stale
 rows (b-roll's "nothing is built"; aspect swap's "none has been reviewed").

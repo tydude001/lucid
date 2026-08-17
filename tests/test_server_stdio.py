@@ -49,6 +49,12 @@ EXPECTED_TOOLS = {
     "card_new",
     "card_render",
     "card_reauthor",
+    "card_safe_zones",
+    "pack_apply",
+    "pack_activate",
+    "pack_apply_captions",
+    "pack_show",
+    "pack_status",
     "cue_add",
     "cue_rm",
     "cue_ls",
@@ -92,6 +98,10 @@ EXPECTED_TOOLS = {
     "proxy_transcode",
     "speech_overlap",
     "export",
+    "assets",
+    "clip_role",
+    "properties",
+    "thumbnail",
 }
 
 needs_ffprobe = pytest.mark.skipif(
@@ -194,6 +204,12 @@ TOOL_TO_COMMAND = {
     "card_new": "card",
     "card_render": "card",
     "card_reauthor": "card",
+    "card_safe_zones": "card",
+    "pack_apply": "pack",
+    "pack_activate": "pack",
+    "pack_apply_captions": "pack",
+    "pack_show": "pack",
+    "pack_status": "pack",
     "cue_add": "cue",
     "cue_rm": "cue",
     "cue_ls": "cue",
@@ -237,6 +253,10 @@ TOOL_TO_COMMAND = {
     "proxy_transcode": "proxy",
     "speech_overlap": "speech-overlap",
     "export": "export",
+    "assets": "assets",
+    "clip_role": "role",
+    "properties": "properties",
+    "thumbnail": "thumbnail",
 }
 
 #: CLI-only commands, with the reason each one has no tool behind it.

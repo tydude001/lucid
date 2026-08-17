@@ -18,6 +18,15 @@ installed package or the upstream repo, not your memory.
   `mcp.server` (and there is no `mcp.server.fastmcp` module). Training priors
   overwhelmingly say `FastMCP`; check the installed package before writing
   server code, not your memory of the API.
+  - **`MCPServer.run()`'s `transport` argument is `Literal["stdio", "sse",
+    "streamable-http"]`, verified against the installed 2.0.0** — but calling
+    it with `transport="streamable-http"` builds the Starlette app and the
+    uvicorn `Config` internally, with no injection point for middleware and no
+    way to learn a `port=0` ephemeral port before it blocks. `lucid mcp
+    --transport http` builds `streamable_http_app()`'s pieces by hand instead
+    — a Starlette app with its lifespan already wired — because the loopback
+    guard needs to wrap the app and the bound port needs to be knowable before
+    it blocks. HISTORY.md § MCP over HTTP, built.
 - **auto-editor is Nim, and PyPI is stale.** `pip install auto-editor` gets
   29.3.1; upstream ships 31.x. There is no Python API — shell out to the binary,
   like ffmpeg.
@@ -131,6 +140,22 @@ installed package or the upstream repo, not your memory.
       `visibility: hidden` element alike, and both cost this repo a day. What
       to gate on, and the calibration that catches it: wiki `tooling.md`
       § Headless browser. What they cost here: HISTORY.md § The viewer's frame.
+  - **A browser pass driven at CDP's default zero dwell is not a pass.**
+    `Input.dispatchMouseEvent` fires press and release back-to-back; a real
+    click dwells 60-150ms, and a fix's own transition can sit inside that gap
+    — measured at 5-10ms here. A fix that reads green at 0ms and is dead at
+    every real speed has already shipped once: drive every browser-pass click
+    at more than one dwell (0ms and ~120ms, at minimum) before calling the
+    pass real, never at 0ms alone. HISTORY.md § The cue-drag browser pass.
+    - **A DOM rebuild mid-gesture removes the mousedown target, and Chrome
+      then suppresses the trailing `click` rather than erroring** — which is
+      why a lane that re-rendered its DOM on mousedown silently stopped
+      seeking, with nothing throwing to say so. Redraw only the element a
+      gesture owns (a standalone overlay node) while it is in progress, never
+      the container the mousedown landed in. The same discipline (multi-dwell,
+      real clicks) is what later caught a second bug the dwell rule wasn't
+      built for: a post-mutation DOM refresh racing the SSE reload, fixed with
+      a request-sequencing guard. HISTORY.md § The cue-drag browser pass.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind
@@ -145,6 +170,45 @@ installed package or the upstream repo, not your memory.
   registration, not left as a comment. Streaming reuses `webui._stream_file`
   (a standalone function, not a second copy of the Range math). PLAN.md § The
   completion queue, item 6. HISTORY.md § `lucid review`, built.
+- **`lucid mcp` can serve over HTTP, and the guard is loopback+Host, not a
+  token — `webui.py`'s model, not `reviewserver.py`'s.** `--transport http`
+  (default stays `stdio`; every existing client spawns the server that way
+  unchanged) adds `--host`/`--port`/`--allow-remote`/`--allow-remote-host`.
+  `_LoopbackGuard` is real ASGI middleware mirroring
+  `webui.Handler._host_is_loopback`, importing `webui._LOOPBACK_NAMES` rather
+  than re-stating the fact; it refuses a non-loopback `Host` at startup unless
+  opted in, and `-C` confinement holds identically over HTTP. Nothing here
+  carries a per-request token, because unlike a phone review link this is not
+  meant to leave the LAN unattended.
+  - **A wildcard bind's own host string is not a client identity.**
+    `--allow-remote` first added the literal `--host` value to the allow-list,
+    which for `0.0.0.0`/`::` is backwards in both directions: a real remote
+    client sends the address it dialed, which never matches, so the feature
+    refused the traffic it exists to admit — while an attacker sends `Host:
+    0.0.0.0`, printed in the server's own startup banner, and it matched. A
+    wildcard bind now refuses to start under `--allow-remote` unless
+    `--allow-remote-host` names the addresses real clients will actually
+    present. HISTORY.md § MCP over HTTP, built.
+- **`lucid web --root DIR` serves a picker over many projects, but the process
+  still binds to exactly one.** `POST /api/open` is a *one-way* bind — the
+  first project picked calls the same `_bind_singletons` that `-C` already
+  calls, deferred under a lock, so `bus`/`agent`/`render_job`/`proxy_job` are
+  never more than one project's. Two projects at once is still two processes;
+  `--root` widens what a picker can list, never what one server can serve.
+  Re-opening the same project is a 200 no-op, a different one a 409. `-C`
+  together with `--root` is refused before either binds a socket, and MCP is
+  untouched — a client already spawns its own server per project, so there is
+  no one-server-many-projects case there. HISTORY.md § The multi-project
+  picker, built.
+  - **A picker that raises on one broken project hides every other one.** The
+    scan called `ops.status` with no handler, so one init-but-not-seeded
+    project 400'd all of `GET /api/projects`; there are now four scan outcomes
+    (`ok`/`needs_migration`/`unreadable`/`error`), never an exception that
+    takes the rest of the listing down with it.
+  - **`Path.is_dir()` follows symlinks, and open-time confinement is too late
+    for a listing that already leaked one** — a symlink under `--root`
+    pointing outside it was scanned and its metadata returned before anyone
+    tried to open it.
 - **Anything taking a word index echoes the words it resolved to, plus the
   three either side.** The neighbours are the point: an index one past the
   intended phrase reads correctly on its own. Mutating tools also take a
@@ -186,6 +250,15 @@ installed package or the upstream repo, not your memory.
     where the film cannot project) — 2 of the teaser's 4 survivors needed one,
     and hand-derived reels before this did not have them. HISTORY.md § The
     pinned cue, § The framing control, § The three gaps, closed.
+  - **A shot's addressing clip is not its footage.** In a shot dict,
+    `clip_id` is the cue's own addressing clip — the transcript track, `"vo"`
+    on an audio-only project — and `asset` is the footage actually shown.
+    Anything that reaches into a shot by `clip_id` to fetch or thumbnail
+    footage reaches the wrong file, or none: the first filmstrip draft
+    thumbnailed `shot.clip_id` and every V2 request would have 400'd on this
+    project. Caught by reading real `/api/view` data before wiring the
+    harness, guarded now by a test named for exactly this trap. HISTORY.md
+    § The assets, properties and filmstrip backend, and its panes.
   - **A description does not choose the clip — `synopsis` does, and lucid does
     not choose at all.** Which footage goes under a sentence is never a lexical
     match: measured against 25 human picks, the description index agreed 2
@@ -254,6 +327,14 @@ installed package or the upstream repo, not your memory.
     reads `videoWidth`. Its size claim holds on real footage only — a
     `testsrc` fixture proxies *larger* than its hevc source, so never assert a
     reduction. HISTORY.md § The preview proxy.
+  - **A thumbnail is a preview artifact and keeps the same containment rather
+    than adding a caller to it.** `ops.thumbnail` never enters the manifest
+    and never calls `preview_path()` — it resolves media through
+    `media.media_path()` and cuts one frame with `picture.extract_frame`,
+    cached under `cache/thumbs/<clip_id>/<ms>.jpg`. Adding a third caller to
+    `preview_path` is the whole hole this containment exists to prevent; a
+    filmstrip route earns its keep by not needing one. HISTORY.md § The
+    assets, properties and filmstrip backend, built.
 - **Trust a transcript's word order, never its word durations.** Whisper hides
   a whole retake inside the duration of the word after it. So "did this word
   survive?" is an *overlap* test against the kept ranges, never containment —
@@ -447,6 +528,38 @@ installed package or the upstream repo, not your memory.
     unrecoverable. All twelve author at 9:16; the two that refuse are a
     16:9-only content fit. HISTORY.md § The card record, § Step 6 of the aspect
     swap, watched.
+- **A channel preset pack is a snapshot, never a live reference to a sibling
+  repo's file.** `pack.load_pack` resolves one external JSON file (palette,
+  fonts, mark, caption presets, weights) once; `pack_apply` writes the fully-
+  resolved payload into the manifest's `pack` key and hashes it — `pack_hash`
+  is sha256 of the *resolved* payload, not the file's bytes, so a whitespace
+  reformat upstream cannot trigger a spurious re-author sweep. Every later op
+  reads the snapshot, never the file, so no render depends on the pack's repo
+  staying reachable or unchanged. No schema bump — `pack` and a card's
+  `pack_hash` are both additive-optional, the `CANVAS_KEY`/`CAPTION_STYLE_KEY`/
+  `TAIL_KEY` precedent. `pack_apply_captions` is a separate op from
+  `pack_apply` on purpose, so activating a pack never silently overwrites a
+  hand-edited `caption_style` underneath it. HISTORY.md § The channel preset
+  pack, built.
+  - **A font that draws correctly and a font that is vendored are two
+    different findings, and only one of them refuses.** `fonts.probe`
+    reporting `drew: False` refuses unless `allow_fallback` (which then
+    records the fallback rather than applying it silently); `drew: True` on an
+    unvendored face is *not* refused — the render on this box is genuinely
+    correct — but is permanently marked `font_provenance: "unvendored"`, so a
+    project depending on a font nobody ships can say so without re-probing.
+    Zilla Slab is exactly that case. Treating either check as standing in for
+    the other misses what it alone catches.
+  - **Safe zones are report-only, on `SCENE_THRESHOLD`'s own precedent.**
+    `graphics.SAFE_ZONES` are real numbers now (tiktok-organic 324px,
+    tiktok-ads 370px, reels 320px, shorts 300px, worst-case 384px — the bottom
+    fifth of 1920 — each with a 180-300px right-hand action-rail band below the
+    halfway line), and `card_safe_zones` reports ink inside the band **and**
+    in a same-area sample outside it **and** against the card's own recorded
+    background — three numbers, never one, because a brightness bbox has
+    already misread a black source as a black bar twice in this repo (see the
+    auto-framing detector below). No floor, no `--strict`: a threshold gets
+    pinned by looking at real output, not picked cold.
 - **Footage follows a canvas change by cropping, and the crop is a rect in
   *source* pixels stored as asked** — refit whenever the canvas moves, so
   neither a cut nor a swap can invalidate one. **A rect is addressed

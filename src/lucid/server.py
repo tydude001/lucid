@@ -1,4 +1,4 @@
-"""The `lucid mcp` server — MCP tools over stdio.
+"""The `lucid mcp` server — MCP tools over stdio, or over HTTP.
 
 Every tool here is a thin wrapper over `lucid.ops`, and every one has a
 matching `lucid` CLI subcommand (CLAUDE.md). Tool bodies stay trivial on
@@ -7,19 +7,31 @@ tests cannot isolate.
 
 Note the SDK is v2 — `MCPServer` from `mcp.server`. There is no `FastMCP` and
 no `mcp.server.fastmcp` module, whatever your priors say.
+
+stdio is the default transport and every existing client spawns the server
+that way; HTTP is opt-in (`lucid mcp --transport http`, DAYDREAM.md § MCP
+over HTTP) for the day something needs to drive an already-running project
+from outside. Its guard mirrors `webui.py`'s discipline exactly — see
+`_LoopbackGuard` and `_serve_http` below — because an HTTP MCP server carries
+the same edit-mutating tools stdio does, reachable from anywhere that can
+route to the port.
 """
 
 from __future__ import annotations
 
 import functools
 import inspect
+import socket
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
 from mcp.server import MCPServer
+from starlette.datastructures import Headers
+from starlette.responses import PlainTextResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from lucid import __version__, asr, energy, ops
+from lucid import __version__, asr, energy, ops, webui
 from lucid.project import ProjectError
 
 mcp: MCPServer = MCPServer(
@@ -44,6 +56,83 @@ mcp: MCPServer = MCPServer(
 #: only when `-C` was actually typed, because a globally-configured
 #: `lucid mcp` has no project and must keep reaching any of them.
 _BOUND_ROOT: Path | None = None
+
+#: Bind address and port `lucid mcp --transport http` uses when neither flag
+#: is given. Loopback, matching `webui.DEFAULT_HOST` (127.0.0.1): an HTTP MCP
+#: server carries the same edit-mutating tools stdio does, so it gets
+#: `webui.py`'s discipline (CLAUDE.md) rather than a looser default of its
+#: own. The port is one past `webui.DEFAULT_PORT` for the same reason that
+#: one isn't 8000/8080 — don't collide with `lucid web` running on the same
+#: project, or with whatever else a dev box already has up.
+DEFAULT_HTTP_HOST = webui.DEFAULT_HOST
+DEFAULT_HTTP_PORT = webui.DEFAULT_PORT + 1
+
+#: Bind-side "any interface" addresses. These are never a client-presented
+#: identity — no real client dials `0.0.0.0` or `::`, so no real `Host:`
+#: header ever names one. Widening the guard's allow-list with the literal
+#: `--host` string is honest for a specific address (a client that reaches
+#: the server by that address naturally sends it in `Host:`) but not for a
+#: wildcard bind: it would add a string only an attacker who read the
+#: server's own startup banner would ever send, while doing nothing for the
+#: real remote clients the wildcard bind exists to admit — they show up with
+#: whatever address they actually dialed, never `0.0.0.0`/`::`. See
+#: `_build_http_server`.
+_WILDCARD_HOSTS = frozenset({"0.0.0.0", "::", ""})
+
+
+def _host_name(host_header: str) -> str:
+    """Normalize a `Host:` header value to a bare, lowercased name.
+
+    The same parse `webui.Handler._host_is_loopback` does — strip a trailing
+    `:port`, unwrap a bracketed IPv6 literal — reimplemented rather than
+    called, because this one runs against Starlette's `Headers` instead of
+    `BaseHTTPRequestHandler`'s, and is checked against a name set the HTTP
+    guard can widen (`--allow-remote`), which `webui.py`'s never does.
+    """
+    host = (host_header or "").strip()
+    name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    if name.startswith("[") and "]" in name:
+        name = name[: name.index("]") + 1]
+    return name.lower()
+
+
+class _LoopbackGuard:
+    """ASGI middleware: refuses any HTTP request whose Host header isn't allowed.
+
+    `webui.py` solved exactly this problem (`Handler._host_is_loopback`,
+    answered with `HTTPStatus.FORBIDDEN`), and CLAUDE.md is explicit that
+    binding loopback is not enough by itself — a hostile page's cross-origin
+    fetch, or a DNS-rebinding attempt, reaches a loopback-bound socket just
+    fine, and only the Host header tells it apart from a real local client.
+    The MCP HTTP surface carries the same mutating tools stdio does (every
+    `@_tool()` in this module), so it gets the same two-layer guard: loopback
+    bind by default (`_serve_http`) plus this middleware, implemented as real
+    ASGI middleware wrapping the SDK's own Starlette app rather than left as
+    a comment saying the guard belongs somewhere.
+
+    A pure ASGI callable rather than Starlette's `BaseHTTPMiddleware`: it has
+    to run in front of the SDK's own routing, including the streamable-HTTP
+    session manager's `lifespan`-scoped startup, and must pass any scope type
+    that isn't `"http"` straight through untouched rather than adapt it into
+    a request/response pair that doesn't exist for it.
+    """
+
+    def __init__(self, app: ASGIApp, allowed_names: frozenset[str]) -> None:
+        self._app = app
+        self._allowed_names = allowed_names
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        headers = Headers(scope=scope)
+        if _host_name(headers.get("host", "")) not in self._allowed_names:
+            response = PlainTextResponse(
+                "this server answers loopback requests only", status_code=403
+            )
+            await response(scope, receive, send)
+            return
+        await self._app(scope, receive, send)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -161,6 +250,26 @@ def import_media(
     including the `clip_id` every other tool takes.
     """
     return ops.import_media(path, source, clip_id=clip_id, copy=copy)
+
+
+@_tool()
+def clip_role(
+    path: str, clip_id: str, role: str | None = None, reset: bool = False
+) -> dict[str, Any]:
+    """Read or set a clip's import role — voiceover vs footage.
+
+    Called with no `role` and no `reset` it just reports what is stored;
+    `role` must be `"voiceover"` or `"footage"` (`ops.CLIP_ROLES`); `reset`
+    clears it back to undeclared.
+
+    **This changes nothing about how `transcribe`/`attach_transcript` or
+    `describe` treat the clip.** Both already gate on their own evidence — a
+    transcript file, `has_video` — and neither reads this field, so an
+    undeclared clip is exactly as eligible for both as it always was. It is
+    the assets pane's grouping, purely, and setting one is not a schema bump
+    for that reason: an additive optional field on an existing clip record.
+    """
+    return ops.clip_role(path, clip_id, role, reset=reset)
 
 
 @_tool()
@@ -415,6 +524,119 @@ def card_reauthor(path: str, name: str | None = None, plan: bool = False) -> dic
 
 
 @_tool()
+def card_safe_zones(path: str, card: str, platform: str) -> dict[str, Any]:
+    """Measure a rendered card's ink in and around a platform's reserved band.
+
+    **Report only** — nothing here blocks a render, and there is no default
+    floor: `SCENE_THRESHOLD`'s own history is that a threshold gets pinned by
+    looking at real output, not picked cold, and this check has had exactly
+    one look so far. `platform` is one of lucid's own zones (`tiktok-organic`,
+    `tiktok-ads`, `reels`, `shorts`, `worst-case`) or one an applied pack's
+    active variant declares — `pack_show` lists both.
+
+    Reads `card` from its already-rendered PNG, never from the manifest's
+    recorded slots alone, so the ink it measures is the ink actually on disk.
+    Refuses a card with no PNG yet (card_new/card_render it first) or a
+    platform neither source declares.
+    """
+    return ops.card_safe_zones(path, card, platform)
+
+
+@_tool()
+def pack_apply(
+    path: str,
+    pack_path: str,
+    variant: str = "default",
+    allow_fallback: bool = False,
+    install_fonts: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Load a channel preset pack, resolve and snapshot every variant, activate one.
+
+    `pack_path` is an external file — never confined to the project, the same
+    way `import_media`'s `source` is not — because a pack typically lives in
+    a separate branding repo. **Every declared variant is resolved and
+    hashed, not only the one `variant` activates**, so `pack_activate` can
+    switch between them later with no file re-read; nothing after this call
+    ever depends on `pack_path` staying reachable.
+
+    For every font role, `fonts.probe` asks whether the declared family
+    actually draws *on this box* — a family that does not refuses the whole
+    call unless `allow_fallback` (then its declared CSS fallback is used and
+    recorded, never silent); one that draws but is vendored nowhere lucid
+    knows about is recorded `font_provenance: "unvendored"` rather than
+    refused, since the render here is genuinely correct today. `install_fonts`
+    vendors the pack's own `fonts/` directory if it ships one — off by
+    default, since it writes into `$HOME`.
+
+    Writes nothing to caption styling or to any card already on disk; a card
+    picks up the new style only when `card_new`/`card_reauthor` next draws
+    it, and captions only via `pack_apply_captions`. `plan` resolves and
+    probes without writing.
+    """
+    return ops.pack_apply(
+        path,
+        pack_path,
+        variant=variant,
+        allow_fallback=allow_fallback,
+        install_fonts=install_fonts,
+        plan=plan,
+    )
+
+
+@_tool()
+def pack_activate(path: str, variant: str, plan: bool = False) -> dict[str, Any]:
+    """Switch the active pack variant to one already snapshotted by pack_apply.
+
+    No file re-read — refuses an unknown variant by name, naming the ones
+    that are actually available, rather than trying to load it here.
+    """
+    return ops.pack_activate(path, variant, plan=plan)
+
+
+@_tool()
+def pack_apply_captions(path: str, preset: str, plan: bool = False) -> dict[str, Any]:
+    """Apply the active pack variant's caption preset, through caption_style.
+
+    **Concrete resolved fields, never a live pointer**: this reads the
+    preset's already-resolved dict off the snapshot and hands it to the
+    ordinary caption_style call, so a later pack swap can never silently
+    overwrite a project's caption look out from under it. Separate from
+    pack_apply on purpose — applying a pack never restyles captions on its
+    own, only this does.
+    """
+    return ops.pack_apply_captions(path, preset, plan=plan)
+
+
+@_tool()
+def pack_show(
+    pack_path: str | None = None, path: str | None = None, variant: str | None = None
+) -> dict[str, Any]:
+    """What a pack declares — from its file, a project's snapshot, or both.
+
+    `pack_path` alone reads and resolves the file fresh, needing no project
+    (`card_templates`'s own shape). `path` alone reports what a project
+    actually has applied, from its stored snapshot — never the file again.
+    Both together compares "what the file says now" against "what the
+    project is still running."
+    """
+    return ops.pack_show(pack_path, path=path, variant=variant)
+
+
+@_tool()
+def pack_status(path: str) -> dict[str, Any]:
+    """Active pack variant, and which cards/captions have drifted from it.
+
+    A card is `stale` when its own recorded pack_hash no longer matches the
+    active variant's current hash — not wrong, since card_new only pre-merges
+    a pack's style and a per-call slot still wins, but worth a `card_reauthor`
+    to catch up. `caption_preset_stale` is the same question for whatever
+    pack_apply_captions last wrote.
+    """
+    return ops.pack_status(path)
+
+
+@_tool()
 def cue_add(
     path: str, clip_id: str, word_index: int, asset: str, src_start: float | None = None
 ) -> dict[str, Any]:
@@ -460,6 +682,20 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
     the edit's surviving ranges, which is `build_shots`'s job.
     """
     return ops.cue_ls(path, clip_id=clip_id)
+
+
+@_tool()
+def assets(path: str) -> dict[str, Any]:
+    """Every asset a cue can point at — clip or card — for an assets pane.
+
+    The cue vocabulary is `clip_id` or `card:name`, so this lists both: each
+    clip with its probe metadata, transcript/description presence, `role`
+    and `media.playability` verdict; each card with what it was made from,
+    whether its files exist, and whether it has a re-author record. Every
+    entry carries `cues`, how many cues reference it — "is this used" is
+    the question an assets pane exists to answer. Read-only.
+    """
+    return ops.assets(path)
 
 
 @_tool()
@@ -788,6 +1024,23 @@ def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     which is export's rate and not `timebase`.
     """
     return ops.timeline_view(path, clip_id=clip_id)
+
+
+@_tool()
+def properties(
+    path: str, clip_id: str | None = None, word_index: int | None = None
+) -> dict[str, Any]:
+    """Project/clip/cue detail for a properties inspector, composed only.
+
+    No arguments: `status`, `canvas` and `caption_style`'s own reports.
+    `clip_id`: adds that clip's `assets` entry, its `reframe` window table,
+    and its whole `cue_ls`. Both `clip_id` and `word_index`: adds `cue` (the
+    matching entry from that `cue_ls`, or null if the word carries none) and,
+    only when `cue` is null, `context` — the word plus three either side,
+    the same echo every word-indexed tool gives (a cue's own entry already
+    carries this, so it is not duplicated). `word_index` needs `clip_id`.
+    """
+    return ops.properties(path, clip_id=clip_id, word_index=word_index)
 
 
 @_tool()
@@ -1360,6 +1613,22 @@ def reframe_sheet(
 
 
 @_tool()
+def thumbnail(
+    path: str, clip_id: str, at: float, interval: float = ops.THUMB_INTERVAL
+) -> dict[str, Any]:
+    """One filmstrip frame for `clip_id`, at the source time nearest `at`.
+
+    `at` snaps to a multiple of `interval` before anything is extracted, and
+    the frame is cached under `cache/thumbs/` keyed by the clip's media size
+    and mtime — a repeated ask for a nearby instant is a cache hit. The
+    result is a path, not the image bytes; `lucid web` serves those over
+    `/api/thumb/<clip_id>?at=`. It never enters the manifest, so nothing
+    that renders can reach it (the same wall the preview proxy has).
+    """
+    return ops.thumbnail(path, clip_id, at, interval=interval)
+
+
+@_tool()
 def synopsis(
     path: str,
     clip_id: str | None = None,
@@ -1762,8 +2031,16 @@ def review_list(path: str) -> dict[str, Any]:
     return ops.review_list(path)
 
 
-def serve(root: str | Path | None = None) -> None:
-    """Run the server on stdio. Blocks until the client disconnects.
+def serve(
+    root: str | Path | None = None,
+    *,
+    transport: str = "stdio",
+    host: str = DEFAULT_HTTP_HOST,
+    port: int = DEFAULT_HTTP_PORT,
+    allow_remote: bool = False,
+    allow_remote_hosts: Sequence[str] | None = None,
+) -> None:
+    """Run the server. Blocks until the client disconnects (stdio) or interrupted (http).
 
     `root` binds every tool's `path` to one project (`_confine`). It is
     checked here rather than on first use because a bad root would otherwise
@@ -1771,6 +2048,11 @@ def serve(root: str | Path | None = None) -> None:
     instead of the directory the server was started with. Existence is all
     that is checked: `init` under a bound root is legitimate, so requiring
     the root to already be a lucid project would refuse a real workflow.
+
+    `transport` is `"stdio"` (the default — every existing client spawns the
+    server this way, so changing the default would break them silently) or
+    `"http"`. `host`, `port`, `allow_remote` and `allow_remote_hosts` are
+    ignored for stdio.
     """
     global _BOUND_ROOT
     if root is not None:
@@ -1778,4 +2060,116 @@ def serve(root: str | Path | None = None) -> None:
         if not resolved.is_dir():
             raise ProjectError(f"cannot bind the MCP server to {root!r}: not a directory")
         _BOUND_ROOT = resolved
-    mcp.run(transport="stdio")
+
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    if transport != "http":
+        raise ProjectError(f"unknown MCP transport {transport!r}: use 'stdio' or 'http'")
+    _serve_http(
+        host=host, port=port, allow_remote=allow_remote, allow_remote_hosts=allow_remote_hosts
+    )
+
+
+def _serve_http(
+    *,
+    host: str,
+    port: int,
+    allow_remote: bool,
+    allow_remote_hosts: Sequence[str] | None = None,
+) -> None:
+    """Run the MCP server over streamable HTTP until interrupted.
+
+    `host` must name loopback unless `allow_remote` is set — the opt-in
+    `--host`/`--allow-remote` split asks for, because the MCP tools read and
+    write whatever project this server is bound to (or any project, when
+    unbound), so a non-loopback bind reaches anyone who can route to the
+    port. Passing `allow_remote` says what it gives up: `_LoopbackGuard`'s
+    allow-list widens from loopback names to loopback names *plus* the bound
+    host, never to "accept anything" — a guard that admits any Host header
+    is no guard at all.
+
+    A wildcard bind (`host` in `_WILDCARD_HOSTS`) cannot widen that way: the
+    literal string `"0.0.0.0"`/`"::"` is never what a real client's `Host:`
+    header carries, only what an attacker who read the startup banner would
+    send, so adding it would open the guard to a spoofed header while doing
+    nothing for genuine remote clients — they arrive naming the address they
+    actually dialed. `allow_remote_hosts` is required in that case: the
+    operator names the address(es) clients will present (their LAN IP, a
+    Tailscale hostname, ...), and only those are added.
+    """
+
+    if not allow_remote and host.lower() not in webui._LOOPBACK_NAMES:
+        raise ProjectError(
+            f"refusing to bind {host!r}: the MCP tools can read and write "
+            "project files, so a non-loopback bind reaches anyone who can "
+            "route to this port. Pass allow_remote=True (CLI: --allow-remote) "
+            "once you mean that — it also widens the Host-header guard to "
+            "accept this host, not just loopback."
+        )
+    if allow_remote and host.lower() in _WILDCARD_HOSTS and not allow_remote_hosts:
+        raise ProjectError(
+            f"refusing to bind {host!r} with allow_remote=True and no "
+            "allow_remote_hosts: a wildcard bind has no single client-facing "
+            "identity, so there is nothing honest to add to the Host-header "
+            "guard's allow-list — a real client sends whatever address it "
+            "dialed, never the wildcard itself. Pass allow_remote_hosts "
+            "(CLI: --allow-remote-host, repeatable) naming the address(es) "
+            "clients will actually present."
+        )
+
+    server, sock = _build_http_server(
+        host=host, port=port, allow_remote=allow_remote, allow_remote_hosts=allow_remote_hosts
+    )
+    bound_port = sock.getsockname()[1]
+    # Flushed: this is the one line a client needs to find the server, and a
+    # piped stdout would otherwise hold it in the buffer (mirrors webui.serve).
+    print(f"lucid mcp: http://{host}:{bound_port}/mcp", flush=True)
+    print("Ctrl-C to stop.", flush=True)
+    try:
+        server.run(sockets=[sock])
+    except KeyboardInterrupt:
+        print()
+
+
+def _build_http_server(
+    *,
+    host: str,
+    port: int,
+    allow_remote: bool,
+    allow_remote_hosts: Sequence[str] | None = None,
+) -> tuple[Any, socket.socket]:
+    """Build (but do not run) the uvicorn server and its bound socket.
+
+    Split from `_serve_http` so a test can start it on a thread and discover
+    the real port (`port=0` picks a free one) the same way
+    `tests/test_webui_http.py` does for `webui.make_server` — binding the
+    socket here, synchronously, is what makes the port available before
+    `server.run()` starts blocking.
+    """
+    import uvicorn
+
+    allowed_names = set(webui._LOOPBACK_NAMES)
+    if allow_remote:
+        # A specific address is honest to echo back: a client that reaches
+        # the server *by* that address naturally sends it in `Host:`. A
+        # wildcard bind is not — see `_serve_http` and `_WILDCARD_HOSTS` —
+        # so it contributes nothing here, only `allow_remote_hosts` does.
+        if host.lower() not in _WILDCARD_HOSTS:
+            allowed_names.add(host.lower())
+        allowed_names.update(name.lower() for name in (allow_remote_hosts or ()))
+
+    app = mcp.streamable_http_app(host=host)
+    guarded = _LoopbackGuard(app, frozenset(allowed_names))
+
+    config = uvicorn.Config(guarded, host=host, port=port, log_level="warning")
+    sock = config.bind_socket()
+    # `bind_socket()` only binds — `listen()` normally happens inside
+    # uvicorn's own async startup, after `server.run()` is called, which is
+    # too late for a caller that wants to print (or hand back) a URL that is
+    # actually connectable the moment it returns. Calling `listen()` here is
+    # safe to repeat: POSIX allows re-listening on a bound socket, which is
+    # all asyncio's own server startup does to it next.
+    sock.listen(config.backlog)
+    server = uvicorn.Server(config)
+    return server, sock
