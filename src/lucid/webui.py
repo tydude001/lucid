@@ -53,6 +53,7 @@ from lucid import captions, media, ops, renderlog
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
+from lucid.faces import FaceError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
 from lucid.picture import PictureError
@@ -78,6 +79,13 @@ EXPECTED = (
     # reports that one rather than raising it (the picture lane draws the
     # message), but `export` still raises it, and it is a 400 like the rest.
     MLTError,
+    # `reframe_detect`/`reframe_sheet(extremes=True)`'s refusal when no
+    # interpreter has a face detector — without this here, a missing
+    # `LUCID_FACE` on this box turns into an unhandled exception inside
+    # `ReframeDetectJob._run`'s `try/except EXPECTED`: no error event is
+    # published, `_finish()` never runs, and the view spins forever waiting
+    # on an SSE event that will never arrive (Studio Step 03 contract § A).
+    FaceError,
 )
 
 STATIC_DIR = Path(__file__).parent / "web"
@@ -159,6 +167,19 @@ class ProxyBusyError(WebUIError):
     render, since the two jobs have separate slots and the message is what
     tells a person which to wait for.
     """
+
+
+class ReframeSheetBusyError(WebUIError):
+    """A second sheet generation was requested while one was already running.
+
+    Its own type, same 409-not-400 reasoning as `RenderBusyError`/
+    `ProxyBusyError` — a busy sheet job must not be reported as a busy detect
+    job or a busy render, since each has its own slot.
+    """
+
+
+class ReframeDetectBusyError(WebUIError):
+    """A second detect pass was requested while one was already running."""
 
 
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
@@ -1098,6 +1119,148 @@ class ProxyJob:
             self._finish()
 
 
+class ReframeSheetJob:
+    """One sheet generation at a time per server (STUDIO.md § Step 03, Frame mode).
+
+    `ProxyJob`'s exact shape: the lock, the plain `_running` flag, everything
+    that can raise (`Project.open`) resolved on the request thread before the
+    slot is claimed, a dedicated `*BusyError` for a distinct 409, `_finish()`
+    in a `finally`, and completion published on the same bus the SSE handler
+    already serves.
+
+    `extremes` is accepted for parity with `ops.reframe_sheet`'s own
+    signature, but `frame.js` never sends `extremes: true` in this step — a
+    later step's draggable/extreme-probe review can turn it on without this
+    job changing shape.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(
+        self,
+        *,
+        moments: list[float] | None = None,
+        extremes: bool = False,
+        out: str | None = None,
+    ) -> str:
+        job_id = uuid.uuid4().hex
+        # A bad/unopenable project is caught here, on the request thread,
+        # before the slot is touched — the `ProxyJob` precedent.
+        Project.open(self.project_root)
+        with self._lock:
+            if self._running:
+                raise ReframeSheetBusyError("a reframe sheet is already generating")
+            self._running = True
+        threading.Thread(
+            target=self._run, args=(job_id, moments, extremes, out), daemon=True
+        ).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(
+        self, job_id: str, moments: list[float] | None, extremes: bool, out: str | None
+    ) -> None:
+        self.bus.publish("reframe-sheet", {"job_id": job_id, "status": "running"})
+        try:
+            try:
+                result = ops.reframe_sheet(
+                    str(self.project_root), out=out, moments=moments, extremes=extremes
+                )
+            except EXPECTED as exc:
+                self.bus.publish(
+                    "reframe-sheet", {"job_id": job_id, "status": "error", "error": str(exc)}
+                )
+                return
+            self.bus.publish("reframe-sheet", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
+class ReframeDetectJob:
+    """One detect pass at a time per server (STUDIO.md § Step 03, Frame mode).
+
+    `ProxyJob`'s exact shape. **`apply` is not a parameter of `.start()` at
+    all** — it is hard-coded `False` in the call to `ops.reframe_detect`,
+    enforced here at the job layer (and again at the HTTP layer, in
+    `_handle_reframe_detect_start`, which refuses even a hand-crafted
+    request naming the key) — the one flag STUDIO.md is explicit about:
+    "`apply` stays off — it proposes, the sheet judges."
+
+    This job always needs `LUCID_FACE` — `ops.reframe_detect` raises
+    `FaceError` unconditionally, before the scene scan, when no interpreter
+    is available — which is why `FaceError` is in `EXPECTED` above: without
+    it, a missing detector would propagate out of `_run`'s worker thread
+    with no handler, `_finish()` would never run, and the slot would latch
+    busy forever while the view spins on an SSE event that never arrives.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(
+        self,
+        *,
+        clip_id: str | None = None,
+        threshold: float | None = None,
+        frames: int | None = None,
+        split: bool = True,
+    ) -> str:
+        job_id = uuid.uuid4().hex
+        Project.open(self.project_root)
+        with self._lock:
+            if self._running:
+                raise ReframeDetectBusyError("a reframe detect pass is already running")
+            self._running = True
+        threading.Thread(
+            target=self._run,
+            args=(job_id, clip_id, threshold, frames, split),
+            daemon=True,
+        ).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(
+        self,
+        job_id: str,
+        clip_id: str | None,
+        threshold: float | None,
+        frames: int | None,
+        split: bool,
+    ) -> None:
+        self.bus.publish("reframe-detect", {"job_id": job_id, "status": "running"})
+        try:
+            try:
+                result = ops.reframe_detect(
+                    str(self.project_root),
+                    clip_id=clip_id,
+                    threshold=ops.SCENE_THRESHOLD if threshold is None else threshold,
+                    frames=ops.DETECT_FRAMES if frames is None else frames,
+                    apply=False,
+                    split=split,
+                )
+            except EXPECTED as exc:
+                self.bus.publish(
+                    "reframe-detect", {"job_id": job_id, "status": "error", "error": str(exc)}
+                )
+                return
+            self.bus.publish("reframe-detect", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `project_root` and `verbose` are set by `make_server`.
 
@@ -1209,6 +1372,12 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/proxy":
             self._handle_proxy_start()
             return
+        if url.path == "/api/reframe/sheet":
+            self._handle_reframe_sheet_start()
+            return
+        if url.path == "/api/reframe/detect":
+            self._handle_reframe_detect_start()
+            return
         route = _POST_ROUTES.get(url.path)
         if route is None:
             self._fail(HTTPStatus.NOT_FOUND, f"no such endpoint: {url.path}")
@@ -1267,7 +1436,32 @@ class Handler(BaseHTTPRequestHandler):
                     ops.properties(str(self.project_root), clip_id=clip_id, word_index=word_index)
                 )
             elif path == "/api/finish":
-                self._send_json(ops.finish_report(str(self.project_root)))
+                # `?framing=1` opts into the scene-cut scan. Off by default
+                # and deliberately so: the truth strip re-reads this route on
+                # every `project-changed` event, and the framing section
+                # costs 5.7s wall / 46s CPU on the film, uncached — every cut
+                # would have paid it for a number nothing on screen asked to
+                # change. Frame mode asks for it when it opens.
+                query = parse_qs(url.query)
+                want_framing = (query.get("framing") or ["0"])[0] not in ("", "0", "false")
+                self._send_json(
+                    ops.finish_report(str(self.project_root), framing=want_framing)
+                )
+            elif path == "/api/reframe/coverage":
+                query = parse_qs(url.query)
+                clip_id = (query.get("clip_id") or [None])[0]
+                raw_threshold = (query.get("threshold") or [None])[0]
+                threshold = self._float_query(raw_threshold, "threshold")
+                self._send_json(
+                    ops.reframe_coverage(
+                        str(self.project_root),
+                        clip_id=clip_id,
+                        threshold=ops.SCENE_THRESHOLD if threshold is None else threshold,
+                    )
+                )
+            elif path.startswith("/api/reframe/tile/"):
+                name = unquote(path[len("/api/reframe/tile/") :])
+                self._send_reframe_tile(name, head_only=head_only)
             elif path == "/api/events":
                 self._send_events()
             elif path.startswith("/api/waveform/"):
@@ -1385,6 +1579,41 @@ class Handler(BaseHTTPRequestHandler):
         interval = ops.THUMB_INTERVAL if parsed_interval is None else parsed_interval
         resolved = ops.thumbnail(str(self.project_root), clip_id, at, interval=interval)
         self._stream_file(Path(resolved["path"]), head_only=head_only)
+
+    def _send_reframe_tile(self, name: str, *, head_only: bool) -> None:
+        """`GET /api/reframe/tile/<name>` — one PNG frame out of `cache/sheets`.
+
+        The security-relevant route in Studio Step 03 (contract § B). `name`
+        is confined to `project.sheet_dir` exactly the way `ops.thumbnail`'s
+        cache convention is confined (CLAUDE.md's named precedent) — never
+        through `media.preview_path()`, which gains no new caller here.
+
+        Three layers, each catching something the others do not:
+
+        1. `Path(name).name` strips any directory component — this alone
+           refuses `../../etc/passwd` (becomes `passwd`, which then simply
+           fails the `is_file()` check below) and an absolute path
+           (`Path("/etc/passwd").name == "passwd"`, same outcome).
+        2. A belt-and-suspenders character blacklist, `_send_asset`'s
+           `card:` style, catching anything step 1's silent stripping might
+           otherwise let through unnoticed.
+        3. A resolved-parent check — the symlink defence: a symlink *placed
+           inside* `cache/sheets` pointing outside it has a bare name with
+           no `/` or `..` in it at all, so steps 1-2 alone would pass it.
+        """
+        if not name:
+            raise WebUIError("tile name is required")
+        if ".." in name or "\\" in name:
+            raise WebUIError(f"{name!r} does not name a sheet tile")
+        if name != Path(name).name:
+            raise WebUIError(f"{name!r} does not name a sheet tile")
+        project = Project.open(self.project_root)
+        target = project.sheet_dir / name
+        if target.resolve().parent != project.sheet_dir.resolve():
+            raise WebUIError(f"{name!r} does not name a sheet tile")
+        if not target.is_file():
+            raise WebUIError(f"no such tile: {name}")
+        self._stream_file(target, head_only=head_only)
 
     @staticmethod
     def _int_query(raw: str | None, name: str) -> int | None:
@@ -1614,6 +1843,102 @@ class Handler(BaseHTTPRequestHandler):
         try:
             job_id = job.start(clip_id, force=force)
         except ProxyBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
+    def _handle_reframe_sheet_start(self) -> None:
+        """`POST /api/reframe/sheet {"moments": [...] | null, "extremes": bool
+        | null, "out": str | null}` — 202, work happens on the stream.
+
+        Shape check only, `_handle_proxy_start`'s pattern. `frame.js` never
+        sends `extremes: true` in this step, but the endpoint honours it if
+        a body ever does — `extremes` is only cost/availability-gated, not
+        the "never write" rail `apply` is on the detect endpoint.
+        """
+        try:
+            payload = _json_body(self)
+            moments = payload.get("moments")
+            if moments is not None:
+                if not isinstance(moments, list) or not all(
+                    isinstance(n, int | float) and not isinstance(n, bool) for n in moments
+                ):
+                    raise WebUIError("'moments' must be a list of numbers")
+                moments = [float(n) for n in moments]
+            extremes = payload.get("extremes", False)
+            if not isinstance(extremes, bool):
+                raise WebUIError("'extremes' must be a boolean")
+            out = payload.get("out")
+            if out is not None and not isinstance(out, str):
+                raise WebUIError("'out' must be a string")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: ReframeSheetJob = self.server.reframe_sheet_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(moments=moments, extremes=extremes, out=out)
+        except ReframeSheetBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
+    def _handle_reframe_detect_start(self) -> None:
+        """`POST /api/reframe/detect {"clip_id": str | null, "threshold":
+        number | null, "frames": int | null, "split": bool | null}` — 202.
+
+        **`apply` is not read from the body at all.** If the body includes
+        `"apply": true` this refuses with a 400 before the job even starts —
+        the frontend has no control that could set it, and this refuses even
+        a hand-crafted request that tries, the second of the two independent
+        places (`ReframeDetectJob.start` hard-codes `apply=False`) enforcing
+        "reframe-detect never writes; approve a proposal through
+        /api/reframe instead."
+        """
+        try:
+            payload = _json_body(self)
+            if "apply" in payload:
+                raise WebUIError(
+                    "'apply' is not accepted here — reframe-detect never writes; "
+                    "approve a proposal through /api/reframe instead"
+                )
+            clip_id = payload.get("clip_id")
+            if clip_id is not None and not isinstance(clip_id, str):
+                raise WebUIError("'clip_id' must be a string")
+            threshold = payload.get("threshold")
+            if threshold is not None and not isinstance(threshold, int | float):
+                raise WebUIError("'threshold' must be a number")
+            frames = payload.get("frames")
+            if frames is not None and (
+                not isinstance(frames, int) or isinstance(frames, bool)
+            ):
+                raise WebUIError("'frames' must be an integer")
+            split = payload.get("split", True)
+            if not isinstance(split, bool):
+                raise WebUIError("'split' must be a boolean")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: ReframeDetectJob = self.server.reframe_detect_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(
+                clip_id=clip_id,
+                threshold=None if threshold is None else float(threshold),
+                frames=frames,
+                split=split,
+            )
+        except ReframeDetectBusyError as exc:
             self._fail(HTTPStatus.CONFLICT, str(exc))
             return
         except WebUIError as exc:
@@ -1879,6 +2204,43 @@ def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"recorded": True, **record}
 
 
+def _reframe(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/reframe` — the Re-frame panel's landing point.
+
+    A fifth caller into `ops.reframe`, alongside the CLI, the MCP tool, and
+    (read-only) `timeline_view`/`reframe_sheet`, matching every other route
+    in this table (CLAUDE.md: the web UI draws and plays, it never decides).
+
+    `clip_id` is always required on this route — the read-only "report on
+    every clip" use of `ops.reframe(clip_id=None)` has no caller from the
+    Frame view; `frame.js` always targets one row's asset. `pane` without
+    `rect` is not re-checked here — `ops.reframe` refuses that combination
+    itself, and the refusal surfaces as this route's 400, the same
+    "don't re-implement the op's own validation" discipline `_cue_add`
+    already follows for its own args. `interp`, `reset` and `plan` are not
+    read from the payload at all in this step (Studio Step 03 contract § B) —
+    nudge and direct-rect-entry produce only `rect`/`pane`/`src_start`.
+    """
+    clip_id = _clip_arg(payload)
+    rect = payload.get("rect")
+    if rect is not None and not isinstance(rect, str):
+        raise WebUIError("'rect' must be a string")
+    pane = payload.get("pane")
+    if pane is not None and not isinstance(pane, str):
+        raise WebUIError("'pane' must be a string")
+    src_start = payload.get("src_start")
+    return ops.reframe(
+        root,
+        clip_id,
+        rect=rect,
+        pane=pane,
+        src_start=None if src_start is None else _float_arg(payload, "src_start"),
+        interp=False,
+        reset=False,
+        plan=False,
+    )
+
+
 #: `plan` is a field on the request rather than a separate endpoint, because
 #: it is one flag on one op — giving preview its own URL would invite the two
 #: paths to drift, which is the whole thing `plan=True` exists to prevent.
@@ -1897,6 +2259,7 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/cue": _cue_add,
     "/api/clip-role": _clip_role,
     "/api/agent/thumbs": _agent_thumb,
+    "/api/reframe": _reframe,
 }
 
 
@@ -1927,6 +2290,8 @@ def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
     server.agent = AgentSession(project_root, server.bus)  # type: ignore[attr-defined]
     server.render_job = RenderJob(project_root, server.bus)  # type: ignore[attr-defined]
     server.proxy_job = ProxyJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.reframe_sheet_job = ReframeSheetJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.reframe_detect_job = ReframeDetectJob(project_root, server.bus)  # type: ignore[attr-defined]
 
 
 def make_server(

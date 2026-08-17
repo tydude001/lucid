@@ -1044,7 +1044,7 @@ def properties(
 
 
 @_tool()
-def finish_report(path: str) -> dict[str, Any]:
+def finish_report(path: str, framing: bool = False) -> dict[str, Any]:
     """Duration/canvas/caption/picture/marks/seams report for Finish mode,
     composed only — the truth strip's own numbers.
 
@@ -1057,8 +1057,14 @@ def finish_report(path: str) -> dict[str, Any]:
     it has one. `marks`: unspoken marks applied vs. still stale. `seams`:
     the transcript's own overlap count. `flags`: the rolled-up warnings
     behind all of the above, each one naming the mode that fixes it.
+
+    `framing` adds `reframe_coverage`'s stale-framing numbers and their two
+    flags, and is off by default because it decodes placed footage for a
+    scene-cut scan — 5.7s wall and 46s of CPU on the film, uncached, every
+    call. Off, `framing` is `None`, which means "not measured" rather than
+    "nothing stale".
     """
-    return ops.finish_report(path)
+    return ops.finish_report(path, framing=framing)
 
 
 @_tool()

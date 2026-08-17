@@ -134,6 +134,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "picture",
         "marks",
         "seams",
+        "framing",
         "flags",
     }
     assert set(result["duration"]) == {"edit_seconds", "tail_seconds", "total_seconds"}
@@ -270,3 +271,28 @@ def test_finish_report_flags_count_matches_items_length_on_the_orphan_case(
     result = ops.finish_report(project.root)
     assert result["flags"]["count"] == len(result["flags"]["items"])
     assert [f["kind"] for f in result["flags"]["items"]] == ["picture"]
+
+
+# -- framing is opt-in ----------------------------------------------------------
+
+
+def test_framing_is_opt_in_and_none_is_not_zero(project: Project) -> None:
+    """Off by default, and `None` rather than an empty dict when off.
+
+    The framing section calls `reframe_coverage`, which decodes placed
+    footage for a scene-cut scan — 5.7s wall and 46s of CPU on the real film,
+    every call, uncached. The truth strip re-reads this op on every
+    `project-changed`, so composing it in unconditionally made every cut pay
+    for a number the cut had not asked about. `None` has to stay
+    distinguishable from a measured zero, or "nobody scanned" reads as
+    "nothing stale" — which is the captionless-film shape all over again.
+    """
+    _with_one_pinned_cue(project)
+
+    off = ops.finish_report(project.root)
+    assert off["framing"] is None
+    assert [f for f in off["flags"]["items"] if f["kind"] == "framing"] == []
+
+    on = ops.finish_report(project.root, framing=True)
+    assert set(on["framing"]) == {"stale_seconds", "stale_stretches", "steps"}
+    assert on["framing"]["stale_seconds"] == 0.0

@@ -2517,7 +2517,7 @@ def properties(
     return result
 
 
-def finish_report(path: Path | str) -> dict[str, Any]:
+def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
     """The truth strip's own numbers, and the Finish mode report behind it.
 
     **Composes only**, `properties`'s own precedent (STUDIO.md § Step 01):
@@ -2556,15 +2556,35 @@ def finish_report(path: Path | str) -> dict[str, Any]:
     `unspoken_ls`). `seams` sums `transcript_checks`' own `overlaps` finding
     across every clip.
 
+    `framing` is `reframe_coverage`'s own `stale_seconds`/`stale_stretches`
+    and `len(steps)` (Studio Step 03) — **and it is off by default, because
+    it is the one expensive thing in here.** "No face detector" is not the
+    same as cheap: it decodes placed footage for a scene-cut scan, measured
+    at 5.7s wall and 46s of CPU on the film, every call, uncached. The truth
+    strip re-reads this op on every `project-changed` event — i.e. after
+    every cut — so composing it in unconditionally made each edit pay six
+    seconds for a number nothing on screen had asked to change. `framing`
+    is `None` when it was not asked for, which is deliberately distinct from
+    a measured zero: a consumer can tell "not measured" from "nothing
+    stale", and no framing flag is raised either way.
+
+    `worst_offset` is not composed in at all: it only exists on a
+    `reframe_sheet(extremes=True)` row, an opt-in job this function cannot
+    block on and cannot read a stale answer for (`cache/sheets` is wiped
+    every run), and it has no action that reliably clears it to zero — a
+    static rect over a moving subject has an irreducible worst moment.
+
     `flags` is the truth strip's warning list, and the test every entry has to
-    pass is **that an action in the window can clear it**. Four conditions do:
+    pass is **that an action in the window can clear it**. Six conditions do:
     a styled project with no render log confirming a burn, a styled project
-    whose last render skipped the burn, a `shots_error`, and a stale unspoken
-    mark. What is deliberately *not* a flag — a refusing preset, a seam count,
-    an unstyled project's unknown burn state — is argued at the flag list
-    itself; all three are permanent, and a permanent flag is a count that can
-    never reach zero. Nothing here invents a further condition either: there is
-    no duration-mismatch flag, and font resolution is informational only (only
+    whose last render skipped the burn, a `shots_error`, a stale unspoken
+    mark, stale framing held over a cut, and an unexplained window step.
+    What is deliberately *not* a flag — a refusing preset, a seam count, an
+    unstyled project's unknown burn state, `worst_offset` — is argued at the
+    flag list itself (and at `framing` above, for `worst_offset`); each is
+    permanent, and a permanent flag is a count that can never reach zero.
+    Nothing here invents a further condition either: there is no
+    duration-mismatch flag, and font resolution is informational only (only
     a measured render settles which face libass drew — CLAUDE.md).
     """
     project = Project.open(path)
@@ -2625,6 +2645,50 @@ def finish_report(path: Path | str) -> dict[str, Any]:
     checks = transcript_checks(path)
     seams_section = {"count": sum(len(c["overlaps"]) for c in checks["clips"])}
 
+    # Cheap on purpose — `reframe_coverage` needs no face detector (ffmpeg
+    # scene-cut scan only, bounded by placed footage), so this composed field
+    # costs finish_report nothing beyond what the Frame view's own coverage
+    # chips already pay for separately. `worst_offset` is deliberately not
+    # composed in here: it only exists on a `reframe_sheet(extremes=True)`
+    # row, an opt-in job this function cannot block on and cannot read a
+    # stale answer for either (`cache/sheets` is wiped every run) — a flag
+    # that is sometimes silently unavailable is a coin flip, not a flag. It
+    # also has no action that reliably clears it to zero: a static rect over
+    # a moving subject has an irreducible worst moment, unlike `stale_seconds`
+    # and `steps`, which genuinely reach 0 once every flagged stretch/window
+    # is reframed (CLAUDE.md § Per-shot framing).
+    #
+    # An audio-only project — the ordinary case throughout this repo — has no
+    # footage placements for a window to apply to, and `reframe_coverage`
+    # says so by raising rather than by returning zeroes (it is a report
+    # about placed footage, and there is none to report on). That is not a
+    # defect in this project for this report to surface: `check_frames` and
+    # `check_black` already treat "nothing to check" as the ordinary VO case
+    # rather than a failure, and this follows the same precedent — an empty
+    # `framing` section, no flags, never a raise that would take the whole
+    # report down over a project that was never going to have any picture.
+    #
+    # `_PICTURE_REFUSALS`, not bare `ProjectError`: `reframe_coverage` walks
+    # the same `_picture_plan`/`build_shots` a stale or orphaned cue already
+    # makes `timeline_view` refuse (`picture_section["shots_error"]`,
+    # above) — and that refusal is a `tl.TimelineError`, not a `ProjectError`.
+    # `picture_section` already reports that exact condition without raising;
+    # this section must fail the same way over the same project, or a stale
+    # cue would make `finish_report` raise from here while its own
+    # `shots_error` field claims nothing is wrong.
+    framing_section: dict[str, Any] | None = None
+    if framing:
+        try:
+            coverage = reframe_coverage(path)
+        except _PICTURE_REFUSALS:
+            framing_section = {"stale_seconds": 0.0, "stale_stretches": 0, "steps": 0}
+        else:
+            framing_section = {
+                "stale_seconds": coverage["stale_seconds"],
+                "stale_stretches": coverage["stale_stretches"],
+                "steps": len(coverage["steps"]),
+            }
+
     # A flag is an *open item* — something an action in the window can clear.
     # Three candidates were measured against the real film on 2026-08-17 and
     # deliberately left out, because each of them is permanent and a guard that
@@ -2673,6 +2737,34 @@ def finish_report(path: Path | str) -> dict[str, Any]:
                 "mode": "finish",
             }
         )
+    if framing_section is not None and framing_section["stale_seconds"] > 0:
+        # An override held over a cut — reframing the specific stretch drives
+        # this stretch's contribution to zero, so the aggregate reaches 0
+        # once every flagged stretch is reframed (unlike `worst_offset`,
+        # excluded above).
+        flags.append(
+            {
+                "kind": "framing",
+                "message": (
+                    f"{framing_section['stale_seconds']}s of picture is held over "
+                    "from a different shot's framing across a cut"
+                ),
+                "mode": "frame",
+            }
+        )
+    if framing_section is not None and framing_section["steps"] > 0:
+        # A window boundary inside a placement with no cut behind it — "the
+        # one a viewer notices" (CLAUDE.md § Per-shot framing).
+        flags.append(
+            {
+                "kind": "framing",
+                "message": (
+                    f"{framing_section['steps']} window boundary(ies) with no cut "
+                    "behind them — the frame will visibly jump"
+                ),
+                "mode": "frame",
+            }
+        )
     if marks_section["stale"] > 0:
         # `unspoken_ls`'s own meaning of stale: the recorded text and the
         # current transcript text disagree, i.e. the transcript was replaced
@@ -2698,6 +2790,7 @@ def finish_report(path: Path | str) -> dict[str, Any]:
         "picture": picture_section,
         "marks": marks_section,
         "seams": seams_section,
+        "framing": framing_section,
         "flags": {"count": len(flags), "items": flags},
     }
 

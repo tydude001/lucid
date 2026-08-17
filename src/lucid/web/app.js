@@ -33,6 +33,7 @@ import * as agent from "./agent.js";
 import * as assets from "./assets.js";
 import * as properties from "./properties.js";
 import * as finish from "./finish.js";
+import * as frame from "./frame.js";
 
 let view = null; // the /api/view payload — the whole read model, shared read-only
 let captions = null; // the /api/captions payload: cues in timeline seconds and
@@ -146,6 +147,7 @@ async function load(clipId) {
   assets.update(view);
   properties.update(view);
   finish.update(view);
+  frame.update(view);
   player.update(view);
   player.captions(captions);
   player.player.seek(Math.min(at, Math.max(0, view.timeline_duration - 0.01)));
@@ -320,17 +322,16 @@ for (const btn of document.querySelectorAll(".pane-rail-tab, .pane-collapse-btn"
   btn.addEventListener("click", () => toggleRailPane(pane));
 }
 
-// -- mode tabs and the truth strip (Studio reshape step 01) -----------------
+// -- mode tabs and the truth strip (Studio reshape step 01, step 03) --------
 //
-// Plain `hidden` on the three top-level containers — no `data-mode` scheme,
+// Plain `hidden` on the four top-level containers — no `data-mode` scheme,
 // per the implementation contract. `#workspace` and `#timeline-pane` (the
 // timeline section) move together: Edit is the only mode that shows either
-// one today, since Frame (step 03) and Finish each have their own single
-// full-height view. Frame's tab carries no listener — it is `disabled` in
-// the markup and stays that way until step 03 exists to switch to.
+// one, since Frame and Finish each have their own single full-height view.
 function setMode(mode) {
   $("workspace").hidden = mode !== "edit";
   $("timeline-pane").hidden = mode !== "edit";
+  $("frame-view").hidden = mode !== "frame";
   $("finish-view").hidden = mode !== "finish";
   for (const btn of document.querySelectorAll(".mode-tab")) {
     if (btn.dataset.mode === mode) btn.setAttribute("aria-current", "page");
@@ -339,9 +340,8 @@ function setMode(mode) {
 }
 
 $("mode-tab-edit").addEventListener("click", () => setMode("edit"));
+$("mode-tab-frame").addEventListener("click", () => setMode("frame"));
 $("mode-tab-finish").addEventListener("click", () => setMode("finish"));
-// mode-tab-frame is `disabled` in the markup; it gets no listener until
-// step 03 gives it somewhere to go.
 
 // Every truth-strip chip links to the mode that explains it — in this step
 // that is always Finish, including the never-warned duration chip (Finish
@@ -370,6 +370,28 @@ function captionLabel(captions) {
   return "unknown";
 }
 
+/** `"framing ok"` when `ops.finish_report`'s composed `framing` section
+ * raised neither flag, else the stale-seconds / step-gap counts it did
+ * raise, joined — the `captionLabel` precedent one line up: a small local
+ * formatter, no decision. `worst_offset` is deliberately not read here or
+ * anywhere in this file — it has no reliable-to-zero fix, so it is not a
+ * flag (STUDIO.md § step 03 / § Cross-cutting: a flag must be something the
+ * window can fix). */
+function framingLabel(framing) {
+  // `null` means the op was not asked to measure — distinct from a measured
+  // zero, and it has to read that way. `finish_report`'s framing section
+  // decodes placed footage for a scene-cut scan (5.7s wall, 46s CPU on the
+  // film, uncached), and this strip re-reads the bundle on every
+  // `project-changed`, so measuring it here would have made every cut pay
+  // six seconds for a number the cut did not ask about. Frame mode measures
+  // it, from its own `/api/reframe/coverage`, where the answer is the point.
+  if (!framing) return "framing — see Frame";
+  const parts = [];
+  if (framing.stale_seconds > 0) parts.push(`${framing.stale_stretches} stale`);
+  if (framing.steps > 0) parts.push(`${framing.steps} step gap${framing.steps === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" / ") : "framing ok";
+}
+
 // finish.js is the only module that calls GET /api/finish; every other
 // consumer of that bundle (this truth strip included) gets it by listening
 // for the event finish.js re-broadcasts on every fetch, never by fetching
@@ -386,6 +408,7 @@ on("finish-report", (bundle) => {
   setChip($("truth-duration"), fmt(bundle.duration.total_seconds), false);
   setChip($("truth-canvas"), bundle.canvas.canvas, flagged.has("canvas"));
   setChip($("truth-captions"), captionLabel(bundle.captions), flagged.has("captions"));
+  setChip($("truth-framing"), framingLabel(bundle.framing), flagged.has("framing"));
   const n = bundle.flags.count;
   setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0);
 });
@@ -399,6 +422,7 @@ agent.init(ctx);
 assets.init(ctx);
 properties.init(ctx);
 finish.init(ctx);
+frame.init(ctx);
 setMode("edit");
 load(null);
 

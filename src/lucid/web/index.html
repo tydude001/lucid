@@ -88,15 +88,15 @@
     <!-- Studio reshape step 01 (STUDIO.md): a mode-tab row plus the truth
          strip, both rendered NOW so the shell does not reflow again when
          Frame (step 03) turns live — only its own `disabled` drops off this
-         button. Frame's tab carries no behaviour yet; Finish's does
-         (finish.js). Both #mode-tabs and #truth-strip are pure shell chrome,
-         owned by app.js exactly like #bar is — see its own header comment. -->
+         button. Both #mode-tabs and #truth-strip are pure shell chrome,
+         owned by app.js exactly like #bar is — see its own header comment.
+         Step 03: Frame's tab is live (frame.js) and #truth-framing joins
+         the strip, fed by the same finish-report bundle as every other
+         chip — see app.js's own on("finish-report", …) comment. -->
     <div id="mode-bar">
       <nav id="mode-tabs" class="mode-tabs" aria-label="workspace mode">
         <button id="mode-tab-edit" class="mode-tab" data-mode="edit" aria-current="page">Edit</button>
-        <button id="mode-tab-frame" class="mode-tab" data-mode="frame" disabled title="arrives in step 03">
-          Frame
-        </button>
+        <button id="mode-tab-frame" class="mode-tab" data-mode="frame">Frame</button>
         <button id="mode-tab-finish" class="mode-tab" data-mode="finish">Finish</button>
       </nav>
       <!-- Fed by GET /api/finish (ops.finish_report), refreshed on the same
@@ -105,11 +105,13 @@
            strip listens for rather than issuing a second fetch of the same
            endpoint. Every chip draws ONLY what the op returned; nothing here
            is re-derived. A warning chip is a link to the mode that explains
-           it — Finish, for every flag in this step (STUDIO.md § step 01). -->
+           it — Finish for every flag through step 01, Frame for the two
+           framing flags added in step 03 (STUDIO.md § step 01, § step 03). -->
       <div id="truth-strip" class="truth-strip" aria-label="film state">
         <a id="truth-duration" class="chip truth-chip" href="#" data-mode-link="finish"></a>
         <a id="truth-canvas" class="chip truth-chip" href="#" data-mode-link="finish"></a>
         <a id="truth-captions" class="chip truth-chip" href="#" data-mode-link="finish"></a>
+        <a id="truth-framing" class="chip truth-chip" href="#" data-mode-link="frame"></a>
         <a id="truth-flags" class="chip truth-chip" href="#" data-mode-link="finish"></a>
       </div>
     </div>
@@ -268,6 +270,33 @@
       </label>
       <button id="finish-render" class="primary">Render</button>
       <div id="finish-report" class="finish-report"></div>
+    </section>
+
+    <!-- Studio reshape step 03 (STUDIO.md): the Frame view — `frame.js`
+         owns everything inside it (coverage chips, the sheet/detect job
+         triggers and their live progress, one row per window drawn from
+         the sheet's own tiles), this file only owns the static shell. The
+         #finish-view precedent exactly: same top-level tier as
+         #workspace/#timeline-pane/#finish-view, starts hidden, flipped
+         only by app.js's setMode(). Placed after #finish-view — order
+         among the three hidden-by-default sections doesn't matter, since
+         only one is ever visible. -->
+    <section id="frame-view" hidden aria-label="frame">
+      <div class="pane-head">
+        frame
+        <span class="hint">per-shot crop windows — Approve writes nothing, Re-frame does</span>
+      </div>
+      <div id="frame-coverage" class="frame-coverage-row" aria-label="framing coverage">
+        <span id="frame-chip-stale" class="chip"></span>
+        <span id="frame-chip-steps" class="chip"></span>
+        <span id="frame-chip-cuts" class="chip"></span>
+      </div>
+      <div class="frame-actions-row">
+        <button id="frame-build-sheet" class="primary" type="button">Build sheet</button>
+        <button id="frame-detect-gaps" type="button">Detect gaps</button>
+        <span id="frame-detect-error"></span>
+      </div>
+      <div id="frame-rows" class="frame-rows"></div>
     </section>
 
     <section id="timeline-pane">

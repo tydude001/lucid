@@ -28,7 +28,12 @@ export async function api(path, body) {
 }
 
 //: Event names webui.py's EventBus actually publishes on /api/events.
-const SSE_EVENTS = ["project-changed", "agent", "render"];
+// "reframe-sheet"/"reframe-detect" (Studio step 03, frame.js) are here for
+// the reason stated once already by "proxy"'s own absence from this list —
+// a topic missing here is never delivered to onEvent at all, which is
+// exactly the spinner-forever failure mode a missing FaceError handler
+// would otherwise cause on the detect job (see webui.py's own note).
+const SSE_EVENTS = ["project-changed", "agent", "render", "reframe-sheet", "reframe-detect"];
 
 /**
  * Subscribe to `/api/events`. `onEvent(name, data)` fires once per SSE

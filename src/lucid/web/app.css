@@ -2051,6 +2051,228 @@ textarea {
   gap: 8px;
 }
 
+/* -- frame view (frame.js, Studio reshape step 03) --------------------- *
+ * The #finish-view precedent exactly: same grid slot (rows 3-4), same
+ * flex-column-with-scroll shell. See that rule's own comment for why the
+ * row span exists at all. */
+#frame-view {
+  grid-row: 3 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+/* The trap CLAUDE.md names twice already — an id-selector `display: flex`
+   rule above outranks the UA's own `[hidden] { display: none }`. */
+#frame-view[hidden] {
+  display: none;
+}
+
+.frame-coverage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* #frame-coverage's three chips reuse `.chip`/`.chip.warn` verbatim (frame.js
+   toggles `.warn` — the top bar's own comment on why that stays a plain
+   class rather than a `data-*` vocabulary applies here too). They are
+   `<span>`s, not links or buttons, so the one thing worth overriding is
+   `.chip`'s own `cursor: pointer` — nothing here is clickable. */
+.frame-coverage-row .chip {
+  cursor: default;
+}
+
+.frame-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Reuses the `.warn.bad` idiom finish.js/properties.js already set via
+   `el("div", "warn bad", …)` — app.js sets no analogous helper here since
+   frame.js toggles the class itself (`className = message ? "warn bad" :
+   ""`), same one-error-string-inline contract as those two panes' own fetch
+   failures. Empty and classless when there is nothing to report. */
+#frame-detect-error {
+  font-size: 12px;
+}
+
+/* One row per WINDOW (never a placement — CLAUDE.md's own correction).
+   `position: relative` is what lets the Re-frame… panel below position
+   itself against this container via plain offsetLeft/offsetTop (the
+   transcript.js selection-toolbar precedent dom.js's clampFloating header
+   documents) — nothing between this and a row's own action button may gain
+   a `position` of its own, or that chain breaks silently. */
+.frame-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.frame-row {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--panel);
+}
+
+/* A split is informational, not a defect (pane_overlap is reported, never
+   enforced) — a neutral accent marker, not the `--partial`/warn tone. */
+.frame-row-split {
+  border-left: 3px solid var(--accent);
+}
+
+.frame-row-approved {
+  border-color: var(--kept);
+  background: var(--wash-kept);
+}
+
+.frame-row-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.frame-row-shot {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.frame-row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.frame-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* Wide content gets its own horizontal scroller rather than pushing the
+   page wide — the house rule every other lane in this file already follows
+   (CLAUDE.md: nothing may overflow the page at 700/900/1200px). */
+.frame-tile-strip {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.frame-tile {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  width: 220px;
+}
+
+/* The sheet's OWN drawn-on PNG, rendered as a plain image — never a canvas
+   this file paints a rect onto itself (CLAUDE.md § Per-shot framing: a
+   wrong window reads as framing in motion on a watch, invisibly, unless the
+   review instrument is the sheet's own tile). */
+.frame-tile img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--sunken);
+}
+
+.frame-tile-caption {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+/* The pane rect's own caption reads as a distinct claim from the crop
+   above it — dashed, the same "second rect, drawn differently" idiom the
+   sheet's own montage uses for a split's lower half. */
+.frame-tile-caption.pane {
+  padding-top: 3px;
+  border-top: 1px dashed var(--line-2);
+}
+
+.frame-row-note {
+  margin-top: 8px;
+  color: var(--partial);
+  font-size: 11px;
+}
+
+.frame-row-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* The Re-frame… panel: `.toolbar-popover`'s own float/shadow/border, this
+   file only adds the height cap the house rule requires — `clampFloating`
+   MOVES a box, it cannot shrink one, so a panel taller than its container
+   pins with its buttons off-screen unless it is capped here (the exact
+   defect step 02 shipped once already). */
+.frame-reframe-panel {
+  min-width: 260px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+}
+
+.frame-rect-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.frame-rect-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.frame-rect-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.frame-nudges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.frame-nudges button {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.frame-reframe-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .timeline-head {
   display: flex;
   gap: 10px;

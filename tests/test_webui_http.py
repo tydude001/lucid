@@ -30,6 +30,7 @@ import pytest
 
 from lucid import ops, webui
 from lucid import timeline as tl
+from lucid.faces import FaceError
 from lucid.project import Project, ProjectError
 
 needs_ffprobe = pytest.mark.skipif(
@@ -1014,8 +1015,15 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
         "picture",
         "marks",
         "seams",
+        "framing",
         "flags",
     }
+    # Unasked-for, so `None` — the truth strip re-reads this route on every
+    # `project-changed`, and the framing section decodes placed footage for a
+    # scene-cut scan (5.7s wall / 46s CPU on the real film, uncached). `None`
+    # means "not measured" and is deliberately distinct from a measured zero.
+    assert payload["framing"] is None
+    assert [f for f in payload["flags"]["items"] if f["kind"] == "framing"] == []
     assert set(payload["duration"]) == {"edit_seconds", "tail_seconds", "total_seconds"}
     assert set(payload["canvas"]) == {"canvas", "presets"}
     assert set(payload["captions"]) == {"configured", "font", "burned"}
@@ -2896,3 +2904,497 @@ def test_app_js_wires_the_new_bus_events_and_the_toast_dismiss(server: str) -> N
     assert b"shortcut-undo" in body
     assert b"shortcut-help" in body
     assert b"toast-dismiss" in body
+
+
+# -- Studio Step 03: the Frame view's backend ----------------------------
+#
+# `GET /api/reframe/coverage` (synchronous, cheap), `POST /api/reframe/sheet`
+# and `POST /api/reframe/detect` (jobs, `ReframeSheetJob`/`ReframeDetectJob`),
+# `GET /api/reframe/tile/<name>` (the confined cache-file route) and
+# `POST /api/reframe` (the write). CLAUDE.md's vocabulary applies throughout:
+# a sheet row is a window, `apply` never reaches `reframe_detect` from here.
+
+
+def test_reframe_coverage_returns_ops_own_payload_and_forwards_query_params(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def _stub(path: str, *, clip_id: str | None = None, threshold: float = ops.SCENE_THRESHOLD) -> dict[str, Any]:
+        seen["clip_id"] = clip_id
+        seen["threshold"] = threshold
+        return {
+            "project": path,
+            "canvas": "1920x1080",
+            "threshold": threshold,
+            "same_window_within": 0.04,
+            "placements": 1,
+            "placed_seconds": 5.0,
+            "cuts": 0,
+            "cuts_framed": 0,
+            "cuts_unframed": 0,
+            "stretches": [],
+            "steps_seen": 0,
+            "steps_cut": 0,
+            "steps": [],
+            "stale_seconds": 0.0,
+            "stale_share": 0.0,
+            "stale_stretches": 0,
+            "default_seconds": 5.0,
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(ops, "reframe_coverage", _stub)
+
+    status, payload = _json(f"{server}/api/reframe/coverage?clip_id=vo&threshold=0.2")
+    assert status == 200
+    assert seen == {"clip_id": "vo", "threshold": 0.2}
+    assert payload["canvas"] == "1920x1080"
+    assert payload["stale_seconds"] == 0.0
+
+    # No query params at all: threshold defaults to ops.SCENE_THRESHOLD, not
+    # None passed straight through to the op (which requires 0 < threshold <= 1).
+    status, _ = _json(f"{server}/api/reframe/coverage")
+    assert status == 200
+    assert seen["clip_id"] is None
+    assert seen["threshold"] == ops.SCENE_THRESHOLD
+
+
+def test_reframe_coverage_404s_under_picker_root_before_a_project_is_open(
+    project: Path, picker_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ops,
+        "reframe_coverage",
+        lambda path, *, clip_id=None, threshold=ops.SCENE_THRESHOLD: {"ok": True},
+    )
+    status, payload = _json(f"{picker_server}/api/reframe/coverage")
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+    status, _ = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+
+    status, payload = _json(f"{picker_server}/api/reframe/coverage")
+    assert status == 200
+    assert payload["ok"] is True
+
+
+def test_reframe_writes_and_the_change_is_visible_on_read_back(
+    video_clip: str, server: str
+) -> None:
+    """`_reframe` (webui.py) is a thin dispatch onto `ops.reframe` — the
+    write lands in the manifest, and a second call with no `rect` (a pure
+    read, `write=False`) reports the same crop back."""
+    status, first = _post(f"{server}/api/reframe", {"clip_id": video_clip, "rect": "0,0,160,120"})
+    assert status == 200
+    assert first["written"] is True
+    entry = next(c for c in first["clips"] if c["clip_id"] == video_clip)
+    assert entry["origin"] == "override"
+    assert entry["reframes"] is True
+    assert entry["crop"] is not None
+
+    status, second = _post(f"{server}/api/reframe", {"clip_id": video_clip})
+    assert status == 200
+    assert second["written"] is False
+    entry2 = next(c for c in second["clips"] if c["clip_id"] == video_clip)
+    assert entry2["origin"] == "override"
+    assert entry2["crop"] == entry["crop"]
+
+
+def test_reframe_requires_clip_id(server: str) -> None:
+    status, payload = _post(f"{server}/api/reframe", {"rect": "0,0,160,120"})
+    assert status == 400
+    assert "clip_id" in payload["error"]
+
+
+def test_reframe_pane_without_rect_surfaces_the_ops_refusal_as_a_400(
+    video_clip: str, server: str
+) -> None:
+    """`_reframe` does not re-check the rect/pane combination itself —
+    `ops.reframe`'s own refusal is what must surface here."""
+    status, payload = _post(
+        f"{server}/api/reframe", {"clip_id": video_clip, "pane": "0,0,10,10"}
+    )
+    assert status == 400
+    assert "pane" in payload["error"]
+
+
+def test_reframe_endpoint_requires_json_content_type(video_clip: str, server: str) -> None:
+    status, payload = _post(
+        f"{server}/api/reframe",
+        {"clip_id": video_clip, "rect": "0,0,160,120"},
+        content_type="text/plain",
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+# -- the sheet and detect jobs --------------------------------------------
+
+
+def _reframe_sheet_stub_result(path: str) -> dict[str, Any]:
+    return {
+        "project": path,
+        "canvas": "1920x1080",
+        "sheet": f"{path}/cache/sheets/sheet.png",
+        "rows": [],
+        "count": 0,
+        "placements": 0,
+        "extremes": False,
+        "moments": list(ops.SHEET_MOMENTS),
+        "probed": 0,
+        "skipped": [],
+    }
+
+
+def _next_topic_event(
+    events: Iterator[tuple[str, Any]], topic: str, job_id: str
+) -> dict[str, Any]:
+    """The first non-`running` event for `job_id` on `topic` off an open stream."""
+    for event, data in events:
+        if event == topic and data.get("job_id") == job_id and data.get("status") != "running":
+            return data
+    raise AssertionError(f"no completion event arrived for {topic} {job_id}")
+
+
+def test_reframe_sheet_accepted_returns_a_job_id_and_completes_on_the_stream(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ops, "reframe_sheet", lambda path, *, out=None, moments=None, extremes=False: _reframe_sheet_stub_result(path)
+    )
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/reframe/sheet", {})
+        assert status == 202
+        assert isinstance(payload["job_id"], str) and payload["job_id"]
+
+        found = _next_topic_event(events, "reframe-sheet", payload["job_id"])
+        assert found["status"] == "done"
+        assert found["count"] == 0
+    finally:
+        conn.close()
+
+
+def test_a_second_reframe_sheet_while_one_is_running_is_refused(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = threading.Event()
+
+    def _stub(path: str, *, out: str | None = None, moments: Any = None, extremes: bool = False) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return _reframe_sheet_stub_result(path)
+
+    monkeypatch.setattr(ops, "reframe_sheet", _stub)
+    try:
+        status, _ = _post(f"{server}/api/reframe/sheet", {})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/reframe/sheet", {})
+        assert status == 409
+        assert "already generating" in payload["error"]
+    finally:
+        gate.set()
+
+
+def test_reframe_sheet_endpoint_requires_json_content_type(server: str) -> None:
+    status, payload = _post(f"{server}/api/reframe/sheet", {}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def _reframe_detect_stub_result(path: str) -> dict[str, Any]:
+    return {
+        "project": path,
+        "canvas": "1920x1080",
+        "threshold": ops.SCENE_THRESHOLD,
+        "frames_per_window": ops.DETECT_FRAMES,
+        "same_window_within": 0.04,
+        "detector": {"available": True},
+        "windows": [],
+        "count": 0,
+        "proposed": 0,
+        "refused": 0,
+        "splits": 0,
+        "placements": 0,
+        "applied": False,
+        "written": 0,
+        "skipped": [],
+    }
+
+
+def test_reframe_detect_accepted_returns_a_job_id_and_completes_on_the_stream(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def _stub(
+        path: str,
+        *,
+        clip_id: str | None = None,
+        threshold: float = ops.SCENE_THRESHOLD,
+        frames: int = ops.DETECT_FRAMES,
+        apply: bool = False,
+        split: bool = True,
+    ) -> dict[str, Any]:
+        seen["apply"] = apply
+        return _reframe_detect_stub_result(path)
+
+    monkeypatch.setattr(ops, "reframe_detect", _stub)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)
+
+        status, payload = _post(f"{server}/api/reframe/detect", {})
+        assert status == 202
+        assert isinstance(payload["job_id"], str) and payload["job_id"]
+
+        found = _next_topic_event(events, "reframe-detect", payload["job_id"])
+        assert found["status"] == "done"
+        # The one flag STUDIO.md is explicit about: `apply` never reaches the
+        # op as True from this route, no matter what — this call sent no body
+        # key for it at all, and the job still hard-codes it.
+        assert seen["apply"] is False
+    finally:
+        conn.close()
+
+
+def test_a_second_reframe_detect_while_one_is_running_is_refused(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gate = threading.Event()
+
+    def _stub(
+        path: str,
+        *,
+        clip_id: str | None = None,
+        threshold: float = ops.SCENE_THRESHOLD,
+        frames: int = ops.DETECT_FRAMES,
+        apply: bool = False,
+        split: bool = True,
+    ) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return _reframe_detect_stub_result(path)
+
+    monkeypatch.setattr(ops, "reframe_detect", _stub)
+    try:
+        status, _ = _post(f"{server}/api/reframe/detect", {})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/reframe/detect", {})
+        assert status == 409
+        assert "already running" in payload["error"]
+    finally:
+        gate.set()
+
+
+def test_reframe_detect_refuses_an_apply_key_before_starting_a_job(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Belt and suspenders: even though `ReframeDetectJob.start` has no
+    `apply` parameter at all, the endpoint refuses a hand-crafted request
+    naming the key before a job is ever started — a 400, not a 202 that
+    silently drops it."""
+    called = False
+
+    def _stub(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return _reframe_detect_stub_result(str(args[0]))
+
+    monkeypatch.setattr(ops, "reframe_detect", _stub)
+
+    status, payload = _post(f"{server}/api/reframe/detect", {"apply": True})
+    assert status == 400
+    assert "apply" in payload["error"]
+    assert called is False
+
+
+def test_reframe_detect_endpoint_requires_json_content_type(server: str) -> None:
+    status, payload = _post(f"{server}/api/reframe/detect", {}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_reframe_detect_missing_face_detector_reports_as_an_error_event_and_frees_the_slot(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure STUDIO.md's contract names and forbids: `FaceError` must
+    be in `webui.EXPECTED`, or this raises inside the worker thread with no
+    handler — no error event, `_finish()` never runs, the slot latches busy
+    forever. Pinned here rather than trusted from the source read."""
+    message = (
+        "no interpreter with a face detector. Looked at $LUCID_FACE (unset), "
+        "then a sibling venv. Set LUCID_FACE to the python in a venv that has "
+        "insightface and onnxruntime."
+    )
+
+    def _stub(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise FaceError(message)
+
+    monkeypatch.setattr(ops, "reframe_detect", _stub)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)
+
+        status, payload = _post(f"{server}/api/reframe/detect", {})
+        assert status == 202
+        found = _next_topic_event(events, "reframe-detect", payload["job_id"])
+        assert found["status"] == "error"
+        assert found["error"] == message
+    finally:
+        conn.close()
+
+    # The slot freed — a second call succeeds rather than 409ing forever.
+    status, _ = _post(f"{server}/api/reframe/detect", {})
+    assert status == 202
+
+
+def test_reframe_job_starts_404_under_picker_root_before_a_project_is_open(
+    project: Path, picker_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ops, "reframe_sheet", lambda path, *, out=None, moments=None, extremes=False: _reframe_sheet_stub_result(path)
+    )
+    status, payload = _post(f"{picker_server}/api/reframe/sheet", {})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+    status, _ = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+
+    status, payload = _post(f"{picker_server}/api/reframe/sheet", {})
+    assert status == 202
+
+
+def test_reframe_endpoints_reject_a_bad_host(server: str) -> None:
+    for path in ("/api/reframe", "/api/reframe/sheet", "/api/reframe/detect"):
+        request = urllib.request.Request(
+            f"{server}{path}",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request) as response:
+                code = response.status
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+        assert code == 403, path
+
+    status, _ = _json(f"{server}/api/reframe/coverage", headers={"Host": "evil.example.com"})
+    assert status == 403
+
+
+# -- the tile route's confinement -----------------------------------------
+#
+# `GET /api/reframe/tile/<name>` is the security-relevant route in the
+# contract: `name` must never escape `project.sheet_dir`, whether by a `..`
+# traversal, an absolute path, or a symlink placed inside the cache dir
+# pointing outside it.
+
+
+def test_reframe_tile_serves_a_real_tile(project: Path, server: str) -> None:
+    sheet_dir = Project.open(project).sheet_dir
+    sheet_dir.mkdir(parents=True, exist_ok=True)
+    tile = sheet_dir / "000-0-0.15.png"
+    tile.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+
+    status, headers, body = _get(f"{server}/api/reframe/tile/000-0-0.15.png")
+    assert status == 200
+    assert headers["Content-Type"] == "image/png"
+    assert body == tile.read_bytes()
+
+
+def test_reframe_tile_refuses_an_empty_name(server: str) -> None:
+    status, payload = _json(f"{server}/api/reframe/tile/")
+    assert status == 400
+    assert "required" in payload["error"]
+
+
+def test_reframe_tile_refuses_a_traversal_name(project: Path, server: str) -> None:
+    sheet_dir = Project.open(project).sheet_dir
+    sheet_dir.mkdir(parents=True, exist_ok=True)
+    secret = project.parent / "secret.txt"
+    secret.write_text("outside the cache dir", encoding="utf-8")
+
+    for traversal in ("..%2Fsecret.txt", "..%2F..%2Fsecret.txt", "..%2f..%2fetc%2fpasswd"):
+        status, payload = _json(f"{server}/api/reframe/tile/{traversal}")
+        assert status == 400, traversal
+        assert "does not name a sheet tile" in payload["error"]
+
+    # And nothing outside cache/sheets was ever read.
+    assert secret.read_text(encoding="utf-8") == "outside the cache dir"
+
+
+def test_reframe_tile_refuses_an_absolute_path(project: Path, server: str) -> None:
+    secret = project.parent / "secret.txt"
+    secret.write_text("outside the cache dir", encoding="utf-8")
+
+    status, payload = _json(f"{server}/api/reframe/tile/%2Fetc%2Fpasswd")
+    assert status == 400
+    assert "does not name a sheet tile" in payload["error"]
+
+    # An absolute path to a file that genuinely exists, just outside the
+    # cache dir — `Path(name).name` strips it to a bare filename that fails
+    # the `is_file()` check under `sheet_dir`, refused the same way.
+    quoted = str(secret).replace("/", "%2F")
+    status, payload = _json(f"{server}/api/reframe/tile/{quoted}")
+    assert status == 400
+    assert "does not name a sheet tile" in payload["error"]
+    assert secret.read_text(encoding="utf-8") == "outside the cache dir"
+
+
+def test_reframe_tile_refuses_a_symlink_escaping_the_cache_dir(
+    project: Path, server: str
+) -> None:
+    """The layer the character/`Path.name` checks alone cannot catch: a bare
+    filename with no `/` or `..` in it, sitting inside `cache/sheets`, whose
+    target resolves outside it."""
+    sheet_dir = Project.open(project).sheet_dir
+    sheet_dir.mkdir(parents=True, exist_ok=True)
+    secret = project.parent / "secret.txt"
+    secret.write_text("outside the cache dir", encoding="utf-8")
+
+    link = sheet_dir / "evil.png"
+    link.symlink_to(secret)
+
+    status, payload = _json(f"{server}/api/reframe/tile/evil.png")
+    assert status == 400
+    assert "does not name a sheet tile" in payload["error"]
+
+
+def test_reframe_tile_refuses_an_unknown_name(project: Path, server: str) -> None:
+    Project.open(project).sheet_dir.mkdir(parents=True, exist_ok=True)
+    status, payload = _json(f"{server}/api/reframe/tile/nope.png")
+    assert status == 400
+    assert "no such tile" in payload["error"]
+
+
+def test_finish_framing_is_opt_in_and_zero_is_not_none(server: str) -> None:
+    """`?framing=1` measures; the bare route does not.
+
+    The distinction the payload has to keep is "not measured" vs "measured
+    and nothing stale" — a `None` that read as a zero would let the truth
+    strip claim framing is clean on a project nobody ever scanned. This
+    fixture is audio-only, so the measured answer really is all zeros, which
+    is exactly the pair that would collapse if `framing` defaulted to `{}`.
+    """
+    _, unasked = _json(f"{server}/api/finish")
+    assert unasked["framing"] is None
+
+    _, asked = _json(f"{server}/api/finish?framing=1")
+    assert asked["framing"] == {"stale_seconds": 0.0, "stale_stretches": 0, "steps": 0}
+    assert [f for f in asked["flags"]["items"] if f["kind"] == "framing"] == []

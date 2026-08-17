@@ -602,9 +602,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--word-index", type=int, help="narrow to one cue on --clip-id's own words"
     )
 
-    sub.add_parser(
+    p_finish_report = sub.add_parser(
         "finish-report",
         help="assembled duration/canvas/caption/picture/marks/seams report for Finish mode",
+    )
+    p_finish_report.add_argument(
+        "--framing",
+        action="store_true",
+        help=(
+            "also measure stale framing (reframe_coverage) — off by default because it "
+            "decodes placed footage for a scene-cut scan; ~5.7s on the film"
+        ),
     )
 
     p_waveform = sub.add_parser(
@@ -1501,7 +1509,7 @@ def _cmd_properties(args: argparse.Namespace) -> int:
 
 
 def _cmd_finish_report(args: argparse.Namespace) -> int:
-    return _emit(ops.finish_report(args.project))
+    return _emit(ops.finish_report(args.project, framing=args.framing))
 
 
 def _cmd_waveform(args: argparse.Namespace) -> int:
