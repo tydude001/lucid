@@ -2330,3 +2330,219 @@ def test_a_plain_single_project_server_has_no_picker_routes(server: str) -> None
     status, view = _json(f"{server}/api/view")
     assert status == 200
     assert view["clip_id"] == "vo"
+
+
+# -- the F1 guard: a dropped CSS rule, caught with no browser ----------------
+#
+# F1 was a `*/` closing #picture's own comment early, so CSS error recovery
+# absorbed the following prose AND the `#picture` selector into one invalid
+# rule and dropped the real declaration block whole — `getComputedStyle` came
+# back `position: static` for an element the file plainly still has a rule
+# for, and 116 existing tests noticed nothing, because none of them fetch
+# app.css and look. These two guards do, without a browser: one structural
+# (comments/braces balance), one selector-resolution (a named, load-bearing
+# set of selectors each has to survive as its OWN clean selector, the way
+# `cssRules.some(r => r.selectorText === "#picture")` asked it live).
+
+
+def _stripped_css(css: str) -> str:
+    """Comments removed the way a CSS tokenizer removes them: a comment
+    token ends at the FIRST `*/` it finds, so this non-greedy regex is not a
+    shortcut — it is the real rule, which is what makes it a faithful model
+    of F1's failure rather than a looser approximation of it. An unterminated
+    or early-closed comment leaves a stray `/*` or `*/` sitting in the
+    output rather than being silently absorbed, and the assertions below
+    read exactly that.
+    """
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+
+
+def _rule_selectors(stripped_css: str) -> set[str]:
+    """Every ruleset's own selector list in already-comment-stripped CSS,
+    split into individual trimmed selectors — the text-level analogue of
+    `[...document.styleSheets[0].cssRules]`.
+
+    A stack-based brace walk, not a single regex: a selector has to be
+    isolated to the text between its OWN opening `{` and the previous brace
+    event at the same nesting depth, so a rule nested inside `@media` gets
+    its own prelude rather than merging into the media query's. This is
+    deliberately cruder than a real CSS parser — it does not validate
+    selector *syntax* — but it draws the same boundary a browser's tokenizer
+    draws around one prelude, which is exactly the boundary F1's bug
+    crossed: the orphaned `#picture` selector was glued onto the end of a
+    runaway prelude ("It fills #frame and centres nothing: ... #picture")
+    and, measured against the real file, that walk does NOT put a clean
+    "#picture" back into the returned set — a plain substring grep for
+    "#picture {" would have missed this, since that literal text is still
+    sitting in the file even though the browser never sees it as a rule.
+    """
+    preludes: list[str] = []
+    stack: list[list[str]] = [[]]
+    for ch in stripped_css:
+        if ch == "{":
+            preludes.append("".join(stack[-1]))
+            stack[-1] = []
+            stack.append([])
+        elif ch == "}":
+            if len(stack) > 1:
+                stack.pop()
+            stack[-1] = []
+        else:
+            stack[-1].append(ch)
+
+    selectors: set[str] = set()
+    for prelude in preludes:
+        for piece in prelude.split(","):
+            normalized = " ".join(piece.split())
+            if normalized:
+                selectors.add(normalized)
+    return selectors
+
+
+def test_app_css_has_no_orphaned_comment_and_balanced_braces(server: str) -> None:
+    """F1's structural signature, read off the served file. The bug was one
+    comment opener followed by TWO closers (the true close, plus two lines
+    of prose ending in a second `*/`) — an imbalance a browser's CSS
+    tokenizer does not recover from gracefully, it just quietly drops a
+    rule. Verified against the file BEFORE the fix landed: app.css then read
+    73 `/*` against 74 `*/`, exactly this bug — and against the same file
+    after, where both counts agree at 87. This is the regression guard that
+    keeps it that way.
+    """
+    _, _, body = _get(f"{server}/static/app.css")
+    css = body.decode("utf-8")
+
+    assert css.count("/*") == css.count("*/"), (
+        "unbalanced CSS comment markers — a comment closed early or never "
+        "closed, which is the shape that let error recovery eat a real rule "
+        "(F1: #picture)"
+    )
+
+    stripped = _stripped_css(css)
+    assert "*/" not in stripped, "a comment terminator survived comment-stripping"
+    assert "/*" not in stripped, "a comment opener survived comment-stripping"
+    assert stripped.count("{") == stripped.count("}"), (
+        "braces do not balance outside comments"
+    )
+
+
+def test_app_css_load_bearing_selectors_resolve_to_a_rule(server: str) -> None:
+    """The selector-resolution half of the F1 guard. Each entry below is
+    depended on by name from JS or is the rule a CLAUDE.md-documented
+    invariant leans on — losing any of them the way #picture was lost is a
+    silent regression a real browser would show and this suite would not
+    catch any other way. Kept as an explicit, commented list on purpose, so
+    it reads as a contract rather than a lint:
+    """
+    _, _, body = _get(f"{server}/static/app.css")
+    selectors = _rule_selectors(_stripped_css(body.decode("utf-8")))
+
+    load_bearing = {
+        # F1 itself — the picture layer's own black ground; without it a
+        # letterboxed V2 shot shows whatever #frame's other children are
+        # through the bars instead of black (app.css's own comment on it).
+        "#picture": "the exact rule F1 dropped",
+        # The project canvas every layer draws inside and is placed against,
+        # never fitted to (CLAUDE.md: "media is placed in it, never fitted").
+        "#frame": "the canvas #picture/#caption-layer/player.js's place() all draw against",
+        # The preview pane's transport container — CLAUDE.md/HISTORY.md: never
+        # display:none, because the level display has to draw from it.
+        "#viewer": "the transport container #frame lives inside",
+        # The burn-in preview overlay's own geometry (position/inset/overflow).
+        "#caption-layer": "the caption preview layer's own positioning",
+        # The grid whose column tracks F2/F3 resize — losing this collapses
+        # the whole four-pane layout to plain block flow.
+        "#workspace": "the pane grid F2/F3's tokens tune",
+        # The one channel errors arrive on (F6) — an aria-live region that
+        # never lays out correctly is not actually announcing anything useful.
+        "#toast": "the sole error channel; F9's data-severity styling keys off it",
+        # The shared pane-head/pane idiom all four panes reuse.
+        ".pane": "the flex-column/scroll/border idiom shared by every pane",
+        # A timeline lane's own row (CLAUDE.md: "never draw a lane export
+        # cannot produce") — this is the rule that makes a lane look like one.
+        ".lane": "one lane's row; timeline.js draws several of these per project",
+        # One DOM block per timeline segment — timeline.js's most-rebuilt node.
+        ".clip-block": "one block per timeline segment",
+    }
+    missing = {sel for sel in load_bearing if sel not in selectors}
+    assert not missing, {sel: load_bearing[sel] for sel in missing}
+
+
+def test_app_css_declares_the_pane_layout_tokens_and_the_rail_breakpoints(
+    server: str,
+) -> None:
+    """F2/F3/F9's own literal contract text, pinned as regression guards
+    against the served file rather than the source tree, matching this
+    file's own idiom for the vendored-fonts check above. `--pane-preview-min:
+    26rem` is F3's real-weight fix (the picture pane must not be the smallest
+    thing on screen); `--rail-w: 46px` and both breakpoints are F2's collapsed
+    rail; `#toast[hidden]{display:none}` is the required override noted in
+    THE CONTRACT — without it the base `#toast{display:flex}` id rule
+    outranks the browser's own `[hidden]` UA rule and the toast never hides.
+    """
+    _, _, body = _get(f"{server}/static/app.css")
+    css = body.decode("utf-8")
+
+    assert "--pane-preview-min: 26rem" in css
+    assert "--rail-w: 46px" in css
+    assert "@media (max-width: 1200px)" in css
+    assert "@media (max-width: 980px)" in css
+    assert re.search(r"#toast\[hidden\]\s*\{[^}]*display:\s*none", css), (
+        "#toast[hidden] must set display:none explicitly, or the base "
+        "#toast{display:flex} id rule (specificity 100) outranks the "
+        "browser's own [hidden] UA rule (specificity 10) and the toast "
+        "never actually hides"
+    )
+
+
+def test_index_html_carries_the_landmark_and_toast_aria_contract(server: str) -> None:
+    """F6's HTTP-checkable half: the landmark, the one live region errors
+    arrive on, and the aria-labels on the three controls the finding named
+    by hand (`#play` had none, `#zoom` had none, `#clip` had none — while
+    `#theme` already carried one, so the pattern was known and just not
+    applied). A browser pass is still required for the keyboard-navigation
+    half of F6/F7 (tabindex on words, arrow-key routing) — this only pins
+    what a static fetch can see.
+    """
+    _, _, body = _get(f"{server}/")
+    page = body.decode("utf-8")
+
+    assert '<main id="workspace"' in page
+    assert 'role="status"' in page
+    assert 'aria-live="polite"' in page
+    assert 'aria-label="play or pause the timeline"' in page
+    assert 'aria-label="timeline zoom"' in page
+    assert 'aria-label="active clip"' in page
+
+
+def test_index_html_carries_the_new_contract_ids(server: str) -> None:
+    """The remaining static markup THE CONTRACT names by id: F8's render
+    chip, F7's shortcut sheet, F3's canvas-dimensions note, and F2's
+    collapsed-pane rail (one per collapsible pane, so at least two)."""
+    _, _, body = _get(f"{server}/")
+    page = body.decode("utf-8")
+
+    assert 'id="export-status"' in page
+    assert 'id="shortcuts-sheet"' in page
+    assert 'id="preview-canvas-note"' in page
+    assert page.count("pane-rail") >= 2
+
+
+def test_dom_js_exports_the_shared_clamp_helper(server: str) -> None:
+    """Pins the exact helper name THE CONTRACT gives F4's fix: one clamp,
+    shared by transcript.js's selection toolbar and timeline.js's cue
+    toolbar, rather than a second hand-rolled copy — which is how the first
+    clamp fix (timeline.js's) failed to reach the sibling toolbar the first
+    time this bug was found."""
+    _, _, body = _get(f"{server}/static/dom.js")
+    assert b"export function clampFloating" in body
+
+
+def test_app_js_wires_the_new_bus_events_and_the_toast_dismiss(server: str) -> None:
+    """F7's undo/help keyboard shortcuts and F9's manual dismiss button, all
+    of which have to be wired in app.js for player.js's key handler and
+    index.html's static markup to do anything at all."""
+    _, _, body = _get(f"{server}/static/app.js")
+    assert b"shortcut-undo" in body
+    assert b"shortcut-help" in body
+    assert b"toast-dismiss" in body

@@ -150,6 +150,26 @@ installed package or the upstream repo, not your memory.
       then drops the trailing `click` with nothing thrown, which is how a lane
       that re-rendered on mousedown silently stopped seeking. HISTORY.md § The
       cue-drag browser pass, and six defects.
+    - **And scope the probe to the page, never to where the bug is expected** —
+      a sweep of `#workspace *` measured clean at every width while `#bar`
+      overflowed at 700px with Export and the theme toggle off a hidden edge.
+      The window a check looks through is a claim too, and it was wrong in the
+      review *and* in the pass verifying its fix. Walk `body *` and compare
+      `body.scrollWidth` against `innerWidth`. HISTORY.md § The web UI review.
+  - **An author `display:` rule outranks the UA's `[hidden] { display: none }`,
+    so `el.hidden = true` does nothing on its own.** Anything this file set
+    toggles by `hidden` needs a companion `[hidden]` rule or it is drawn
+    permanently — and it reads as deliberate, because a floating panel sits
+    where a selection would have put it. It cost both toolbars and the pad
+    popover at once, invisible until words became tabbable. `#picture` is the
+    one element that already had the companion rule, which is the only reason
+    a stray `*/` deleting its whole block was subtle rather than catastrophic.
+    HISTORY.md § The web UI review.
+  - **A floating panel is clamped by `dom.js`'s `clampFloating`, and there is
+    exactly one copy.** The two callers hand it different spaces — the
+    transcript toolbar is unscrolled, the cue toolbar has `scrollLeft` already
+    folded in — so it takes bounds rather than a container. A second clamp is
+    how the first fix reached one of the two toolbars and not the other.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind

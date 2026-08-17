@@ -20,6 +20,25 @@
  *     same `/api/cut` call Cut uses, not a separate endpoint. Restore (shown
  *     only when the selection covers struck text) posts to `/api/restore`
  *     instead — a different op with no suspect-duration guard to confirm.
+ *     The toolbar's drop point is clamped into the pane's own visible box
+ *     through dom.js's `clampFloating` (measured +169px past the pane's
+ *     right edge before this fix — F4 in the 2026-08-17 browser pass) — the
+ *     same helper timeline.js's cue toolbar uses, each caller supplying its
+ *     own bounds because the two toolbars do not share a coordinate space
+ *     (see `clampFloating`'s own comment).
+ *   - every word is also a keyboard target (F6): a roving tabindex keeps
+ *     exactly one `.w` span tabbable at a time. Arrow keys move it and
+ *     collapse the selection to the new word; shift-arrow extends the
+ *     selection using the identical `sel` shape the mouse's shift-click and
+ *     drag branches already build (same `trailingPause` call, same
+ *     `[index, isPause]` pairs — see `trailingPause`'s own comment before
+ *     touching any of this); Enter/Space repeat a plain click (seek +
+ *     collapse). The tabbable word is tracked by WORD INDEX
+ *     (`focusedIndex`), never by the DOM node itself, because
+ *     `renderWords()` rebuilds every span from scratch on every op, on the
+ *     show-cuts toggle, and on every background 'project-changed' reload —
+ *     the node a focus-restore would need is already gone by the time any
+ *     post-render code runs.
  *
  * What this file does NOT do: render an op's result. `runOp` below emits
  * 'op-result' on the shared bus and stops — agent.js renders it into the
@@ -131,7 +150,7 @@
  * threshold to keep in sync with it.
  */
 
-import { $, el, fmt, secs } from "./dom.js";
+import { $, el, fmt, secs, clampFloating } from "./dom.js";
 
 let ctx = null;
 
@@ -145,6 +164,14 @@ let showCuts = true; // struck through in place (true) or omitted (false)
 let playingIndex = null; // state.words[i].index currently under the playhead
 let wordIndexMap = new Map(); // word.index -> word, refreshed on every update()
 let dragging = null; // {anchor, moved} while a selection drag is live
+let focusedIndex = null; // word index of the current roving-tabindex target
+  // (F6) — tracked separately from DOM focus, and by word index rather than
+  // by node, because renderWords() destroys and rebuilds every `.w` span on
+  // every op, the show-cuts toggle, and a background 'project-changed'
+  // reload alike. Set by the focusin listener in init() and read (never
+  // cleared) across a render-caused blur, since removing the focused node
+  // from the DOM fires focusout with no `relatedTarget` — see
+  // handleFocusOut's own comment for the genuine-departure case.
 
 /* -- persistent DOM built once in init(), re-appended on every render, per
  * tier 2's playheadEl() trick: clearing the pane detaches these nodes, but
@@ -193,7 +220,9 @@ function buildToggleRow() {
     btn.textContent = showCuts ? "cuts shown" : "cuts hidden";
     const view = ctx.getView();
     if (view && view.words) {
+      const hadFocus = $("transcript").contains(document.activeElement);
       renderWords(view);
+      applyRovingTabIndex(hadFocus);
       paintSelection();
       reapplyPlaying();
       refreshToolbar();
@@ -299,6 +328,9 @@ function renderWords(state) {
       if (!word.present) node.classList.add("gone");
       if (word.partial) node.classList.add("partial");
       if (word.suspect) node.classList.add("suspect");
+      node.tabIndex = -1; // F6: roving tabindex — applyRovingTabIndex() below
+      // promotes exactly one span to 0 after every render; every other one
+      // starts, and normally stays, out of the Tab order entirely.
       node.dataset.i = String(word.index);
       node.title = wordLabel(word);
       p.append(node);
@@ -351,6 +383,158 @@ function paintPlayingWord(index) {
   if (node) {
     node.classList.add("playing");
     node.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+/* -- keyboard: roving tabindex over words (F6) ----------------------------
+ * A person tabs into the transcript once, lands on one word, and moves
+ * within it with the arrow keys — the standard "roving tabindex" pattern:
+ * every `.w` starts tabindex="-1" (renderWords()) and exactly one is
+ * promoted to "0" at a time, here.
+ */
+
+function handleFocusIn(event) {
+  const node = event.target.closest(".w");
+  if (node) focusedIndex = Number(node.dataset.i);
+}
+
+function handleFocusOut(event) {
+  // A relatedTarget outside #transcript is a genuine focus departure (Tab
+  // out, a click into the agent composer) — drop the target so the next
+  // render's survival chain does not pull focus back to a word the person
+  // deliberately left. A render-caused blur (renderWords() just deleted the
+  // focused span wholesale, mid-op or on the show-cuts toggle) reports
+  // relatedTarget === null, so this leaves focusedIndex alone and lets
+  // applyRovingTabIndex()'s own hadFocus snapshot (captured by the caller
+  // BEFORE renderWords() ran) decide whether to restore it.
+  if (event.relatedTarget && !$("transcript").contains(event.relatedTarget)) {
+    focusedIndex = null;
+  }
+}
+
+// Walks the currently RENDERED `.w` spans in document order — not
+// wordIndexMap, which also holds indices with no span when a cut word is
+// hidden by the show-cuts toggle ("hidden entirely, not just dimmed", per
+// renderWords()'s own comment). Arrow keys must only ever land on something
+// a person can actually see.
+function adjacentWordIndex(from, dir) {
+  const order = Array.from($("transcript").querySelectorAll(".w")).map((n) => Number(n.dataset.i));
+  const pos = order.indexOf(from);
+  if (pos === -1) return null;
+  const next = pos + dir;
+  return next >= 0 && next < order.length ? order[next] : null;
+}
+
+// Marks exactly one `.w` span as the roving tab stop. Does not itself move
+// DOM focus — callers decide that, since a render-time re-application should
+// not steal focus and a keyboard move always should.
+function setRovingTarget(index) {
+  for (const node of $("transcript").querySelectorAll(".w")) {
+    node.tabIndex = Number(node.dataset.i) === index ? 0 : -1;
+  }
+}
+
+function focusWord(index) {
+  const node = $("transcript").querySelector(`.w[data-i="${index}"]`);
+  if (node) node.focus(); // triggers focusin -> handleFocusIn keeps focusedIndex current
+}
+
+/**
+ * Re-marks exactly one `.w` span tabindex="0" after renderWords() has just
+ * rebuilt every one of them from scratch, and restores real DOM focus to it
+ * if focus was inside the pane a moment ago. `hadFocus` MUST be read by the
+ * caller BEFORE calling renderWords() — by the time this runs,
+ * document.activeElement has already moved (removing a focused node blurs
+ * it), so asking here is always too late; that is the entire reason
+ * `focusedIndex` is tracked by word index rather than read back off the DOM.
+ *
+ * Priority: the word that already held the roving target, if it still has a
+ * rendered span (the ordinary case — an op or a background reload that left
+ * the reading position untouched); else the current selection's first word;
+ * else the word under the playhead; else the first present word in document
+ * order. The fallbacks are what the pane needs the moment the previous
+ * target's own word stops being addressable — cut by the very op that
+ * triggered this render, or hidden by a show-cuts toggle — which a plain
+ * "keep the same index" rule cannot cover on its own.
+ */
+function applyRovingTabIndex(hadFocus) {
+  const pane = $("transcript");
+  const hasSpan = (i) => i !== null && pane.querySelector(`.w[data-i="${i}"]`) !== null;
+  let target = null;
+  if (hasSpan(focusedIndex)) target = focusedIndex;
+  else if (sel && hasSpan(sel.first)) target = sel.first;
+  else if (hasSpan(playingIndex)) target = playingIndex;
+  else {
+    for (const w of wordIndexMap.values()) {
+      if (w.present) {
+        target = w.index;
+        break;
+      }
+    }
+  }
+  setRovingTarget(target);
+  focusedIndex = target;
+  if (hadFocus && target !== null) focusWord(target);
+}
+
+function handleTranscriptKeyDown(event) {
+  const node = event.target.closest(".w");
+  if (!node) return;
+  const i = Number(node.dataset.i);
+
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    const dir = event.key === "ArrowLeft" ? -1 : 1;
+    const nextIndex = adjacentWordIndex(i, dir);
+    if (nextIndex === null) return;
+    event.preventDefault();
+    // Same collision the Enter/Space branch below already stops: this event
+    // also bubbles to player.js's window-level keydown listener, whose own
+    // unshifted/shifted ArrowLeft/ArrowRight is a frame/second transport
+    // step. A focused .w span is not an INPUT/TEXTAREA/SELECT and is not
+    // contentEditable, so isTypingTarget there does not exclude it — without
+    // stopping the bubble here, every arrow move through the transcript
+    // would also pause playback and step the preview out from under it.
+    event.stopPropagation();
+    if (event.shiftKey) {
+      // Mirrors handleMouseDown's shift-click branch exactly — same
+      // trailingPause call, same [index, isPause] pairs — so a
+      // keyboard-built selection and a mouse-built one are indistinguishable
+      // to runOp/refreshToolbar ("same sel shape as the mouse one"). A word
+      // reached by arrow key is never a `.pause` marker — those are never a
+      // roving stop, same as they are never resolveIndex's own index — so
+      // isPause is always false here.
+      const anchorFirst = sel ? sel.first : i;
+      const anchorLast = sel ? sel.last : i;
+      const first = Math.min(anchorFirst, nextIndex);
+      const last = Math.max(anchorLast, nextIndex);
+      sel = {
+        first,
+        last,
+        throughPause: trailingPause(last, [nextIndex, false], [anchorLast, sel ? sel.throughPause : false]),
+      };
+    } else {
+      sel = { first: nextIndex, last: nextIndex, throughPause: false };
+    }
+    paintSelection();
+    refreshToolbar();
+    setRovingTarget(nextIndex);
+    focusWord(nextIndex);
+    return;
+  }
+
+  if (event.key === "Enter" || event.key === " ") {
+    // Space also bubbles to player.js's window-level play/pause listener —
+    // without stopping it here, pressing Space on a focused word would both
+    // seek (this handler) AND toggle playback (player.js), the exact
+    // double-fire the shared contract's own notes call out. Enter has no
+    // such collision but is stopped too so the two keys behave identically.
+    event.preventDefault();
+    event.stopPropagation();
+    const word = wordIndexMap.get(i);
+    sel = { first: i, last: i, throughPause: false };
+    paintSelection();
+    refreshToolbar();
+    if (word) ctx.player.seekWord(word);
   }
 }
 
@@ -427,11 +611,32 @@ function refreshToolbar() {
     return;
   }
   const anchor = findAnchorNode();
-  toolbarEl.style.left = anchor ? `${anchor.offsetLeft}px` : "0px";
-  toolbarEl.style.top = anchor ? `${anchor.offsetTop + anchor.offsetHeight + 4}px` : "0px";
+  const rawLeft = anchor ? anchor.offsetLeft : 0;
+  const rawTop = anchor ? anchor.offsetTop + anchor.offsetHeight + 4 : 0;
+  // Unhide before measuring offsetWidth/offsetHeight below — a hidden
+  // element reports a zero-size rect (dom.js's clampFloating comment), which
+  // would clamp the toolbar to the pane's top-left corner every time.
   toolbarEl.hidden = false;
   restoreBtnEl.hidden = !selectionHasCutWord();
   renderPopoverInfo();
+  // F4: unclamped, this drop point rendered 169px past #transcript's right
+  // edge, measured live — Cut/Keep only sitting off the pane with no error,
+  // just nothing a person could see or click (the same class of bug
+  // timeline.js's cue toolbar already had fixed once). This pane folds in no
+  // scroll of its own, so the bounds are simply its content box.
+  const container = $("transcript");
+  const { left, top } = clampFloating(
+    rawLeft,
+    rawTop,
+    toolbarEl.offsetWidth,
+    toolbarEl.offsetHeight,
+    0,
+    container.clientWidth,
+    0,
+    container.clientHeight,
+  );
+  toolbarEl.style.left = `${left}px`;
+  toolbarEl.style.top = `${top}px`;
 }
 
 /* -- running an op ---------------------------------------------------------
@@ -573,6 +778,9 @@ export function init(passedCtx) {
   pane.addEventListener("mousedown", handleMouseDown);
   pane.addEventListener("mouseover", handleMouseOver);
   window.addEventListener("mouseup", handleMouseUp);
+  pane.addEventListener("keydown", handleTranscriptKeyDown);
+  pane.addEventListener("focusin", handleFocusIn);
+  pane.addEventListener("focusout", handleFocusOut);
 
   ctx.on("playing-word", ({ index }) => paintPlayingWord(index));
 }
@@ -585,6 +793,7 @@ export function update(state) {
     pane.append(el("p", "pane-placeholder", "Nothing loaded."));
     sel = null;
     wordIndexMap = new Map();
+    focusedIndex = null;
     return;
   }
 
@@ -600,6 +809,7 @@ export function update(state) {
     );
     sel = null;
     wordIndexMap = new Map();
+    focusedIndex = null;
     return;
   }
 
@@ -610,7 +820,9 @@ export function update(state) {
     sel = null;
   }
 
+  const hadFocus = pane.contains(document.activeElement);
   renderWords(state);
+  applyRovingTabIndex(hadFocus);
   paintSelection();
   reapplyPlaying();
   refreshToolbar();

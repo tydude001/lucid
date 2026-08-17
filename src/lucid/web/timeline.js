@@ -64,13 +64,27 @@
  * repeat it.
  */
 
-import { $, el, fmt, secs } from "./dom.js";
+import { $, el, fmt, secs, clampFloating } from "./dom.js";
 
 let ctx = null;
 let lastState = null;
 let zoomMultiplier = 1; // multiplies the fit-to-window base — #zoom is 1..10
 let currentPxPerSec = 1; // cached for the per-frame playhead handler, which
 // must not pay for a full re-render 60 times a second
+let followPlayhead = true; // F5, default ON per the contract — index.html's
+// own #follow-playhead ships with its 'on' class already applied so there is
+// no flash of the wrong state before this file's init() runs; this variable
+// just has to agree with that markup, not set it.
+let lastFollowScrollLeft = null; // the scrollLeft THIS FILE last set via the
+// follow nudge, compared against what #track-lanes's own 'scroll' event later
+// reports — not a boolean "ignore the next event" flag. A flag cannot survive
+// a nudge that lands on a value the lane is already at: setting scrollLeft to
+// its current value dispatches NO 'scroll' event at all, so a flag armed and
+// never consumed would misattribute some LATER real user scroll as the nudge
+// that never fired, and follow would silently fail to disengage. Comparing
+// the reported value against the one this file itself last wrote means a
+// stale unconsumed value only ever fails to match a real scroll to a
+// different pixel — it does not falsely swallow one.
 let selection = null; // word indices to highlight — set by this file's own
 // drag gesture below, or by the 'selection' bus event for any other pane
 // that wants to drive the highlight
@@ -547,7 +561,18 @@ function cueEcho(words, wordIndex) {
  * coordinate space `laneTimeFromEvent` resolves a click into (scrollLeft
  * already folded in at drag time), so the clamp's own bounds are the visible
  * window converted into that same space — `[lanes.scrollLeft, scrollLeft +
- * clientWidth]` — not `[0, clientWidth]`. */
+ * clientWidth]` — not `[0, clientWidth]`.
+ *
+ * The clamp MATH now lives once, in `dom.js`'s `clampFloating` — shared with
+ * transcript.js's own selection toolbar, which had this exact bug fixed here
+ * first and then carried it separately (a duplicated fix is how F4 reached
+ * only one of the two toolbars the first time). This file still supplies its
+ * OWN bounds rather than a container element: transcript.js's toolbar lives
+ * in unscrolled space (`[0, container.clientWidth]`) while this one's
+ * `boxLeft`/`boxTop` already have `lanes.scrollLeft` folded in, so its bounds
+ * are the visible window in that same scrolled space — a helper that derived
+ * bounds from `clientWidth` alone would be correct for one caller and
+ * silently wrong for the other. */
 function refreshCueToolbar() {
   if (!cueToolbarEl) return;
   if (!cueSelection || !lastState || !lastState.words) {
@@ -559,11 +584,18 @@ function refreshCueToolbar() {
 
   const lanes = $("track-lanes");
   if (lanes) {
-    const minLeft = lanes.scrollLeft;
-    const maxLeft = Math.max(minLeft, minLeft + lanes.clientWidth - cueToolbarEl.offsetWidth);
-    const maxTop = Math.max(0, lanes.clientHeight - cueToolbarEl.offsetHeight);
-    cueToolbarEl.style.left = `${Math.min(Math.max(cueSelection.boxLeft, minLeft), maxLeft).toFixed(1)}px`;
-    cueToolbarEl.style.top = `${Math.min(cueSelection.boxTop, maxTop).toFixed(1)}px`;
+    const { left, top } = clampFloating(
+      cueSelection.boxLeft,
+      cueSelection.boxTop,
+      cueToolbarEl.offsetWidth,
+      cueToolbarEl.offsetHeight,
+      lanes.scrollLeft,
+      lanes.scrollLeft + lanes.clientWidth,
+      0,
+      lanes.clientHeight,
+    );
+    cueToolbarEl.style.left = `${left.toFixed(1)}px`;
+    cueToolbarEl.style.top = `${top.toFixed(1)}px`;
   } else {
     cueToolbarEl.style.left = `${cueSelection.boxLeft.toFixed(1)}px`;
     cueToolbarEl.style.top = `${cueSelection.boxTop.toFixed(1)}px`;
@@ -746,6 +778,47 @@ function handleLanesMouseUp(event) {
   cueDrag = null;
 }
 
+/** F5 — nudges `#track-lanes`'s `scrollLeft` so the playhead stays inside
+ * the middle ~60% of the visible lane while playing. Called from the SAME
+ * per-frame `'playhead'` subscription that already moves the line, and must
+ * touch nothing but `scrollLeft` — no `render()`, on this file's own
+ * "redraw only the node a gesture owns" discipline (`updateSelectionHighlight`'s
+ * comment above): this runs every animation frame, so anything heavier than
+ * a scroll assignment here would cost what the deferred-render race already
+ * cost this repo a day to find, just on a hot path instead of a gesture.
+ *
+ * Measured at zoom 6.0x before this existed: viewport 1516px, content
+ * 9101px, playhead at 4548px with scrollLeft stuck at 0 — the timeline
+ * silently stopped being a view of what was playing within seconds of
+ * pressing play. */
+function nudgePlayhead(nowSec) {
+  if (!followPlayhead || !ctx || !ctx.player.playing()) return;
+  const lanes = $("track-lanes");
+  if (!lanes) return;
+  const viewport = lanes.clientWidth;
+  if (!(viewport > 0)) return;
+  const playheadPx = nowSec * currentPxPerSec;
+  const visibleLeft = lanes.scrollLeft;
+  const margin = viewport * 0.2; // 20% each side leaves the middle 60% named above
+  if (playheadPx >= visibleLeft + margin && playheadPx <= visibleLeft + viewport - margin) return;
+  const maxScroll = Math.max(0, lanes.scrollWidth - viewport);
+  const target = Math.min(maxScroll, Math.max(0, playheadPx - viewport / 2));
+  lanes.scrollLeft = target;
+  // Read back rather than trust `target`: the browser clamps scrollLeft to
+  // its own valid range, and the value the 'scroll' event later reports is
+  // THAT clamped number, not the one just assigned.
+  lastFollowScrollLeft = lanes.scrollLeft;
+}
+
+/** The click handler for `#follow-playhead` and the disengage branch of the
+ * `#track-lanes` 'scroll' listener share this — one place that keeps the
+ * variable and the button's `.on` class from drifting apart. */
+function setFollowPlayhead(value) {
+  followPlayhead = value;
+  const btn = $("follow-playhead");
+  if (btn) btn.classList.toggle("on", followPlayhead);
+}
+
 function render() {
   const headers = $("track-headers");
   const lanes = $("track-lanes");
@@ -849,6 +922,28 @@ export function init(passedCtx) {
     );
   }
 
+  const followBtn = $("follow-playhead");
+  if (followBtn) {
+    followBtn.classList.toggle("on", followPlayhead); // agree with the markup's own default-on class
+    followBtn.addEventListener("click", () => setFollowPlayhead(!followPlayhead));
+  }
+  if (lanes) {
+    lanes.addEventListener("scroll", () => {
+      // See lastFollowScrollLeft's own comment: compare the reported value,
+      // don't trust a flag. A match means this file's own nudge produced
+      // this event — consume it and leave follow engaged. Anything else,
+      // including a nudge that landed on the SAME pixel it started at (which
+      // dispatches no event and so is never seen here at all), is a real
+      // scroll and releases follow so it never fights a person scrubbing by
+      // hand.
+      if (lastFollowScrollLeft !== null && lanes.scrollLeft === lastFollowScrollLeft) {
+        lastFollowScrollLeft = null;
+        return;
+      }
+      if (followPlayhead) setFollowPlayhead(false);
+    });
+  }
+
   const zoomInput = $("zoom");
   if (zoomInput) {
     zoomMultiplier = parseFloat(zoomInput.value) || 1;
@@ -876,6 +971,7 @@ export function init(passedCtx) {
   ctx.on("playhead", ({ now }) => {
     const line = $("timeline-playhead");
     if (line) line.style.left = `${now * currentPxPerSec}px`;
+    nudgePlayhead(now); // F5 — see nudgePlayhead's own comment: scrollLeft only, never render()
   });
 
   // This file's own drag gesture (handleLanesMouseDown/Move/Up) sets

@@ -83,6 +83,15 @@
  *
  * Preview pane (#viewer / #transport, owned by player.js — not a stub, the
  * seam-jumping loop is ported unchanged from tier 2):
+ *   .pane-head / #preview-canvas-note
+ *                            (F3) the preview pane's own head row — the
+ *                            surface looked at most was, until this, the
+ *                            only one that never said what it was. Carries
+ *                            the literal word "preview" plus the project
+ *                            canvas dimensions, filled by app.js on every
+ *                            load(). It is `.pane-head` and `.hint`
+ *                            verbatim, both already documented above — no
+ *                            new rule needed for it.
  *   #viewer                 never `display:none` (tier 2's worst behaviour,
  *                          PLAN.md § Layout) — holds the <video> or, on an
  *                          audio-only clip, a level display instead. Black in
@@ -111,6 +120,11 @@
  *                           say)
  *     .w.sel                 inside the current selection
  *     .w.playing             the word under the playhead right now
+ *     (:focus-visible)        F6: `.w:focus-visible`/`.pause:focus-visible`,
+ *                           below, ring the roving-tabindex word transcript.js
+ *                           moves with the arrow keys — the page's global
+ *                           `:is(button,input,select,textarea):focus-visible`
+ *                           rule does not match a <span>
  *   .pause                   an inline `[N.Ns]` pause marker, drawn only when
  *                          `word.pause_after` is present (DAYDREAM.md §
  *                          Transcript document); resolves to the word index
@@ -127,6 +141,10 @@
  *
  * Timeline pane (#track-headers / #track-lanes, filled by timeline.js):
  *   .timeline-head           the ruler-and-zoom row above the tracks
+ *   #follow-playhead          (F5) keeps the playhead inside the visible
+ *                            lane while playing, default on; any manual
+ *                            scroll turns it off. Reuses `.toggle`/
+ *                            `.toggle.on` verbatim — no new rule for it.
  *   .zoom-ctl                 the zoom control
  *   .track-headers            sticky left column, one row per lane
  *   .track-header              one row in that column (e.g. "V1")
@@ -229,8 +247,54 @@
  *   .rows                                  a two-column key/value table
  *   .warn / .warn.bad                      a flagged condition / a hard error
  *
- * #toast                     a transient bottom-right message, unchanged
- *                            from tier 2
+ * #toast                     a transient bottom-right message —
+ *                            `role="status" aria-live="polite"`, with
+ *                            #toast-message (the text) and #toast-dismiss (a
+ *                            manual close) as its two children. `data-
+ *                            severity` (ok/warn/error, set by app.js's
+ *                            toast()) keys the border onto the existing
+ *                            --kept/--partial/--cut tokens — it used to be
+ *                            one red border no matter what the message said
+ *                            (F9). 'ok'/'warn' still auto-dismiss at the
+ *                            unchanged 9000ms; 'error' sets no timer at all
+ *                            and persists until dismissed or replaced — the
+ *                            long strings the server actually returns were
+ *                            the wrong thing to blink away on a clock.
+ *
+ * #export-status              (F8) the render-status chip beside #export in
+ *                            #bar — a `.chip`, hidden until a render exists,
+ *                            then `data-status` (running/done/error/
+ *                            cancelled) keys its colour onto the same four
+ *                            tokens `.check-badge` already uses. It mirrors
+ *                            the same 'render' bus event agent.js's own
+ *                            completion card already draws from — a second,
+ *                            additive subscriber, not a second source of
+ *                            truth — and clicking it scrolls the agent feed
+ *                            to its bottom: the feed keeps the one full,
+ *                            honest record, the chip only gives the button
+ *                            beside it the state that belongs to it.
+ *
+ * dialog#shortcuts-sheet      the '?' keyboard-shortcut reference (F7) — a
+ *                            native <dialog> for its free focus-trap and
+ *                            Escape-to-close, with a .shortcuts-head label
+ *                            + close row and a static, hand-typed .rows
+ *                            table for a body: reference text, never
+ *                            generated. Its panel reuses .toolbar-popover's
+ *                            border/radius/background/box-shadow verbatim —
+ *                            one floating-panel look in the app, not two.
+ *
+ * .pane-rail / .pane-rail-tab / .pane-collapse-btn
+ *                             (F2) the collapsed-state icon rail #agent-pane
+ *                            and #inspector-pane fall back to under their
+ *                            own width breakpoints — a 46px column with one
+ *                            tab button, never a pane that just disappears
+ *                            past the edge of an `overflow: hidden` body
+ *                            with no scrollbar and nothing in the console
+ *                            (the exact failure the #workspace comment
+ *                            already names once, at a different width).
+ *                            .pane-collapse-btn sits inside the pane's
+ *                            existing .pane-head and shows only in the one
+ *                            state that needs it: narrow AND expanded.
  *
  * Motion is austere by instruction (DAYDREAM.md § Motion): a spinner, a
  * cursor, an accordion. **Do not import marketing motion into the tool** — in
@@ -363,15 +427,36 @@
   --radius: 0.5rem;
   --radius-xs: 4px;
 
-  --pane-transcript-w: 26rem;
-  --pane-agent-w: 24rem;
-  --pane-inspector-w: 22rem;
-  /* Floors for the four workspace tracks. The first three exist because
-     those side widths sum to exactly 800px — see #workspace. */
-  --pane-transcript-min: 13rem;
-  --pane-preview-min: 19rem;
-  --pane-agent-min: 13rem;
+  /* F3 (2026-08-17, chrome-headless-shell 1228 over CDP): measured at
+     1600/1400/1200/1024px the preview pane — the picture PLAN.md § Layout
+     says is the largest thing on screen — was the smallest or second-
+     smallest of the four tracks at every one of them (at 1200px the
+     read-only inspector pane measured WIDER than the player). These three
+     widths come down from their old 26/24/22rem so the preview's own floor,
+     below, can go up instead — see the #workspace comment for the rest of
+     the fix. */
+  --pane-transcript-w: 22rem;
+  --pane-agent-w: 20rem;
+  --pane-inspector-w: 18rem;
+  /* Floors for the four workspace tracks. The first three used to sum to
+     exactly 800px, which is the failure the #workspace comment below
+     describes; transcript's and agent's floors now match inspector's own
+     15rem, and preview's is up from 19rem to 26rem — F3's other half: the
+     side panes give way FIRST at a narrowing window, and the picture grows
+     FIRST at a widening one, instead of being last in both directions. */
+  --pane-transcript-min: 15rem;
+  --pane-preview-min: 26rem;
+  --pane-agent-min: 15rem;
   --pane-inspector-min: 15rem;
+  /* F2: the width of the collapsed-pane rail (see #workspace's two
+     breakpoints). --pane-agent-track / --pane-inspector-track are
+     indirection cells: ordinarily each just equals its own
+     `minmax(min, w)` above, unchanged from before F2, but the breakpoints
+     swap ONE of them to `var(--rail-w)` without having to rewrite
+     #workspace's whole grid-template-columns to do it. */
+  --rail-w: 46px;
+  --pane-agent-track: minmax(var(--pane-agent-min), var(--pane-agent-w));
+  --pane-inspector-track: minmax(var(--pane-inspector-min), var(--pane-inspector-w));
   --timeline-h: 22vh;
   --timeline-h-min: 180px;
   --track-header-w: 84px;
@@ -570,6 +655,62 @@ textarea {
   text-align: center;
 }
 
+/* A generic small pill-button look, first used by #export-status below —
+   any future small-status pill reaches for this rather than a one-off. Sets
+   no colour: which state a chip is in is a `data-*` attribute question, not
+   a class question, so a second chip never has to invent a second palette. */
+.chip {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* F8: export's progress used to be reported a whole pane away, in the agent
+   feed, one column over from the button that started it — the feed keeps
+   the full record (it should, it is the one honest log) but the button had
+   no state of its own at all. This chip mirrors the SAME 'render' bus event
+   agent.js already draws its own completion card from (a second, additive
+   subscriber — see app.js), so nothing about that card changes. Hidden
+   until a render exists; `data-status` then keys its colour onto the same
+   four tokens `.check-badge` already uses, so "running/done/error/
+   cancelled" reads as the same four colours everywhere in the app that
+   reports a check or a job. */
+#export-status[data-status="running"] {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--accent);
+  background: var(--wash-accent);
+  color: var(--accent);
+}
+
+#export-status[data-status="done"] {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--kept);
+  background: var(--wash-kept);
+  color: var(--kept);
+}
+
+#export-status[data-status="error"] {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--cut);
+  background: var(--wash-cut);
+  color: var(--cut);
+}
+
+#export-status[data-status="cancelled"] {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--dim);
+  background: var(--wash-dim);
+  color: var(--dim);
+}
+
 /* -- workspace: transcript | preview | agent ----------------------------- */
 
 /* Three `minmax()`es, not the two fixed side widths plus a bare `1fr` this
@@ -587,15 +728,204 @@ textarea {
    discipline as the note above and for the same reason: a bare width here
    would be the next way for a pane to disappear at an ordinary window size
    with no scrollbar and nothing in the console. */
+/* F3 (2026-08-17): the floors above kept the preview from vanishing but
+   never made it WIN. Measured at 1600/1400/1200/1024px the preview pane was
+   the smallest, or second-smallest, of the four tracks at every one of
+   them — at 1200px the read-only inspector pane was wider than the player.
+   The bare `1fr` is now `1.7fr`, and --pane-preview-min is 26rem (was
+   19rem); the three side tracks' own preferred widths and floors come down
+   to match, above, so they give way to it.
+   F2 (same pass): below 960px the inspector pane, and below ~860px the
+   agent pane too, drew entirely past the right edge of a `body` that is
+   `overflow: hidden` — no scrollbar, no error in the console, just a pane
+   nobody could reach, the exact class of failure the two comments above
+   already describe once each. --pane-agent-track / --pane-inspector-track
+   are what let one grid column swap between "full pane" and "a 46px rail"
+   without rewriting the grid-template-columns below: normally each token
+   just equals its own `minmax(min, w)`, and the two breakpoints under this
+   rule redefine ONE of them to `var(--rail-w)`, with
+   `#workspace[data-expand~="…"]` (set by app.js's toggleRailPane, clicking
+   the rail's own tab) redefining it back.
+   Each breakpoint also has to hide the collapsed pane's other children —
+   .pane-head, #assets-list, #properties-body, the agent feed and composer —
+   and there the contract's literal "flip back to display: X" does not work:
+   .pane-head is `display: flex`, its siblings are plain block, and CSS
+   `revert` (the obvious way to "put it back") does not restore an author
+   rule's value, it jumps straight past every author rule to the UA
+   default — flex would come back as block. So the hiding rules below are
+   scoped with `:not([data-expand~="…"])` on the OUTER selector instead: the
+   expanded case is excluded from ever matching the hide rule, rather than
+   needing a second rule to undo it once the display value is gone.
+   With both rails collapsed the worst-case floor is transcript's 15rem +
+   preview's 26rem + two 46px rails ≈ 748px — well under every width F3
+   measured against (1024–1600) and under both of F2's own failures
+   (800/900px). The one width neither breakpoint reaches, 700px (F2's own
+   original measurement floor), is left ~48px short with no scrollbar — the
+   same class of failure as before, far smaller, and an accepted, documented
+   residual: not chased further this round. */
 #workspace {
   grid-row: 2;
   display: grid;
   grid-template-columns:
     minmax(var(--pane-transcript-min), var(--pane-transcript-w))
-    minmax(var(--pane-preview-min), 1fr)
-    minmax(var(--pane-agent-min), var(--pane-agent-w))
-    minmax(var(--pane-inspector-min), var(--pane-inspector-w));
+    minmax(var(--pane-preview-min), 1.7fr)
+    var(--pane-agent-track)
+    var(--pane-inspector-track);
   min-height: 0;
+}
+
+/* F2's two collapsible-pane breakpoints. At any width under 980px BOTH
+   apply at once (980 < 1200), but they target different panes — the
+   read-only inspector collapses first, the wider 1200px trigger matching
+   the measurement that put it wider than the player; the agent pane, whose
+   composer is the thing you're actually typing into, collapses only
+   later, at the narrower 980px. */
+@media (max-width: 1200px) {
+  :root {
+    --pane-inspector-track: var(--rail-w);
+  }
+
+  #inspector-pane > .pane-rail {
+    display: flex;
+  }
+
+  #workspace:not([data-expand~="inspector"]) #inspector-pane > :not(.pane-rail) {
+    display: none;
+  }
+
+  #workspace[data-expand~="inspector"] {
+    --pane-inspector-track: minmax(var(--pane-inspector-min), var(--pane-inspector-w));
+  }
+
+  #workspace[data-expand~="inspector"] #inspector-pane > .pane-rail {
+    display: none;
+  }
+
+  #workspace[data-expand~="inspector"] #inspector-pane .pane-collapse-btn {
+    display: inline-block;
+  }
+}
+
+@media (max-width: 980px) {
+  :root {
+    --pane-agent-track: var(--rail-w);
+  }
+
+  #agent-pane > .pane-rail {
+    display: flex;
+  }
+
+  #workspace:not([data-expand~="agent"]) #agent-pane > :not(.pane-rail) {
+    display: none;
+  }
+
+  #workspace[data-expand~="agent"] {
+    --pane-agent-track: minmax(var(--pane-agent-min), var(--pane-agent-w));
+  }
+
+  #workspace[data-expand~="agent"] #agent-pane > .pane-rail {
+    display: none;
+  }
+
+  #workspace[data-expand~="agent"] #agent-pane .pane-collapse-btn {
+    display: inline-block;
+  }
+}
+
+/* The floors themselves are the last thing that can push a pane off a hidden
+   edge, and they did: with both side panes already railed, the workspace still
+   demanded 15rem + 26rem + 46px + 46px = 748px, so at a 700px window
+   `body.scrollWidth` measured 766 and what fell off the right edge was BOTH
+   RAILS — which is worse than the defect the rails were added to fix, because
+   a clipped pane is at least still a pane while a clipped rail is the only way
+   back to two of them. Measured at 700/800/900/960/1024/1200/1400/1600, the
+   same widths the note above #workspace records: 800 and up were already
+   clean, 700 was not.
+
+   Dropping the two floors here takes the demand to 10rem + 20rem + 92px =
+   572px, which holds every window down to ~580 rather than only clearing the
+   one width that was failing. The preview is still the widest track (320
+   against 160 and two 46px rails), so § Layout's priority survives the
+   narrowing — it is the transcript that yields, which is the same order every
+   other breakpoint in this file already argues for. */
+@media (max-width: 860px) {
+  :root {
+    --pane-transcript-min: 10rem;
+    --pane-preview-min: 20rem;
+  }
+
+  /* The top bar is a SECOND overflow at this width and it was measured
+     separately, because a probe scoped to `#workspace *` — which is what both
+     the note above #workspace and the first pass at this work used — cannot
+     see it. At a 700px window `#bar.scrollWidth` was 766: `#export` ended at
+     722 and `#theme` at 766, so with `body`'s `overflow: hidden` the primary
+     action and the theme toggle were simply gone. That is the exact sentence
+     the #workspace note already contains — "pushing Export off the right
+     edge" — recurring one element up, which is the reason it is worth a rule
+     of its own rather than a wider floor somewhere.
+
+     Wrapping rather than hiding: everything in this bar is either an action or
+     the project's own numbers, and there is no second place to reach any of
+     it. `grid-template-rows`' first track is `auto`, so a second bar row costs
+     the workspace height and nothing else. */
+  #bar {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* The one thing that may yield, and only at the narrowest: it is a readout,
+     not a control, and `status` in the properties pane carries the same three
+     numbers. Dropping it is what keeps the bar to a single wrapped row. */
+  #bar .stats {
+    display: none;
+  }
+}
+
+/* -- collapsible pane rail (F2) --------------------------------------------
+ * The 46px icon rail #agent-pane and #inspector-pane collapse to under the
+ * two breakpoints above. Hidden outside them — every width down to 1200px
+ * (inspector) / 980px (agent) still shows the whole pane, exactly as before
+ * F2 existed.
+ */
+.pane-rail {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: var(--rail-w);
+  flex: 0 0 var(--rail-w);
+  padding-top: 10px;
+}
+
+.pane-rail-tab {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  padding: 10px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.pane-rail-tab:hover {
+  border-color: var(--dim);
+  color: var(--ink);
+}
+
+/* The small in-place close, back to the rail. Visible only in the one state
+   that needs it — narrow AND expanded, which is exactly the compound
+   selector the two breakpoints above set `display: inline-block` under.
+   Everywhere else this stays `display: none`, matching .pane-rail's own
+   default in the other direction. */
+.pane-collapse-btn {
+  display: none;
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 11px;
 }
 
 .pane {
@@ -726,7 +1056,7 @@ textarea {
 /* The picture layer — the shot under the playhead, over whatever the
    transport is showing, because that is the order melt composites in. Its own
    black ground rather than a transparent overlay: a shot that is letterboxed
-   against the canvas must not show the level display through the bars. */
+   against the canvas must not show the level display through the bars.
    It fills #frame and centres nothing: its children are placed against the
    canvas now, not flexed to the middle of whatever box they are in. */
 #picture {
@@ -940,6 +1270,18 @@ textarea {
   color: #fff;
 }
 
+/* F6: the page's global `:is(button, input, select, textarea):focus-visible`
+   rule does not match a <span>, so transcript.js's roving-tabindex word
+   (arrow keys move it, Enter/Space act it) would have been focusable with
+   no visible ring at all — arguably worse than not doing F6, since it would
+   look broken rather than merely absent. Same two selectors the words and
+   pause markers already answer to everywhere else in this file. */
+.w:focus-visible,
+.pause:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .selection-toolbar {
   position: absolute;
   display: flex;
@@ -950,6 +1292,19 @@ textarea {
   background: var(--panel);
   box-shadow: light-dark(0 8px 24px hsl(42 14% 40% / 0.22), 0 8px 24px hsl(0 0% 0% / 0.5));
   z-index: 5;
+}
+
+/* Same trap #toast was given its own override for, below: transcript.js and
+   timeline.js both build this bar once and toggle it with `bar.hidden`
+   rather than rebuilding it — but an author-stylesheet `display: flex` on
+   an id-or-class selector beats the browser's own `[hidden] { display:
+   none }` UA-stylesheet rule regardless of specificity (author origin
+   always outranks user-agent origin), so without this the bar stayed
+   rendered — and, per F6, reachable by Tab — with no selection or cue
+   active. Covers both callers: transcript.js's `.selection-toolbar` and
+   timeline.js's `.selection-toolbar.cue-toolbar` share this one class. */
+.selection-toolbar[hidden] {
+  display: none;
 }
 
 .selection-toolbar button {
@@ -971,6 +1326,19 @@ textarea {
   gap: 6px;
   min-width: 220px;
   z-index: 6;
+}
+
+/* The same trap as `.selection-toolbar[hidden]` above, one element in, and it
+   had been live the whole time the toolbar's had: transcript.js sets
+   `popover.hidden = true` and this rule's author-origin `display: flex`
+   outranks the user agent's `[hidden] { display: none }`, so the pad +
+   suspect-boundary panel drew itself open under EVERY selection. Measured on
+   the running page after a real 120ms-dwell click on a word: `hidden: true`,
+   `display: "flex"`, 249x202px on screen. It read as deliberate rather than as
+   a bug, which is why it survived — the panel is well-formed, it is simply
+   never meant to be there until `pad` is pressed. */
+.toolbar-popover[hidden] {
+  display: none;
 }
 
 /* -- agent pane ------------------------------------------------------------ */
@@ -1572,18 +1940,126 @@ textarea {
   background: var(--wash-cut);
 }
 
+/* F7's '?' keyboard-shortcut reference. A native <dialog> (app.js's
+   showModal()/close()) for its free focus-trap and Escape-to-close — this
+   file only has to style the panel and the ::backdrop behind it, not build
+   either mechanic. The panel reuses .toolbar-popover's own border/radius/
+   background/box-shadow verbatim: one floating-panel look in the app, not a
+   second one invented for this. Its body is a static, hand-typed .rows
+   table (see index.html) — reference text, not something this file or any
+   script generates, so nothing here needs to lay out a dynamic list. */
+dialog#shortcuts-sheet {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: light-dark(0 8px 24px hsl(42 14% 40% / 0.22), 0 8px 24px hsl(0 0% 0% / 0.5));
+  width: min(420px, 90vw);
+}
+
+dialog#shortcuts-sheet::backdrop {
+  background: light-dark(hsl(42 14% 40% / 0.28), hsl(0 0% 0% / 0.55));
+}
+
+.shortcuts-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+#shortcuts-close {
+  padding: 2px 8px;
+}
+
+/* The static keymap table reuses .rows verbatim (the same key/value table
+   the agent feed and the properties pane already use) — its own margin,
+   since here it sits inside a padding:0 dialog rather than a padded pane
+   body. */
+#shortcuts-sheet .rows {
+  margin: 10px 14px 14px;
+  width: calc(100% - 28px);
+}
+
 #toast {
   position: fixed;
   right: 16px;
   bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   max-width: 46ch;
   padding: 10px 14px;
-  border: 1px solid var(--cut);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
   color: var(--ink);
   box-shadow: light-dark(0 8px 28px hsl(42 14% 40% / 0.26), 0 8px 28px hsl(0 0% 0% / 0.55));
   z-index: 10;
+}
+
+/* REQUIRED — verified live, not just read off the cascade. Once #toast
+   above gets `display: flex` (needed for the message + dismiss-button row),
+   that id-selector rule outranks the browser's own `[hidden] { display:
+   none }` UA rule at equal-or-greater specificity, so without this explicit
+   id+attribute override the toast renders itself even while its `hidden`
+   attribute is set. Exactly the class of failure that reads correctly on
+   paper and wrong in a browser — see the header note on canvas colour
+   reads for the last time this file paid for that lesson. */
+#toast[hidden] {
+  display: none;
+}
+
+#toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A bare icon, not a bordered button — it sits inside the toast's own
+   border and a second one nested in it would read as a toast within a
+   toast. */
+#toast-dismiss {
+  flex: none;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+#toast-dismiss:hover {
+  color: var(--ink);
+}
+
+/* F9: a toast used to be one red border no matter what it said, so "Render
+   started · job 4" arrived dressed as a failure. `data-severity` (set by
+   app.js's toast()) keys the border onto the same three functional tokens
+   the rest of the app already uses for ok/warn/error — no new colours.
+   'ok' and 'warn' still auto-dismiss on the unchanged 9000ms timer; 'error'
+   is the one severity with no timer in app.js at all, because the long
+   strings the server actually returns were the wrong thing to blink away
+   on a clock. */
+#toast[data-severity="ok"] {
+  border-color: var(--kept);
+}
+
+#toast[data-severity="warn"] {
+  border-color: var(--partial);
+}
+
+#toast[data-severity="error"] {
+  border-color: var(--cut);
 }
 
 /* -- picker page (DAYDREAM.md § Multi-project) ----------------------------

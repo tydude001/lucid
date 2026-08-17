@@ -20,7 +20,7 @@
       <span class="brand serif-accent">lucid</span>
       <span class="sep">/</span>
       <span id="project" class="name">…</span>
-      <select id="clip" title="clip"></select>
+      <select id="clip" title="clip" aria-label="active clip"></select>
       <span class="stats">
         <b id="duration">–</b> timeline
         · <b id="segcount">–</b> segments
@@ -58,13 +58,40 @@
       <button id="export" class="primary" title="render a watermark-free MP4 in the window">
         Export
       </button>
+      <!-- F8: the render's own status, beside the button that started it —
+           progress used to land only in the agent feed, a column over,
+           interleaved with agent turns, so the only trace near this button
+           was a toast that had since expired. Hidden until app.js's own
+           second ctx.on('render', …) subscription (additive alongside
+           agent.js's, which keeps the exact per-job card) sets
+           data-status/textContent/dataset.jobId; app.css keys four chip
+           colours off data-status. Click scrolls the agent feed to bottom —
+           not to this job's own card, which would need a one-line change to
+           agent.js's slotFor() that is out of scope this round. -->
+      <button id="export-status" class="chip" type="button" hidden></button>
+      <!-- The one visible way in to #shortcuts-sheet. Pressing `?` opens it
+           too (player.js raises 'shortcut-help'), but a keymap reachable only
+           by a key you would have to already know is not a keymap — the sheet
+           exists precisely so the other eleven bindings are discoverable, and
+           that argument collapses without an affordance on screen. Emits the
+           same bus event the key does rather than calling showModal itself,
+           so there is one open path and not two. -->
+      <button id="shortcuts-open" type="button" title="keyboard shortcuts (?)" aria-label="keyboard shortcuts">
+        ?
+      </button>
       <!-- Glyph and title are set by theme.js, which knows which of the three
-           states is live. -->
+           states is live. aria-label too (theme.js's FACE table) — nothing
+           static here to fight it. -->
       <button id="theme" type="button" title="theme">◐</button>
     </header>
 
-    <div id="workspace">
-      <aside id="transcript-pane" class="pane">
+    <!-- F6: a landmark around the four working panes, so a screen reader or
+         a keyboard user has one place to jump to instead of falling through
+         the whole document. Tag only — no id/class/child of #workspace is
+         selected anywhere else in app.css or any JS file by its old `div`,
+         only by the bare id, so this is safe. -->
+    <main id="workspace">
+      <aside id="transcript-pane" class="pane" aria-label="transcript">
         <div class="pane-head">
           transcript
           <span class="hint">click a word · drag or shift-click to extend</span>
@@ -72,7 +99,16 @@
         <div id="transcript"></div>
       </aside>
 
-      <section id="preview-pane" class="pane">
+      <section id="preview-pane" class="pane" aria-label="preview">
+        <!-- F3: the one pane with no name on it, though it's the surface
+             looked at most. Carries the project canvas too — a fact you
+             otherwise have to open the properties pane to read, and the
+             whole reason PLAN.md's "the picture is placed, never fitted"
+             rule needs saying out loud. Filled by app.js on every load(). -->
+        <div class="pane-head">
+          preview
+          <span id="preview-canvas-note" class="hint"></span>
+        </div>
         <div id="viewer">
           <!-- The frame is the project canvas, not the media's own shape, and
                everything that draws lives inside it: the render crops footage
@@ -108,7 +144,7 @@
           <p id="frame-note" class="picture-note" hidden></p>
         </div>
         <div id="transport">
-          <button id="play" title="play the timeline (space)">▶</button>
+          <button id="play" title="play the timeline (space)" aria-label="play or pause the timeline">▶</button>
           <span id="clock" class="clock">0:00.0 / 0:00.0</span>
           <span class="spacer"></span>
           <span id="playhint" class="hint">
@@ -118,10 +154,20 @@
         </div>
       </section>
 
-      <aside id="agent-pane" class="pane">
+      <aside id="agent-pane" class="pane" aria-label="agent">
+        <!-- F2: below 980px this collapses to a 46px rail (app.css's own
+             comment on #workspace records the 800px measurement that missed
+             this fourth-track floor) instead of running the pane off-screen
+             with no scrollbar. One tab, one job — app.js's toggleRailPane()
+             flips a token in #workspace's data-expand attribute, the same
+             function the collapse button below calls in reverse. -->
+        <div class="pane-rail">
+          <button class="pane-rail-tab" type="button" aria-label="show agent">agent</button>
+        </div>
         <div class="pane-head">
           agent
           <span class="spacer"></span>
+          <button class="pane-collapse-btn" type="button" aria-label="collapse agent" title="collapse to rail">«</button>
           <button id="agent-new-task" type="button" title="kill the running conversation and start fresh">
             New Task
           </button>
@@ -148,10 +194,18 @@
            tracks, since neither needs the width a transcript or the agent
            feed does. Filled entirely by the two modules; this file only
            owns the shell (app.css § Assets pane / § Properties pane). -->
-      <aside id="inspector-pane" class="pane">
+      <aside id="inspector-pane" class="pane" aria-label="assets and properties">
+        <!-- F2: same rail as the agent pane, below 1200px — this pane's
+             read-only content is the least urgent of the four, which is why
+             it collapses first (agent still gets the full 980px down). -->
+        <div class="pane-rail">
+          <button class="pane-rail-tab" type="button" aria-label="show inspector">assets</button>
+        </div>
         <div class="pane-head">
           assets
           <span class="hint">click to inspect · role sets voiceover / footage</span>
+          <span class="spacer"></span>
+          <button class="pane-collapse-btn" type="button" aria-label="collapse inspector" title="collapse to rail">«</button>
         </div>
         <div id="assets-list"></div>
         <div class="pane-head">
@@ -164,7 +218,7 @@
         </div>
         <div id="properties-body"></div>
       </aside>
-    </div>
+    </main>
 
     <section id="timeline-pane">
       <div class="timeline-head">
@@ -176,8 +230,16 @@
         <span class="spacer"></span>
         <label class="zoom-ctl">
           zoom
-          <input id="zoom" type="range" min="1" max="10" step="0.1" value="1" />
+          <input id="zoom" type="range" min="1" max="10" step="0.1" value="1" aria-label="timeline zoom" />
         </label>
+        <!-- F5: default ON, class present in the markup rather than set by
+             JS after load, so there's no flash of the wrong state before
+             app.js runs. timeline.js wires the nudge (the existing
+             per-frame 'playhead' subscription, touching only scrollLeft —
+             never render(), per this file's own "redraw only what a live
+             gesture owns" rule) and the click that toggles it off/on, plus
+             turning it off on any real user scroll of the lane. -->
+        <button id="follow-playhead" class="toggle on" type="button" title="keep the playhead in view while playing">follow</button>
       </div>
       <div id="timeline-tracks">
         <div id="track-headers" class="track-headers"></div>
@@ -185,7 +247,58 @@
       </div>
     </section>
 
-    <div id="toast" hidden></div>
+    <!-- F6/F9: role=status + aria-live=polite make this the one channel
+         errors arrive on actually reach a screen reader, not just paint red
+         text nobody but a sighted person watching this exact corner sees.
+         data-severity (ok/warn/error, set by app.js's toast()) is what
+         app.css keys three border-colour rules off, so "Render started"
+         stops dressing itself as a failure. Split into a message span and a
+         dismiss button because severity:'error' — the long strings the
+         server actually returns — sets no auto-dismiss timer and needs a
+         manual way out; app.css's own `#toast[hidden]{display:none}` rule
+         is what keeps this element honestly hidden once the base `#toast`
+         rule gives it `display:flex` (an id rule otherwise outranks the
+         browser's own [hidden] default). -->
+    <div id="toast" hidden role="status" aria-live="polite">
+      <span id="toast-message"></span>
+      <button id="toast-dismiss" type="button" aria-label="dismiss">×</button>
+    </div>
+
+    <!-- F7: opened by '?' (player.js emits 'shortcut-help', app.js calls
+         showModal()) — a native <dialog> for a free focus-trap and
+         Escape-to-close, so this needed no keyboard-navigation code of its
+         own. Fixed reference text, typed out by hand, not JS-generated: the
+         map is what makes every other binding in player.js discoverable at
+         all, so it has to be readable independent of whether the bindings
+         it documents are even wired yet. -->
+    <dialog id="shortcuts-sheet">
+      <div class="shortcuts-head">
+        <span class="pane-head-inline">keyboard shortcuts</span>
+        <button id="shortcuts-close" type="button" aria-label="close">×</button>
+      </div>
+      <table class="rows">
+        <tbody>
+          <tr><td>Space</td><td>play / pause</td></tr>
+          <tr>
+            <td>J</td>
+            <td>step back 1s — hold to shuttle (HTML5 video has no reliable reverse play)</td>
+          </tr>
+          <tr><td>K</td><td>pause</td></tr>
+          <tr><td>L</td><td>play</td></tr>
+          <tr><td>← / →</td><td>step one frame</td></tr>
+          <tr><td>Shift + ← / →</td><td>step one second</td></tr>
+          <tr><td>Home / End</td><td>start / end</td></tr>
+          <tr><td>[ / ]</td><td>previous / next cut</td></tr>
+          <tr><td>Ctrl/Cmd + Z</td><td>undo</td></tr>
+          <tr>
+            <td>Shift + Ctrl/Cmd + Z</td>
+            <td>undo — there is no redo op, so this binds the same as the plain chord</td>
+          </tr>
+          <tr><td>?</td><td>this sheet</td></tr>
+        </tbody>
+      </table>
+    </dialog>
+
     <script type="module" src="/static/app.js"></script>
   </body>
 </html>

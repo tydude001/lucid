@@ -258,11 +258,16 @@ is the inventory with design detail per row. Cite rows by feature name.
 
 ### Workspace shell — built, and rethemed
 
-Three panes over a full-width timeline: built (PLAN.md § Tier 3 is the
+Four panes over a full-width timeline: built (PLAN.md § Tier 3 is the
 goal). The retheme shipped 2026-08-08 — HISTORY.md § The look pass has the
 account and the measurements. What landed: the warm token set in light **and**
 dark, the three families vendored as woff2, the three voices applied, the
 pastel lanes, and the top bar in Daydream's order.
+
+The shell became responsive on 2026-08-17: the preview carries real grid
+weight and is the widest pane at every width, the agent and inspector panes
+collapse to a 46px rail rather than off a hidden edge, and the top bar wraps
+instead of dropping Export. HISTORY.md § The web UI review.
 
 One thing the plan above got wrong, worth keeping written down: it expected
 "a media query plus a toggle". That shape stores the palette twice. What was

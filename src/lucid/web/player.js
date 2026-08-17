@@ -43,6 +43,14 @@
  * timeline.js paint their own playheads/highlights from those rather than
  * this module reaching into their DOM (PLAN.md § Files, and why they
  * split: panes never import each other).
+ *
+ * Also new: the transport keymap (§ the transport keymap, below), which
+ * widens the one existing global key binding (Space) into J/K/L, frame and
+ * second stepping, Home/End, seam-to-seam, undo and the shortcut sheet. Undo
+ * and the sheet are not this module's to act on — it emits 'shortcut-undo'
+ * and 'shortcut-help' on the bus and leaves the DOM/network side of both to
+ * whoever owns #undo and #shortcuts-sheet, the same split as 'playhead' and
+ * 'playing-word' above.
  */
 
 import { $, fmt } from "./dom.js";
@@ -746,6 +754,68 @@ export function update(state) {
   if (mediaClip === null) setClip(wanted);
 }
 
+/* -- the transport keymap -------------------------------------------------
+ *
+ * F7: for a tool whose whole argument is that seeing an edit costs no
+ * render, there was no way to scrub, step a frame, or jump seam to seam from
+ * the keyboard, and the one binding that did exist (Space) let a focused
+ * <select> both open its own dropdown and toggle playback on the same press.
+ */
+
+/* Widened from the original guard (tagName INPUT/TEXTAREA only), which is
+ * exactly the gap F7 measured: a focused <select> is neither, so Space fell
+ * through to the transport underneath it. A contenteditable element is on
+ * the same list for the same reason nothing here is HTML-specific — a caret
+ * living anywhere editable means a keypress is typing, not transport. */
+function isTypingTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
+/* One frame, in seconds. `shots_rate` and not `timebase`: for a video
+ * project the two agree, but an audio-only project's `timebase` is
+ * milliseconds (ops.py `_rate` — CLAUDE.md documents this exact trap for the
+ * picture lane, and stepping "one frame" by it would move 1ms at a time).
+ * `shots_rate` is `_export_fps`'s own contract — "the picture's rate if
+ * there is picture, else a sane default" — so it is always a real frame
+ * rate. The `|| 30` only covers a keypress that lands before any view has.
+ */
+function frameSeconds() {
+  const v = view();
+  const rate = (v && v.shots_rate) || 30;
+  return 1 / rate;
+}
+
+/* The nearest seam strictly before/after `t`, or the timeline's own edge
+ * when there is none that way. `seams` is ops.py `_seams` — cut boundaries
+ * named by the words either side — and this picks one rather than deriving
+ * anything: `timeline_time` is the only field read. */
+function seamStep(t, dir) {
+  const v = view();
+  const seams = (v && v.seams) || [];
+  const times = seams.map((s) => s.timeline_time);
+  if (dir < 0) {
+    const before = times.filter((x) => x < t - 1e-6);
+    return before.length ? Math.max(...before) : 0;
+  }
+  const after = times.filter((x) => x > t + 1e-6);
+  return after.length ? Math.min(...after) : v ? v.timeline_duration : t;
+}
+
+/* L and K are directional, not a flip: pressing L while already playing (or
+ * K while already paused) must be a no-op, which is why these are not just
+ * `toggle()` called conditionally from two different keys. */
+function playMedia() {
+  if (!media || !media.paused) return;
+  ensureVisualizer();
+  media.play().catch((err) => ctx.emit("toast", err.message));
+}
+
+function pauseMedia() {
+  if (media) media.pause();
+}
+
 export function init(passedCtx) {
   ctx = passedCtx;
   media = $("media");
@@ -810,11 +880,84 @@ export function init(passedCtx) {
   layoutFrame();
 
   window.addEventListener("keydown", (event) => {
-    const tag = event.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (isTypingTarget(event.target)) return;
+    // The sheet is a native <dialog> and owns Escape itself; every binding
+    // below would otherwise fire underneath it while it is open on top of
+    // the transport it is documenting.
+    if ($("shortcuts-sheet")?.open) return;
+
     if (event.code === "Space") {
       event.preventDefault();
       toggle();
+      return;
+    }
+
+    const key = event.key;
+    const lower = key.toLowerCase();
+
+    // There is no redo op anywhere in ops/webui — only /api/undo — so both
+    // chords bind to the same undo, matching the muscle-memory of "I undid
+    // too far" rather than inventing a redo that doesn't exist server-side.
+    // Computing or POSTing undo is not this file's job: it emits and leaves
+    // the rest to whoever owns #undo, the same split 'playhead' already is.
+    if ((event.metaKey || event.ctrlKey) && lower === "z") {
+      event.preventDefault();
+      ctx.emit("shortcut-undo");
+      return;
+    }
+    if (key === "?") {
+      // `.key` and not `.code`, so this reaches Shift+/ on every layout, not
+      // just the US one `.code` would assume.
+      event.preventDefault();
+      ctx.emit("shortcut-help");
+      return;
+    }
+
+    if (lower === "j") {
+      // Pause + step back 1s per press, relying on the OS's own key-repeat
+      // for a shuttle feel — NOT continuous reverse playback. HTML5 <video>
+      // has no reliably-supported negative playbackRate, and the seam loop
+      // above is built around monotonic-forward playback throughout.
+      event.preventDefault();
+      pauseMedia();
+      seek(now() - 1);
+      return;
+    }
+    if (lower === "k") {
+      event.preventDefault();
+      pauseMedia();
+      return;
+    }
+    if (lower === "l") {
+      event.preventDefault();
+      playMedia();
+      return;
+    }
+
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      event.preventDefault();
+      pauseMedia();
+      const step = event.shiftKey ? 1 : frameSeconds();
+      seek(now() + (key === "ArrowLeft" ? -step : step));
+      return;
+    }
+    if (key === "Home") {
+      event.preventDefault();
+      seek(0);
+      return;
+    }
+    if (key === "End") {
+      // The same epsilon app.js's own load() seeks the far end to, so
+      // landing here and landing from a fresh load read as the same place.
+      event.preventDefault();
+      const v = view();
+      seek((v ? v.timeline_duration : 0) - 0.01);
+      return;
+    }
+    if (key === "[" || key === "]") {
+      event.preventDefault();
+      seek(seamStep(now(), key === "[" ? -1 : 1));
+      return;
     }
   });
 

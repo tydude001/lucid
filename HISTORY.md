@@ -8143,3 +8143,120 @@ cost dominates (roughly 30 MiB a source on these cells, resident once
 opened and never released), frame size scales the base, and timeline length
 is free.** A long film costs what its *distinct source list* costs, which is
 the one number `status` already reports.
+
+## The web UI review, and the nine it closed — 2026-08-17
+
+A review of `src/lucid/web/` measured against the running server rather than
+read off the source: `lucid web -C ~/lucid-final-cut/proj`, driven by
+chrome-headless-shell over CDP. Nine findings, all with a number behind them,
+then a contract-first fan-out that closed them — and four more the build
+turned up that the review had not.
+
+**F1, and it is the one worth the whole exercise: a stray `*/` had been
+deleting the entire `#picture` rule.** The comment above it closed early and
+two lines of prose sat outside it ending in a second `*/`. CSS error recovery
+consumes an unexpected token as the start of a qualified rule and swallows
+everything to the next block — so the prose *and the selector after it* went
+down together:
+
+```
+getComputedStyle(#picture) → position "static", inset "auto", background "rgba(0, 0, 0, 0)"
+[...styleSheets[0].cssRules].some(r => r.selectorText === "#picture") → false
+```
+
+What the rule provided was the picture layer's black ground, which is exactly
+what its own comment says it exists for — so a letterboxed V2 shot showed the
+transport's element through its bars, and on a VO project the level display's
+frozen last frame. Placement survived only by luck: `#picture`'s children are
+absolutely positioned and `#frame` is `position: relative`, so the containing
+block happened to be the same box either way. **Nothing in a 116-test suite
+noticed, because nothing in it reads a computed style.** The guard now does,
+without a browser: two tests over the real socket (7 collected, parametrised
+over the selector list) strip comments and assert no orphaned prose or
+unbalanced brace survives, and assert that each load-bearing selector the JS
+depends on resolves to a rule in the served sheet.
+
+**F2/F3 — the layout argued the opposite of what § Layout says.** `body` is
+`overflow: hidden`, so a workspace wider than the window produces no
+scrollbar; the pane is simply not there. app.css's own comment records this
+being found and fixed once at 800px for the *three*-track layout, "measured at
+700/800/900/1400" — the fourth track was added later, pushed the floor to
+960px, and nothing re-measured. And the preview, which § Layout says is the
+largest thing on screen, was pinned at its 19rem floor from 1456px down
+because the three side tracks took their preferred widths first:
+
+| window | transcript | preview | agent | inspector | body.scrollWidth |
+|---|---|---|---|---|---|
+| 1600 | 416 | 448 | 384 | 352 | 1600 |
+| 1400 | 372 | **304** | 372 | 352 | 1400 |
+| 1200 | 288 | **304** | 288 | **320** | 1200 |
+| 900 | 208 | 304 | 208 | 240 | **960** |
+| 700 | 208 | 304 | 208 | 240 | **960** |
+
+At 1200 the read-only inspector was wider than the player. Now the preview
+carries real weight (`minmax(26rem, 1.7fr)`) and is the widest pane at all
+nine measured widths — 320 at 700, 482 at 1200, 640 at 1600 — and the two side
+panes collapse to a 46px rail (inspector at 1200px, agent at 980px) rather
+than being hidden, because a rail keeps the pane reachable and a media query
+that hides it does not. Verified by opening one with a real press/release at a
+120ms dwell, not by asserting the CSS.
+
+**F4-F9, each closed on a readback.** The selection toolbar rendered 169px
+outside its pane, the same defect `refreshCueToolbar` had already found and
+fixed for the *cue* toolbar and carried separately — the clamp now lives once
+as `dom.js`'s `clampFloating` and both call it. The playhead was never
+scrolled into view (at zoom 6: left 4548px, scrollLeft 0, lane viewport
+1516px); it now follows by default and releases to a real wheel event without
+re-engaging. There were 0 landmarks, 0 headings, no `aria-live` on the only
+channel errors arrive on, and 0 of 1150 words reachable without a mouse; all
+1150 now take focus and a real ring. Space was the only bound key; there are
+now eleven, with arrows measured at ±0.042s (1/24s, read from the view rather
+than assumed) and shift-arrows at exactly ±1.000s. Export's state now sits
+beside the button as well as in the feed, and a toast carries a severity so
+"Render started" stops arriving dressed as a failure — a bare-string
+`emit("toast", …)` still works, so agent.js and assets.js needed no edits.
+
+### The four the review missed, and why
+
+**A check's window is a claim too, and mine was wrong.** With the panes
+re-weighted the workspace measured clean at every width and the page still
+overflowed at 700px. The second overflow was the top bar — `#bar.scrollWidth`
+766 against a 700px window, `#export` ending at 722 and `#theme` at 766, both
+gone under `body { overflow: hidden }`. **The original review and the
+verification agent missed it identically, because both scoped the probe to
+`#workspace *`** — F2 was a workspace finding, so that is where the probe
+looked. Worse, it is the sentence app.css already carries about a defect it
+fixed once, *"pushing Export off the right edge"*, recurring one element up.
+The bar now wraps below 860px rather than hiding controls, and the probe walks
+`body *`.
+
+**An author `display:` outranks the user agent's `[hidden] { display: none }`,
+so `el.hidden = true` does nothing.** `.selection-toolbar`, `.cue-toolbar` and
+`.toolbar-popover` all declare `display: flex` and all three were drawn
+permanently — the toolbars on every page load, the pad popover at 249x202px
+under every selection. Nobody noticed because they sit where a selection would
+put them and read as deliberate. It only became *visible* as a bug once words
+entered the tab order: a control that is merely drawn is easy to overlook, and
+one that is drawn and tabbable is not. Every `hidden`-toggled element in this
+file set now has its companion `[hidden]` rule; `#picture` already had one,
+which is the only reason F1 was invisible rather than catastrophic.
+
+**And the `?` sheet shipped complete and unreachable** — eleven bindings,
+styled, wired, populated, openable only by pressing a key you would have to
+already know. Discoverability was the entire argument for building it. It has
+a button now, emitting the same `shortcut-help` bus event the key raises
+rather than calling `showModal()` itself.
+
+### One reported finding that was not one
+
+`#theme`'s `◐` rendered as a chevron in the headless shell, and it was written
+up as a vendored-font gap with a suggested CSS replacement. It is neither:
+`fc-list ':charset=25D0'` returns **217 fonts on this box**, so a real desktop
+browser draws it correctly and the headless shell's restricted font set was
+the whole finding. Nothing was changed for it. The rule that catches this is
+the one already in this file for `SCENE_THRESHOLD` and for the auto-framing
+detector: a first run gives candidates, and a candidate measured in a
+substituted environment is a claim about that environment.
+
+The account, the mockup it was designed against, and every number above are on
+the review page published for this work.
