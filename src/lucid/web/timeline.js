@@ -66,6 +66,28 @@
 
 import { $, el, fmt, secs, clampFloating } from "./dom.js";
 
+/** Widest a drag-trim handle is ever drawn, and the narrowest block that gets
+ * a pair at all.
+ *
+ * Both numbers are measured, not picked. Two flat 6px handles cover a block
+ * only 14px wide outright, leaving no interior to seek by — but widening the
+ * threshold past that is `snapTolerance()`'s doing, not the handles': the
+ * tolerance is ~6px expressed in seconds, and `handleLanesMouseUp` calls a
+ * trim `moved` only once it exceeds that. On a block narrower than roughly
+ * two tolerances, an inward drag is clamped to less than one and the gesture
+ * resolves to nothing — **silently**: no preview, no popover, no toast.
+ * Measured in a browser at 2.8px handles on a 14px block: the preview drew
+ * 2.5px wide and the drag posted nothing at all.
+ *
+ * So a block under `TRIM_MIN_BLOCK_PX` is not given handles. It stays what it
+ * always was, a plain click-to-seek target, and the way to trim a short
+ * segment is to zoom in — which works: the film's 1.5s opening segment is
+ * 6px of timeline at the zoom the page opens at and 51px at zoom 10, where it
+ * trims correctly. Not offering a gesture is better than offering one that
+ * does nothing without saying so. */
+const TRIM_HANDLE_PX = 6;
+const TRIM_MIN_BLOCK_PX = 24;
+
 let ctx = null;
 let lastState = null;
 let zoomMultiplier = 1; // multiplies the fit-to-window base — #zoom is 1..10
@@ -88,16 +110,51 @@ let lastFollowScrollLeft = null; // the scrollLeft THIS FILE last set via the
 let selection = null; // word indices to highlight — set by this file's own
 // drag gesture below, or by the 'selection' bus event for any other pane
 // that wants to drive the highlight
-let cueDrag = null; // {anchorIndex, currentIndex, moved} while a mousedown
-// on the lanes is live — anchorIndex is the drag's *start* word, which is
-// the only address `cue_add` uses (PLAN.md § Three uncosted parity items:
-// "only a drag's start needs an address")
+let gesture = null; // {kind: "cue"|"trim"|"razor", ...} while a mousedown on
+// the lanes is live — the ONE piece of live-gesture state, discriminated by
+// `kind` so mousemove/mouseup can branch. Replaces the old single-purpose
+// `cueDrag`; a "cue" gesture is exactly what `cueDrag` used to be
+// ({anchorIndex, currentIndex, moved} — anchorIndex is the drag's *start*
+// word, the only address `cue_add` uses). A "trim" gesture is
+// {clipId, edge, origStart, origEnd, proposedTime, direction}; a "razor"
+// gesture is {startTime, currentTime, moved}. Still exactly one mousedown/
+// mousemove/mouseup triple (init(), below) — a second gesture kind is a new
+// branch inside the existing handlers, never a second listener.
 let cueSelection = null; // {wordIndex, boxLeft, boxTop} once a real drag
-// (cueDrag.moved) finishes — drives the floating cue-placement toolbar
+// (gesture.moved) finishes — drives the floating cue-placement toolbar
 let cueToolbarEl = null;
 let cueInfoEl = null;
+let cueAssetInputEl = null; // exposed (not just a buildCueToolbar() local) so
+// openCuePlacement — shared by the razor "place b-roll" verb and an
+// asset-drag drop — can prefill it
 let suppressNextClick = false; // set when a drag moved, so the native
 // 'click' a mouseup can still fire doesn't also trigger seekOnClick
+
+let toolMode = "select"; // "select" | "razor" — a tool MODE, not a
+// persistent preference, so #razor-tool ships with no anti-flash class the
+// way #follow-playhead's 'on' has
+let snapEnabled = true; // #snap-toggle — on by default, markup carries the
+// 'on' class already for the same no-flash reason follow-playhead's does
+
+let planSelection = null; // the plan-echo popover's own selection, parallel
+// to cueSelection: {kind:"cut", span, clipId, boxLeft, boxTop, result?, error?} |
+// {kind:"restore", ranges, clipId, boxLeft, boxTop, result?, error?} |
+// {kind:"razor-choice", span, boxLeft, boxTop} — never mutated by a gesture
+// directly, only read by refreshPlanToolbar()
+let planToolbarEl = null;
+let planInfoEl = null;
+let planWarnEl = null;
+let planActionsEl = null;
+let planConfirmCheckbox = null; // the suspect-boundary confirmation
+// checkbox, rebuilt fresh into planActionsEl each refreshPlanToolbar() call
+// that has suspect boundaries to show — null otherwise, so applyCutPlan can
+// tell "no gate needed" from "gate needed, unchecked" without a stale
+// reference to a checkbox no longer in the DOM
+
+let dropGhostEl = null; // the ONE standalone node the HTML5 drag-and-drop
+// listeners drive (item G) — a separate lifecycle from `gesture` above
+// (native dragover/dragleave/drop, not mouse events), so it is never touched
+// by updateGestureOverlay()
 
 const MIN_PX_PER_SEC = 4; // guards a zero/near-zero duration from a divide
 const LANE_H_FALLBACK = 42; // matches app.css's --lane-h if the var lookup fails
@@ -298,6 +355,42 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state, withFilmstrip) 
       block.append(el("span", "clip-label", seg.clip_id));
     } else {
       block.textContent = seg.clip_id;
+    }
+    // Drag-trim handles on **both** lanes this function draws, because V1 and
+    // A1 are the same `state.segments` shown twice and a trim on either
+    // resolves to the same `cut_by_time` span. STUDIO.md says "V1 block
+    // edges", and taking that literally put the gesture out of reach of
+    // exactly the projects lucid exists for: V1 is built only when the
+    // displayed clip `has_video` (see render()), so a VO-driven essay — the
+    // shipped film included — has no V1 lane at all, and drag-trim was
+    // unreachable on it. Measured in a browser against a real project, where
+    // the lanes came back V2/A1/CC and `.trim-handle` count was 0.
+    //
+    // Carries the segment's own clip_id and timeline edges as data-
+    // attributes rather than a closure, because handleLanesMouseDown reads
+    // them straight off `event.target.closest(".trim-handle")` — the handle
+    // is the mousedown's own target, and per this file's central rule a live
+    // gesture must never rebuild the node it is anchored to, so nothing here
+    // may depend on `seg` still being in scope by drag time.
+    //
+    // Handles only where the gesture can actually complete — see
+    // TRIM_MIN_BLOCK_PX. On the dogfood film's own 63 segments this is not an
+    // edge case: at the zoom the page opens at the median block is 17.9px and
+    // 33 of the 63 are under 20px, so the un-thresholded version offered a
+    // trim on more than half the film that silently did nothing.
+    const handlePx = Math.min(TRIM_HANDLE_PX, blockWidth / 3);
+    if ((kind === "V1" || kind === "A1") && blockWidth >= TRIM_MIN_BLOCK_PX) {
+      const inH = el("div", "trim-handle trim-handle-in");
+      const outH = el("div", "trim-handle trim-handle-out");
+      for (const h of [inH, outH]) {
+        h.dataset.clipId = seg.clip_id;
+        h.dataset.segTimelineStart = seg.timeline_start;
+        h.dataset.segTimelineEnd = seg.timeline_end;
+        h.style.width = `${handlePx.toFixed(1)}px`;
+      }
+      inH.dataset.edge = "in";
+      outH.dataset.edge = "out";
+      block.append(inH, outH);
     }
     row.append(block);
   }
@@ -541,6 +634,53 @@ function laneTimeFromEvent(event) {
   return Math.max(0, (event.clientX - rect.left + lanes.scrollLeft) / currentPxPerSec);
 }
 
+/** A frame, never a bare epsilon (`reframe_coverage`'s own lesson, CLAUDE.md)
+ * — but a frame in *seconds* is meaningless once zoomed out far enough that
+ * one frame is sub-pixel, so this is the LARGER of a frame and 6 screen
+ * pixels converted to seconds at the current zoom. `shots_rate` (export's
+ * own frame grid) is preferred over `timebase` because it is the grid a real
+ * cut boundary actually lands on; either is a better guess than a bare 30. */
+function snapTolerance() {
+  const frameSec = 1 / ((lastState && (lastState.shots_rate || lastState.timebase)) || 30);
+  const pxTolerance = 6 / currentPxPerSec;
+  return Math.max(frameSec, pxTolerance);
+}
+
+/** Snaps a drag's timeline-second position onto the nearest word boundary,
+ * cue edge, or the playhead — a click-precision aid, never a source of
+ * truth: the snapped value still becomes an ordinary render-time span
+ * through `laneTimeFromEvent`'s own coordinate space, resolved to source
+ * time server-side same as any other drag (`cut_by_time`'s own docstring).
+ * Targets are read straight off data already in memory (`lastState.words`/
+ * `.shots`, `ctx.player.now()`) — no fetch, and no epsilon: `snapTolerance()`
+ * above. A no-op (returns `t` unchanged) when `#snap-toggle` is off or there
+ * is no state loaded yet to snap against. */
+function snap(t) {
+  if (!snapEnabled || !lastState) return t;
+  const tolerance = snapTolerance();
+  let best = t;
+  let bestDist = tolerance;
+  const consider = (candidate) => {
+    if (candidate === null || candidate === undefined) return;
+    const dist = Math.abs(candidate - t);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      best = candidate;
+    }
+  };
+  for (const w of lastState.words || []) {
+    if (!w.present) continue;
+    consider(w.timeline_start);
+    consider(w.timeline_end);
+  }
+  for (const shot of lastState.shots || []) {
+    consider(shot.start);
+    consider(shot.start + shot.duration);
+  }
+  if (ctx) consider(ctx.player.now());
+  return best;
+}
+
 /** Word-range echo, three either side (CLAUDE.md) — the placement word
  * bracketed so it reads correctly even if it lands one off from what the
  * drag looked like it meant. */
@@ -602,43 +742,97 @@ function refreshCueToolbar() {
   }
 }
 
-/** Redraws only the drag-box, leaving every lane/row/block untouched.
+/** Draws the live trim-drag overlay: for an inward drag, a band over the
+ * material that would be REMOVED; for an outward (restore) drag, a band over
+ * the gap that would come BACK. Same standalone-node lifecycle as
+ * `.drag-box` (`drawSelectionHighlight`) — appended straight to `lanes`,
+ * spanning the full lane stack the way `.drag-box` already does (top:0;
+ * bottom:0 on a node that is a *direct* child of `#track-lanes`, not of any
+ * one `.lane` row) — never the `.trim-handle`/`.clip-block` the drag is
+ * anchored to. */
+function drawTrimPreview(lanes, g, pxPerSec) {
+  const origEdge = g.edge === "in" ? g.origStart : g.origEnd;
+  const start = Math.min(origEdge, g.proposedTime);
+  const end = Math.max(origEdge, g.proposedTime);
+  if (!(end > start)) return;
+  const cls = g.direction === "restore" ? "mode-restore" : "mode-cut";
+  const box = el("div", `trim-preview ${cls}`);
+  box.style.left = `${(start * pxPerSec).toFixed(1)}px`;
+  box.style.width = `${Math.max(1, (end - start) * pxPerSec).toFixed(1)}px`;
+  lanes.append(box);
+}
+
+/** The razor tool's live select-a-range band — same lifecycle as
+ * `.drag-box`/`.trim-preview` above: one standalone node, direct child of
+ * `lanes`, torn down and redrawn whole by `updateGestureOverlay`. */
+function drawRangeBand(lanes, g, pxPerSec) {
+  const start = Math.min(g.startTime, g.currentTime);
+  const end = Math.max(g.startTime, g.currentTime);
+  const box = el("div", "range-band");
+  box.style.left = `${(start * pxPerSec).toFixed(1)}px`;
+  box.style.width = `${Math.max(1, (end - start) * pxPerSec).toFixed(1)}px`;
+  lanes.append(box);
+}
+
+/** Redraws only the live gesture's own overlay node, leaving every
+ * lane/row/block/handle untouched.
  *
  * `render()` is not safe to call from `handleLanesMouseDown`/`Move`, or from
- * `handleLanesMouseUp`'s non-drag branch — it does `lanes.textContent = ""`
+ * `handleLanesMouseUp`'s non-drag branches — it does `lanes.textContent = ""`
  * then rebuilds every lane wholesale, which removes whatever node the
  * in-progress gesture is anchored to. A `setTimeout(render, 0)` used to sit
- * in those three spots instead of a synchronous call, and it is not a fix,
- * only a race it usually wins: CDP's back-to-back mousePressed/mouseReleased
- * has no gap for the timer to land in before mouseup, so it read as correct
- * against a scripted test. Driven with a realistic human dwell between press
- * and release (measured 10ms-250ms; a real click dwells roughly 60-150ms),
- * the timer fires *during* the dwell, the mousedown target is gone by the
- * time mouseup arrives, and Chrome suppresses the trailing native 'click'
- * exactly as it did before the timer existed — click-to-seek stayed broken
- * for every real click on a transcript lane, just no longer for a
- * script-driven one. Measured with a dwell-time probe:
+ * in those spots instead of a synchronous call, and it is not a fix, only a
+ * race it usually wins: CDP's back-to-back mousePressed/mouseReleased has no
+ * gap for the timer to land in before mouseup, so it read as correct against
+ * a scripted test. Driven with a realistic human dwell between press and
+ * release (measured 10ms-250ms; a real click dwells roughly 60-150ms), the
+ * timer fires *during* the dwell, the mousedown target is gone by the time
+ * mouseup arrives, and Chrome suppresses the trailing native 'click' exactly
+ * as it did before the timer existed — click-to-seek stayed broken for every
+ * real click on a transcript lane, just no longer for a script-driven one.
+ * Measured with a dwell-time probe:
  * `/home/<user>/.claude/jobs/c23505b8/tmp/dwell/dwell_probe.py` — seeks at
  * 0ms and 5ms dwell, silently fails at 10ms and every dwell above it.
  *
- * The highlight is the only thing a mousedown/mousemove/plain-click-release
- * changes, and `drawSelectionHighlight` already draws it as one standalone
- * `.drag-box` appended to `lanes` — so removing that element and redrawing
- * it (if `selection` is set) is the whole update, and it never touches the
- * row/block elements a gesture or a pending click is anchored to. */
-function updateSelectionHighlight() {
+ * A cue drag's `.drag-box`, a trim drag's `.trim-preview`, and a razor drag's
+ * `.range-band` are the ONLY three things this function ever draws or
+ * removes, and it removes all three every call before redrawing the one
+ * `gesture.kind` in progress (or none, if the gesture just ended and neither
+ * `selection` nor `gesture` still wants one drawn) — never a row/block/
+ * handle, and never `render()`. */
+function updateGestureOverlay() {
   const lanes = $("track-lanes");
   if (!lanes || !lastState) return;
-  for (const box of lanes.querySelectorAll(".drag-box")) box.remove();
-  if (selection) drawSelectionHighlight(lanes, selection, currentPxPerSec, lastState);
+  for (const n of lanes.querySelectorAll(".drag-box, .trim-preview, .range-band")) n.remove();
+  if (gesture && gesture.kind === "trim") {
+    drawTrimPreview(lanes, gesture, currentPxPerSec);
+  } else if (gesture && gesture.kind === "razor") {
+    drawRangeBand(lanes, gesture, currentPxPerSec);
+  } else if (selection) {
+    drawSelectionHighlight(lanes, selection, currentPxPerSec, lastState);
+  }
 }
 
 function cancelCueSelection() {
-  cueDrag = null;
+  gesture = null;
   cueSelection = null;
   selection = null;
   refreshCueToolbar();
   render();
+}
+
+/** The existing cue-placement flow, generalized so both the razor tool's
+ * "place b-roll over it" verb and an asset drag-drop (item G) can open it —
+ * a thin wrapper around the `cueSelection`/`refreshCueToolbar`/
+ * `cueAssetInputEl` machinery that already exists for the plain drag-a-word
+ * gesture, so neither caller has to know its internals. `prefillAsset` is
+ * the FOOTAGE a drag named (`clip.clip_id`/`card.name`), never the
+ * addressing clip — `placeCue` below still reads `lastState.clip_id` for
+ * that half, unchanged. */
+function openCuePlacement(wordIndex, boxLeft, boxTop, prefillAsset) {
+  cueSelection = { wordIndex, boxLeft, boxTop };
+  refreshCueToolbar();
+  if (prefillAsset && cueAssetInputEl) cueAssetInputEl.value = prefillAsset;
 }
 
 /** `POST /api/cue` — the fourth caller into `ops.cue_add`, alongside the
@@ -683,6 +877,7 @@ function buildCueToolbar() {
   assetInput.type = "text";
   assetInput.placeholder = "asset — clip_id or card:name";
   assetInput.style.width = "18em";
+  cueAssetInputEl = assetInput; // module-level, so openCuePlacement can prefill it
   const placeBtn = el("button", null, "Place cue");
   const cancelBtn = el("button", null, "Cancel");
 
@@ -698,12 +893,348 @@ function buildCueToolbar() {
   cueInfoEl = info;
 }
 
-/** Drag-select on the timeline, the third b-roll entry point beside the
- * agent prompt and the transcript selection (DAYDREAM.md). Only the drag's
- * *start* resolves to a word — that measured premise (see `nearestWordAt`'s
- * comment) is what makes this cheap: no gap-anchored address space to
- * build, just a snap onto the existing word-index one. A plain click with
- * no movement is left alone, so `seekOnClick` still owns it. */
+/** Mirrors `buildCueToolbar` exactly — same `.selection-toolbar` base class
+ * (so the existing `.selection-toolbar[hidden]{display:none}` companion rule
+ * already covers it, no new `[hidden]` rule needed), same persistent-node/
+ * re-appended-every-render treatment, same `clampFloating` call. Content
+ * varies by `planSelection.kind`, filled in by `refreshPlanToolbar()`. */
+function buildPlanToolbar() {
+  const bar = el("div", "selection-toolbar plan-toolbar");
+  bar.hidden = true;
+  const info = el("div", "quote");
+  const warn = el("div", "warn bad"); // suspect-boundary text, hidden when none
+  warn.hidden = true;
+  const actions = el("div", "plan-actions");
+  bar.append(info, warn, actions);
+  planToolbarEl = bar;
+  planInfoEl = info;
+  planWarnEl = warn;
+  planActionsEl = actions;
+}
+
+/** Plain context words, space-joined — the unbracketed half of an echo. */
+function wordsPlain(list) {
+  return (list || []).map((w) => w.text).join(" ");
+}
+
+/** `cut_by_time`'s plan response, read into the same bracketed-context
+ * convention `cueEcho` already draws — one `applied[]` entry per requested
+ * span (this popover only ever requests one), one `pieces[]` entry per
+ * clip/seam the span crossed. A piece with no transcript still gets a
+ * legible line (`transcript_missing`), never a blank one. */
+function cutPlanEcho(result) {
+  const applied = (result && result.applied) || [];
+  if (!applied.length) return "(nothing here)";
+  return applied
+    .flatMap((a) =>
+      (a.pieces || []).map((p) => {
+        if (p.transcript_missing) return `${p.clip_id}: no transcript to echo`;
+        const before = wordsPlain(p.context_before);
+        const hit = (p.words_overlapped || []).map((w) => `[${w.text}]`).join(" ") || "(silence)";
+        const after = wordsPlain(p.context_after);
+        return [before, hit, after].filter(Boolean).join(" ");
+      }),
+    )
+    .join(" / ");
+}
+
+/** `restore`'s plan response, same `_echo` convention `cut_by_transcript`
+ * uses (CLAUDE.md: one word-echo convention, reused everywhere a word range
+ * resolves). `already_present` is reported, not an error — this popover
+ * still shows it rather than treating it as a fetch failure. */
+function restorePlanEcho(result) {
+  const applied = (result && result.applied) || [];
+  if (!applied.length) return "(nothing here)";
+  const a = applied[0];
+  if (a.already_present) return "Nothing cut here — already present.";
+  const n = a.last_word - a.first_word + 1;
+  const before = wordsPlain(a.context_before);
+  const after = wordsPlain(a.context_after);
+  const echo = [before, `[${a.text}]`, after].filter(Boolean).join(" ");
+  const seconds = (a.restored_seconds ?? 0).toFixed(2);
+  return `Restore ${n} word(s) cut here: ${echo} (${seconds}s)`;
+}
+
+/** `POST /api/cut-at` with `plan: true` — fires once, on trim-inward
+ * mouseup or the razor popover's "Cut this range" verb. Guards against a
+ * stale response landing after the user cancelled or moved on: only writes
+ * back into `planSelection` if it is STILL the same "cut" selection this
+ * call was made for (identity-checked by object reference, since Cancel/a
+ * new gesture always replaces the object rather than mutating it). */
+async function requestCutPlan(span) {
+  if (!ctx || !planSelection) return;
+  const forSelection = planSelection;
+  refreshPlanToolbar(); // shows the "…" loading state immediately
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/cut-at", { spans: [span], plan: true });
+  } catch (err) {
+    error = err.message;
+  }
+  if (planSelection !== forSelection) return; // superseded — cancelled or replaced
+  planSelection.result = payload;
+  planSelection.error = error;
+  refreshPlanToolbar();
+}
+
+/** `POST /api/restore` with `plan: true` — same stale-response guard as
+ * `requestCutPlan`. */
+async function requestRestorePlan(ranges) {
+  if (!ctx || !planSelection) return;
+  const forSelection = planSelection;
+  refreshPlanToolbar();
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/restore", { clip_id: planSelection.clipId, ranges, plan: true });
+  } catch (err) {
+    error = err.message;
+  }
+  if (planSelection !== forSelection) return;
+  planSelection.result = payload;
+  planSelection.error = error;
+  refreshPlanToolbar();
+}
+
+/** Apply — the real, non-plan write. Mirrors `placeCue`'s pattern: the
+ * result is never rendered here, only emitted on the shared bus (`op-result`,
+ * for agent.js's feed) and `project-changed` (from the SSE loop, once the
+ * write lands) brings the new state through the normal `update()` path. */
+async function applyCutPlan() {
+  if (!planSelection || planSelection.kind !== "cut" || !ctx) return;
+  const confirmNeeded = Boolean(planSelection.result && planSelection.result.suspect_boundaries?.length);
+  if (confirmNeeded && !(planConfirmCheckbox && planConfirmCheckbox.checked)) return;
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/cut-at", {
+      spans: [planSelection.span],
+      plan: false,
+      confirm_suspect: confirmNeeded,
+    });
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error) {
+    planSelection = null;
+    gesture = null;
+    refreshPlanToolbar();
+    updateGestureOverlay();
+  }
+}
+
+async function applyRestorePlan() {
+  if (!planSelection || planSelection.kind !== "restore" || !ctx) return;
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/restore", {
+      clip_id: planSelection.clipId,
+      ranges: planSelection.ranges,
+      plan: false,
+    });
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error) {
+    planSelection = null;
+    gesture = null;
+    refreshPlanToolbar();
+    updateGestureOverlay();
+  }
+}
+
+function cancelPlanSelection() {
+  planSelection = null;
+  gesture = null;
+  refreshPlanToolbar();
+  updateGestureOverlay();
+}
+
+/** A small "…"/Cancel body, shared by both plan kinds while their fetch is
+ * in flight or failed — the only variation is which kind's fetch is being
+ * waited on, never the shape of this fallback. */
+function fillPlanLoadingOrError(text) {
+  planInfoEl.textContent = text;
+  const cancelBtn = el("button", null, "Cancel");
+  cancelBtn.addEventListener("click", cancelPlanSelection);
+  planActionsEl.append(cancelBtn);
+}
+
+/** Clamped by `dom.js`'s ONE `clampFloating` — same bounds convention
+ * `refreshCueToolbar` already established (scrolled content-space, not
+ * `[0, clientWidth]`), because `planSelection.boxLeft/boxTop` are computed
+ * the same way `cueSelection`'s are. */
+function refreshPlanToolbar() {
+  if (!planToolbarEl) return;
+  if (!planSelection) {
+    planToolbarEl.hidden = true;
+    return;
+  }
+  planToolbarEl.hidden = false;
+  planActionsEl.textContent = "";
+  planWarnEl.hidden = true;
+  planWarnEl.textContent = "";
+  planConfirmCheckbox = null;
+
+  if (planSelection.kind === "razor-choice") {
+    planInfoEl.textContent = `${fmt(planSelection.span[0])}–${fmt(planSelection.span[1])}`;
+    const cutBtn = el("button", null, "Cut this range");
+    const brollBtn = el("button", null, "Place b-roll over it");
+    const cancelBtn = el("button", null, "Cancel");
+    cutBtn.addEventListener("click", () => {
+      const span = planSelection.span;
+      const { boxLeft, boxTop } = planSelection;
+      planSelection = { kind: "cut", span, boxLeft, boxTop };
+      requestCutPlan(span);
+    });
+    brollBtn.addEventListener("click", () => {
+      if (!lastState || !lastState.words) return;
+      const startWord = nearestWordAt(lastState.words, planSelection.span[0]);
+      const { boxLeft, boxTop } = planSelection;
+      planSelection = null;
+      refreshPlanToolbar();
+      updateGestureOverlay();
+      if (!startWord) {
+        if (ctx) ctx.emit("toast", "No word here to anchor a cue to.");
+        return;
+      }
+      openCuePlacement(startWord.index, boxLeft, boxTop, null);
+    });
+    cancelBtn.addEventListener("click", cancelPlanSelection);
+    planActionsEl.append(cutBtn, brollBtn, cancelBtn);
+  } else if (planSelection.kind === "cut") {
+    if (planSelection.error) {
+      fillPlanLoadingOrError(planSelection.error);
+    } else if (!planSelection.result) {
+      fillPlanLoadingOrError("…");
+    } else {
+      planInfoEl.textContent = cutPlanEcho(planSelection.result);
+      const suspects = planSelection.result.suspect_boundaries || [];
+      if (suspects.length) {
+        planWarnEl.hidden = false;
+        const list = el(
+          "div",
+          null,
+          suspects
+            .map((s) => `"${s.text}" claims ${s.duration.toFixed(2)}s, more than ${s.limit.toFixed(2)}s`)
+            .join("; "),
+        );
+        planConfirmCheckbox = document.createElement("input");
+        planConfirmCheckbox.type = "checkbox";
+        planConfirmCheckbox.id = "plan-confirm-suspect";
+        const label = el("label", null);
+        label.append(planConfirmCheckbox, document.createTextNode(" this boundary is fine — cut it anyway"));
+        planWarnEl.append(list, label);
+      }
+      const applyBtn = el("button", "primary", "Apply");
+      const cancelBtn = el("button", null, "Cancel");
+      applyBtn.addEventListener("click", applyCutPlan);
+      cancelBtn.addEventListener("click", cancelPlanSelection);
+      planActionsEl.append(applyBtn, cancelBtn);
+    }
+  } else if (planSelection.kind === "restore") {
+    if (planSelection.error) {
+      fillPlanLoadingOrError(planSelection.error);
+    } else if (!planSelection.result) {
+      fillPlanLoadingOrError("…");
+    } else {
+      planInfoEl.textContent = restorePlanEcho(planSelection.result);
+      const applyBtn = el("button", "primary", "Restore");
+      const cancelBtn = el("button", null, "Cancel");
+      applyBtn.addEventListener("click", applyRestorePlan);
+      cancelBtn.addEventListener("click", cancelPlanSelection);
+      planActionsEl.append(applyBtn, cancelBtn);
+    }
+  }
+
+  const lanes = $("track-lanes");
+  if (lanes) {
+    // Cap the height BEFORE measuring. `clampFloating` moves a box; it cannot
+    // shrink one, so a popover taller than the lane box gets pinned to the
+    // top with its actions row hanging past `overflow: hidden` and past the
+    // viewport — reachable by a synthetic `.click()` and by nothing a person
+    // can do. Measured at 218px inside a 143px box: Apply landed at y 920 of
+    // a 900px viewport and `elementFromPoint` there was null. `--plan-max-h`
+    // is what app.css's `.plan-toolbar` max-height reads, and the quote
+    // scrolls inside it so the actions row stays on screen.
+    planToolbarEl.style.setProperty("--plan-max-h", `${lanes.clientHeight}px`);
+    const { left, top } = clampFloating(
+      planSelection.boxLeft,
+      planSelection.boxTop,
+      planToolbarEl.offsetWidth,
+      planToolbarEl.offsetHeight,
+      lanes.scrollLeft,
+      lanes.scrollLeft + lanes.clientWidth,
+      0,
+      lanes.clientHeight,
+    );
+    planToolbarEl.style.left = `${left.toFixed(1)}px`;
+    planToolbarEl.style.top = `${top.toFixed(1)}px`;
+  } else {
+    planToolbarEl.style.left = `${planSelection.boxLeft.toFixed(1)}px`;
+    planToolbarEl.style.top = `${planSelection.boxTop.toFixed(1)}px`;
+  }
+}
+
+/** The maximal contiguous run of `present:false` words immediately adjacent
+ * to a trimmed block's dragged edge — preceding the block's first word for
+ * an in-edge drag, following its last word for an out-edge drag, stopping at
+ * the first `present:true` word or the transcript boundary. Returns `null`
+ * if nothing is there to restore (the anchor word itself is not found, or
+ * the adjacent run is empty). This is the WHOLE gap deliberately, never a
+ * fraction of it — a cut gap is zero-width on a compressed timeline, so
+ * there is no pixel distance an outward drag could map to any particular
+ * fraction, and inventing one would be exactly what CLAUDE.md forbids
+ * ("nothing in JS derives a crop," applied here to a restore span). */
+function adjacentCutRun(edge, origStart, origEnd) {
+  if (!lastState || !lastState.words) return null;
+  const words = lastState.words.slice().sort((a, b) => a.index - b.index);
+  const EPS = 1e-4;
+  let anchorIdx = -1;
+  if (edge === "in") {
+    for (let i = 0; i < words.length; i++) {
+      if (words[i].present && Math.abs(words[i].timeline_start - origStart) < EPS) {
+        anchorIdx = i;
+        break;
+      }
+    }
+    if (anchorIdx === -1) return null;
+    let first = -1;
+    let last = -1;
+    for (let i = anchorIdx - 1; i >= 0; i--) {
+      if (words[i].present) break;
+      if (last === -1) last = words[i].index;
+      first = words[i].index;
+    }
+    return first === -1 ? null : [first, last];
+  }
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].present && Math.abs(words[i].timeline_end - origEnd) < EPS) anchorIdx = i;
+  }
+  if (anchorIdx === -1) return null;
+  let first = -1;
+  let last = -1;
+  for (let i = anchorIdx + 1; i < words.length; i++) {
+    if (words[i].present) break;
+    if (first === -1) first = words[i].index;
+    last = words[i].index;
+  }
+  return first === -1 ? null : [first, last];
+}
+
+/** The ONE mousedown entry point for every lane gesture — cue-drag,
+ * drag-trim, and razor select-a-range all dispatch from here, never from a
+ * second listener (CLAUDE.md / this step's own central rule). Order:
+ * 1) a `.trim-handle` under the pointer always wins, regardless of tool
+ *    mode; 2) the razor tool, if armed, starts a range-select drag over any
+ *    lane background; 3) otherwise the original cue-drag behaviour, word-
+ *    resolved off `nearestWordAt`, unchanged. */
 function handleLanesMouseDown(event) {
   if (event.button !== 0) return;
   // A drag's own trailing native 'click' is not guaranteed to follow its
@@ -716,7 +1247,34 @@ function handleLanesMouseDown(event) {
   // anything else below runs, including the toolbar-click early return.
   suppressNextClick = false;
   if (cueToolbarEl && cueToolbarEl.contains(event.target)) return;
-  if (!lastState || !lastState.words || !lastState.words.length) return;
+  if (planToolbarEl && planToolbarEl.contains(event.target)) return;
+  if (!lastState) return;
+
+  const handle = event.target.closest && event.target.closest(".trim-handle");
+  if (handle) {
+    const edge = handle.dataset.edge;
+    const origStart = parseFloat(handle.dataset.segTimelineStart);
+    const origEnd = parseFloat(handle.dataset.segTimelineEnd);
+    gesture = {
+      kind: "trim",
+      clipId: handle.dataset.clipId,
+      edge,
+      origStart,
+      origEnd,
+      proposedTime: edge === "in" ? origStart : origEnd,
+      direction: "inward",
+    };
+    event.preventDefault(); // a handle sits inside a .clip-block; don't also seek
+    return;
+  }
+
+  if (toolMode === "razor") {
+    const t = snap(laneTimeFromEvent(event));
+    gesture = { kind: "razor", startTime: t, currentTime: t, moved: false };
+    return;
+  }
+
+  if (!lastState.words || !lastState.words.length) return;
   const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
   if (!word) {
     if (ctx) ctx.emit("toast", "No word here to anchor a cue to — every word in this clip is cut.");
@@ -724,65 +1282,162 @@ function handleLanesMouseDown(event) {
   }
   cueSelection = null;
   refreshCueToolbar();
-  cueDrag = { anchorIndex: word.index, currentIndex: word.index, moved: false };
+  gesture = { kind: "cue", anchorIndex: word.index, currentIndex: word.index, moved: false };
   selection = [word.index];
   // properties.js's word-inspection input — raised on every lane mousedown
   // that resolves to a word, drag or plain click alike, since a plain click
   // throws the resolved word away below (no cue gesture follows it) and
   // inspecting it is a reasonable thing for a click to do along the way.
   if (ctx) ctx.emit("inspect-word", { clipId: lastState.clip_id, wordIndex: word.index });
-  // See updateSelectionHighlight's own comment: a full render() here (even
+  // See updateGestureOverlay's own comment: a full render() here (even
   // deferred) tears down whatever node this mousedown landed on, and a
   // realistic human dwell before mouseup gives a deferred one time to fire
   // before the click is dispatched — measured, not assumed.
-  updateSelectionHighlight();
+  updateGestureOverlay();
 }
 
 function handleLanesMouseMove(event) {
-  if (!cueDrag || !lastState || !lastState.words) return;
-  const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
-  if (!word) return;
-  if (word.index !== cueDrag.anchorIndex) cueDrag.moved = true;
-  cueDrag.currentIndex = word.index;
-  selection = [cueDrag.anchorIndex, cueDrag.currentIndex];
-  // Same reason as handleLanesMouseDown: a full render() on every mousemove
-  // tore down and rebuilt every lane dozens of times over one drag, for a
-  // change that is only ever the highlight box.
-  updateSelectionHighlight();
+  if (!gesture || !lastState) return;
+
+  if (gesture.kind === "cue") {
+    if (!lastState.words) return;
+    const word = nearestWordAt(lastState.words, laneTimeFromEvent(event));
+    if (!word) return;
+    if (word.index !== gesture.anchorIndex) gesture.moved = true;
+    gesture.currentIndex = word.index;
+    selection = [gesture.anchorIndex, gesture.currentIndex];
+    // Same reason as handleLanesMouseDown: a full render() on every
+    // mousemove tore down and rebuilt every lane dozens of times over one
+    // drag, for a change that is only ever the highlight box.
+    updateGestureOverlay();
+    return;
+  }
+
+  if (gesture.kind === "trim") {
+    const tolerance = snapTolerance();
+    let t = snap(laneTimeFromEvent(event));
+    // Clamp: an in-edge must stay short of the block's own out edge, and an
+    // out-edge must stay past its own in edge — either direction of drag is
+    // still meaningful (inward trims, outward restores), just never past the
+    // opposite edge into a negative-width block.
+    if (gesture.edge === "in") t = Math.min(t, gesture.origEnd - tolerance);
+    else t = Math.max(t, gesture.origStart + tolerance);
+    gesture.proposedTime = t;
+    // Direction flips the moment the drag crosses one FRAME (never a bare
+    // epsilon) past the block's own original edge, outward — short of that,
+    // it reads as "still deciding," and inward is the more common gesture.
+    const frameSec = 1 / ((lastState.shots_rate || lastState.timebase) || 30);
+    if (gesture.edge === "in") {
+      gesture.direction = t < gesture.origStart - frameSec ? "restore" : "inward";
+    } else {
+      gesture.direction = t > gesture.origEnd + frameSec ? "restore" : "inward";
+    }
+    updateGestureOverlay();
+    return;
+  }
+
+  if (gesture.kind === "razor") {
+    const t = snap(laneTimeFromEvent(event));
+    if (t !== gesture.currentTime) gesture.moved = true;
+    gesture.currentTime = t;
+    updateGestureOverlay();
+  }
 }
 
 function handleLanesMouseUp(event) {
-  if (!cueDrag) return;
-  if (cueDrag.moved) {
+  if (!gesture) return;
+
+  if (gesture.kind === "cue") {
+    if (gesture.moved) {
+      suppressNextClick = true;
+      const lanes = $("track-lanes");
+      const rect = lanes.getBoundingClientRect();
+      // boxLeft lives in the same content-relative space laneTimeFromEvent
+      // resolves a click into — scrollLeft folded back in, for the same
+      // reason (the container's own rect does not move when its content
+      // scrolls). refreshCueToolbar's clamp expects this space.
+      cueSelection = {
+        wordIndex: gesture.anchorIndex,
+        boxLeft: Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
+        boxTop: Math.max(0, event.clientY - rect.top + 10),
+      };
+      refreshCueToolbar();
+    } else {
+      selection = null;
+      // Same reason as handleLanesMouseDown: this mouseup's handlers run
+      // before the browser decides whether to dispatch the trailing 'click'
+      // for this exact gesture, and any render() here — deferred or not —
+      // risks removing the clicked node out from under that decision.
+      updateGestureOverlay();
+    }
+  } else if (gesture.kind === "trim") {
+    const origEdge = gesture.edge === "in" ? gesture.origStart : gesture.origEnd;
+    const moved = Math.abs(gesture.proposedTime - origEdge) > snapTolerance();
+    if (!moved) {
+      // No real drag — clear `gesture` BEFORE the redraw so
+      // `updateGestureOverlay` (which draws a trim's preview off `gesture`
+      // itself, unlike the cue drag-box which draws off `selection`) has
+      // nothing left to draw; otherwise a barely-moved handle click would
+      // leave a stray sliver of `.trim-preview` with nothing left to clear
+      // it until the next gesture or render().
+      gesture = null;
+      updateGestureOverlay();
+      return;
+    }
     suppressNextClick = true;
     const lanes = $("track-lanes");
     const rect = lanes.getBoundingClientRect();
-    // boxLeft lives in the same content-relative space laneTimeFromEvent
-    // resolves a click into — scrollLeft folded back in, for the same
-    // reason (the container's own rect does not move when its content
-    // scrolls). refreshCueToolbar's clamp expects this space.
-    cueSelection = {
-      wordIndex: cueDrag.anchorIndex,
-      boxLeft: Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
-      boxTop: Math.max(0, event.clientY - rect.top + 10),
-    };
-    refreshCueToolbar();
-  } else {
-    selection = null;
-    // Same reason as handleLanesMouseDown: this mouseup's handlers run
-    // before the browser decides whether to dispatch the trailing 'click'
-    // for this exact gesture, and any render() here — deferred or not —
-    // risks removing the clicked node out from under that decision.
-    updateSelectionHighlight();
+    const boxLeft = Math.max(0, event.clientX - rect.left + lanes.scrollLeft);
+    const boxTop = Math.max(0, event.clientY - rect.top + 10);
+    if (gesture.direction === "inward") {
+      const span =
+        gesture.edge === "in"
+          ? [gesture.origStart, gesture.proposedTime]
+          : [gesture.proposedTime, gesture.origEnd];
+      planSelection = { kind: "cut", span, clipId: gesture.clipId, boxLeft, boxTop };
+      requestCutPlan(span);
+    } else {
+      const run = adjacentCutRun(gesture.edge, gesture.origStart, gesture.origEnd);
+      if (!run) {
+        if (ctx) ctx.emit("toast", "nothing cut here to restore");
+      } else {
+        planSelection = { kind: "restore", ranges: [run], clipId: gesture.clipId, boxLeft, boxTop };
+        requestRestorePlan([run]);
+      }
+    }
+    // The trim-preview band stays showing the final proposed range while the
+    // plan popover confirms it — same precedent as the cue drag-box, which
+    // is also left drawn (not cleared) across a successful drag's mouseup.
+    updateGestureOverlay();
+  } else if (gesture.kind === "razor") {
+    if (!gesture.moved) {
+      // Same reasoning as the trim branch above: a plain razor click with no
+      // drag is a deliberate no-op (contract: "not an error"), so clear
+      // `gesture` before the redraw rather than leave a stray range-band.
+      gesture = null;
+      updateGestureOverlay();
+      return;
+    }
+    const lanes = $("track-lanes");
+    const rect = lanes.getBoundingClientRect();
+    const boxLeft = Math.max(0, event.clientX - rect.left + lanes.scrollLeft);
+    const boxTop = Math.max(0, event.clientY - rect.top + 10);
+    const span = [Math.min(gesture.startTime, gesture.currentTime), Math.max(gesture.startTime, gesture.currentTime)];
+    planSelection = { kind: "razor-choice", span, boxLeft, boxTop };
+    refreshPlanToolbar();
+    // Same precedent as the trim branch: the range-band stays showing the
+    // selected range while the two-verb popover is open.
+    updateGestureOverlay();
   }
-  cueDrag = null;
+
+  gesture = null;
 }
 
 /** F5 — nudges `#track-lanes`'s `scrollLeft` so the playhead stays inside
  * the middle ~60% of the visible lane while playing. Called from the SAME
  * per-frame `'playhead'` subscription that already moves the line, and must
  * touch nothing but `scrollLeft` — no `render()`, on this file's own
- * "redraw only the node a gesture owns" discipline (`updateSelectionHighlight`'s
+ * "redraw only the node a gesture owns" discipline (`updateGestureOverlay`'s
  * comment above): this runs every animation frame, so anything heavier than
  * a scroll assignment here would cost what the deferred-render race already
  * cost this repo a day to find, just on a hot path instead of a gesture.
@@ -888,20 +1543,42 @@ function render() {
 
   if (selection) drawSelectionHighlight(lanes, selection, pxPerSec, state);
 
-  // Persistent node, re-appended every render — `lanes.textContent = ""`
-  // above would otherwise drop it along with the rows, and a fresh element
-  // each time would lose whatever the asset field has typed in it.
+  // Persistent nodes, re-appended every render — `lanes.textContent = ""`
+  // above would otherwise drop them along with the rows, and a fresh element
+  // each time would lose whatever the asset field has typed in it (cue) or
+  // which plan/verb the person is mid-decision on (plan).
   lanes.append(cueToolbarEl);
   refreshCueToolbar();
+  lanes.append(planToolbarEl);
+  refreshPlanToolbar();
 
   // Deferred until the rows are actually in the DOM: drawWaveformLane reads
   // row.clientHeight, which is 0 for a detached node.
   for (const draw of waveformDraws) draw();
 }
 
+/** Drag source of an assets-pane row → drop on the V2 lane, item G's other
+ * half (assets.js's `dragstart` is builder 3's — this is the target side).
+ * A single standalone `.drop-ghost` node, repositioned on every `dragover`
+ * and removed on `dragleave`/`drop` — a separate lifecycle from `gesture`
+ * above (native DnD events, not mouse events), so it is never touched by
+ * `updateGestureOverlay()` and never rebuilds a row/block either. */
+function drawDropGhost(t) {
+  const lanes = $("track-lanes");
+  if (!lanes) return;
+  if (!dropGhostEl) dropGhostEl = el("div", "drop-ghost");
+  if (!dropGhostEl.isConnected) lanes.append(dropGhostEl);
+  dropGhostEl.style.left = `${(t * currentPxPerSec).toFixed(1)}px`;
+}
+
+function clearDropGhost() {
+  if (dropGhostEl && dropGhostEl.isConnected) dropGhostEl.remove();
+}
+
 export function init(passedCtx) {
   ctx = passedCtx;
   buildCueToolbar();
+  buildPlanToolbar();
 
   const lanes = $("track-lanes");
   if (lanes) {
@@ -920,12 +1597,70 @@ export function init(passedCtx) {
       },
       true,
     );
+
+    // Item G's drop-target half — HTML5 drag-and-drop, an entirely separate
+    // event family from the mousedown triple above, so this is not a second
+    // mousedown listener. assets.js (builder 3) is the drag SOURCE, setting
+    // `application/x-lucid-asset` to `{kind:"clip"|"card", id}` — the
+    // FOOTAGE being dragged, never an addressing clip_id.
+    lanes.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer || !event.dataTransfer.types.includes("application/x-lucid-asset")) return;
+      event.preventDefault();
+      if (!lastState) return;
+      drawDropGhost(snap(laneTimeFromEvent(event)));
+    });
+    lanes.addEventListener("dragleave", (event) => {
+      if (event.target === lanes) clearDropGhost();
+    });
+    lanes.addEventListener("drop", (event) => {
+      event.preventDefault();
+      clearDropGhost();
+      if (!event.dataTransfer || !lastState || !lastState.words) return;
+      const raw = event.dataTransfer.getData("application/x-lucid-asset");
+      if (!raw) return;
+      let asset;
+      try {
+        asset = JSON.parse(raw);
+      } catch {
+        return;
+      }
+      const word = nearestWordAt(lastState.words, snap(laneTimeFromEvent(event)));
+      if (!word) {
+        if (ctx) ctx.emit("toast", "No word here to anchor a cue to.");
+        return;
+      }
+      const rect = lanes.getBoundingClientRect();
+      openCuePlacement(
+        word.index,
+        Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
+        Math.max(0, event.clientY - rect.top + 10),
+        asset.id,
+      );
+    });
   }
 
   const followBtn = $("follow-playhead");
   if (followBtn) {
     followBtn.classList.toggle("on", followPlayhead); // agree with the markup's own default-on class
     followBtn.addEventListener("click", () => setFollowPlayhead(!followPlayhead));
+  }
+
+  const razorBtn = $("razor-tool");
+  if (razorBtn) {
+    razorBtn.addEventListener("click", () => {
+      toolMode = toolMode === "razor" ? "select" : "razor";
+      razorBtn.classList.toggle("on", toolMode === "razor");
+      if (lanes) lanes.style.cursor = toolMode === "razor" ? "col-resize" : "";
+    });
+  }
+
+  const snapBtn = $("snap-toggle");
+  if (snapBtn) {
+    snapEnabled = snapBtn.classList.contains("on"); // agree with the markup's own default-on class
+    snapBtn.addEventListener("click", () => {
+      snapEnabled = !snapEnabled;
+      snapBtn.classList.toggle("on", snapEnabled);
+    });
   }
   if (lanes) {
     lanes.addEventListener("scroll", () => {

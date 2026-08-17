@@ -290,6 +290,12 @@
              gesture owns" rule) and the click that toggles it off/on, plus
              turning it off on any real user scroll of the lane. -->
         <button id="follow-playhead" class="toggle on" type="button" title="keep the playhead in view while playing">follow</button>
+        <!-- Off by default — a tool mode, not a persistent preference, so no
+             anti-flash class is needed the way follow's 'on' is. -->
+        <button id="razor-tool" class="toggle" type="button" title="drag across a lane to select a range to cut or place b-roll over">razor</button>
+        <!-- On by default, class present in the markup for the same
+             no-flash-of-wrong-state reason as follow-playhead's 'on'. -->
+        <button id="snap-toggle" class="toggle on" type="button" title="snap drags to word boundaries, cue edges, and the playhead">snap</button>
       </div>
       <div id="timeline-tracks">
         <div id="track-headers" class="track-headers"></div>

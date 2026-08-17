@@ -230,6 +230,174 @@ def test_a_word_a_cut_only_half_removes_is_reported_partial(server: str) -> None
     assert word["covered"] == pytest.approx(0.5)
 
 
+def test_overlapping_cut_at_spans_refuse_as_400_not_500(server: str) -> None:
+    # ops._reject_overlapping_spans raises timeline.TimelineError, a member
+    # of webui.EXPECTED — this must surface as a readable 400, never the
+    # traceback-keeping 500 branch reserved for a real bug.
+    status, payload = _post(f"{server}/api/cut-at", {"spans": [[1.0, 3.0], [2.0, 4.0]]})
+    assert status == 400
+    assert "overlap" in payload["error"]
+
+    # And nothing got through: an overlap refusal is refused as a whole call.
+    _, view = _json(f"{server}/api/view")
+    assert view["undo_depth"] == 0
+
+
+def test_cut_at_plan_true_returns_ops_cut_by_time_own_return_value(
+    project: Path, server: str
+) -> None:
+    """The route is a thin dispatch (`webui._cut_at`) — its response body
+    must be exactly `ops.cut_by_time`'s own dict, not a re-shaped echo of it
+    (CLAUDE.md: the web UI draws and plays, it never decides)."""
+    status, payload = _post(f"{server}/api/cut-at", {"spans": [[3.5, 4.5]], "plan": True})
+    assert status == 200
+    assert payload["plan"] is True
+
+    # Nothing else touched the project between init and this call, so a
+    # direct `ops` call against the same on-disk state must agree byte for
+    # byte — the plan path never wrote (`plan=True` skips `_save_edit`).
+    expected = ops.cut_by_time(project, spans=[[3.5, 4.5]], plan=True)
+    assert payload == expected
+
+    _, view = _json(f"{server}/api/view")
+    assert view["undo_depth"] == 0
+    assert view["words"][3]["present"] is True  # nothing actually cut
+
+
+def test_cut_at_plan_false_actually_mutates_the_timeline(server: str) -> None:
+    _, before = _json(f"{server}/api/view")
+
+    status, applied = _post(f"{server}/api/cut-at", {"spans": [[3.5, 4.5]]})
+    assert status == 200
+    assert "plan" not in applied
+    assert applied["duration_after"] == pytest.approx(before["timeline_duration"] - applied["removed"])
+    assert applied["removed"] > 0
+
+    _, view = _json(f"{server}/api/view")
+    assert view["timeline_duration"] == pytest.approx(applied["duration_after"])
+    assert view["timeline_duration"] < before["timeline_duration"]
+    assert view["undo_depth"] == 1
+    word = next(w for w in view["words"] if w["index"] == 3)
+    assert word["present"] is True
+    assert word["partial"] is True
+
+
+def test_cut_at_requires_json_content_type(server: str) -> None:
+    for ctype in ("application/x-www-form-urlencoded", "text/plain", "multipart/form-data"):
+        status, payload = _post(
+            f"{server}/api/cut-at", {"spans": [[3.5, 4.5]]}, content_type=ctype
+        )
+        assert status == 400, ctype
+        assert "application/json" in payload["error"]
+
+    _, view = _json(f"{server}/api/view")
+    assert view["undo_depth"] == 0  # nothing got through
+
+
+def test_cut_at_refuses_a_non_loopback_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/cut-at",
+        data=json.dumps({"spans": [[3.5, 4.5]]}).encode(),
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+    _, view = _json(f"{server}/api/view")
+    assert view["undo_depth"] == 0
+
+
+def test_cut_at_404s_under_picker_root_before_a_project_is_open(
+    project: Path, picker_server: str
+) -> None:
+    """§D.1's bind-order rule (already proven for `/api/finish`) holds for
+    `/api/cut-at` too: it sits behind `_project_bound()`, so it 404s with
+    the same 'no project open' message before `/api/open`, never a 200
+    against an unbound `self.project_root`."""
+    status, payload = _post(f"{picker_server}/api/cut-at", {"spans": [[3.5, 4.5]]})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+    status, _ = _post(f"{picker_server}/api/open", {"path": str(project)})
+    assert status == 200
+
+    status, applied = _post(f"{picker_server}/api/cut-at", {"spans": [[3.5, 4.5]]})
+    assert status == 200
+    assert applied["removed"] > 0
+
+
+def _suspect_duration_project(tmp_path: Path) -> Path:
+    """A one-clip project whose word 3 claims 3.96s against a 0.3s median —
+    the Scream VO's 'bit', in miniature (`_suspect_duration_sources`,
+    `test_server_stdio.py`) — reused here so a plain `_make_wav` (no `tones`
+    parameter in this file) is enough, since `_suspect_durations` scores
+    only word timings, never audio content (`ops._suspect_durations`).
+    """
+    root = tmp_path / "proj"
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio, duration=6.0)
+
+    words = [
+        {"word": "so", "start": 0.0, "end": 0.3},
+        {"word": "much", "start": 0.3, "end": 0.6},
+        {"word": "going", "start": 0.6, "end": 0.9},
+        {"word": "bit", "start": 0.9, "end": 4.86},
+        {"word": "on", "start": 4.86, "end": 5.16},
+    ]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    ops.init(root)
+    imported = ops.import_media(root, audio, clip_id="vo")
+    ops.attach_transcript(root, imported["clip_id"], transcript)
+    ops.seed_timeline(root, "vo", remove_silences=False)
+    return root
+
+
+def test_cut_at_confirm_suspect_round_trips_over_http(tmp_path: Path) -> None:
+    root = _suspect_duration_project(tmp_path)
+    httpd = webui.make_server(root, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        server = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        # A span overlapping the flagged word is refused without confirmation.
+        status, payload = _post(f"{server}/api/cut-at", {"spans": [[2.0, 2.5]]})
+        assert status == 400
+        assert "hides a retake" in payload["error"]
+
+        # Under plan=True the boundary is reported instead of refused.
+        status, planned = _post(
+            f"{server}/api/cut-at", {"spans": [[2.0, 2.5]], "plan": True}
+        )
+        assert status == 200
+        flagged = planned["suspect_boundaries"]
+        assert [hit["index"] for hit in flagged] == [3]
+        assert flagged[0]["text"] == "bit"
+
+        # confirm_suspect=True is what actually lets it through.
+        status, confirmed = _post(
+            f"{server}/api/cut-at",
+            {"spans": [[2.0, 2.5]], "confirm_suspect": True},
+        )
+        assert status == 200
+        assert confirmed["removed"] > 0
+
+        _, view = _json(f"{server}/api/view")
+        assert view["undo_depth"] == 1
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)
+
+
 def test_cue_add_lands_in_the_manifest(project: Path, server: str) -> None:
     """`/api/cue` is the timeline drag gesture's landing point — a fourth
     caller into `ops.cue_add`, same as the CLI and MCP tool."""

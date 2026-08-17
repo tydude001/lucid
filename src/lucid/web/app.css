@@ -120,6 +120,13 @@
  *                           say)
  *     .w.sel                 inside the current selection
  *     .w.playing             the word under the playhead right now
+ *     .w.proposed             an AGENT's plan, not yet applied — a dashed
+ *                           `--agent`-tinted strikethrough, deliberately its
+ *                           OWN glyph rather than layered on `.w.gone`, so a
+ *                           word can be both proposed and already-cut at
+ *                           once without the two states' styles fighting
+ *                           (Step 02 item H; transcript.js owns the class
+ *                           toggle, this file owns the rule)
  *     (:focus-visible)        F6: `.w:focus-visible`/`.pause:focus-visible`,
  *                           below, ring the roving-tabindex word transcript.js
  *                           moves with the arrow keys — the page's global
@@ -134,10 +141,18 @@
  *                           rule as .w.gone
  *     .pause.sel              selected together with its flanking words, or
  *                           as the explicit trailing edge of a range
+ *     .pause.proposed          the pause-marker twin of .w.proposed
  *   .selection-toolbar       floating, positioned to the selection's screen
  *                          rect (PLAN.md § Where the cut controls go) —
  *                          Preview / Cut / Keep only live here
  *   .toolbar-popover          the pad + suspect-boundary-confirmation popover
+ *   #agent-plan-banner        (Step 02 item H) a sticky bar under
+ *                            .transcript-toolbar echoing the agent's own
+ *                            last `plan: true` cut, with Apply/Dismiss —
+ *                            transcript.js builds/toggles it, reusing
+ *                            .quote and .plan-actions (below) for its body;
+ *                            this file supplies the [hidden] companion rule
+ *                            the author `display:` trap needs
  *
  * Timeline pane (#track-headers / #track-lanes, filled by timeline.js):
  *   .timeline-head           the ruler-and-zoom row above the tracks
@@ -145,6 +160,10 @@
  *                            lane while playing, default on; any manual
  *                            scroll turns it off. Reuses `.toggle`/
  *                            `.toggle.on` verbatim — no new rule for it.
+ *   #razor-tool                (Step 02 item E) drag-select-a-range tool
+ *                            toggle, off by default — reuses `.toggle`
+ *   #snap-toggle               (Step 02 item F) snap-to-word/cue/playhead
+ *                            toggle, on by default — reuses `.toggle.on`
  *   .zoom-ctl                 the zoom control
  *   .track-headers            sticky left column, one row per lane
  *   .track-header              one row in that column (e.g. "V1")
@@ -166,6 +185,12 @@
  *   .clip-block                one DOM block per timeline segment
  *   .clip-block.shot-block      one shot on V2, the cue table's picture lane
  *   .clip-block.shot-card        …that shot is a held still, not footage
+ *   .trim-handle                (Step 02 item B) a drag-trim grab bar at the
+ *                             edge of a V1 *or* A1 block — both are the same
+ *                             `state.segments` drawn twice, and a VO project
+ *                             has no V1 lane at all. .trim-handle-in / -out,
+ *                             hidden until the block (or the handle itself)
+ *                             is hovered
  *   .lane-refusal               why V2 has no shots to draw — the picture
  *                             plan refused, and the message is the point
  *   .filmstrip / .filmstrip img  V1/V2 thumbnails (timeline.js's
@@ -183,6 +208,22 @@
  *   .gap                        a removed stretch, on a source-coordinate lane
  *   .playhead-line               the shared vertical line, positioned by `left`
  *   .drag-box                    the box a strip drag draws while it is live
+ *   .trim-preview                (Step 02 item B) the live drag-trim overlay —
+ *                             .mode-cut (material being removed) or
+ *                             .mode-restore (a gap coming back), same
+ *                             standalone-node lifecycle as `.drag-box`
+ *   .range-band                  (Step 02 item E) the razor tool's live
+ *                             select-a-range band, full lane-stack height
+ *   .drop-ghost                  (Step 02 item G) the asset drag-and-drop
+ *                             preview marker — a SEPARATE lifecycle from the
+ *                             three above (native DnD events, not mouse
+ *                             gestures)
+ *   .plan-toolbar / .plan-actions
+ *                                (Step 02 item C) the plan-echo popover —
+ *                             combines with `.selection-toolbar`, so its
+ *                             existing `[hidden]` rule already covers it;
+ *                             `.plan-actions` is also reused inside
+ *                             `#agent-plan-banner` above (item H)
  *
  * Agent pane (#agent-feed / #agent-composer, filled by agent.js):
  *   .agent-feed               the scrolling list — "one feed for everything
@@ -1262,6 +1303,37 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
+/* Step 02 item H — the agent's own plan, echoed on the page it would edit.
+   Sticky under `.transcript-toolbar` so it stays visible while the words
+   below it scroll; transcript.js builds it once and toggles it with
+   `banner.hidden`, so it needs the same author-`display:`-beats-UA-`[hidden]`
+   companion rule every floating/persistent element in this file needs
+   (CLAUDE.md — the trap that cost both toolbars and the pad popover once
+   already). `--agent` borders it, matching `.w.proposed`'s tint: one accent
+   for "the model proposed this," used consistently wherever that claim is
+   drawn. */
+#agent-plan-banner {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--agent);
+  background: var(--wash-accent);
+}
+
+#agent-plan-banner[hidden] {
+  display: none;
+}
+
+#agent-plan-banner .quote {
+  flex: 1;
+  margin: 0;
+  border-left-color: var(--agent);
+}
+
 .toggle {
   padding: 2px 10px;
   border: 1px solid var(--line);
@@ -1342,6 +1414,20 @@ textarea {
   color: light-dark(hsl(48 27% 98%), hsl(48 14% 7%));
 }
 
+/* An agent's plan, not yet applied — Step 02 item H. Its OWN strikethrough
+   (never layered on `.w.gone`) so a word can be BOTH proposed and
+   already-cut at once without the two states fighting — the same reasoning
+   `.w.suspect` already uses to stay a tint rather than reuse `.w.gone`'s
+   line. Dashed and `--agent`-tinted so it reads as a distinct claim from a
+   cut that has actually happened (`--cut`) or a suspect boundary
+   (`--partial`). */
+.w.proposed {
+  color: var(--agent);
+  text-decoration: line-through;
+  text-decoration-color: var(--agent);
+  text-decoration-style: dashed;
+}
+
 /* An inline pause marker — the mono voice, since it is reading as a number,
    not a word (DAYDREAM.md § Typography). */
 .pause {
@@ -1369,6 +1455,14 @@ textarea {
 .pause.sel {
   background: var(--sel);
   color: #fff;
+}
+
+/* The pause-marker twin of .w.proposed, same reasoning. */
+.pause.proposed {
+  color: var(--agent);
+  text-decoration: line-through;
+  text-decoration-color: var(--agent);
+  text-decoration-style: dashed;
 }
 
 /* F6: the page's global `:is(button, input, select, textarea):focus-visible`
@@ -1440,6 +1534,148 @@ textarea {
    never meant to be there until `pad` is pressed. */
 .toolbar-popover[hidden] {
   display: none;
+}
+
+/* Step 02 item C — the plan-echo popover. Combines with `.selection-toolbar`
+   (timeline.js's `buildPlanToolbar`: `class="selection-toolbar plan-toolbar"`)
+   so the `.selection-toolbar[hidden]` rule above already covers it; this only
+   overrides the row layout `.selection-toolbar` defaults to, since a plan
+   popover stacks a quote line, an optional suspect-boundary warning, and an
+   actions row rather than sitting flat as one row of buttons. */
+.plan-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 26em;
+}
+
+/* The plan echo is as long as the phrase it resolved to, and `clampFloating`
+   can only move a box, not shrink one — handed a popover taller than the
+   space, the best it can do is pin it to the top and let the rest hang out
+   the bottom. Measured: a 218px popover inside `#track-lanes`'s 143px
+   visible box put Apply and Cancel at y 920-948 of a 900px viewport, where
+   `elementFromPoint` returns null and a real click cannot land. A synthetic
+   `.click()` still fired the handler, so every scripted check read green —
+   the same shape as this file's other clamp lessons.
+
+   So the quote scrolls and the actions do not: `min-height: 0` is what lets
+   a flex child actually shrink below its content, and the actions row keeps
+   its own height so Apply is on screen whatever the echo's length.
+   `--plan-max-h` is set by timeline.js from the lanes' own clientHeight
+   before it measures for the clamp. */
+.plan-toolbar {
+  max-height: var(--plan-max-h, 100%);
+  overflow: hidden;
+}
+
+.plan-toolbar .quote {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.plan-toolbar .plan-actions {
+  flex: none;
+}
+
+/* Also reused verbatim inside `#agent-plan-banner` below (item H) — one
+   "row of op-verb buttons" look, not two. */
+.plan-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.plan-actions button {
+  padding: 3px 8px;
+}
+
+/* Step 02 item B — drag-trim handles, one pair per V1 `.clip-block`. Hidden
+   at rest so the lane is not fringed with grab bars, and shown on hovering
+   either the block or the handle itself — the same reveal-on-hover
+   `.pane-collapse-btn` already uses elsewhere in this file. `.clip-block`
+   already establishes the containing block (`position: absolute`), so no new
+   `position: relative` rule is needed for these to anchor to it. */
+.trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 2;
+  cursor: ew-resize;
+  background: var(--accent);
+  opacity: 0;
+}
+
+.clip-block:hover .trim-handle {
+  opacity: 0.55;
+}
+
+.trim-handle:hover {
+  opacity: 1;
+}
+
+.trim-handle-in {
+  left: 0;
+}
+
+.trim-handle-out {
+  right: 0;
+}
+
+/* Step 02 item B — the live drag-trim overlay. Same standalone-node
+   lifecycle as `.drag-box` above (appended directly to `#track-lanes`, full
+   lane-stack height via `top: 0; bottom: 0` on a node that is not nested in
+   any one `.lane` row) — cut and restore read as opposite operations, so
+   they take opposite tints: cut reuses `--cut`/`--wash-cut` (the same pair a
+   seam and a gap already use for "removed"), restore reuses `--kept`'s wash
+   (material coming back, not going). */
+.trim-preview {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.trim-preview.mode-cut {
+  background: var(--wash-cut);
+  border-left: 1px solid var(--cut);
+  border-right: 1px solid var(--cut);
+}
+
+.trim-preview.mode-restore {
+  background: var(--wash-kept);
+  border-left: 1px solid var(--kept);
+  border-right: 1px solid var(--kept);
+}
+
+/* Step 02 item E — the razor tool's live select-a-range band. Same
+   `.drag-box` lifecycle/precedent as `.trim-preview` above. */
+.range-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--wash-accent);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Step 02 item G — the asset drag-and-drop preview marker. A SEPARATE
+   lifecycle from `.drag-box`/`.trim-preview`/`.range-band` above (native
+   `dragover`/`dragleave`/`drop` events, not the mousedown/mousemove/mouseup
+   gesture triple), so timeline.js never touches it from
+   `updateGestureOverlay()`. `--agent` rather than `--accent`/`--sel`: this
+   marks where something NEW would land, not a selection over what already
+   exists. */
+.drop-ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--agent);
+  pointer-events: none;
+  z-index: 4;
 }
 
 /* -- agent pane ------------------------------------------------------------ */

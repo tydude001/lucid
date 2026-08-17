@@ -136,6 +136,18 @@
  *   'toast'                a message string for the bottom-right toast —
  *                        the shell owns #toast, so emit rather than reach
  *                        for the element directly.
+ *   'agent-plan'            {tool, input, payload} — emitted by agent.js
+ *                        (STUDIO.md Step 02 item 6) when a `tool_result`
+ *                        lands for a `cut_by_transcript`/`cut_by_time` call
+ *                        whose tool_use had `plan: true`. `tool` is the bare
+ *                        tool name, `input` is that tool_use's own `input`
+ *                        object verbatim, `payload` is the tool's own parsed
+ *                        JSON reply verbatim. transcript.js strikes the
+ *                        proposed words (`.w.proposed`/`.pause.proposed`,
+ *                        distinct from `.w.gone`) and shows an Apply/Dismiss
+ *                        banner; word indices are read straight off
+ *                        `payload` (never re-derived — CLAUDE.md: the page
+ *                        renders ops' own return value).
  *
  * `state` is `ops.timeline_view`'s payload verbatim: {project, name,
  * clip_id, clips, source_duration, timeline_duration, timebase, undo_depth,
@@ -160,6 +172,11 @@ let ctx = null;
  * actually runs.
  */
 let sel = null; // {first, last, throughPause} inclusive word indices, or null
+let agentPlan = null; // {tool, input, payload} | null — the last 'agent-plan'
+  // event, held until Applied or Dismissed. Independent of `sel`: a person
+  // can have their own selection open at the same time as a standing agent
+  // proposal — the two are drawn with distinct classes (`.sel` vs
+  // `.proposed`) and never share state.
 let showCuts = true; // struck through in place (true) or omitted (false)
 let playingIndex = null; // state.words[i].index currently under the playhead
 let wordIndexMap = new Map(); // word.index -> word, refreshed on every update()
@@ -185,6 +202,11 @@ let padInput = null;
 let confirmInput = null;
 let optsBtn = null;
 let restoreBtnEl = null;
+let agentPlanBannerEl = null;
+let agentPlanInfoEl = null;
+let agentPlanWarnEl = null;
+let agentPlanConfirmLabel = null;
+let agentPlanConfirmInput = null;
 
 function wordLabel(word) {
   const where = word.present ? `plays at ${fmt(word.timeline_start)}` : "cut — it is not in the timeline";
@@ -224,6 +246,7 @@ function buildToggleRow() {
       renderWords(view);
       applyRovingTabIndex(hadFocus);
       paintSelection();
+      paintProposed();
       reapplyPlaying();
       refreshToolbar();
     }
@@ -281,6 +304,45 @@ function buildSelectionToolbar() {
   confirmInput = confirm;
   optsBtn = opts;
   restoreBtnEl = restoreBtn;
+}
+
+/**
+ * STUDIO.md Step 02 item 6 — a persistent banner (same re-append-not-rebuild
+ * discipline as `toolbarEl`) offering Apply/Dismiss over the agent's last
+ * plan-mode cut proposal. `#agent-plan-banner` needs its own
+ * `[hidden]{display:none}` companion rule (builder 2 / app.css) — the same
+ * author-`display:`-beats-UA-`[hidden]` trap every other floating panel here
+ * already has to account for.
+ */
+function buildAgentPlanBanner() {
+  const bar = el("div", "agent-plan-banner");
+  bar.id = "agent-plan-banner";
+  bar.hidden = true;
+
+  const info = el("div", "quote");
+  const warn = el("div", "warn bad");
+  warn.hidden = true;
+
+  const confirmLabel = el("label", null, "");
+  const confirm = document.createElement("input");
+  confirm.type = "checkbox";
+  confirmLabel.append(confirm, document.createTextNode(" allow a suspect boundary"));
+  confirmLabel.hidden = true;
+
+  const actions = el("div", "plan-actions");
+  const applyBtn = el("button", null, "Apply");
+  const dismissBtn = el("button", null, "Dismiss");
+  applyBtn.addEventListener("click", () => applyAgentPlan());
+  dismissBtn.addEventListener("click", () => dismissAgentPlan());
+  actions.append(applyBtn, dismissBtn);
+
+  bar.append(info, warn, confirmLabel, actions);
+
+  agentPlanBannerEl = bar;
+  agentPlanInfoEl = info;
+  agentPlanWarnEl = warn;
+  agentPlanConfirmLabel = confirmLabel;
+  agentPlanConfirmInput = confirm;
 }
 
 /* -- rendering the document ----------------------------------------------- */
@@ -368,6 +430,7 @@ function renderWords(state) {
   }
   pane.append(frag);
   pane.append(toolbarEl);
+  pane.append(agentPlanBannerEl);
 }
 
 function paintSelection() {
@@ -381,6 +444,141 @@ function paintSelection() {
     const trailing = sel !== null && sel.throughPause && after === sel.last;
     node.classList.toggle("sel", interior || trailing);
   }
+}
+
+/* -- agent plans (STUDIO.md Step 02 item 6) --------------------------------
+ *
+ * `agentPlan.payload` is a cut-family op's own return value — the word
+ * indices below are read straight off it, never re-derived: CLAUDE.md's rule
+ * that the page renders ops' own return value, and never a re-derivation.
+ * If a payload shape ever lacked word indices, that would be a finding to
+ * report against the op (builder 1's territory), never a reason to compute
+ * one here.
+ */
+
+/** The set of this pane's own word indices the plan proposes cutting —
+ * empty (not an error) when the plan addresses a different clip than the one
+ * currently loaded here, since a plan can span clips this transcript pane
+ * is not showing. */
+function proposedIndices(plan, view) {
+  const indices = new Set();
+  const payload = plan?.payload;
+  const clipId = view?.clip_id;
+  if (!payload || !clipId) return indices;
+  if (plan.tool === "cut_by_transcript") {
+    if (plan.input?.clip_id !== clipId) return indices;
+    for (const applied of payload.applied || []) {
+      const first = applied.first_word;
+      const last = applied.last_word;
+      if (typeof first === "number" && typeof last === "number") {
+        for (let i = first; i <= last; i++) indices.add(i);
+      }
+    }
+  } else if (plan.tool === "cut_by_time") {
+    for (const applied of payload.applied || []) {
+      for (const piece of applied.pieces || []) {
+        if (piece.clip_id !== clipId) continue;
+        for (const w of piece.words_overlapped || []) {
+          if (typeof w?.index === "number") indices.add(w.index);
+        }
+      }
+    }
+  }
+  return indices;
+}
+
+/** Strikes the proposed words in place — `.w.proposed`/`.pause.proposed`, a
+ * class distinct from `.w.gone` (an applied cut) so a word can be BOTH
+ * already-cut and separately proposed-for-cutting without the styles
+ * fighting (a plan can propose cutting through what a prior op already
+ * removed — `already_cut` in the op's own reply). Called alongside
+ * `paintSelection()` everywhere that function is, so it survives every
+ * `renderWords()` rebuild without being baked into the render loop itself. */
+function paintProposed() {
+  const pane = $("transcript");
+  if (!pane) return;
+  for (const node of pane.querySelectorAll(".w.proposed, .pause.proposed")) node.classList.remove("proposed");
+  if (!agentPlan) return;
+  const indices = proposedIndices(agentPlan, ctx.getView());
+  for (const node of pane.querySelectorAll(".w")) {
+    if (indices.has(Number(node.dataset.i))) node.classList.add("proposed");
+  }
+  for (const node of pane.querySelectorAll(".pause")) {
+    if (indices.has(Number(node.dataset.after))) node.classList.add("proposed");
+  }
+}
+
+function refreshAgentPlanBanner() {
+  if (!agentPlanBannerEl) return;
+  if (!agentPlan) {
+    agentPlanBannerEl.hidden = true;
+    return;
+  }
+  agentPlanBannerEl.hidden = false;
+  const indices = proposedIndices(agentPlan, ctx.getView());
+  agentPlanInfoEl.textContent =
+    agentPlan.tool === "cut_by_transcript"
+      ? `Agent proposes cutting ${indices.size} word(s): "${(agentPlan.payload.applied || [])
+          .map((a) => a.text)
+          .filter(Boolean)
+          .join(" … ")}"`
+      : `Agent proposes cutting ${indices.size} word(s) across ${agentPlan.input?.spans?.length ?? 0} span(s).`;
+  const suspects = agentPlan.payload?.suspect_boundaries?.length || 0;
+  agentPlanWarnEl.hidden = suspects === 0;
+  if (suspects) {
+    agentPlanWarnEl.textContent = `${suspects} suspect boundary${suspects === 1 ? "" : "ies"} flagged — confirm below to apply anyway.`;
+  }
+  agentPlanConfirmLabel.hidden = suspects === 0;
+}
+
+/** Apply — re-posts the SAME op with `plan: false`, translating between the
+ * MCP tool's own `cut`/`keep` body shape and `_cut_words`'s `mode`+`ranges`
+ * shape (both already route to the identical `ops.cut_by_transcript`/
+ * `ops.cut_by_time` call — this is not a re-derivation of the op's
+ * semantics, just picking the right HTTP body for the same call). */
+async function applyAgentPlan() {
+  if (!agentPlan || !ctx) return;
+  const { tool, input } = agentPlan;
+  const suspects = (agentPlan.payload?.suspect_boundaries?.length || 0) > 0;
+  if (suspects && !agentPlanConfirmInput.checked) return;
+  const body =
+    tool === "cut_by_transcript"
+      ? {
+          clip_id: input.clip_id,
+          ranges: input.cut ?? input.keep,
+          mode: input.cut ? "cut" : "keep",
+          pad: input.pad ?? 0,
+          through_pause: Boolean(input.through_pause),
+          confirm_suspect: suspects,
+          plan: false,
+        }
+      : {
+          spans: input.spans,
+          pad: input.pad ?? 0,
+          confirm_suspect: suspects,
+          plan: false,
+        };
+  const route = tool === "cut_by_transcript" ? "/api/cut" : "/api/cut-at";
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api(route, body);
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error) {
+    agentPlan = null;
+    paintProposed();
+    refreshAgentPlanBanner();
+  }
+}
+
+function dismissAgentPlan() {
+  agentPlan = null;
+  paintProposed();
+  refreshAgentPlanBanner();
 }
 
 function reapplyPlaying() {
@@ -790,6 +988,7 @@ export function init(passedCtx) {
   ctx = passedCtx;
   buildToggleRow();
   buildSelectionToolbar();
+  buildAgentPlanBanner();
 
   $("transcript").append(el("p", "pane-placeholder", "Loading…"));
 
@@ -802,6 +1001,11 @@ export function init(passedCtx) {
   pane.addEventListener("focusout", handleFocusOut);
 
   ctx.on("playing-word", ({ index }) => paintPlayingWord(index));
+  ctx.on("agent-plan", (plan) => {
+    agentPlan = plan;
+    paintProposed();
+    refreshAgentPlanBanner();
+  });
 }
 
 export function update(state) {
@@ -854,6 +1058,8 @@ export function update(state) {
   renderWords(state);
   applyRovingTabIndex(hadFocus);
   paintSelection();
+  paintProposed();
   reapplyPlaying();
   refreshToolbar();
+  refreshAgentPlanBanner();
 }

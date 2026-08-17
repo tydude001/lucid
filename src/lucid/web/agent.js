@@ -27,7 +27,15 @@
  *     the running job, and a completion card reporting what the file
  *     actually is (dimensions, duration) plus the four verification checks,
  *     because success here is what ffprobe said, not that the job finished
- *     (PLAN.md § Finishing).
+ *     (PLAN.md § Finishing);
+ *   - `agent-plan` on the shared bus (STUDIO.md Step 02 item 6): when a
+ *     tool_result lands for a `cut_by_transcript`/`cut_by_time` call whose
+ *     matching tool_use had `plan: true`, this file parses the tool's own
+ *     JSON reply and emits `{tool, input, payload}` VERBATIM — transcript.js
+ *     is the only consumer, drawing the proposed cut on the words and
+ *     offering Apply/Dismiss. This file decides only WHETHER to emit (off
+ *     the tool name and its own recorded input), never what the payload
+ *     means.
  *
  * Every DOM node this pane needs beyond what index.html already provides
  * (#agent-feed, #agent-composer, #agent-prompt, #agent-send, #agent-stop) is
@@ -146,6 +154,29 @@ function resultPreview(block) {
   return "";
 }
 
+/** Like `resultPreview`, but returns the tool's own parsed JSON reply rather
+ * than a joined string — an MCP tool result's `content` is `[{type:"text",
+ * text: "<json>"}]`, so this parses the first text block. Returns `null`
+ * (never throws) on anything that is not parseable JSON, so a caller can
+ * treat "no plan payload" and "unparseable" the same way. */
+function parseResultPayload(block) {
+  const content = block?.content;
+  if (content && typeof content === "object" && !Array.isArray(content)) return content;
+  let text = null;
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    const first = content.find((b) => b && b.type === "text" && typeof b.text === "string");
+    text = first ? first.text : null;
+  }
+  if (typeof text !== "string") return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 // -- the tool-progress checklist --------------------------------------------
 //
 // One `.agent-progress` list per run of consecutive tool_use blocks.
@@ -180,7 +211,10 @@ function addStep(block) {
   }
   if (!currentProgress) currentProgress = openProgress();
   currentProgress.append(step);
-  if (block?.id) pendingSteps.set(block.id, { step, label });
+  // `name`/`input` are carried alongside the checklist bookkeeping so the
+  // matching tool_result can tell whether this was a plan-mode cut-family
+  // call (STUDIO.md Step 02 item 6) — the checklist itself never reads them.
+  if (block?.id) pendingSteps.set(block.id, { step, label, name: block?.name, input: block?.input });
 }
 
 function finishStep(toolUseId, ok, preview) {
@@ -224,6 +258,22 @@ function handleAssistantOrUser(data) {
       // is the harness handing the tool's own output back, not a person
       // typing; it is never re-shown as a prompt (the composer already
       // echoed what the person actually sent).
+      //
+      // STUDIO.md Step 02 item 6: a successful cut_by_transcript/cut_by_time
+      // call made with plan:true is a proposal, not a finished edit — it
+      // gets drawn on the transcript rather than only logged. The payload is
+      // handed to transcript.js VERBATIM (CLAUDE.md: the page renders ops'
+      // own return value, never a re-derivation); this file only decides
+      // WHETHER to emit, off the matching tool_use's own recorded name/input,
+      // never what the payload means.
+      const pending = pendingSteps.get(block.tool_use_id);
+      if (pending && !block.is_error) {
+        const bare = String(pending.name || "").replace(MCP_PREFIX, "");
+        if ((bare === "cut_by_transcript" || bare === "cut_by_time") && pending.input?.plan === true) {
+          const payload = parseResultPayload(block);
+          if (payload) ctx.emit("agent-plan", { tool: bare, input: pending.input, payload });
+        }
+      }
       finishStep(block.tool_use_id, !block.is_error, resultPreview(block));
     }
     // Any other block type (image, thinking, …) is silently skipped rather

@@ -127,6 +127,21 @@ function buildClipRow(clip) {
   }
   row.addEventListener("click", () => inspect({ kind: "clip", clipId: clip.clip_id }));
 
+  // Drag source for step 02 item 5 (drag-from-assets to V2). The dragged
+  // thing is the ASSET — clip.clip_id, the footage — never the addressing
+  // clip a shot/cue happens to be read through (CLAUDE.md: "a shot's
+  // addressing clip is not its footage"). timeline.js's V2 drop target reads
+  // this back off `application/x-lucid-asset` and resolves the drop point to
+  // a word on the loaded transcript clip separately — this file only names
+  // what was dragged, never where it lands.
+  row.draggable = true;
+  row.addEventListener("dragstart", (event) => {
+    const payload = { kind: "clip", id: clip.clip_id };
+    event.dataTransfer.setData("application/x-lucid-asset", JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.id);
+    event.dataTransfer.effectAllowed = "copy";
+  });
+
   const id = el("div", "asset-id", clip.clip_id);
   if (lastView && lastView.clip_id === clip.clip_id) {
     id.append(el("span", "hint", "  · loaded"));
@@ -165,6 +180,21 @@ function buildCardRow(card) {
     row.classList.add("inspected");
   }
   row.addEventListener("click", () => inspect({ kind: "card", name: card.name }));
+
+  // Same drag source as a clip row, above — but a card's addressable asset
+  // key is `card:<name>`, not the bare name (cue_add's own asset syntax,
+  // ops.py: `asset.startswith("card:")`). cue_add does not validate `asset`
+  // at all (that is the shot projection's job), so a bare name here would
+  // write a cue nothing refuses at cue-add time and nothing resolves later —
+  // silently wrong rather than an error. `card.asset` is only the display
+  // id, never what gets dragged.
+  row.draggable = true;
+  row.addEventListener("dragstart", (event) => {
+    const payload = { kind: "card", id: `card:${card.name}` };
+    event.dataTransfer.setData("application/x-lucid-asset", JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", payload.id);
+    event.dataTransfer.effectAllowed = "copy";
+  });
 
   row.append(el("div", "asset-id", card.asset));
   const meta = [
