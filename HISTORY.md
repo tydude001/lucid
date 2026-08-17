@@ -8085,3 +8085,61 @@ variant swapping amber to pumpkin #D95F18, Zilla Slab + Outfit, the mark
 `Good[em]*[/em]` / compact `G[em]*[/em]` / footnote `[em]*[/em] Sometimes`,
 and the safe zones above. Its own branding.md gained the pack's record and a
 note on the `title_font` departure — that repo's fact, not restated here.
+
+## The controlled density cell, and the answer flipped — 2026-08-17
+
+§ The melt RSS matrix closed its own six cells stating the confidence
+honestly: "not duration" was measured twice over, but *density* was a pattern
+read across the table — no cell held sources-per-second constant while
+varying anything else. This is that cell, and it refutes the read it was run
+to confirm.
+
+**Cell F: D's own project — same 16 cues, same 20 sources — stretched to
+316.9s by fourteen interleaved `vo_extend` holds.** All fourteen are the same
+19.4667s, so `import_media`'s dedup keeps them one registered silence clip:
+source count moves 20 → 21 while density falls 0.45 → 0.066 sources/sec,
+a 6.8× swing with the source set otherwise identical. The holds sit between
+the cues (three on long-runway footage shots, ten on card stills, two more
+inside the cold-open shot) rather than as one tail, so the sources spread
+across the stretched timeline the way B's spread across its 411s — bunching
+them into the first 44s would have reproduced D's local pattern and measured
+nothing. Two mechanics of placing them, both by refusal rather than
+inference: `plan_picture` refuses a hold that would run a footage shot past
+its asset's length (three of the first fifteen sites), and `vo_extend`
+refuses a word the reel cut (407–410 are a cut span), which is why fourteen
+and not fifteen.
+
+| cell | duration | sources | src/sec | canvas | peak RSS | wall |
+|---|---|---|---|---|---|---|
+| D | 44.400s | 20 | 0.45 | 1080x1920 | 2.240 GiB | 20.4s |
+| **F** | 316.938s | 21 | 0.066 | 1080x1920 | **2.250 GiB** | 108.5s |
+
+`agrees: true`, 7603 frames expected and rendered. Artifact set at
+`~/lucid-scale-spike/rss-matrix/F/` like every other cell.
+
+**THE VERDICT, REVISED: RSS tracks the resident source set, not source
+density.** Density fell 6.8× at constant count and the peak moved +0.4% —
+well inside sanity-A's ±1.2% repeat noise. Sources-per-second predicts F
+lands near B (2.005 GiB); it lands on D instead.
+
+**And the wrinkle that made density look right was a canvas confound the
+matrix never listed as a column.** The three ~2.0 GiB cells (orig, sanity-A,
+B) all render 1920x816; C, D, E and F all render 1080x1920 — 32% more pixels
+per frame. Read within a canvas family, the table is monotone in source
+count and flat in duration everywhere:
+
+- 1920x816: 22 → 1.972, 24 → 1.995, 22 → 2.005
+- 1080x1920: 4 → 1.707, 5 → 1.754, 20 → 2.240, 21 → 2.250
+
+D > B — the comparison § The melt RSS matrix called "the whole reason the
+answer is density and not raw count" — is a 20-source vertical render
+against a 22-source landscape one. Count alone within D's own canvas family
+predicts D > B once the frame-size term is there, no density needed. What a
+controlled cell buys over six suggestive ones is exactly this: the pattern
+read was coherent, wrote itself up convincingly, and was wrong.
+
+So the scaling story for melt memory on projects this size: **per-source
+cost dominates (roughly 30 MiB a source on these cells, resident once
+opened and never released), frame size scales the base, and timeline length
+is free.** A long film costs what its *distinct source list* costs, which is
+the one number `status` already reports.

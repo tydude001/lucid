@@ -510,11 +510,12 @@ installed package or the upstream repo, not your memory.
     and optional, so absent means none, which is what every older record meant.
     HISTORY.md § The portrait cards. A card with files but no record cannot be
     re-authored by anything — it is reported, never guessed at. The twelve in
-    `~/lucid-final-cut/proj` have no record, **but their slot tables survive in
-    `~/lucid-cards-reauthor/`** — look there before concluding a card is
-    unrecoverable. All twelve author at 9:16; the two that refuse are a
-    16:9-only content fit. HISTORY.md § The card record, § Step 6 of the aspect
-    swap, watched.
+    `~/lucid-final-cut/proj` **are recorded** (all thirteen with the outro, at
+    1920x816 — verified in the manifest 2026-08-17); `~/lucid-cards-reauthor/`
+    keeps the slot tables and `reauthor.py`, the recovery route if a copy
+    without records ever resurfaces. All twelve author at 9:16; the two that
+    refuse at 2.35:1 are a 16:9-only content fit. HISTORY.md § The card record,
+    § Step 6 of the aspect swap, watched.
 - **A channel preset pack is a snapshot, never a live reference to a sibling
   repo's file.** `pack.load_pack` resolves one external JSON file (palette,
   fonts, mark, caption presets, weights) once; `pack_apply` writes the fully-
