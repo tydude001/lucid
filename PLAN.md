@@ -3674,19 +3674,17 @@ The order was adopted 2026-08-12.
      HISTORY.md § The ingest path's hallucination guard; § The scan the spike
      named was not the one that costs. **What is left of this item is its own
      unrun half** — the transcribe pass and the melt-RSS second data point.
-   - **The melt half ran 2026-08-16, and it moved its own premise again: RSS
-     tracks source DENSITY, not duration and not raw source count.** Six cells
-     against a reusable poll tool settled it: holding source count fixed and
-     swinging duration moved RSS almost nothing, twice over, while the cell
-     that separates count from density is the tell — fewer sources over far
-     less duration peaked *higher* than more sources over far more duration.
-     **Confidence is split and stays split, not upgraded for tidiness**: high
-     that duration is not the driver (two independent near-zero-delta
-     comparisons), moderate that source count is a driver but not the whole
-     story, low-to-moderate on density specifically — no cell held density
-     constant, so density is inferred from the pattern across six points, not
-     isolated. **This item is closed.** HISTORY.md § The melt RSS matrix, and
-     the scale spike's last half.
+   - **The melt half ran 2026-08-16, and the controlled cell it flagged as
+     missing ran 2026-08-17 and flipped its verdict: RSS tracks the resident
+     SOURCE COUNT (scaled by frame size), not density and not duration.**
+     Six cells ruled duration out twice over but read "density" off the
+     pattern; cell F held the source set constant while dropping density
+     6.8× and the peak moved +0.4% — inside repeat noise. The comparison
+     that made density look right was a canvas confound (the vertical cells
+     render 32% more pixels per frame than the landscape ones). Per-source
+     cost is ~30 MiB on these cells, resident once opened; timeline length
+     is free. **This item is closed.** HISTORY.md § The melt RSS matrix;
+     § The controlled density cell, and the answer flipped.
 10. **The parity long tail** — the gap-drag measurement first (§ Three
     uncosted parity items: does a timeline drag usually land on a gap a cut
     left? settle against the Scream project with `Edit.gaps` before writing
