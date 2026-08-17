@@ -268,6 +268,56 @@ def test_view_of_a_clip_without_a_transcript_still_draws_the_edit(
     assert payload["segments"]  # the timeline is still there to look at
 
 
+def test_view_flags_a_clip_registered_but_not_on_the_timeline(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    """`off_timeline` is the only thing that separates "never on the track"
+    from "you cut all of it", and a front end may not re-derive it.
+
+    Registering a clip does not put it in the edit — footage a cue points at
+    never is. Asked for one, `timeline_view` reports rather than refuses, and
+    hands back the *timeline's* segments under the clip_id it was asked for;
+    without the flag the payload is indistinguishable from a clip whose every
+    word was removed."""
+    other = tmp_path / "b.wav"
+    _make_wav(other, duration=3.0)
+    ops.import_media(project, other, clip_id="b")
+
+    _, off = _json(f"{server}/api/view?clip_id=b")
+    assert off["clip_id"] == "b"
+    assert off["off_timeline"] is True
+    # The echoed clip_id is not the segments' clip_id — the exact trap the flag
+    # exists to make legible rather than derivable.
+    assert {s["clip_id"] for s in off["segments"]} == {"vo"}
+
+    # And it is absent, not False, for the clip the edit actually contains —
+    # same absent-means-the-ordinary-case shape as `transcript_missing`.
+    _, on = _json(f"{server}/api/view?clip_id=vo")
+    assert "off_timeline" not in on
+
+
+def test_an_off_timeline_clip_with_a_transcript_reads_as_entirely_cut(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    """The half that actually misleads: give the off-timeline clip a
+    transcript and every word comes back `present: false`, which is precisely
+    what a clip somebody cut in its entirety looks like. The words alone
+    cannot tell the two apart — the flag beside them is the whole answer."""
+    other = tmp_path / "b.wav"
+    _make_wav(other, duration=3.0)
+    ops.import_media(project, other, clip_id="b")
+    words = [{"word": f"b{n}", "start": float(n) * 0.5, "end": n * 0.5 + 0.4} for n in range(4)]
+    transcript = tmp_path / "b.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    ops.attach_transcript(project, "b", transcript)
+
+    _, payload = _json(f"{server}/api/view?clip_id=b")
+    assert payload["words"], "the clip has a transcript, so words are drawn"
+    assert all(w["present"] is False for w in payload["words"])
+    assert "transcript_missing" not in payload
+    assert payload["off_timeline"] is True
+
+
 def test_the_picture_lane_reaches_the_page_over_http(project: Path, server: str) -> None:
     """Step 6: what the V2 lane is drawn from has to survive the trip, and it
     is a planned shot list rather than a raw projection — `src_in` is the

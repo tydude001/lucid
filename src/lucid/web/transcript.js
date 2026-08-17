@@ -308,6 +308,25 @@ function renderWords(state) {
   pane.textContent = "";
   pane.append(toggleRow);
 
+  // The worse half of `off_timeline`, and the reason it is reported at all: a
+  // transcribed clip that is not in the edit has every word `present: false`,
+  // so this pane draws the whole document struck through and it reads as a cut
+  // somebody made. It is the opposite — nothing was cut, the clip was never on
+  // the track — and no amount of looking at the words themselves can tell the
+  // two apart. `.warn` is app.css's existing flagged-condition style; this
+  // needs no class of its own.
+  if (state.off_timeline) {
+    pane.append(
+      el(
+        "div",
+        "warn",
+        `${state.clip_id} is not on the timeline, so every word below reads as cut. ` +
+          `Nothing here was removed — this clip is footage a cue points at, not part of ` +
+          `the edit's own track, and Restore has nothing to put back.`,
+      ),
+    );
+  }
+
   wordIndexMap = new Map();
 
   const frag = document.createDocumentFragment();
@@ -799,12 +818,23 @@ export function update(state) {
 
   if (!state.words) {
     pane.textContent = "";
+    // Two different reasons this pane is empty, and naming the wrong one sends
+    // a person somewhere that cannot help: `transcribe` does not put a clip on
+    // the timeline, so advising it for a clip that is merely off the edit has
+    // one effect, which is to produce the *worse* state below — a full
+    // transcript drawn entirely struck through. `off_timeline` is
+    // `timeline_view`'s own answer and this pane never re-derives it from
+    // `segments[].clip_id`.
     pane.append(
       el(
         "p",
         "pane-placeholder",
-        `${state.clip_id} has no transcript, so there are no words to address. ` +
-          `Run \`lucid transcribe ${state.clip_id}\` or attach a whisper JSON.`,
+        state.off_timeline
+          ? `${state.clip_id} is registered but is not on the timeline, so there are no ` +
+            `words here to address. It is footage a cue can point at rather than part of ` +
+            `the edit's own track — the timeline below is what actually plays.`
+          : `${state.clip_id} has no transcript, so there are no words to address. ` +
+            `Run \`lucid transcribe ${state.clip_id}\` or attach a whisper JSON.`,
       ),
     );
     sel = null;

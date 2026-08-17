@@ -2719,6 +2719,14 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     `transcript_missing` is set, matching `locate`'s policy rather than
     refusing a valid question about a picture-only clip.
 
+    `off_timeline` is set when the addressed clip is registered but not in the
+    edit — `segments` is then the timeline's own material under someone else's
+    `clip_id`, and a transcribed clip's `words` all read `present: false`,
+    which is indistinguishable from a clip that was cut in its entirety. Same
+    report-rather-than-refuse policy as `transcript_missing` above: the
+    question is valid (a footage clip a cue points at is legitimately not on
+    the edit's track) and the answer is a fact about it, not an error.
+
     `layered` says whether this timeline names more than one source — a cue
     table or a second clip — which is what decides whether `export` writes and
     renders it through MLT/melt or hands it to auto-editor. It is reported here
@@ -2855,6 +2863,19 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         result["shots_error"] = shots_error
     if reframe_error is not None:
         result["reframe_error"] = reframe_error
+    # A clip can be registered, transcribed, and still not be in the edit — and
+    # then every one of its words comes back `present: false`, which is exactly
+    # what a clip somebody cut entirely looks like. Reported rather than left to
+    # be derived off `segments[].clip_id`, on `transcript_missing`'s own
+    # precedent and for this function's own stated reason: a front end that
+    # re-implements the test is a second chance to get it wrong, and without the
+    # field the advice it gives is actively wrong — `transcribe` does not put a
+    # clip on the timeline, and following that advice lands you in the *worse*
+    # state, a full transcript struck through as though you had cut it.
+    # Computed off `edit.segments` rather than `result["segments"]` so the flag
+    # and the lane can never disagree about the same question.
+    if all(segment.clip_id != clip_id for segment in edit.segments):
+        result["off_timeline"] = True
     if parsed is None:
         result["words"] = None
         result["transcript_missing"] = True

@@ -719,13 +719,17 @@ installed package or the upstream repo, not your memory.
     HISTORY.md § The auto-framing detector, built; § The thirty-nine windows,
     reviewed.
 - **A clip being registered is not a clip being on the timeline, and
-  `timeline_view` answers for one anyway.** Asked for a clip the edit does not
-  contain it returns rather than raising, echoing the `clip_id` you asked for
-  beside *another* clip's segments — `timeline_view(final-cut, "cold-open")`
-  gives `clip_id: "cold-open"` and segments that are all `vo`'s, and where the
-  off-timeline clip has a transcript its words come back with every one
-  `present: false`, which reads exactly like a clip that was entirely cut.
-  Check `segments[].clip_id` before believing a clip is in the edit.
+  `timeline_view` answers for one anyway — read `off_timeline`.** Asked for a
+  clip the edit does not contain it reports rather than raises (the same policy
+  as `transcript_missing`), echoing the `clip_id` you asked for beside
+  *another* clip's segments. Where that clip has a transcript, every word comes
+  back `present: false`, which is indistinguishable from a clip cut in its
+  entirety — so the flag is the only thing that tells "never on the track" from
+  "you removed all of it", and **never re-derive it from `segments[].clip_id`**
+  in a front end. Without it the advice a UI gives is wrong in the one
+  direction that costs you: `transcribe` does not put a clip on the timeline,
+  and following it produces the struck-through-transcript state rather than
+  fixing anything.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.
