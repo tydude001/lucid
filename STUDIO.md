@@ -199,6 +199,8 @@ output, not codes).
 
 ## Step 02 — direct manipulation on the timeline
 
+Shipped — see HISTORY.md § Direct manipulation on the timeline.
+
 The Premiere feel: hands on the clips. Everything here posts to existing
 mutations; the only new server code is thin endpoints.
 

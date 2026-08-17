@@ -8423,3 +8423,82 @@ project's 410.96s.
   copy, not the dogfood project.
 
 1321 passed before this work, 1336 after. `ruff check` clean.
+
+## Direct manipulation on the timeline — 2026-08-17
+
+STUDIO.md § Step 02, built. Drag-trim, razor select-a-range, snap,
+drag-from-assets onto V2, and agent plans drawn as struck words with
+Apply/Dismiss. Every gesture posts to an op that already existed; nothing in
+JS computes an edit. `gesture` replaces the old single-purpose `cueDrag` as
+the one piece of live-gesture state, discriminated by `kind` — one mousedown
+entry point (`handleLanesMouseDown`) dispatches all three drag kinds, and the
+only three nodes a live gesture ever draws are standalone overlays
+(`.drag-box`, `.trim-preview`, `.range-band`), never a lane rebuild —
+`updateGestureOverlay` is `updateSelectionHighlight` widened to all three,
+same discipline.
+
+Two of STUDIO.md's own claims did not survive reading the code, which is
+what "verify first" is for:
+
+- `POST /api/cut-time` already existed as `/api/cut-at`, calling
+  `ops.cut_by_time` with `spans`/`plan`/`confirm_suspect`. So the work was
+  the missing test — that an overlapping-spans refusal arrives as a 4xx body
+  and never the 500 branch reserved for a real bug — not a duplicate route.
+- "resolve the drop x to a word via `ops.locate`" cannot work: `locate` maps
+  *source* time forward to *render* time and takes no timeline argument at
+  all. The client-side `nearestWordAt`, which cue-drag already used for
+  exactly this over words the page has loaded for drawing, is what does it.
+
+### Three defects the test suite could not see
+
+Each found by driving real mouse input at a ~120ms dwell (the dwell-timing
+lesson, again), each fixed here.
+
+1. **The plan popover was unreachable.** `clampFloating` moves a box; it
+   cannot shrink one. Measured at 218px tall inside `#track-lanes`'s 143px
+   `overflow: hidden` box, it was pinned to the top with the actions row
+   hanging out the bottom — Apply at y 920-948 of a 900px viewport, where
+   `document.elementFromPoint` returns null. A synthetic `.click()` fired the
+   handler perfectly, which is exactly why nothing caught it. Fixed by
+   capping the popover at the lanes' own `clientHeight` (`--plan-max-h`) and
+   letting the quote scroll while the actions row keeps its height. After:
+   popover 737-880, Apply hit-tests as `BUTTON`, and a real press/release at
+   120ms dwell posts `plan: false`.
+2. **Drag-trim was gated on the V1 lane, which a VO project does not have.**
+   V1 is built only when the displayed clip `has_video`, so on the essay
+   projects lucid exists for the lanes come back V2/A1/CC and
+   `.trim-handle` count was 0 — the headline gesture of the step was
+   unreachable on the shipped film's own shape. V1 and A1 are the same
+   `state.segments` drawn twice, so both get handles now.
+3. **A handle pair on a narrow block offered a gesture that silently did
+   nothing.** Two flat 6px handles cover a 14px block outright, and — the
+   deeper half — `snapTolerance()` is ~6px expressed in seconds, which
+   exceeds a short block entirely, so an inward drag clamps to less than one
+   tolerance and never reads as `moved`: no preview, no popover, no toast. On
+   the film's own 63 segments the median block is 17.9px at the zoom the
+   page opens at and 33 of 63 are under 20px. Blocks under
+   `TRIM_MIN_BLOCK_PX` (24px) now get no handles and stay plain
+   click-to-seek; zooming in is what makes a short segment trimmable, and
+   does — the 1.5s opening segment is 6px of timeline at the opening zoom and
+   51px at zoom 10, where it trims correctly (posting `[[0, 1.324]]`).
+
+### Verified, real press/move/release over CDP, 0ms and ~120ms dwell
+
+- Drag-trim posts `/api/cut-at {"spans":[[158.968,172.075]],"plan":true}`,
+  and a real click on Apply posts the same span with
+  `"plan":false,"confirm_suspect":false`.
+- The razor band draws live (19.5 → 119.8px), and its two-verb popover posts
+  the span it drew — 0:50.0-1:19.9 → `[[49.974, 79.933]]` — with every
+  button hit-tested by `elementFromPoint`.
+- Snap toggles; the mousedown target is still in the document at release for
+  every gesture (the cue-drag browser pass's own rule, held for the two new
+  gesture kinds too).
+- Page-level overflow clean at 700/900/1200px (`body.scrollWidth ===
+  innerWidth`); nothing drawn despite `hidden`; no console errors.
+- The V2 drop was exercised at the handler level with a synthetic
+  `DataTransfer` — a dragover ghost, then a drop that prefills the cue
+  toolbar with the ASSET's own id (`s1996-randy`) and the word echo — but
+  **not** through the browser's own drag machinery, so say that plainly
+  rather than let it read as a full browser pass.
+
+1343 passed, ruff clean (1336 before this step).

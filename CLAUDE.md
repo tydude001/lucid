@@ -158,6 +158,14 @@ installed package or the upstream repo, not your memory.
       then drops the trailing `click` with nothing thrown, which is how a lane
       that re-rendered on mousedown silently stopped seeking. HISTORY.md § The
       cue-drag browser pass, and six defects.
+      - **A gesture whose hit target is smaller than `snapTolerance()`
+        resolves to nothing and no-ops silently** — a drag clamped to under
+        one tolerance never reads as `moved`, so there is no preview, no
+        popover, no toast, just a dead drag. Don't offer a gesture on a
+        target too small to complete it; on the shipped film's own segments
+        the median block was under the threshold that would have made this
+        the common case, not the edge one. HISTORY.md § Direct manipulation
+        on the timeline.
     - **And scope the probe to the page, never to where the bug is expected** —
       a sweep of `#workspace *` measured clean at every width while `#bar`
       overflowed at 700px with Export and the theme toggle off a hidden edge.
@@ -178,6 +186,14 @@ installed package or the upstream repo, not your memory.
     transcript toolbar is unscrolled, the cue toolbar has `scrollLeft` already
     folded in — so it takes bounds rather than a container. A second clamp is
     how the first fix reached one of the two toolbars and not the other.
+    - **`clampFloating` MOVES a box; it cannot SHRINK one.** A panel taller
+      than its container is pinned to the top with its own buttons hanging
+      off the bottom — measured at 218px inside a 143px `overflow: hidden`
+      box, Apply landing at y 920 of a 900px viewport, where
+      `elementFromPoint` returns null. Hit-testable by a synthetic `.click()`
+      and by nothing a person can do, which is exactly why nothing caught it
+      first. Cap the panel's own height instead. HISTORY.md § Direct
+      manipulation on the timeline.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind
