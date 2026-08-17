@@ -815,6 +815,39 @@ def test_assets_takes_no_arguments_and_reports_both_kinds(
 
 
 @needs_ffprobe
+def test_finish_report_subcommand_emits_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`finish-report` takes no arguments — just the CLI plumbing to
+    `ops.finish_report`, already exercised end to end over the wire in
+    test_server_stdio.py. Composes `ops.status`, which needs a seeded
+    timeline, same as `properties` below."""
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "finish-report"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out) == {
+        "duration",
+        "canvas",
+        "captions",
+        "picture",
+        "marks",
+        "seams",
+        "flags",
+    }
+
+
+@needs_ffprobe
 def test_properties_narrows_on_clip_id_and_refuses_word_index_alone(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

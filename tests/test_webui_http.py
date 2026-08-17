@@ -827,6 +827,39 @@ def test_properties_word_index_without_clip_id_is_refused(server: str) -> None:
     assert "clip_id" in payload["error"]
 
 
+# -- finish mode: GET /api/finish --------------------------------------------
+#
+# STUDIO.md § Step 01 — `ops.finish_report` composed entirely from existing
+# ops. This is the same discipline `test_properties_*` above applies to
+# `/api/properties`: prove the route is actually reachable over a real
+# socket and answers with the documented top-level shape, not that
+# `ops.finish_report` itself is correct (that's `tests/test_ops_finish.py`).
+
+
+def test_api_finish_reports_over_a_real_socket(server: str) -> None:
+    status, payload = _json(f"{server}/api/finish")
+    assert status == 200
+    assert set(payload) == {
+        "duration",
+        "canvas",
+        "captions",
+        "picture",
+        "marks",
+        "seams",
+        "flags",
+    }
+    assert set(payload["duration"]) == {"edit_seconds", "tail_seconds", "total_seconds"}
+    assert set(payload["canvas"]) == {"canvas", "presets"}
+    assert set(payload["captions"]) == {"configured", "font", "burned"}
+    assert payload["captions"]["configured"] is False
+    assert payload["captions"]["burned"] == "unknown"  # no render log yet
+    assert set(payload["picture"]) == {"cue_count", "pinned_count", "shots_error"}
+    assert set(payload["marks"]) == {"applied", "stale"}
+    assert set(payload["seams"]) == {"count"}
+    assert set(payload["flags"]) == {"count", "items"}
+    assert payload["flags"]["count"] == len(payload["flags"]["items"])
+
+
 # -- filmstrip thumbnails -----------------------------------------------------
 #
 # DAYDREAM.md's filmstrip lane: a cached frame per source instant, addressed
@@ -1669,9 +1702,14 @@ def _render_output_path(project: Path, job_id: str) -> Path:
 
 
 def _next_render_event(events: Iterator[tuple[str, Any]], job_id: str) -> dict[str, Any]:
-    """The first non-`running` `render` event for `job_id` off an open stream."""
+    """The first terminal `render` event for `job_id` off an open stream.
+
+    `"running"` and the per-stage `"stage"` events (export/burn/check_frames/
+    verify, published as the pipeline progresses — see webui.RenderJob) are
+    both non-terminal; only `"done"`/`"error"`/`"cancelled"` end a run.
+    """
     for event, data in events:
-        if event == "render" and data.get("job_id") == job_id and data.get("status") != "running":
+        if event == "render" and data.get("job_id") == job_id and data.get("status") not in ("running", "stage"):
             return data
     raise AssertionError(f"no completion event arrived for render {job_id}")
 
@@ -1949,6 +1987,88 @@ def test_render_stop_with_no_job_running_is_a_no_op(server: str) -> None:
     status, payload = _post(f"{server}/api/render/stop", {})
     assert status == 200
     assert payload["stopped"] is True
+
+
+# -- render: the new `burn` request key ---------------------------------
+#
+# Contract §C.7/§D.2 — `burn` on `POST /api/render` is `null` (apply the
+# project's own default) or a bool, and anything else is a 400, not a 500,
+# same validation style `resolution`'s shape check already gets.
+
+
+def _next_terminal_render_event(events: Iterator[tuple[str, Any]], job_id: str) -> dict[str, Any]:
+    """The first `done`/`error`/`cancelled` `render` event for `job_id`.
+
+    A local helper rather than reusing `_next_render_event` above: that one
+    is defined as "first non-`running`" and the new `stage` events (one per
+    pipeline stage, landing between `running` and the terminal event) now
+    satisfy that condition without being terminal — see the reported finding.
+    Written fresh here so this file's own new tests do not inherit that bug.
+    """
+    for event, data in events:
+        if event == "render" and data.get("job_id") == job_id and data.get("status") in (
+            "done",
+            "error",
+            "cancelled",
+        ):
+            return data
+    raise AssertionError(f"no terminal event arrived for render {job_id}")
+
+
+def test_render_start_rejects_a_non_bool_burn_value(server: str) -> None:
+    for bad in ("yes", 1, 0, [], {}):
+        status, payload = _post(f"{server}/api/render", {"burn": bad})
+        assert status == 400, bad
+        assert "burn" in payload["error"]
+        # a 4xx body, never a raw 500/traceback
+        assert "error" in payload and isinstance(payload["error"], str)
+
+
+def test_render_start_accepts_explicit_burn_true_and_false(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ops, "export", _fast_export_stub)
+    monkeypatch.setattr(ops, "verify", lambda *a, **k: {"agrees": True, "stub": True})
+
+    def _fast_add_captions_stub(path: str, output: str, **kwargs: Any) -> dict[str, Any]:
+        burn = kwargs.get("burn")
+        burned = Path(burn) if burn else Path(output)
+        if not burned.exists():
+            _make_wav(burned, duration=0.3)
+        return {"burned": str(burned), "output": str(output)}
+
+    monkeypatch.setattr(ops, "add_captions", _fast_add_captions_stub)
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/render", {"burn": False})
+        assert status == 202
+        found = _next_terminal_render_event(events, payload["job_id"])
+        assert found["status"] == "done"
+
+        status, payload = _post(f"{server}/api/render", {"burn": True})
+        assert status == 202
+        found = _next_terminal_render_event(events, payload["job_id"])
+        assert found["status"] == "done"
+    finally:
+        conn.close()
+
+
+def test_render_endpoints_still_require_json_content_type_with_a_burn_key(server: str) -> None:
+    """The `application/json` guard (webui.py, `_json_body`) fires on the
+    render-start route before the new `burn` key is ever looked at — a
+    mutation POST missing the header still 400s, unchanged by this feature.
+    """
+    status, payload = _post(
+        f"{server}/api/render", {"burn": True}, content_type="text/plain"
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
 
 
 # -- the proxy transcode job ---------------------------------------------
@@ -2263,6 +2383,18 @@ def test_no_route_needs_a_project_before_one_is_open(picker_server: str) -> None
     assert "no project open" in payload["error"]
 
     status, payload = _post(f"{picker_server}/api/agent", {"prompt": "hi"})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+
+def test_finish_before_open_404s_under_picker_root(picker_server: str) -> None:
+    """§D.1's bind-order rule holds for the new route too: `_route_picker`
+    only answers `/`, `/index.html`, `/static/*`, `/api/projects` before a
+    project is bound, and 404s everything else — including `/api/finish` —
+    with the same "no project open yet" message, never a 200 against an
+    unbound `self.project_root`. No new code should have been needed for
+    this (the new route sits behind the existing structural guard)."""
+    status, payload = _json(f"{picker_server}/api/finish")
     assert status == 404
     assert "no project open" in payload["error"]
 

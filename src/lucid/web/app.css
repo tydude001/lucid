@@ -491,10 +491,15 @@ body {
    by measuring in a real browser; it predates the look pass and was invisible
    because `overflow: hidden` here hides the scrollbar that would have said
    so. `.track-lanes` gets the matching `min-width: 0` for the same reason. */
+/* Studio reshape step 01: a second `auto` row for #mode-bar, added between
+   #bar and #workspace — #workspace and #timeline-pane both shift down one
+   track (grid-row 2→3, 3→4) rather than being renumbered in place, so a
+   stray old grid-row somewhere would fail loudly (wrong row) rather than
+   silently drawing over #mode-bar. */
 body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr minmax(var(--timeline-h-min), var(--timeline-h));
+  grid-template-rows: auto auto 1fr minmax(var(--timeline-h-min), var(--timeline-h));
   background: var(--bg);
   color: var(--ink);
   font: 13px/1.5 var(--font-sans);
@@ -711,6 +716,93 @@ textarea {
   color: var(--dim);
 }
 
+/* -- mode bar and truth strip (Studio reshape step 01) --------------------
+ * A second bar, directly under #bar, carrying the workspace mode tabs and
+ * the truth strip. Wraps rather than overflows at a narrow width, the same
+ * rule #bar itself earned the hard way (app.js's own note above, and
+ * CLAUDE.md's "#bar has already overflowed at 700px once"). */
+#mode-bar {
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.mode-tab {
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mode-tab:hover:not([disabled]) {
+  color: var(--ink);
+  background: var(--panel-2);
+}
+
+/* The active mode — `aria-current="page"` is both the a11y signal and the
+   colour hook, so there is one source of truth for "which tab is this"
+   rather than a class app.js would have to keep in sync with it. */
+.mode-tab[aria-current="page"] {
+  border-color: var(--accent);
+  background: var(--wash-accent);
+  color: var(--accent);
+}
+
+/* Frame, until step 03: disabled rather than absent, so the tab row's own
+   width is already final and nothing about the shell reflows when it turns
+   live. `cursor: not-allowed` over the generic `button:disabled`'s `default`
+   — it is a placeholder for a real destination, not a button that merely
+   can't be clicked right now. */
+.mode-tab[disabled] {
+  color: var(--dim);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.truth-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Chips are `<a>` elements (each links to the mode that explains it) rather
+   than `<button>` — `.chip` alone leaves the browser's own link colour and
+   underline in place, so this file has to say explicitly that a chip is a
+   chip first and a link second. */
+.truth-chip {
+  text-decoration: none;
+}
+
+/* The one state `.chip` itself deliberately carries no colour for (its own
+   comment: "which state a chip is in is a `data-*` attribute question, not
+   a class question" — true for #export-status's four job states, but the
+   truth strip only ever has two: fine or flagged, and app.js sets this as a
+   plain class rather than inventing a `data-status` vocabulary for two
+   values). Same --partial/--wash-partial pairing `.warn`/`.check-badge.warn`
+   already use, so a flagged chip reads as the same "attention" colour
+   everywhere in the app that draws one. */
+.chip.warn {
+  border-color: var(--partial);
+  background: var(--wash-partial);
+  color: var(--partial);
+}
+
 /* -- workspace: transcript | preview | agent ----------------------------- */
 
 /* Three `minmax()`es, not the two fixed side widths plus a bare `1fr` this
@@ -764,7 +856,7 @@ textarea {
    same class of failure as before, far smaller, and an accepted, documented
    residual: not chased further this round. */
 #workspace {
-  grid-row: 2;
+  grid-row: 3;
   display: grid;
   grid-template-columns:
     minmax(var(--pane-transcript-min), var(--pane-transcript-w))
@@ -772,6 +864,15 @@ textarea {
     var(--pane-agent-track)
     var(--pane-inspector-track);
   min-height: 0;
+}
+
+/* Studio reshape step 01: #workspace never had a hidden state before today
+   — it was a permanent grid. app.js's setMode() now toggles it off in
+   Frame/Finish mode, and the id-selector `display: grid` rule above would
+   otherwise outrank the browser's own `[hidden] { display: none }`
+   (CLAUDE.md's own trap, twice already — #picture, .toolbar-popover). */
+#workspace[hidden] {
+  display: none;
 }
 
 /* F2's two collapsible-pane breakpoints. At any width under 980px BOTH
@@ -1615,12 +1716,103 @@ textarea {
 /* -- timeline pane --------------------------------------------------------- */
 
 #timeline-pane {
-  grid-row: 3;
+  grid-row: 4;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-top: 1px solid var(--line);
   background: var(--bg);
+}
+
+/* Studio reshape step 01: same new hidden state, same reason, as
+   #workspace's own companion rule above — see its comment. */
+#timeline-pane[hidden] {
+  display: none;
+}
+
+/* -- finish view (finish.js) -------------------------------------------- *
+ * Occupies rows 3–4 (workspace's row plus the timeline's) when shown, so
+ * switching to Finish does not leave a blank strip where the timeline used
+ * to be — both tracks are fixed lengths (22vh / 180px minimum, --timeline-h
+ * above), not content-sized, so they hold that height whether or not
+ * #timeline-pane is present to fill it. */
+#finish-view {
+  grid-row: 3 / span 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 16px 20px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+/* The trap CLAUDE.md names twice already — an id-selector `display: flex`
+   rule above outranks the UA's own `[hidden] { display: none }`. */
+#finish-view[hidden] {
+  display: none;
+}
+
+.finish-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* `.asset-row`'s selectable-row-with-highlight precedent, and
+   `.picker-badge`'s `--cut`/`--wash-cut` pairing for a refusal — a preset a
+   project cannot honour is a hard fact (STUDIO.md: "shows its message AND
+   the fix", never a soft warning), so it borrows `.bad`'s tokens rather than
+   `.warn`'s. */
+.finish-preset-card {
+  min-width: 12rem;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.finish-preset-card:hover {
+  border-color: var(--dim);
+  background: var(--panel-2);
+}
+
+.finish-preset-card.selected {
+  border-color: var(--accent);
+  background: var(--wash-accent);
+  box-shadow: inset 2px 0 0 var(--sel);
+}
+
+.finish-preset-card[data-ok="false"] {
+  border-color: var(--cut);
+  background: var(--wash-cut);
+  cursor: default;
+}
+
+.finish-preset-card .finish-preset-name {
+  font-weight: 600;
+}
+
+.finish-preset-card .finish-preset-message {
+  margin-top: 4px;
+  color: var(--cut);
+  font-size: 11px;
+}
+
+.finish-manifest {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.finish-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .timeline-head {

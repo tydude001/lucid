@@ -85,6 +85,35 @@
       <button id="theme" type="button" title="theme">◐</button>
     </header>
 
+    <!-- Studio reshape step 01 (STUDIO.md): a mode-tab row plus the truth
+         strip, both rendered NOW so the shell does not reflow again when
+         Frame (step 03) turns live — only its own `disabled` drops off this
+         button. Frame's tab carries no behaviour yet; Finish's does
+         (finish.js). Both #mode-tabs and #truth-strip are pure shell chrome,
+         owned by app.js exactly like #bar is — see its own header comment. -->
+    <div id="mode-bar">
+      <nav id="mode-tabs" class="mode-tabs" aria-label="workspace mode">
+        <button id="mode-tab-edit" class="mode-tab" data-mode="edit" aria-current="page">Edit</button>
+        <button id="mode-tab-frame" class="mode-tab" data-mode="frame" disabled title="arrives in step 03">
+          Frame
+        </button>
+        <button id="mode-tab-finish" class="mode-tab" data-mode="finish">Finish</button>
+      </nav>
+      <!-- Fed by GET /api/finish (ops.finish_report), refreshed on the same
+           'project-changed' SSE event every pane already reloads on — see
+           finish.js's own `ctx.emit('finish-report', bundle)`, which this
+           strip listens for rather than issuing a second fetch of the same
+           endpoint. Every chip draws ONLY what the op returned; nothing here
+           is re-derived. A warning chip is a link to the mode that explains
+           it — Finish, for every flag in this step (STUDIO.md § step 01). -->
+      <div id="truth-strip" class="truth-strip" aria-label="film state">
+        <a id="truth-duration" class="chip truth-chip" href="#" data-mode-link="finish"></a>
+        <a id="truth-canvas" class="chip truth-chip" href="#" data-mode-link="finish"></a>
+        <a id="truth-captions" class="chip truth-chip" href="#" data-mode-link="finish"></a>
+        <a id="truth-flags" class="chip truth-chip" href="#" data-mode-link="finish"></a>
+      </div>
+    </div>
+
     <!-- F6: a landmark around the four working panes, so a screen reader or
          a keyboard user has one place to jump to instead of falling through
          the whole document. Tag only — no id/class/child of #workspace is
@@ -219,6 +248,27 @@
         <div id="properties-body"></div>
       </aside>
     </main>
+
+    <!-- Studio reshape step 01: the Finish view — `finish.js` owns
+         everything inside it (preset cards, the render manifest, the burn
+         checkbox, the live stage report), this file only owns the static
+         shell. Starts hidden; app.js's setMode() is the only thing that
+         ever flips it, matching #workspace/#timeline-pane's own new hidden
+         states below. Same top-level tier as #workspace and the timeline
+         section — not nested inside either. -->
+    <section id="finish-view" hidden aria-label="finish">
+      <div class="pane-head">
+        finish
+        <span class="hint">pick a preset, choose whether to burn captions, then render</span>
+      </div>
+      <div id="finish-presets" class="finish-presets"></div>
+      <div id="finish-manifest" class="finish-manifest"></div>
+      <label class="toggle" id="finish-burn-toggle">
+        <input type="checkbox" id="finish-burn-checkbox" /> Burn captions
+      </label>
+      <button id="finish-render" class="primary">Render</button>
+      <div id="finish-report" class="finish-report"></div>
+    </section>
 
     <section id="timeline-pane">
       <div class="timeline-head">

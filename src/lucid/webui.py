@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from lucid import captions, media, ops
+from lucid import captions, media, ops, renderlog
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.energy import EnergyError
@@ -722,19 +722,28 @@ def _run_checks(project_root: Path, output: Path, has_video: bool) -> dict[str, 
 
 
 class RenderJob:
-    """One render at a time per server (PLAN.md § Finishing).
+    """One render at a time per server (PLAN.md § Finishing, STUDIO.md § Step 01).
 
-    Runs `ops.export` — unchanged, no new render path — in a worker thread and
-    publishes progress and completion as `render` events on the bus the SSE
-    handler already serves.
+    Runs the finishing pipeline — `export` → optional `burn` (add_captions)
+    → `check_frames` → `verify`, the last two derived from `_run_checks`
+    rather than called a second time — in a worker thread, publishing a
+    `"stage"` event on the same `render` bus topic after each stage attempt,
+    and appending the whole run to `renderlog` exactly once, on every exit
+    path (success, error, or cancelled).
 
     `stop()` deletes whatever the partial output currently is rather than
     leaving it, per PLAN.md's explicit "not left" — but honestly: `ops.export`
-    is one blocking call into auto-editor's own subprocess, and nothing here
-    holds a handle to kill that subprocess mid-encode. So cancellation deletes
-    the *result* on both ends — immediately, on the thread that called
-    `stop()`, and again when the background export call eventually returns —
+    and `ops.add_captions` are blocking calls into a subprocess, and nothing
+    here holds a handle to kill that subprocess mid-encode. So cancellation
+    deletes the *result* on both ends — immediately, on the thread that
+    called `stop()`, and again when the background call eventually returns —
     rather than pretending to halt an encode it cannot reach.
+
+    Only `export` and `burn` can fail or be cancelled — `check_frames` and
+    `verify` are read off `_run_checks`'s own return value, which already
+    turns a per-check `EXPECTED` failure into `{"skipped": True, "reason":
+    ...}` rather than raising, so those two stages are always `"done"` or
+    `"skipped"`, never `"error"`/`"cancelled"`.
 
     `_running` is a plain flag guarded by the lock, not `Thread.is_alive()`:
     a `Thread` object is not alive until `.start()` actually runs, so gating
@@ -775,7 +784,12 @@ class RenderJob:
         suffix = ".mp4" if view.get("layered") else (media.media_path(project, clip).suffix or ".mp4")
         return project.render_dir / f"web-{job_id}{suffix}"
 
-    def start(self, preset: str | None, resolution: tuple[int, int] | None = None) -> str:
+    def start(
+        self,
+        preset: str | None,
+        resolution: tuple[int, int] | None = None,
+        burn: bool | None = None,
+    ) -> str:
         job_id = uuid.uuid4().hex
         output = self._output_path(job_id)
         cancel = threading.Event()
@@ -786,7 +800,9 @@ class RenderJob:
             self._cancel = cancel
             self._output = output
         threading.Thread(
-            target=self._run, args=(job_id, output, cancel, preset, resolution), daemon=True
+            target=self._run,
+            args=(job_id, output, cancel, preset, resolution, burn),
+            daemon=True,
         ).start()
         return job_id
 
@@ -828,6 +844,7 @@ class RenderJob:
         cancel: threading.Event,
         preset: str | None,
         resolution: tuple[int, int] | None,
+        burn: bool | None,
     ) -> None:
         self.bus.publish(
             "render",
@@ -843,7 +860,7 @@ class RenderJob:
         # it must not leave `_running` latched — that would turn one bug into
         # a permanent 409 for every render until the server restarts.
         try:
-            self._run_inner(job_id, output, cancel, preset, resolution)
+            self._run_inner(job_id, output, cancel, preset, resolution, burn)
         finally:
             self._finish()
 
@@ -854,7 +871,38 @@ class RenderJob:
         cancel: threading.Event,
         preset: str | None,
         resolution: tuple[int, int] | None,
+        burn: bool | None,
     ) -> None:
+        project = Project.open(self.project_root)
+        # Read once, before `export` runs — this is "what the project claims
+        # its own finished length is" at the moment the render was asked for,
+        # the same number `check_frames`/`verify` measure a render against.
+        expected_duration = ops.status(str(self.project_root))["expected_duration"]
+        stages_log: dict[str, dict[str, Any]] = {}
+
+        def publish_stage(stage: str, outcome: str, detail: dict[str, Any] | None = None) -> None:
+            stages_log[stage] = {"outcome": outcome, "detail": detail}
+            self.bus.publish(
+                "render",
+                {
+                    "job_id": job_id,
+                    "status": "stage",
+                    "stage": stage,
+                    "outcome": outcome,
+                    "detail": detail,
+                },
+            )
+
+        def append_run(final_output: Path) -> None:
+            renderlog.append(
+                project,
+                output=str(final_output),
+                preset=preset,
+                expected_duration=expected_duration,
+                stages=stages_log,
+            )
+
+        # -- export ------------------------------------------------------
         # Only passed on when actually set, so a plain `/api/render {}` call
         # still hits `ops.export(path, output, export_format=None)` exactly
         # as it did before preset/resolution existed — the shape a stubbed
@@ -870,38 +918,105 @@ class RenderJob:
             self._finish()
             if cancel.is_set():
                 self._delete(output)
+                publish_stage("export", "cancelled")
+                append_run(output)
                 self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
             else:
+                publish_stage("export", "error", {"error": str(exc)})
+                append_run(output)
                 self._report_error(exc, job_id)
             return
 
         if cancel.is_set():
             self._finish()
             self._delete(output)
+            publish_stage("export", "cancelled")
+            append_run(output)
             self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
             return
 
+        publish_stage("export", "done")
+
+        # -- burn ----------------------------------------------------------
+        # `burn is None` means "apply the project's own default": on when a
+        # caption style is configured, off otherwise — STUDIO.md's rule.
+        # `burn is True`/`burn is False` overrides it explicitly either way.
+        should_burn = (
+            ops.CAPTION_STYLE_KEY in project.read_manifest() if burn is None else burn
+        )
+        final_output = output
+        if should_burn:
+            try:
+                # `burn` names the video to burn onto — the file `export` just
+                # wrote — never the untrimmed source (CLAUDE.md: burning onto
+                # the source lines captions up against audio that has moved).
+                result = ops.add_captions(
+                    str(self.project_root), str(output.with_suffix(".ass")), burn=str(output)
+                )
+            except EXPECTED as exc:
+                self._finish()
+                if cancel.is_set():
+                    publish_stage("burn", "cancelled")
+                    append_run(output)
+                    self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
+                else:
+                    publish_stage("burn", "error", {"error": str(exc)})
+                    append_run(output)
+                    self._report_error(exc, job_id)
+                return
+            final_output = Path(result["burned"])
+            if cancel.is_set():
+                self._finish()
+                self._delete(final_output)
+                publish_stage("burn", "cancelled")
+                append_run(final_output)
+                self.bus.publish("render", {"job_id": job_id, "status": "cancelled"})
+                return
+            publish_stage("burn", "done")
+        else:
+            publish_stage("burn", "skipped", {"reason": "burn not requested"})
+
         try:
-            # (a) auto-editor's exit code does not mean success — this probes
-            # the actual file that landed on disk, the same way every other
-            # check here reads a render rather than trusting a subprocess's
-            # own report of itself.
-            info = media.probe(output)
+            # (a) auto-editor's/melt's exit code does not mean success — this
+            # probes the actual file that landed on disk, the same way every
+            # other check here reads a render rather than trusting a
+            # subprocess's own report of itself.
+            info = media.probe(final_output)
         except EXPECTED as exc:
             self._finish()
+            append_run(final_output)
             self._report_error(exc, job_id)
             return
 
+        # -- check_frames / verify, derived from `_run_checks` --------------
         # (b) the existing checks, run here rather than left for a person to
-        # remember — see `_run_checks`.
-        checks = _run_checks(self.project_root, output, info.has_video)
+        # remember — see `_run_checks`. Neither can fail this pipeline:
+        # `_run_checks` already turns a per-check `EXPECTED` failure into a
+        # `skipped` entry rather than raising.
+        checks = _run_checks(self.project_root, final_output, info.has_video)
+
+        check_frames_result = checks.get("check_frames", {})
+        if check_frames_result.get("skipped"):
+            publish_stage(
+                "check_frames", "skipped", {"reason": check_frames_result.get("reason")}
+            )
+        else:
+            publish_stage("check_frames", "done", {"agrees": check_frames_result.get("agrees")})
+
+        verify_result = checks.get("verify", {})
+        if verify_result.get("skipped"):
+            publish_stage("verify", "skipped", {"reason": verify_result.get("reason")})
+        else:
+            publish_stage("verify", "done", {"similarity": verify_result.get("similarity")})
+
         self._finish()
+        append_run(final_output)
         self.bus.publish(
             "render",
             {
                 "job_id": job_id,
                 "status": "done",
-                "output": str(output),
+                "output": str(final_output),
                 "width": info.width,
                 "height": info.height,
                 "duration": info.duration,
@@ -1151,6 +1266,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(
                     ops.properties(str(self.project_root), clip_id=clip_id, word_index=word_index)
                 )
+            elif path == "/api/finish":
+                self._send_json(ops.finish_report(str(self.project_root)))
             elif path == "/api/events":
                 self._send_events()
             elif path.startswith("/api/waveform/"):
@@ -1397,20 +1514,25 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"reset": True})
 
     def _handle_render_start(self) -> None:
-        """`POST /api/render {"preset": optional, "resolution": optional}` —
-        202, work happens on the stream.
+        """`POST /api/render {"preset": optional, "resolution": optional,
+        "burn": optional}` — 202, work happens on the stream.
 
-        Like `/api/agent`, the reply only acknowledges; progress and
-        completion arrive as `render` events on `/api/events`. Both fields
-        are threaded straight to `ops.export` (`ops.EXPORT_PRESETS`) — this
-        handler only checks their *shape* (a string; a 2-element list of
-        ints), never whether the combination is valid. An invalid
+        Like `/api/agent`, the reply only acknowledges; progress arrives as
+        `render` events on `/api/events` — `"running"`, one `"stage"` event
+        per pipeline stage attempted (`export`/`burn`/`check_frames`/
+        `verify`), then `"done"`/`"error"`/`"cancelled"`. All three fields
+        are threaded straight through to the render pipeline — this handler
+        only checks their *shape* (a string; a 2-element list of ints; a
+        bool or null), never whether the combination is valid. An invalid
         combination (an unknown preset name, `resolution` on a layered
         project, `preset`/`resolution` with an NLE `export_format` — this
         endpoint never asks for one, so that specific combination cannot
-        happen here) still raises inside `ops.export`, on the render worker
+        happen here) still raises inside the pipeline, on the render worker
         thread, and surfaces as the existing `error` render event — the
         window draws and plays, it does not decide.
+
+        `burn`: `null` applies the project's own default (on when a caption
+        style is configured, off otherwise); `true`/`false` overrides it.
         """
         try:
             payload = _json_body(self)
@@ -1426,12 +1548,15 @@ class Handler(BaseHTTPRequestHandler):
                 ):
                     raise WebUIError("'resolution' must be a two-element list of integers")
                 resolution = (resolution[0], resolution[1])
+            burn = payload.get("burn")
+            if burn is not None and not isinstance(burn, bool):
+                raise WebUIError("'burn' must be true, false, or null")
         except WebUIError as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
             return
         job: RenderJob = self.server.render_job  # type: ignore[attr-defined]
         try:
-            job_id = job.start(preset, resolution)
+            job_id = job.start(preset, resolution, burn)
         except RenderBusyError as exc:
             self._fail(HTTPStatus.CONFLICT, str(exc))
             return

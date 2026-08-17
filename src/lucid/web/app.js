@@ -32,6 +32,7 @@ import * as timeline from "./timeline.js";
 import * as agent from "./agent.js";
 import * as assets from "./assets.js";
 import * as properties from "./properties.js";
+import * as finish from "./finish.js";
 
 let view = null; // the /api/view payload — the whole read model, shared read-only
 let captions = null; // the /api/captions payload: cues in timeline seconds and
@@ -144,6 +145,7 @@ async function load(clipId) {
   agent.update(view);
   assets.update(view);
   properties.update(view);
+  finish.update(view);
   player.update(view);
   player.captions(captions);
   player.player.seek(Math.min(at, Math.max(0, view.timeline_duration - 0.01)));
@@ -318,6 +320,76 @@ for (const btn of document.querySelectorAll(".pane-rail-tab, .pane-collapse-btn"
   btn.addEventListener("click", () => toggleRailPane(pane));
 }
 
+// -- mode tabs and the truth strip (Studio reshape step 01) -----------------
+//
+// Plain `hidden` on the three top-level containers — no `data-mode` scheme,
+// per the implementation contract. `#workspace` and `#timeline-pane` (the
+// timeline section) move together: Edit is the only mode that shows either
+// one today, since Frame (step 03) and Finish each have their own single
+// full-height view. Frame's tab carries no listener — it is `disabled` in
+// the markup and stays that way until step 03 exists to switch to.
+function setMode(mode) {
+  $("workspace").hidden = mode !== "edit";
+  $("timeline-pane").hidden = mode !== "edit";
+  $("finish-view").hidden = mode !== "finish";
+  for (const btn of document.querySelectorAll(".mode-tab")) {
+    if (btn.dataset.mode === mode) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  }
+}
+
+$("mode-tab-edit").addEventListener("click", () => setMode("edit"));
+$("mode-tab-finish").addEventListener("click", () => setMode("finish"));
+// mode-tab-frame is `disabled` in the markup; it gets no listener until
+// step 03 gives it somewhere to go.
+
+// Every truth-strip chip links to the mode that explains it — in this step
+// that is always Finish, including the never-warned duration chip (Finish
+// is where duration is broken out into edit/tail/total, so the link is
+// still useful even on a chip that carries no warning).
+for (const chip of document.querySelectorAll(".truth-chip")) {
+  chip.addEventListener("click", (event) => {
+    event.preventDefault();
+    setMode(chip.dataset.modeLink);
+  });
+}
+
+function setChip(node, text, warn) {
+  if (!node) return;
+  node.textContent = text;
+  node.classList.toggle("warn", warn);
+}
+
+/** `"no style"` when captions were never configured, else the render log's
+ * own burned/not-burned/unknown answer — a small local formatter with no
+ * other module depending on its exact string. */
+function captionLabel(captions) {
+  if (!captions.configured) return "no style";
+  if (captions.burned === "yes") return "burned";
+  if (captions.burned === "no") return "not burned";
+  return "unknown";
+}
+
+// finish.js is the only module that calls GET /api/finish; every other
+// consumer of that bundle (this truth strip included) gets it by listening
+// for the event finish.js re-broadcasts on every fetch, never by fetching
+// it again itself.
+on("finish-report", (bundle) => {
+  // A chip warns when the op raised a flag of that kind, and never because
+  // this file looked at the numbers and formed an opinion — the strip draws
+  // what an op returned (STUDIO.md § Cross-cutting). The earlier version
+  // warned the canvas chip whenever any preset refused, which lit permanently
+  // on every 16:9 film for refusing `tiktok-reels`, and warned the caption
+  // chip on `burned !== "yes"`, which lit permanently on a project that has
+  // no captions to burn. Both were this file deciding.
+  const flagged = new Set(bundle.flags.items.map((f) => f.kind));
+  setChip($("truth-duration"), fmt(bundle.duration.total_seconds), false);
+  setChip($("truth-canvas"), bundle.canvas.canvas, flagged.has("canvas"));
+  setChip($("truth-captions"), captionLabel(bundle.captions), flagged.has("captions"));
+  const n = bundle.flags.count;
+  setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0);
+});
+
 /* -- startup -------------------------------------------------------------- */
 
 player.init(ctx);
@@ -326,6 +398,8 @@ timeline.init(ctx);
 agent.init(ctx);
 assets.init(ctx);
 properties.init(ctx);
+finish.init(ctx);
+setMode("edit");
 load(null);
 
 // Started last, after the panes exist and the first load is underway: the

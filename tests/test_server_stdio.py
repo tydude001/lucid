@@ -102,6 +102,7 @@ EXPECTED_TOOLS = {
     "clip_role",
     "properties",
     "thumbnail",
+    "finish_report",
 }
 
 needs_ffprobe = pytest.mark.skipif(
@@ -176,6 +177,40 @@ def test_server_serves_ping_over_stdio() -> None:
     payload = anyio.run(_with_server, body)
     assert payload["status"] == "ok"
     assert payload["server"] == "lucid"
+
+
+@needs_ffprobe
+def test_finish_report_reachable_over_stdio(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call("finish_report", path=str(project))
+
+    payload = anyio.run(_with_server, body)
+    assert set(payload) == {
+        "duration",
+        "canvas",
+        "captions",
+        "picture",
+        "marks",
+        "seams",
+        "flags",
+    }
 
 
 def test_every_tool_is_registered() -> None:
@@ -257,6 +292,7 @@ TOOL_TO_COMMAND = {
     "clip_role": "role",
     "properties": "properties",
     "thumbnail": "thumbnail",
+    "finish_report": "finish-report",
 }
 
 #: CLI-only commands, with the reason each one has no tool behind it.

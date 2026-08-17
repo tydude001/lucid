@@ -602,6 +602,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--word-index", type=int, help="narrow to one cue on --clip-id's own words"
     )
 
+    sub.add_parser(
+        "finish-report",
+        help="assembled duration/canvas/caption/picture/marks/seams report for Finish mode",
+    )
+
     p_waveform = sub.add_parser(
         "waveform", help="RMS envelope for the timeline's waveform lane (cached)"
     )
@@ -1495,6 +1500,10 @@ def _cmd_properties(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_finish_report(args: argparse.Namespace) -> int:
+    return _emit(ops.finish_report(args.project))
+
+
 def _cmd_waveform(args: argparse.Namespace) -> int:
     return _emit(ops.waveform(args.project, clip_id=args.clip_id))
 
@@ -1864,6 +1873,7 @@ _COMMANDS = {
     "view": _cmd_view,
     "assets": _cmd_assets,
     "properties": _cmd_properties,
+    "finish-report": _cmd_finish_report,
     "waveform": _cmd_waveform,
     "thumbnail": _cmd_thumbnail,
     "preview": _cmd_preview,

@@ -37,6 +37,7 @@ from lucid import (
     media,
     mlt,
     picture,
+    renderlog,
 )
 
 # `describe` is also the name of the op below — the same collision `verify`
@@ -2514,6 +2515,191 @@ def properties(
         lo, hi = max(0, word_index - 3), word_index + 3
         result["context"] = get_transcript(path, clip_id, first=lo, last=hi)
     return result
+
+
+def finish_report(path: Path | str) -> dict[str, Any]:
+    """The truth strip's own numbers, and the Finish mode report behind it.
+
+    **Composes only**, `properties`'s own precedent (STUDIO.md § Step 01):
+    every field is another read-only op's whole return, or a plain
+    filter/membership-test/sum over one — no new derivation, no new
+    subprocess, no new arithmetic. In particular the preset/canvas
+    compatibility check is not re-implemented here: `_check_preset_canvas`
+    is the same helper `export` itself calls, caught per preset rather than
+    let to propagate, so a refusal is reported the way `timeline_view`
+    already reports a `shots_error` — never raised.
+
+    `duration` is `status`'s own numbers, split into the edit's bare length,
+    the configured tail (0.0 with none), and their sum — `expected_duration`,
+    already `_frame_total_with_tail`'s answer, so this does not re-add them.
+
+    `canvas` is the project's current shape plus, for every preset that
+    claims a geometry (`EXPORT_PRESETS`, minus `custom` — it names no fixed
+    shape to check), whether this project's canvas would clear it.
+
+    `captions` reports whether a style is configured, that style's own font
+    report (embedded verbatim — `caption_style`'s `font` field, not
+    restated), and what the *last render* did about burning: `"unknown"`
+    with no render log at all or a log whose last run never records a `burn`
+    stage, `"yes"`/`"no"` off that stage's own `outcome`. This is the one
+    field STUDIO.md is emphatic about: a manifest can say captions are
+    configured while nothing on disk was ever burned, and this is the field
+    that stops that from reading as clean.
+
+    `picture` is the cue table's own count, how many of those cues pin an
+    in-point, and `timeline_view`'s `shots_error` passed through unchanged —
+    a stale or orphaned cue must not raise here, because this report is one
+    of the places a person finds out about it.
+
+    `marks` is `unspoken_ls`'s count split into applied vs stale (a stale
+    mark's recorded text disagrees with the transcript now — see
+    `unspoken_ls`). `seams` sums `transcript_checks`' own `overlaps` finding
+    across every clip.
+
+    `flags` is the truth strip's warning list, and the test every entry has to
+    pass is **that an action in the window can clear it**. Four conditions do:
+    a styled project with no render log confirming a burn, a styled project
+    whose last render skipped the burn, a `shots_error`, and a stale unspoken
+    mark. What is deliberately *not* a flag — a refusing preset, a seam count,
+    an unstyled project's unknown burn state — is argued at the flag list
+    itself; all three are permanent, and a permanent flag is a count that can
+    never reach zero. Nothing here invents a further condition either: there is
+    no duration-mismatch flag, and font resolution is informational only (only
+    a measured render settles which face libass drew — CLAUDE.md).
+    """
+    project = Project.open(path)
+    proj_status = status(path)
+    tail = proj_status["tail"]
+    duration_section = {
+        "edit_seconds": proj_status["timeline_duration"],
+        "tail_seconds": tail["seconds"] if tail else 0.0,
+        "total_seconds": proj_status["expected_duration"],
+    }
+
+    presets: dict[str, dict[str, Any]] = {}
+    for preset_name in EXPORT_PRESETS:
+        try:
+            _check_preset_canvas(project, preset_name)
+        except ProjectError as exc:
+            presets[preset_name] = {"ok": False, "message": str(exc)}
+        else:
+            presets[preset_name] = {"ok": True, "message": None}
+    canvas_section = {"canvas": proj_status["canvas"], "presets": presets}
+
+    configured = CAPTION_STYLE_KEY in project.read_manifest()
+    font = caption_style(path)["font"] if configured else None
+    run = renderlog.last(project)
+    if run is None:
+        burned = "unknown"
+    else:
+        burn_stage = run.get("stages", {}).get("burn")
+        if burn_stage is None:
+            burned = "unknown"
+        elif burn_stage.get("outcome") == "done":
+            burned = "yes"
+        else:
+            burned = "no"
+    captions_section = {"configured": configured, "font": font, "burned": burned}
+
+    view = timeline_view(path)
+    cues = cue_ls(path)
+    # `cue_ls`'s own entries echo the raw cue's `src_start` — the pin itself
+    # (`cue_add`'s `src_start` kwarg, stored under that same key; see
+    # `cue_add`'s docstring: "`src_start` pins the in-point"). `src_pin` is
+    # only ever a *derived* field name, on a `build_shots`/`timeline_view`
+    # shot dict — it does not exist on a `cue_ls` entry, so `pinned_count`
+    # reads `src_start` here rather than a key `cue_ls` never returns.
+    pinned_count = sum(1 for cue in cues["cues"] if cue.get("src_start") is not None)
+    picture_section = {
+        "cue_count": cues["count"],
+        "pinned_count": pinned_count,
+        "shots_error": view.get("shots_error"),
+    }
+
+    marks = unspoken_ls(path)
+    marks_section = {
+        "applied": marks["count"] - marks["stale"],
+        "stale": marks["stale"],
+    }
+
+    checks = transcript_checks(path)
+    seams_section = {"count": sum(len(c["overlaps"]) for c in checks["clips"])}
+
+    # A flag is an *open item* — something an action in the window can clear.
+    # Three candidates were measured against the real film on 2026-08-17 and
+    # deliberately left out, because each of them is permanent and a guard that
+    # has to be suppressed every time is the thing to fix rather than the thing
+    # to document (CLAUDE.md, `cut_by_time`'s own precedent):
+    #
+    #   * **A refusing preset is not a project defect.** `tiktok-reels` refuses
+    #     every 16:9 film for as long as it stays 16:9, so flagging it says the
+    #     film is wrong for having chosen landscape. The refusal is drawn where
+    #     it can be acted on — on the preset's own card, with its fix
+    #     (STUDIO.md § Step 01, mockup screen 04 callout 1) — never here.
+    #   * **A seam count is a property of the recording**, not of the edit: 40
+    #     of them in the film, unchanged by anything the window can do. The
+    #     warning-class question is how many sit near a *kept* edge, and
+    #     STUDIO.md forbids inventing a nearness rule for it, so the total is
+    #     reported under `seams` and flagged nowhere.
+    #   * **An unstyled project has no burn to confirm.** `burned: "unknown"`
+    #     is still reported for one — honesty about the render log costs
+    #     nothing — but it only becomes a flag once a style exists, which is
+    #     the shape the captionless-film incident actually had.
+    flags: list[dict[str, str]] = []
+    if captions_section["configured"] and captions_section["burned"] == "unknown":
+        flags.append(
+            {
+                "kind": "captions",
+                "message": (
+                    "captions are styled, but no render log says whether any "
+                    "render ever burned them in"
+                ),
+                "mode": "finish",
+            }
+        )
+    if captions_section["configured"] and captions_section["burned"] == "no":
+        flags.append(
+            {
+                "kind": "captions",
+                "message": "captions are configured but the last render did not burn them in",
+                "mode": "finish",
+            }
+        )
+    if picture_section["shots_error"] is not None:
+        flags.append(
+            {
+                "kind": "picture",
+                "message": picture_section["shots_error"],
+                "mode": "finish",
+            }
+        )
+    if marks_section["stale"] > 0:
+        # `unspoken_ls`'s own meaning of stale: the recorded text and the
+        # current transcript text disagree, i.e. the transcript was replaced
+        # under the mark. It is kept rather than applied precisely so a
+        # re-transcribe surfaces as a list to re-check — so the message says
+        # that, and not "never applied to a render", which describes a
+        # different (and non-existent) failure.
+        flags.append(
+            {
+                "kind": "marks",
+                "message": (
+                    f"{marks_section['stale']} unspoken mark(s) no longer match "
+                    "the transcript under them — re-check before the next render"
+                ),
+                "mode": "finish",
+            }
+        )
+
+    return {
+        "duration": duration_section,
+        "canvas": canvas_section,
+        "captions": captions_section,
+        "picture": picture_section,
+        "marks": marks_section,
+        "seams": seams_section,
+        "flags": {"count": len(flags), "items": flags},
+    }
 
 
 def _placed_segments(edit: tl.Edit) -> list[dict[str, Any]]:

@@ -1044,6 +1044,24 @@ def properties(
 
 
 @_tool()
+def finish_report(path: str) -> dict[str, Any]:
+    """Duration/canvas/caption/picture/marks/seams report for Finish mode,
+    composed only — the truth strip's own numbers.
+
+    `duration`: edit seconds, tail seconds, and their sum. `canvas`: the
+    stored or footage-fallback canvas, plus each export preset's own
+    ok/refusal-message. `captions`: whether a style is configured, its
+    resolved font, and whether the last render actually burned it in
+    ("yes"/"no"/"unknown" — unknown when no render log exists). `picture`:
+    cue count, pinned count, and the picture plan's own refusal message when
+    it has one. `marks`: unspoken marks applied vs. still stale. `seams`:
+    the transcript's own overlap count. `flags`: the rolled-up warnings
+    behind all of the above, each one naming the mode that fixes it.
+    """
+    return ops.finish_report(path)
+
+
+@_tool()
 def undo(path: str) -> dict[str, Any]:
     """Roll the timeline back to the state before the last mutation."""
     return ops.undo(path)

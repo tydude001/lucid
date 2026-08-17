@@ -15,6 +15,7 @@ inspectable with ordinary tools::
         attenuated/         <clip_id>.<ext> — derived, gain-reduced copies of clip media
         waveform/           <clip_id>.json — RMS envelope, keyed by media size+mtime
         agent_thumbs.jsonl  one JSON line per per-turn thumbs-up/down rating
+        renders.jsonl       one JSON line per finished render pipeline run
       assets/
         cards/              <name>.png — static picture cards a `card:<name>` cue resolves to
       renders/              preview.mp4, final.mp4, …
@@ -78,6 +79,11 @@ TAIL_DIR = "cache/tail"
 #: derived telemetry, not part of the edit: nothing here is authoritative for
 #: the timeline or the manifest, and `_revision()` in webui.py never stats it.
 THUMBS_LOG = "cache/agent_thumbs.jsonl"
+#: One JSON line per finished render pipeline run (STUDIO.md § Step 01) — the
+#: `THUMBS_LOG` precedent exactly: cache because it is derived telemetry, not
+#: part of the edit. No manifest key names it and `_revision()` never stats
+#: it, so a render never counts as a project mutation.
+RENDERS_LOG = "cache/renders.jsonl"
 
 _SUBDIRS = (
     MEDIA_DIR,
@@ -274,6 +280,10 @@ class Project:
     @property
     def thumbs_path(self) -> Path:
         return self.root / THUMBS_LOG
+
+    @property
+    def renders_log_path(self) -> Path:
+        return self.root / RENDERS_LOG
 
     # -- history ---------------------------------------------------------
 
