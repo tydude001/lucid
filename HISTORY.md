@@ -8502,3 +8502,85 @@ lesson, again), each fixed here.
   rather than let it read as a full browser pass.
 
 1343 passed, ruff clean (1336 before this step).
+
+## Frame mode — 2026-08-17
+
+STUDIO.md § Step 03, built. The reframe instrument becomes a view: coverage
+chips lead, then one row per window, drawn from the sheet's own tiles via
+`GET /api/reframe/tile/<name>`, never a canvas rendering of a rect over a
+`<video>` frame. `GET /api/reframe/coverage` reads `reframe_coverage`
+straight; a sheet job and a detect job run on `ProxyJob`'s exact pattern —
+the lock, the plain `_running` flag, everything that can raise resolved on
+the request thread before the slot is claimed, a dedicated `*BusyError` for
+its own 409, `_finish()` in a `finally`, completion published on the SSE bus
+the handler already serves. Three actions: **Approve** writes nothing (the
+report-only precedent, again); **Re-frame…** nudges a rect and posts
+`ops.reframe`; **Detect gaps** proposes with `apply` off — enforced twice,
+once in `ReframeDetectJob.start()` (not even a parameter) and once at the
+HTTP layer, which refuses a hand-crafted request naming the key. The Frame
+tab went live and `setMode` gained its third view, mutually exclusive with
+Edit and Finish.
+
+**`faces.FaceError` was not in webui's `EXPECTED` tuple.** `ops.reframe_detect`
+raises it unconditionally when no interpreter has a face detector, before any
+scan runs. Uncaught inside `ReframeDetectJob._run`'s `try/except EXPECTED`,
+it would have propagated out of the worker thread with no handler: no error
+event published, `_finish()` never reached, `_running` latched `True`
+forever, and the view stuck spinning on an SSE event that could not arrive —
+the exact failure STUDIO.md's own verify list names and forbids for this
+step. Caught now; the refusal, which names both paths it looked in for an
+interpreter, draws in the view instead.
+
+**The defect this step introduced, and the measurement that found it.**
+`finish_report` composed the framing section in unconditionally, reasoning
+that `reframe_coverage` is cheap because it needs no face detector. Not the
+same claim: it decodes placed footage for a scene-cut scan, measured at
+**5.7s wall and 46s of CPU on the film, every call, uncached**. The truth
+strip re-reads `finish_report` on every `project-changed` event — after
+every cut — so composing it in made each edit pay six seconds for a number
+the edit had not touched. `framing` is opt-in now (`finish_report(path,
+framing=True)`, `?framing=1` on `/api/finish`, `lucid finish-report
+--framing`); `/api/finish` measured **0.19s** against the ~5.6s before.
+`framing` is `None` when unasked, deliberately distinct from a measured
+zero — "nobody scanned" reading as "nothing stale" is the captionless-film
+shape exactly, and `test_framing_is_opt_in_and_none_is_not_zero` pins the
+pair. `worst_offset` stays out of the composed section entirely, on a
+different argument: it exists only on a `reframe_sheet(extremes=True)` row,
+an opt-in job `finish_report` cannot block on and cannot read a stale answer
+for either (`cache/sheets` is wiped every run), and it has no action that
+reliably drives it to zero — a static rect over a moving subject has an
+irreducible worst moment, unlike `stale_seconds` and `steps`.
+
+This is a deliberate deviation from STUDIO.md's line about framing flags
+joining the truth strip: the chip links to Frame, which measures the number
+from its own coverage endpoint where the answer is the point, rather than
+showing a figure that is either six seconds stale or six seconds late.
+
+**Also found in the browser**: the coverage chips drew *empty* for the ~4s
+the sheet job takes to run, which reads as "nothing to report" — the one
+thing this view must never say by accident. They read "scanning for
+cuts…" now, and clear to the real chip text only on the job's `done` event.
+
+### Verified, on a copy of the film's own vertical project
+
+- Frame opens at 0ms and ~120ms dwell; the three modes stay mutually
+  exclusive, checked by toggling all three and reading `hidden` on
+  `#workspace`/`#timeline-pane`/`#finish-view`/`#frame-view`.
+- Chips read `68.738s stale` / `1 unexplained step` / `33/56 cuts framed` —
+  `stale_seconds`, never `default_seconds` beside it.
+- The sheet job ran for real: 126s, **174 tiles, 0 broken**, the first a
+  genuine 1920x816 PNG served off the tile route, and **58 rows against 25
+  placements** — exactly the windows-not-placements count CLAUDE.md already
+  records for this project, so the row unit is right.
+- `#frame-view` contains **no canvas and no video** — it draws the sheet's
+  tiles, not its own rect over a frame, which is the thing that matters
+  because a wrong window reads as framing in motion on a watch.
+- The tile route's confinement was attacked directly and held: a raw `..`
+  (404 before routing even sees it), an encoded `..`, an absolute path, and —
+  the case name-checks alone would have served — **a symlink planted inside
+  `cache/sheets` pointing at /etc/passwd**, all refused 4xx.
+  `media.preview_path()` gains no new caller.
+- Page-level overflow clean at 700/900/1200px; nothing drawn despite
+  `hidden`; no console errors.
+
+1367 passed, ruff clean (1343 before this step).

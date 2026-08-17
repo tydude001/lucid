@@ -287,6 +287,8 @@ body, not a 500.
 
 ## Step 03 — Frame mode
 
+Shipped — see HISTORY.md § Frame mode.
+
 The reframe instrument becomes a view: coverage findings lead, one row per
 window, approve or adjust in place. (Mockup screen 03.)
 

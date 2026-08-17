@@ -714,6 +714,23 @@ installed package or the upstream repo, not your memory.
         those — 6.0 of `cold-open`'s 13.6 stale seconds. Read `stale_seconds`
         (an override held across a cut), never `default_seconds` beside it (the
         centre crop, a different thing). HISTORY.md § `reframe_coverage`.
+        - **"Needs no face detector" is not "cheap."** `reframe_coverage`
+          still decodes placed footage for its scene-cut scan — 5.7s wall, 46s
+          of CPU on the film, uncached, every call. `finish_report` composed
+          it in unconditionally at first, and the truth strip re-reads
+          `finish_report` on every `project-changed` — after every cut — so
+          every edit paid six seconds for a number the edit had not touched.
+          `framing` is opt-in now (`finish_report(framing=True)`,
+          `?framing=1`, `lucid finish-report --framing`) and `None` when
+          unasked, deliberately distinct from a measured zero — "nobody
+          scanned" reading as "nothing stale" is the captionless-film shape
+          again. HISTORY.md § Frame mode.
+        - **A blank chip where a warning would go reads as "nothing to
+          report."** Frame mode's coverage chips drew empty for the ~4s the
+          sheet job takes, which is indistinguishable from a clean project —
+          the one thing this view must never say by accident. A slow check
+          has to say it is running ("scanning for cuts…") or its silence
+          reads as the answer. HISTORY.md § Frame mode.
         - **It also asks which windows have no cut (`steps`), and that is the
           one a viewer notices** — a boundary inside a continuous take reads as
           an edit that is not there, while the stale walk answers clean because
