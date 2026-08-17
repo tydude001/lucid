@@ -8029,9 +8029,10 @@ declare a `weight_role` instead of a literal number.
 
 New `graphics.SAFE_ZONES` turns `BASE_GEOMETRY`'s prose comment into actual
 data: tiktok-organic 324, tiktok-ads 370, reels 320, shorts 300, worst-case
-384 (the bottom fifth of 1920), each carrying the 180–300px right-hand action
-rail below the halfway line that the comment also described but nothing
-read. `graphics.safe_zone_ink` reports **three numbers, never one**: ink
+384 (the bottom fifth of 1920), each carrying the right-hand action rail below
+the halfway line that the comment also described but nothing read. The comment
+gives that rail as 180–300px; the stored `width` is **300**, the wide end,
+because a safe zone that is right on average is not a safe zone. `graphics.safe_zone_ink` reports **three numbers, never one**: ink
 inside the safe-zone band, ink in a same-area sample outside it, and both
 measured against the card's own recorded background swatch. That third
 number is deliberate — a brightness bbox has already misread the same render

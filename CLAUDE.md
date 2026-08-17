@@ -140,22 +140,16 @@ installed package or the upstream repo, not your memory.
       `visibility: hidden` element alike, and both cost this repo a day. What
       to gate on, and the calibration that catches it: wiki `tooling.md`
       § Headless browser. What they cost here: HISTORY.md § The viewer's frame.
-  - **A browser pass driven at CDP's default zero dwell is not a pass.**
-    `Input.dispatchMouseEvent` fires press and release back-to-back; a real
-    click dwells 60-150ms, and a fix's own transition can sit inside that gap
-    — measured at 5-10ms here. A fix that reads green at 0ms and is dead at
-    every real speed has already shipped once: drive every browser-pass click
-    at more than one dwell (0ms and ~120ms, at minimum) before calling the
-    pass real, never at 0ms alone. HISTORY.md § The cue-drag browser pass.
-    - **A DOM rebuild mid-gesture removes the mousedown target, and Chrome
-      then suppresses the trailing `click` rather than erroring** — which is
-      why a lane that re-rendered its DOM on mousedown silently stopped
-      seeking, with nothing throwing to say so. Redraw only the element a
-      gesture owns (a standalone overlay node) while it is in progress, never
-      the container the mousedown landed in. The same discipline (multi-dwell,
-      real clicks) is what later caught a second bug the dwell rule wasn't
-      built for: a post-mutation DOM refresh racing the SSE reload, fixed with
-      a request-sequencing guard. HISTORY.md § The cue-drag browser pass.
+  - **A browser pass driven at CDP's default zero dwell is not a pass** — a
+    fix whose transition sits inside a real click's 60-150ms dwell reads green
+    at 0ms and is dead at every real speed, which has already shipped here.
+    Drive every click at 0ms *and* ~120ms. The measurement and the mechanism:
+    wiki `tooling.md` § Headless browser. HISTORY.md § The dwell-timing lesson.
+    - **So redraw only the node a gesture owns while it is live** — rebuilding
+      the container the mousedown landed in removes its target, and Chrome
+      then drops the trailing `click` with nothing thrown, which is how a lane
+      that re-rendered on mousedown silently stopped seeking. HISTORY.md § The
+      cue-drag browser pass, and six defects.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind
@@ -177,29 +171,22 @@ installed package or the upstream repo, not your memory.
   `_LoopbackGuard` is real ASGI middleware mirroring
   `webui.Handler._host_is_loopback`, importing `webui._LOOPBACK_NAMES` rather
   than re-stating the fact; it refuses a non-loopback `Host` at startup unless
-  opted in, and `-C` confinement holds identically over HTTP. Nothing here
-  carries a per-request token, because unlike a phone review link this is not
-  meant to leave the LAN unattended.
-  - **A wildcard bind's own host string is not a client identity.**
-    `--allow-remote` first added the literal `--host` value to the allow-list,
-    which for `0.0.0.0`/`::` is backwards in both directions: a real remote
-    client sends the address it dialed, which never matches, so the feature
-    refused the traffic it exists to admit — while an attacker sends `Host:
-    0.0.0.0`, printed in the server's own startup banner, and it matched. A
-    wildcard bind now refuses to start under `--allow-remote` unless
-    `--allow-remote-host` names the addresses real clients will actually
-    present. HISTORY.md § MCP over HTTP, built.
+  opted in, and `-C` confinement holds identically over HTTP.
+  - **A wildcard bind's own host string is not a client identity** — for
+    `0.0.0.0`/`::` it is backwards in both directions, refusing the real client
+    (which sends the address it dialed) and admitting the attacker who sends
+    the banner's own `Host: 0.0.0.0`. A wildcard bind refuses under
+    `--allow-remote` unless `--allow-remote-host` names the addresses real
+    clients will present. HISTORY.md § MCP over HTTP, built.
 - **`lucid web --root DIR` serves a picker over many projects, but the process
   still binds to exactly one.** `POST /api/open` is a *one-way* bind — the
   first project picked calls the same `_bind_singletons` that `-C` already
   calls, deferred under a lock, so `bus`/`agent`/`render_job`/`proxy_job` are
   never more than one project's. Two projects at once is still two processes;
   `--root` widens what a picker can list, never what one server can serve.
-  Re-opening the same project is a 200 no-op, a different one a 409. `-C`
-  together with `--root` is refused before either binds a socket, and MCP is
-  untouched — a client already spawns its own server per project, so there is
-  no one-server-many-projects case there. HISTORY.md § The multi-project
-  picker, built.
+  `-C` together with `--root` is refused before either binds a socket, and MCP
+  is untouched — a client already spawns its own server per project. HISTORY.md
+  § The multi-project picker, built.
   - **A picker that raises on one broken project hides every other one.** The
     scan called `ops.status` with no handler, so one init-but-not-seeded
     project 400'd all of `GET /api/projects`; there are now four scan outcomes
@@ -533,9 +520,8 @@ installed package or the upstream repo, not your memory.
   fonts, mark, caption presets, weights) once; `pack_apply` writes the fully-
   resolved payload into the manifest's `pack` key and hashes it — `pack_hash`
   is sha256 of the *resolved* payload, not the file's bytes, so a whitespace
-  reformat upstream cannot trigger a spurious re-author sweep. Every later op
-  reads the snapshot, never the file, so no render depends on the pack's repo
-  staying reachable or unchanged. No schema bump — `pack` and a card's
+  reformat upstream cannot trigger a spurious re-author sweep. No schema bump —
+  `pack` and a card's
   `pack_hash` are both additive-optional, the `CANVAS_KEY`/`CAPTION_STYLE_KEY`/
   `TAIL_KEY` precedent. `pack_apply_captions` is a separate op from
   `pack_apply` on purpose, so activating a pack never silently overwrites a
@@ -551,10 +537,10 @@ installed package or the upstream repo, not your memory.
     Zilla Slab is exactly that case. Treating either check as standing in for
     the other misses what it alone catches.
   - **Safe zones are report-only, on `SCENE_THRESHOLD`'s own precedent.**
-    `graphics.SAFE_ZONES` are real numbers now (tiktok-organic 324px,
-    tiktok-ads 370px, reels 320px, shorts 300px, worst-case 384px — the bottom
-    fifth of 1920 — each with a 180-300px right-hand action-rail band below the
-    halfway line), and `card_safe_zones` reports ink inside the band **and**
+    `graphics.SAFE_ZONES` is `BASE_GEOMETRY`'s comment turned into data (the
+    per-platform bottom bands, worst case 384px — the bottom fifth of 1920 —
+    each with the right-hand action rail), and `card_safe_zones` reports ink
+    inside the band **and**
     in a same-area sample outside it **and** against the card's own recorded
     background — three numbers, never one, because a brightness bbox has
     already misread a black source as a black bar twice in this repo (see the
