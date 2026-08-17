@@ -140,6 +140,11 @@ installed package or the upstream repo, not your memory.
       `visibility: hidden` element alike, and both cost this repo a day. What
       to gate on, and the calibration that catches it: wiki `tooling.md`
       § Headless browser. What they cost here: HISTORY.md § The viewer's frame.
+    - **Where the answer is "which source second is this", build the source so
+      every moment names itself** — colour-coded blocks and a burnt-in counter,
+      and then one sampled pixel settles it. Used to prove a pinned cue's
+      in-point survived into melt, where the *wrong* answer is the clip's own
+      opening seconds and so passes every plausibility check there is.
   - **A browser pass driven at CDP's default zero dwell is not a pass** — a
     fix whose transition sits inside a real click's 60-150ms dwell reads green
     at 0ms and is dead at every real speed, which has already shipped here.
@@ -713,6 +718,14 @@ installed package or the upstream repo, not your memory.
       HISTORY.md § The scene threshold, re-pinned.
     HISTORY.md § The auto-framing detector, built; § The thirty-nine windows,
     reviewed.
+- **A clip being registered is not a clip being on the timeline, and
+  `timeline_view` answers for one anyway.** Asked for a clip the edit does not
+  contain it returns rather than raising, echoing the `clip_id` you asked for
+  beside *another* clip's segments — `timeline_view(final-cut, "cold-open")`
+  gives `clip_id: "cold-open"` and segments that are all `vo`'s, and where the
+  off-timeline clip has a transcript its words come back with every one
+  `present: false`, which reads exactly like a clip that was entirely cut.
+  Check `segments[].clip_id` before believing a clip is in the edit.
 - Anything that emits times *for playback* maps through the edit, never
   straight off the transcript. The transcript indexes the source; the timeline
   is what plays. See HISTORY.md § Captions came out of the timeline.
