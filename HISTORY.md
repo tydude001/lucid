@@ -8260,3 +8260,47 @@ substituted environment is a claim about that environment.
 
 The account, the mockup it was designed against, and every number above are on
 the review page published for this work.
+
+## `off_timeline`, and the advice that made it worse — 2026-08-17
+
+Found while compressing an auto-memory file: one of its facts had no copy
+anywhere else, so it had to be re-verified before it could be written down.
+It reproduced on current code.
+
+A clip can be registered, transcribed, and still not be in the edit — footage a
+cue points at never is. Asked for one, `timeline_view` returned the timeline's
+own segments under the `clip_id` it was asked for:
+
+```
+timeline_view(~/lucid-final-cut/proj, "cold-open")
+  -> clip_id "cold-open", segments all {'vo'}, no error raised
+```
+
+That much is defensible — `segments` is the edit's track, not the clip's, and
+refusing would break the legitimate question "what is the timeline while I look
+at this footage clip". **What is not defensible is the transcribed case: every
+word comes back `present: false`, which is precisely what a clip somebody cut
+in its entirety looks like, and nothing in the payload separated the two.**
+
+**The web UI is what settled it as a defect rather than a design.** The
+transcript pane's empty state said *"Run `lucid transcribe cold-open`"* —
+advice that cannot help, because transcribing does not put a clip on the
+timeline, and whose only effect is to move a person from the confusing empty
+state to the worse one: a full transcript drawn struck through as though they
+had removed it. A UI giving wrong advice is the tell that the read model is
+missing a fact, not that the front end is careless.
+
+So `timeline_view` reports `off_timeline`, absent-means-the-ordinary-case on
+`transcript_missing`'s own precedent — a view field, so no schema bump — and it
+is computed off `edit.segments` rather than the payload's own `segments` so the
+flag and the lane cannot disagree about one question. The pane names the real
+reason, and a transcribed off-timeline clip gets a banner saying nothing was
+cut and Restore has nothing to put back.
+
+**Scoped before it was filed.** A scan of all 29 project directories found 25
+openable and **not one** with a transcribed clip off the timeline — the only
+project that ever had the state is `~/lucid-dogfood/scream-reveal`, still at
+schema v2 and among the four that refuse to open. So the misleading half is
+unreachable on current data and the fix is cheap insurance; the *empty* half,
+with its wrong advice, was live on the flagship project and is what a person
+would actually have hit.
