@@ -3323,7 +3323,7 @@ silently, and every downstream number stays self-consistent while it does.** The
 render agreed with the timeline, `verify` had nothing to report, the cue table
 resolved, 38 shots planned without error. Nothing was broken; it was the wrong
 film. The only signal available was duration against the thing it is supposed to
-be — 411s against 351s — and nothing compares those.
+be — 410.96s against 336.27s — and nothing compares those.
 
 And it was *not* undetected. § Rendering through `melt`, step 5 of the layered
 timeline wrote "73 segments, 410.963s — a plain silence cut, so the retakes the finished
@@ -6765,7 +6765,7 @@ so, because the temptation on the next template will be to loosen it.
 
 PLAN.md § Open questions has carried *how does a lucid project know it is the
 film* since the Scream project turned out to be holding the silence-cut VO
-rather than the shipped one — 411s against 351s, 72s of retakes — while the
+rather than the shipped one — 410.96s against 336.27s — while the
 render, `verify`, the cue table and the shot plan all agreed with it. Two
 builds close the cheap half of it.
 

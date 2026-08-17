@@ -755,9 +755,13 @@ installed package or the upstream repo, not your memory.
   from `vo_extend` (built — see the `TAIL_KEY` bullet above), the one
   mutator allowed to add source the recording never had.
   - **A dogfood project can be the wrong cut while every check passes.** The
-    Scream project held the *silence-cut* VO, not the shipped one — 411s
-    against 351s, 72s of retakes — and the render, `verify`, the cue table and
-    the shot plan all agreed with it. Before building anything for review on
+    Scream project held the *silence-cut* VO, not the shipped one — 410.96s/73
+    segments against 336.27s/63 — and the render, `verify`, the cue table and
+    the shot plan all agreed with it. **It is `~/lucid-final-cut/proj`, whose
+    name says the opposite**; the shipped cut is in `brief-check`,
+    `framing-detect`, `threshold` and `split-detect`. Settle it against the
+    renders, which are 336.34s (`essay-cards-fixed.mp4`) and 342.36s with the
+    6s endcard. Before building anything for review on
     one, compare its `timeline_duration` against the film it is meant to be.
     **And carry derived state back off a scratch copy** — the ten card records
     were written on the 411s copy, so the film's own project read as having

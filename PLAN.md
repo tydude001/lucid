@@ -218,6 +218,15 @@ left. The conclusion survives because it was always the load-bearing one, but
     ranges. The film is not being re-imported over it; what changed is that
     nothing had ever compared a document's own declared length against what its
     entries sum to, and now `import_edit` does.
+- **Should the workspace play its own output? Opened 2026-08-17.** `lucid web`
+  rebuilds the picture live from the cue table and never reads `renders/` — the
+  Export button writes a file the UI then cannot open. So "let me watch the cut
+  we just exported" has no answer inside the workspace; it is `lucid review
+  serve` (built for it, and reachable off the machine) or a video player. The
+  split is defensible — a workspace shows the project, a review tool shows the
+  artifact — but it is undocumented and surprised Tyler, and the failure mode is
+  bad: when the live rebuild refuses, the page draws nothing and looks broken
+  rather than saying the export is elsewhere.
 - **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host
