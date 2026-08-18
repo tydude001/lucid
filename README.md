@@ -66,9 +66,11 @@ and caption the rest" becomes a chat message instead of an afternoon.
    feature-by-feature map, the build order — is [DAYDREAM.md](DAYDREAM.md).
 
    Two things that decision did **not** change. It is a workspace, not a
-   desktop app: everything that makes Daydream feel like Daydream is inside
-   the window, and a native shell buys chrome at the price of a second stack
-   — deferred as cheap and reversible, not rejected. And the agent panel is a
+   desktop *stack*: everything that makes Daydream feel like Daydream is
+   inside the window, and `lucid open` wraps that page in an app-mode browser
+   window that reopens where you left off — the launch ergonomics of a desktop
+   app without a second stack under it. Electron and Tauri stay deferred as
+   cheap and reversible, not rejected. And the agent panel is a
    local `claude` subprocess speaking to lucid's own MCP server, restricted to
    lucid's tools and to the one project it was opened on, so it reaches the
    timeline only through the tools the CLI calls, on your existing auth, with
@@ -102,10 +104,20 @@ also shows the shot under the playhead, read from the same place the export
 will read it:
 
 ```sh
-uv run lucid -C myproject web --open      # localhost; select words, preview, cut, undo
+uv run lucid -C myproject open            # server + an app window, and it reopens where you left off
+uv run lucid -C myproject web --open      # the same page in an ordinary tab
+uv run lucid open --root ~/projects/video # Home: every project under a directory
 uv run lucid -C myproject view            # the same read model as JSON
 uv run lucid -C myproject preview vo      # will a browser play this asset, and if not why
 ```
+
+The window carries the workflow rather than only the timeline: **Edit** (the
+transcript, the preview, and a timeline you can drag-trim and razor), **Frame**
+(every crop window as a row of the sheet's own tiles, approved or nudged in
+place), and **Finish** (the export presets, what the render will actually
+contain, and verify after). Riding all three is the truth strip —
+`lucid finish-report` made ambient, so a film that would ship wrong says so
+while you edit. STUDIO.md is the design.
 
 `--render` exports media instead of an NLE project, `--preset youtube|web|custom`
 picks a quality bundle for it, and `undo` rolls back the last mutation while

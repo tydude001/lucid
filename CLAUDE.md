@@ -715,16 +715,13 @@ installed package or the upstream repo, not your memory.
         (an override held across a cut), never `default_seconds` beside it (the
         centre crop, a different thing). HISTORY.md § `reframe_coverage`.
         - **"Needs no face detector" is not "cheap."** `reframe_coverage`
-          still decodes placed footage for its scene-cut scan — 5.7s wall, 46s
-          of CPU on the film, uncached, every call. `finish_report` composed
-          it in unconditionally at first, and the truth strip re-reads
-          `finish_report` on every `project-changed` — after every cut — so
-          every edit paid six seconds for a number the edit had not touched.
-          `framing` is opt-in now (`finish_report(framing=True)`,
-          `?framing=1`, `lucid finish-report --framing`) and `None` when
-          unasked, deliberately distinct from a measured zero — "nobody
-          scanned" reading as "nothing stale" is the captionless-film shape
-          again. HISTORY.md § Frame mode.
+          decodes placed footage for its scene-cut scan — 5.7s wall, 46s of
+          CPU on the film, uncached, every call — so nothing re-read on every
+          `project-changed` may compose it in. `finish_report`'s `framing` is
+          opt-in for exactly that (`framing=True`, `?framing=1`,
+          `--framing`), and `None` when unasked, distinct from a measured
+          zero: "nobody scanned" reading as "nothing stale" is the
+          captionless-film shape again. HISTORY.md § Frame mode.
         - **A blank chip where a warning would go reads as "nothing to
           report."** Frame mode's coverage chips drew empty for the ~4s the
           sheet job takes, which is indistinguishable from a clean project —
