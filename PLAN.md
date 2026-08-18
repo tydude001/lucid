@@ -218,6 +218,13 @@ left. The conclusion survives because it was always the load-bearing one, but
     ranges. The film is not being re-imported over it; what changed is that
     nothing had ever compared a document's own declared length against what its
     entries sum to, and now `import_edit` does.
+    - **A closed gap is not a fixed project, and the comparison had a blind
+      spot of its own.** The film's project went on holding the stale cut for
+      five more days, and `film_check` pointed at it compared the `Edit`
+      alone while `export` lays down edit + tail — so on the *restored*
+      project it read `agrees: false` by exactly the 6s end card, the same
+      direction as the 74.7s it was built to catch. Both fixed 2026-08-18.
+      HISTORY.md § The film's project, restored.
 - **Should the workspace play its own output? Opened 2026-08-17.** `lucid web`
   rebuilds the picture live from the cue table and never reads `renders/` — the
   Export button writes a file the UI then cannot open. So "let me watch the cut

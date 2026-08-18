@@ -330,8 +330,9 @@ installed package or the upstream repo, not your memory.
     route needs appended silence first and `vo_extend` for the teaser. A tail
     is two ordinary MLT entries and **no new writer concept**; what it costs is
     that `Edit` stops being the single answer to "how long is this", which is
-    why `status` and `check_frames` read `expected_duration` rather than the
-    edit. HISTORY.md § Tail time, built; § The end card and the bumper became
+    why `status`, `check_frames` and `film_check` read `expected_duration`
+    rather than the edit — `film_check` is the one that did not, and read
+    `agrees: false` on the real film by exactly its end card until 2026-08-18. HISTORY.md § Tail time, built; § The end card and the bumper became
     templates.
   - **`vo_extend` is built, and it is the one op authorized to grow `Edit`
     rather than only cut it.** `Edit.insert` splices a real generated-silence
@@ -791,11 +792,19 @@ installed package or the upstream repo, not your memory.
     Scream project held the *silence-cut* VO, not the shipped one — 410.96s/73
     segments against 336.27s/63 — and the render, `verify`, the cue table and
     the shot plan all agreed with it. **It is `~/lucid-final-cut/proj`, whose
-    name says the opposite**; the shipped cut is in `brief-check`,
-    `framing-detect`, `threshold` and `split-detect`. Settle it against the
-    renders, which are 336.34s (`essay-cards-fixed.mp4`) and 342.36s with the
-    6s endcard. Before building anything for review on
+    name says the opposite**; the shipped 63-segment edit is byte-identical in
+    `brief-check`, `framing-detect`, `threshold` and `split-detect`. Settle it
+    against the renders, which are 336.34s (`essay-cards-fixed.mp4`) and
+    342.36s with the 6s endcard. Before building anything for review on
     one, compare its `timeline_duration` against the film it is meant to be.
+    - **The right edit is not the right film — `brief-check`'s cue table is
+      not the film's, 27 of its 38 cues naming a different asset.** It is
+      where § Choosing the b-roll was measured and the experiment stayed in
+      it, and it is the *only* 336s project at the film's own 1920x816
+      canvas, so it is exactly what a rebuild reaches for. Every check passes
+      on it. **Diff a cue table against more than one project before trusting
+      it**: the three vertical projects agree with `final-cut` 38/38.
+      HISTORY.md § The film's project, restored.
     **And carry derived state back off a scratch copy** — the ten card records
     were written on the 411s copy, so the film's own project read as having
     none. Four instances now — the newest is `~/lucid-kf-probe`, which is

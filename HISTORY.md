@@ -8665,3 +8665,91 @@ root.
   project: -C ... and --root ...".
 
 1384 passed, ruff clean (1367 before this step).
+
+## The film's project, restored — 2026-08-18
+
+`~/lucid-final-cut/proj` held a 73-segment, 410.963s edit. The film is 63
+segments and 336.269s, and the renders sitting in that same directory say so
+— 336.341s (`essay-cards-fixed.mp4`) and 342.357s with the end card
+(`essay-flashfix.mp4`, the newest). Everything else in the project was
+already right: 38 cues with 2 pins, 13 card records at 1920x816, the tail,
+`caption_style`, 16 reframe windows. Only the edit had drifted, so the fix
+is one file rather than a rebuild.
+
+Which edit: `~/lucid-threshold/proj`, `~/lucid-framing-detect/proj` and
+`~/lucid-split-detect` hold a **byte-identical** `project.otio` (md5
+`65008c09ec3f7e5cd6563a74f079cd1b`), 63 segments of `vo`, and all three
+register the ten clips identically to `final-cut` — same durations, same
+`source` paths into the Vault, media referenced as relative symlinks. An
+edit is portable between them because there is nothing project-local in it.
+
+### The project that looked like the right base and was not
+
+`~/lucid-brief-check/proj` is the only 336s project at the film's own
+1920x816 canvas — every other one is the 1080x1920 vertical — so it is what
+"rebuild the film on the shipped VO" reaches for first, and it is the wrong
+answer. **27 of its 38 cues name a different asset than the film's**: it is
+where § Choosing the b-roll was measured, and the experiment's assignment
+was left in it. Nothing in the project says so. The cues are valid word
+indices, all 38 shots project with no `shots_error`, the VO is the shipped
+cut, the canvas is the film's. A rebuild from it would have produced the
+right film with the wrong pictures under it, at every check clean — the
+§ The VO the project was holding failure a second time, one layer up.
+
+What settled it was asking the three siblings: all three agree with
+`final-cut`'s cue table 38 of 38, and `brief-check` is alone at 27. A cue
+table is worth diffing against more than one project before it is trusted,
+for the same reason a render is worth measuring against more than the
+project that made it.
+
+### The evidence the restored project is the film
+
+Four numbers, none of them from the project alone:
+
+- `check_frames` against `essay-flashfix.mp4`: **8208 expected, 8208 in the
+  container, delta 0** — frame-exact, at 23.976fps.
+- `film_check`: `agrees`, delta **-0.015s** on 342.342s against 342.357s,
+  a third of a frame.
+- `verify` (whisper turbo, single-pass) over the render: similarity
+  **0.967**, 962 expected words against 941 heard, `gaps: []`, 0
+  hallucinated. Every diff is a transcription variant — `gonna`/`going to`,
+  `kinda`/`kind of`, `screen`/`scream` — not a hole.
+- `finish_report`: **40 seams**, the number § The hand-framed teaser,
+  watched recorded for the whole film.
+
+The picture came back with the edit. `build_shots` had been refusing all 38
+cues — "the cue at 'vo' word 866 pins 's1996-billy-stu' to 21.4s and the
+shot runs 9.1s, which ends past the asset's 30.1s" — and **that was a
+symptom of the longer edit, not a defect in the cue**. A shot runs to the
+next cue, so a 74-second-longer VO stretches the shots over it; on the
+film's own edit the same pinned shot is short enough to fit its asset.
+Nothing about the cue was ever wrong, which is why re-pinning it would have
+been the wrong fix and would have hidden the real one.
+
+The 16 reframe windows are no-ops at this canvas and stay that way: a rect
+is grown to the canvas's shape, and a 9:16 window out of a 1920x816 source
+grows back to the whole frame (`reframes: false`, `kept: 1.0`). They are the
+vertical cut's hand framing, stored on the horizontal project, costing
+nothing — no filter is emitted where MLT's placement already matches.
+
+### `film_check` could not agree with a film that has a tail
+
+It compared `timeline_duration` — the edit alone — while `export` lays down
+`_frame_total_with_tail`. `film_check` predates `tail` being project state
+and never moved, which is precisely what that helper's docstring exists to
+prevent ("a duration answered two ways is exactly how a render can disagree
+with its own timeline while both report clean"). On the restored project it
+read `agrees: false` at a delta of **-6.088s**: the 6s end card, in the same
+direction and the same order of magnitude as the 74.7s stale VO the check
+was built to catch. A check that cries wolf on the film it is pointed at is
+worse than no check, because the next false alarm is the real one.
+
+It now compares `expected_duration`, reports `timeline_duration` and
+`tail_seconds` beside it, and appends a note naming the tail when there is
+one. A project with no tail compares within a frame of where it did, so
+nothing that agreed before stops agreeing. Pinned from both sides —
+`test_film_check_compares_the_tail_in`: a tail-less render stops agreeing
+the moment a tail is configured, and a reference carrying the tail agrees.
+The stale 410s project still reports `agrees: false` at **74.726s**.
+
+1385 passed, ruff clean.

@@ -8624,8 +8624,20 @@ def film_check(
     holding.)
 
     The comparison is deliberately coarse — cheaper than `check_frames`, and
-    answering a coarser question. **`timeline_duration`** comes off this
-    project's own edit (`_load_edit`, the same source `check_frames` reads).
+    answering a coarser question. The number compared is
+    **`expected_duration`** — `_frame_total_with_tail`, the edit plus whatever
+    a configured `tail` adds, which is what `export` actually lays down — and
+    not `timeline_duration`, which is the edit alone and is reported beside it
+    for the record. Comparing the edit was wrong the moment `tail` became
+    project state: the Scream film's own project renders 342.36s and its edit
+    runs 336.27s, so this read `agrees: false` at a delta of exactly the
+    6s end card, in the same direction and the same order of magnitude as the
+    stale VO it exists to catch. A check that cries wolf on the film it is
+    pointed at is worse than no check. (`_frame_total_with_tail`'s own
+    docstring names the rule: a duration answered two ways is how a render
+    disagrees with its own timeline while both report clean.) A project with
+    no tail compares within a frame of where it used to, so nothing that
+    agreed before stops agreeing.
     **`reference_duration`** is read off `reference` with ffprobe alone —
     no `melt`, no frame counting — because a *segment count* is not a number
     a finished render carries: once encoded there is no cut boundary left to
@@ -8676,9 +8688,14 @@ def film_check(
     if not edit.segments:
         raise ProjectError("the timeline is empty — there is no film here to check yet")
 
+    rate = _export_fps(_clips_by_id(project))
+    expected_duration = _frame_total_with_tail(project, edit, rate) / rate
+    tail = _stored_tail(project)
     result: dict[str, Any] = {
         "project": str(project.root),
         "timeline_duration": edit.duration,
+        "expected_duration": expected_duration,
+        "tail_seconds": float(tail["seconds"]) if tail else 0.0,
         "segments": len(edit.segments),
         "reference": after,
         "reference_source": (
@@ -8707,7 +8724,7 @@ def film_check(
             "readable media file"
         )
 
-    delta = edit.duration - reference_duration
+    delta = expected_duration - reference_duration
     result.update(
         {
             "reference_duration": reference_duration,
@@ -8725,6 +8742,12 @@ def film_check(
             "check once this one agrees."
         )
     ]
+    if result["tail_seconds"]:
+        result["notes"].append(
+            "the compared number is `expected_duration` — the edit plus this "
+            f"project's {result['tail_seconds']:g}s tail — because that is what "
+            "`export` lays down; `timeline_duration` is the edit alone."
+        )
     return result
 
 

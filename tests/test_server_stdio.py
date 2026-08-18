@@ -3311,6 +3311,79 @@ def test_film_check_agrees_when_the_reference_is_this_cut(tmp_path: Path) -> Non
 @needs_ffprobe
 @needs_ffmpeg
 @needs_auto_editor
+def test_film_check_compares_the_tail_in(tmp_path: Path) -> None:
+    """The number compared is `expected_duration`, not the edit.
+
+    A tail is project state and `export` lays it down, so a project holding
+    one is longer than its own `Edit` — the rule `_frame_total_with_tail`
+    exists to keep in one place. `film_check` was written before `tail` was
+    and read the edit straight, which made it disagree with the film it was
+    pointed at by exactly the end card: the Scream project renders 342.36s
+    against a 336.27s edit, so a correct project read `agrees: false` at a
+    delta of 6s — the same direction and order of magnitude as the stale VO
+    this check exists to catch, which is the one false alarm it cannot
+    afford. Pinned from both sides: the tail-less render stops agreeing once
+    a tail is configured, and a reference carrying the tail agrees.
+    """
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+
+    words = [{"word": f"w{i:02d}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(24)]
+    transcript = tmp_path / "pic.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, transcript)
+        await client.call(
+            "cut_by_transcript", path=str(project), clip_id=clip, cut=[[4, 6], [14, 16]]
+        )
+        await client.call("export", path=str(project), output=str(render), export_format=None)
+        before = await client.call(
+            "film_check", path=str(project), reference=str(render), plan=True
+        )
+        await client.call("tail", path=str(project), asset="card:outro", seconds=3.0)
+        after = await client.call(
+            "film_check", path=str(project), reference=str(render), plan=True
+        )
+        # The film this project now describes: the same cut, plus the tail.
+        full = tmp_path / "with-tail.mp4"
+        _make_video(full, duration=after["expected_duration"])
+        against_full = await client.call(
+            "film_check", path=str(project), reference=str(full), plan=True
+        )
+        return {"before": before, "after": after, "against_full": against_full}
+
+    out = anyio.run(_with_server, body)
+
+    # No tail: unchanged behaviour, within a frame of the edit's own duration.
+    assert out["before"]["tail_seconds"] == 0.0
+    assert out["before"]["expected_duration"] == pytest.approx(
+        out["before"]["timeline_duration"], abs=0.1
+    )
+    assert out["before"]["agrees"] is True
+
+    # With one: the compared number grows by the tail, the edit does not, and
+    # the render made before the tail existed is no longer this film.
+    after = out["after"]
+    assert after["tail_seconds"] == 3.0
+    assert after["timeline_duration"] == pytest.approx(out["before"]["timeline_duration"])
+    assert after["expected_duration"] == pytest.approx(after["timeline_duration"] + 3.0, abs=0.1)
+    assert after["duration_delta"] == pytest.approx(3.0, abs=0.2)
+    assert after["agrees"] is False
+    assert any("tail" in note for note in after["notes"])
+
+    # And a reference that carries the tail agrees — the case that read false
+    # before this, on the real film.
+    assert out["against_full"]["agrees"] is True
+    assert out["against_full"]["duration_delta"] == pytest.approx(0.0, abs=0.2)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
 def test_film_check_catches_a_project_seeded_from_a_stale_cut(tmp_path: Path) -> None:
     """The defect this item exists for (HISTORY.md § The VO the project was
     holding): a project's own checks can all agree with themselves — the
