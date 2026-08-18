@@ -469,6 +469,12 @@ in the same session — HISTORY.md § The agent panel had no tools at all,
 and transcribe are still not window mutations, so "footage in" holds only
 through the agent pane.
 
+The A2 lane arrived a day later drawing a bed the window could not set — the
+same asymmetry one lane over — and that half is closed: `POST /api/music`,
+with the panel reachable from a drag on A2, a click on the bed, the cue
+toolbar's "Music bed" verb and the refusal itself (HISTORY.md § The A2 lane
+became settable). Import and transcribe remain.
+
 ## Open questions, deliberately left
 
 - Whether Apply-from-agent-plan should also cover `reframe` proposals (step

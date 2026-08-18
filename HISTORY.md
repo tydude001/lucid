@@ -9107,3 +9107,87 @@ mixing in the browser is its own decision, and the lane's job was to show
 what the render mixes. The tail's video dissolve (`tail.fade`) is a separate
 deferral and still stands: it is a picture transition, a new writer concept,
 and nothing here touched it.
+
+## The A2 lane became settable — 2026-08-18
+
+The lane shipped that morning read-only: it drew `timeline_view`'s `music`
+projection faithfully and the CLI owned every way to create, move, fade or
+clear the bed underneath it. That is the captionless-film shape — a surface
+reading clean while the terminal owns the operation (§ The film had no
+captions in it) — and it was one day old, which is the cheapest moment there
+will ever be to close it.
+
+**`POST /api/music` is a fourth caller into `ops.music`**, alongside the CLI
+and the MCP tool, and it decides nothing: the merge rule (either field alone
+updates its own once a bed exists), the card refusal, the `word_index_end`
+ordering test and the registered-asset check are all the op's, and its
+refusals arrive as the route's 400. Every field is optional because
+`ops.music` is a partial update — a panel changing only the fades sends only
+the fades — so `_clip_arg` is deliberately not used, and `plan` is not read
+from the payload at all (`_cue_add`'s precedent). Nine real-socket tests in
+`test_webui_http.py`: set, partial update, `clear_end`, `reset`, the card
+refusal, the missing-start refusal, a non-integer index, the no-arguments
+read, and the JSON content-type guard.
+
+**Four ways in, one panel.** A drag across the A2 lane re-spans the bed; a
+click on the bed edits its asset and fades without touching the span; the
+cue toolbar's new "Music bed" verb turns the same word-range drag into the
+*first* bed (there is no A2 lane to drag on before one exists — "no bed, no
+lane" is the lane's own rule); and the refusal message, when the bed cannot
+resolve, opens the same panel. It is built on `.selection-toolbar
+.plan-toolbar` rather than beside them, so the `[hidden]` companion rule and
+the `--plan-max-h` height cap are the ones already fixed rather than a
+second copy of each — a duplicated clamp is how the first fix reached one
+toolbar and not the other (§ Direct manipulation on the timeline).
+
+**Two defects, and only one of them came from the browser.**
+
+*Read by hand, before the pass:* `clip_id` is the transcript a word index is
+an index *into*, so a fades-only change that also sent the view's current
+clip would silently re-address a bed placed on another clip — correct in
+every call that happens to be a first set, which is exactly how that class
+survives. It now rides `word_index_start` and never travels alone; absent,
+the op keeps what it stored. Same shape as a shot's `clip_id` versus its
+`asset`.
+
+*Found by driving it:* over a **refused** bed the panel said "no bed yet —
+drag a range to place one" and offered "Set bed". `timeline_view` sends
+`music_error` *instead of* the projection, so `state.music` is null and
+there was nothing to fill the fields from — while the bed plainly exists,
+and shortening its fades is the refusal's own named fix. The panel now reads
+the stored cue back through the op's no-argument read shape (changes
+nothing, reports what is in force) rather than through a new view field,
+marks the echo `refused —`, and offers "Update bed" beside "Remove bed".
+Verified end to end: 20s + 20s fades on a 24s bed drew the refusal on the
+lane, the panel opened off that refusal with the real asset and fades in it,
+and 1s + 1s from the panel brought the bed back.
+
+**The browser pass** (`.claude/skills/verify-live`, both dwells, on a copy of
+the film's own project at `~/lucid-final-cut/proj` — `film_check` agreed
+before anything was touched): create through the cue toolbar's verb, re-span
+by dragging A2, edit fades by clicking the bed, `clear_end` by the "to the
+end of the film" box, remove — each at 0ms *and* ~120ms. The block is
+pixel-exact against the plan it draws (start 28.941s × 4.0 px/s = 115.8px
+from the lane's left, audible 24.0s = 96.1px, ramps 1.5s/2.0s = 6px/8px),
+zero console errors, `body.scrollWidth == innerWidth` at 700/1024/1400, and
+both themes resolving the panel's own tokens to real colours.
+
+Two things the pass turned up that are **not** this change: `#toast` sits at
+body level with `z-index: 10` and covered the cue toolbar's right-hand
+buttons until dismissed, and at 700px the A2 block's lower half falls under
+`#track-lanes`'s own horizontal scrollbar, where a press hit-tests to the
+container and Chrome fires no `click` at all — the harness aims at an
+element's centre, so a partly-occluded block reads as a dead control when it
+is only a badly chosen point (a press 12px higher works).
+
+**And the render carries what the window set.** A bed placed by dragging in
+the browser on `~/lucid-a2-webui/proj`, rendered through real `melt` and
+read back by the A2 probe's own Goertzel at 1200 Hz: noise floor at 0.0s, a
+ramp to the −33.1 dBFS plateau by 0.5s, and the fade-out ending at **3.0s,
+the bed's audible end** — the asset is shorter than the 4.0s span it was
+given, so silence pads the rest, exactly the entry-attached behaviour
+§ The A2 fades and the lane, drawn measured. The export reply's `music`
+field matches the manifest the panel wrote.
+
+Still not built, unchanged by any of this: the preview does not *play* the
+bed, and `tail.fade` is still a picture transition nobody has costed.

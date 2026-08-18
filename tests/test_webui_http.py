@@ -424,6 +424,155 @@ def test_cue_add_requires_asset(server: str) -> None:
     assert "asset" in payload["error"]
 
 
+def _music_asset(project: Path, tmp_path: Path, clip_id: str = "bed") -> str:
+    """A second registered clip for the A2 bed to play — music is a clip_id,
+    never a card (a held frame has no sound to mix)."""
+    audio = tmp_path / f"{clip_id}.wav"
+    _make_wav(audio, duration=6.0)
+    ops.import_media(project, audio, clip_id=clip_id)
+    return clip_id
+
+
+def test_music_sets_the_bed_and_the_lane_can_see_it(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    """`/api/music` is the A2 lane's own mutation — a fourth caller into
+    `ops.music`, and the reason the lane is something the window can set
+    rather than only draw."""
+    asset = _music_asset(project, tmp_path)
+    status, payload = _post(
+        f"{server}/api/music",
+        {"asset": asset, "clip_id": "vo", "word_index_start": 2, "word_index_end": 5},
+    )
+    assert status == 200
+    assert payload["written"] is True
+    assert payload["music"]["asset"] == asset
+    # The word echo the CLAUDE.md rule requires of anything taking an index.
+    assert payload["start_word"]["text"] == "w2"
+    assert payload["end_word"]["text"] == "w5"
+
+    assert Project.open(project).read_manifest()["music"] == {
+        "asset": asset,
+        "clip_id": "vo",
+        "word_index_start": 2,
+        "word_index_end": 5,
+        "fade_in": 0.0,
+        "fade_out": 0.0,
+    }
+
+    # And the projection the A2 lane draws from now has a bed in it.
+    _, view = _json(f"{server}/api/view")
+    assert view["music"]["asset"] == asset
+    assert view["music"]["to_end"] is False
+    assert "music_error" not in view
+
+
+def test_music_updates_one_field_without_rewriting_the_rest(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    """Every field is a partial update — a panel changing only the fades
+    sends only the fades, and the absent keys keep what they had."""
+    asset = _music_asset(project, tmp_path)
+    _post(
+        f"{server}/api/music",
+        {"asset": asset, "clip_id": "vo", "word_index_start": 2, "word_index_end": 5},
+    )
+    status, payload = _post(f"{server}/api/music", {"fade_in": 0.5, "fade_out": 1.0})
+    assert status == 200
+    assert payload["music"] == {
+        "asset": asset,
+        "clip_id": "vo",
+        "word_index_start": 2,
+        "word_index_end": 5,
+        "fade_in": 0.5,
+        "fade_out": 1.0,
+    }
+
+
+def test_music_clear_end_runs_the_bed_to_the_end_of_the_timeline(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    asset = _music_asset(project, tmp_path)
+    _post(
+        f"{server}/api/music",
+        {"asset": asset, "clip_id": "vo", "word_index_start": 2, "word_index_end": 5},
+    )
+    status, payload = _post(f"{server}/api/music", {"clear_end": True})
+    assert status == 200
+    assert payload["music"]["word_index_end"] is None
+
+    _, view = _json(f"{server}/api/view")
+    assert view["music"]["to_end"] is True
+
+
+def test_music_reset_drops_the_bed_and_the_lane_with_it(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    asset = _music_asset(project, tmp_path)
+    _post(f"{server}/api/music", {"asset": asset, "clip_id": "vo", "word_index_start": 2})
+    status, payload = _post(f"{server}/api/music", {"reset": True})
+    assert status == 200
+    assert payload["music"] is None
+    assert "music" not in Project.open(project).read_manifest()
+
+    _, view = _json(f"{server}/api/view")
+    assert view["music"] is None  # no bed, no lane
+
+
+def test_music_refuses_a_card_as_the_asset(server: str) -> None:
+    """The op owns its own validation and its refusal is this route's 400 —
+    a held frame has no sound to mix."""
+    status, payload = _post(
+        f"{server}/api/music",
+        {"asset": "card:title", "clip_id": "vo", "word_index_start": 2},
+    )
+    assert status != 200
+    assert "clip_id" in payload["error"]
+
+
+def test_music_refuses_a_first_set_missing_its_start_word(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    asset = _music_asset(project, tmp_path)
+    status, payload = _post(f"{server}/api/music", {"asset": asset, "clip_id": "vo"})
+    assert status != 200
+    assert "word_index_start" in payload["error"]
+
+
+def test_music_refuses_a_non_integer_word_index(server: str, project: Path, tmp_path: Path) -> None:
+    asset = _music_asset(project, tmp_path)
+    status, payload = _post(
+        f"{server}/api/music",
+        {"asset": asset, "clip_id": "vo", "word_index_start": "two"},
+    )
+    assert status != 200
+    assert "word_index_start" in payload["error"]
+
+
+def test_music_read_only_call_changes_nothing(project: Path, server: str, tmp_path: Path) -> None:
+    """No fields is a read, `tail`'s shape — the panel opens on the bed in
+    force without writing to find out what it is."""
+    asset = _music_asset(project, tmp_path)
+    _post(f"{server}/api/music", {"asset": asset, "clip_id": "vo", "word_index_start": 2})
+    status, payload = _post(f"{server}/api/music", {})
+    assert status == 200
+    assert payload["written"] is False
+    assert payload["music"]["asset"] == asset
+
+
+def test_music_requires_json_content_type(server: str, project: Path, tmp_path: Path) -> None:
+    """The mutation guard every route here carries: an HTML form cannot send
+    `application/json`, so a cross-origin attempt becomes a preflight."""
+    asset = _music_asset(project, tmp_path)
+    status, _ = _post(
+        f"{server}/api/music",
+        {"asset": asset, "clip_id": "vo", "word_index_start": 2},
+        content_type="text/plain",
+    )
+    assert status != 200
+    assert Project.open(project).read_manifest().get("music") is None
+
+
 def test_view_of_a_clip_without_a_transcript_still_draws_the_edit(
     project: Path, server: str, tmp_path: Path
 ) -> None:

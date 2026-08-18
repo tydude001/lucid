@@ -2353,6 +2353,70 @@ def _cue_add(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _optional_int(payload: dict[str, Any], key: str) -> int | None:
+    """`None` when the key is absent, an int when it is there.
+
+    Distinct from `_float_arg`'s defaulting on purpose: every field of
+    `ops.music` is a partial update, where absent means "leave this one
+    alone" and a default would silently rewrite it.
+    """
+    raw = payload.get(key)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise WebUIError(f"{key!r} must be an integer") from None
+
+
+def _music(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/music` — the A2 lane's own mutation.
+
+    A fourth caller into `ops.music`, alongside the CLI and MCP tool, and
+    what makes the A2 lane a thing the window can *set* rather than only
+    draw: the lane shipped reading `timeline_view`'s `music` projection with
+    the CLI owning every way to create, move, fade or clear the bed under it
+    (HISTORY.md § The A2 music lane, built; § The A2 fades and the lane,
+    drawn).
+
+    Nothing here decides. The merge rule (either field alone updates its own
+    once a bed exists), the card refusal, the `word_index_end` ordering test
+    and the registered-asset check are all `ops.music`'s, and its refusals
+    surface as this route's 400 — the same "don't re-implement the op's own
+    validation" discipline `_cue_add` and `_reframe` already follow. A bed
+    that no longer *resolves* is not this route's business either: that
+    arrives on the next `/api/view` as `music_error` for the lane to draw.
+
+    Every field is optional because `ops.music` is a partial update — a
+    panel changing only the fades sends only the fades — so `_clip_arg` is
+    deliberately not used here. `plan` is not read from the payload at all,
+    `_cue_add`'s precedent: the panel echoes the words it resolved against
+    from the same `state.words` the drag resolved against, and the server's
+    own echo arrives on the bus with the applied result. And `clip_id` is
+    the *addressing* transcript
+    (the cue's own clip, which is what a word index is an index into), never
+    the music asset: `asset` is the footage that plays, the same split a
+    shot dict makes between `clip_id` and `asset` (CLAUDE.md).
+    """
+    asset = payload.get("asset")
+    if asset is not None and (not isinstance(asset, str) or not asset):
+        raise WebUIError("'asset' must be a non-empty string")
+    clip_id = payload.get("clip_id")
+    if clip_id is not None and (not isinstance(clip_id, str) or not clip_id):
+        raise WebUIError("'clip_id' must be a non-empty string")
+    return ops.music(
+        root,
+        asset=asset,
+        clip_id=clip_id,
+        word_index_start=_optional_int(payload, "word_index_start"),
+        word_index_end=_optional_int(payload, "word_index_end"),
+        fade_in=None if payload.get("fade_in") is None else _float_arg(payload, "fade_in"),
+        fade_out=None if payload.get("fade_out") is None else _float_arg(payload, "fade_out"),
+        clear_end=bool(payload.get("clear_end")),
+        reset=bool(payload.get("reset")),
+    )
+
+
 def _clip_role(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     """`POST /api/clip-role` — the assets pane's role toggle.
 
@@ -2469,6 +2533,7 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/restore": _restore,
     "/api/undo": _undo,
     "/api/cue": _cue_add,
+    "/api/music": _music,
     "/api/clip-role": _clip_role,
     "/api/agent/thumbs": _agent_thumb,
     "/api/reframe": _reframe,

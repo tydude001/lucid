@@ -40,6 +40,17 @@
  * under — the view sends `music_error` and the lane draws the message,
  * `shots_error`'s policy exactly. No bed, no lane.
  *
+ * **And A2 is settable from here, not only drawable.** The lane shipped
+ * read-only, with the CLI owning every way to create, move, fade or clear
+ * the bed under it — the shape that produced the captionless film, a
+ * surface reading clean while the terminal owned the operation. A drag
+ * across A2 re-spans the bed, a click on it edits the asset and the fades,
+ * and the cue toolbar's "Music bed" verb places the first one (there is no
+ * A2 lane to drag on before a bed exists). All four land on
+ * `POST /api/music` → `ops.music`, and nothing here decides: the merge
+ * rule, the card refusal and the ordering test are the op's, and a bed that
+ * stops resolving comes back as this lane's own `music_error`.
+ *
  * One honest asymmetry to expect: V2 runs on `export`'s frame grid
  * (`state.shots_rate`) while the ruler runs on the edit's own seconds, so
  * the last shot can end a fraction of a frame past the ruler — 411.077s of
@@ -159,6 +170,21 @@ let planConfirmCheckbox = null; // the suspect-boundary confirmation
 // that has suspect boundaries to show — null otherwise, so applyCutPlan can
 // tell "no gate needed" from "gate needed, unchecked" without a stale
 // reference to a checkbox no longer in the DOM
+
+let musicSelection = null; // the A2 bed panel's own selection, a third
+// parallel to cueSelection/planSelection: {wordIndexStart, wordIndexEnd,
+// boxLeft, boxTop}. BOTH indices are null when the panel was opened by a
+// click on the bed rather than by a drag — that open changes the asset or
+// the fades and leaves the span exactly where it is, which is `ops.music`'s
+// own partial-update shape rather than a second one invented here.
+let musicToolbarEl = null;
+let musicInfoEl = null;
+let musicAssetInputEl = null;
+let musicFadeInEl = null;
+let musicFadeOutEl = null;
+let musicToEndEl = null;
+let musicActionsEl = null; // rebuilt each refresh (planActionsEl's own
+// treatment), because "Remove bed" is only a verb once a bed exists
 
 let dropGhostEl = null; // the ONE standalone node the HTML5 drag-and-drop
 // listeners drive (item G) — a separate lifecycle from `gesture` above
@@ -539,7 +565,23 @@ function buildMusicRow(state, pxPerSec, duration) {
   row.style.width = `${Math.max(1, duration * pxPerSec)}px`;
 
   if (state.music_error) {
-    row.append(el("div", "lane-refusal", `music refused — ${state.music_error}`));
+    const refusal = el("div", "lane-refusal", `music refused — ${state.music_error}`);
+    // A refused bed still has a manifest entry, and this is the only thing
+    // drawn for it — so the refusal is what opens the panel, or the one
+    // state that most needs fixing is the one state with no way in. The
+    // panel offers "Remove bed" off `music_error` for exactly this.
+    refusal.addEventListener("click", (event) => {
+      const lanes = $("track-lanes");
+      if (!lanes) return;
+      const rect = lanes.getBoundingClientRect();
+      openMusicPanel(
+        null,
+        null,
+        Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
+        Math.max(0, event.clientY - rect.top + 10),
+      );
+    });
+    row.append(refusal);
     seekOnClick(row, pxPerSec);
     return row;
   }
@@ -580,9 +622,20 @@ function buildMusicRow(state, pxPerSec, duration) {
   }
   block.append(el("span", "clip-label", music.asset));
   // Target-phase, like a shot block: clicking the bed inspects its start
-  // word, so the cue that placed it is one click from the thing it placed.
-  block.addEventListener("click", () => {
+  // word, so the cue that placed it is one click from the thing it placed —
+  // and opens the bed's panel on the asset and the fades, the edits that do
+  // not want a new span. A drag across the lane is the one that re-spans it.
+  block.addEventListener("click", (event) => {
     if (ctx) ctx.emit("inspect-word", { clipId: music.clip_id, wordIndex: music.word_index_start });
+    const lanes = $("track-lanes");
+    if (!lanes) return;
+    const rect = lanes.getBoundingClientRect();
+    openMusicPanel(
+      null,
+      null,
+      Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
+      Math.max(0, event.clientY - rect.top + 10),
+    );
   });
   row.append(block);
 
@@ -957,16 +1010,36 @@ function buildCueToolbar() {
   assetInput.style.width = "18em";
   cueAssetInputEl = assetInput; // module-level, so openCuePlacement can prefill it
   const placeBtn = el("button", null, "Place cue");
+  // The FIRST bed has no A2 lane to drag on — "no bed, no lane" is the
+  // lane's own rule — so the range gesture that places a cue is also how a
+  // bed gets created, one verb over. Once there is a bed, dragging A2
+  // itself is the shorter road to the same panel.
+  const musicBtn = el("button", null, "Music bed");
   const cancelBtn = el("button", null, "Cancel");
 
   placeBtn.addEventListener("click", () => placeCue(assetInput));
+  musicBtn.addEventListener("click", () => {
+    if (!cueSelection) return;
+    const { wordIndexStart, wordIndexEnd, boxLeft, boxTop } = cueSelection;
+    const typed = assetInput.value.trim();
+    openMusicPanel(
+      wordIndexStart === undefined ? cueSelection.wordIndex : wordIndexStart,
+      wordIndexEnd === undefined ? null : wordIndexEnd,
+      boxLeft,
+      boxTop,
+    );
+    // Whatever was typed for the cue is the likelier answer here than the
+    // bed's own asset, and openMusicPanel has just filled the field from the
+    // bed — so this override runs after it, never instead of it.
+    if (typed && musicAssetInputEl) musicAssetInputEl.value = typed;
+  });
   assetInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") placeCue(assetInput);
     if (event.key === "Escape") cancelCueSelection();
   });
   cancelBtn.addEventListener("click", cancelCueSelection);
 
-  bar.append(info, assetInput, placeBtn, cancelBtn);
+  bar.append(info, assetInput, placeBtn, musicBtn, cancelBtn);
   cueToolbarEl = bar;
   cueInfoEl = info;
 }
@@ -988,6 +1061,295 @@ function buildPlanToolbar() {
   planInfoEl = info;
   planWarnEl = warn;
   planActionsEl = actions;
+}
+
+/** The A2 bed's panel — `POST /api/music`, the fourth caller into
+ * `ops.music` alongside the CLI and MCP tool.
+ *
+ * Built on `.selection-toolbar .plan-toolbar` rather than beside them: the
+ * column layout, the `[hidden]` companion rule and — the one that matters —
+ * the `--plan-max-h` height cap are all already there, and a second copy of
+ * that cap is exactly how the clamp fix reached one toolbar and not the
+ * other the first time (dom.js's `clampFloating` header). `.music-toolbar`
+ * adds nothing but the field row.
+ *
+ * The inputs persist across renders (the node is re-appended, never rebuilt,
+ * so a half-typed asset survives a `project-changed`); the ACTIONS row is
+ * rebuilt on every refresh, because "Remove bed" is a verb only when there
+ * is a bed to remove. */
+function buildMusicToolbar() {
+  const bar = el("div", "selection-toolbar plan-toolbar music-toolbar");
+  bar.hidden = true;
+
+  const info = el("div", "quote");
+  const fields = el("div", "music-fields");
+
+  const asset = document.createElement("input");
+  asset.type = "text";
+  asset.placeholder = "music asset — a registered clip_id";
+  asset.style.width = "16em";
+
+  const fadeIn = document.createElement("input");
+  fadeIn.type = "number";
+  fadeIn.min = "0";
+  fadeIn.step = "0.1";
+  const fadeInLabel = el("label", null);
+  fadeInLabel.append(document.createTextNode("fade in "), fadeIn, document.createTextNode("s"));
+
+  const fadeOut = document.createElement("input");
+  fadeOut.type = "number";
+  fadeOut.min = "0";
+  fadeOut.step = "0.1";
+  const fadeOutLabel = el("label", null);
+  fadeOutLabel.append(document.createTextNode("fade out "), fadeOut, document.createTextNode("s"));
+
+  const toEnd = document.createElement("input");
+  toEnd.type = "checkbox";
+  const toEndLabel = el("label", null);
+  toEndLabel.append(toEnd, document.createTextNode(" to the end of the film"));
+
+  fields.append(asset, fadeInLabel, fadeOutLabel, toEndLabel);
+  const actions = el("div", "plan-actions");
+  bar.append(info, fields, actions);
+
+  asset.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyMusic();
+    if (event.key === "Escape") cancelMusicSelection();
+  });
+
+  musicToolbarEl = bar;
+  musicInfoEl = info;
+  musicAssetInputEl = asset;
+  musicFadeInEl = fadeIn;
+  musicFadeOutEl = fadeOut;
+  musicToEndEl = toEnd;
+  musicActionsEl = actions;
+}
+
+/** Opens the bed panel. `wordIndexStart`/`wordIndexEnd` null means "not
+ * re-spanning" — the click-the-bed open, which edits the asset and the
+ * fades and leaves the cue's words alone.
+ *
+ * Every field is filled from the bed in force (`lastState.music`, the
+ * resolved projection `export` builds its lane from) rather than from
+ * whatever was typed last, so the panel always opens saying what the render
+ * currently mixes. */
+function openMusicPanel(wordIndexStart, wordIndexEnd, boxLeft, boxTop) {
+  cueSelection = null;
+  refreshCueToolbar();
+  planSelection = null;
+  refreshPlanToolbar();
+
+  musicSelection = { wordIndexStart, wordIndexEnd, boxLeft, boxTop, stored: null };
+  const bed = bedInForce();
+  if (musicAssetInputEl) musicAssetInputEl.value = bed ? bed.asset : "";
+  if (musicFadeInEl) musicFadeInEl.value = bed && bed.fade_in ? String(bed.fade_in) : "";
+  if (musicFadeOutEl) musicFadeOutEl.value = bed && bed.fade_out ? String(bed.fade_out) : "";
+  if (musicToEndEl) {
+    // A drag that named an end word means that end word; anything else keeps
+    // whatever the bed already says, and a first bed with no drag runs to the
+    // end (the single-pass hold the music listen settled on, `ops.music`'s
+    // own default).
+    musicToEndEl.checked = wordIndexEnd === null ? (bed ? !!bed.to_end : true) : false;
+  }
+  refreshMusicToolbar();
+
+  // A REFUSED bed is still a bed, and it is the state most likely to be
+  // opened here — but `timeline_view` sends `music_error` *instead of* the
+  // projection, so there is nothing in `state` to fill the fields from and
+  // the panel said "no bed yet" over a bed that exists (browser pass). The
+  // stored cue comes back from the op's own read shape — no arguments
+  // changes nothing and reports what is in force — rather than from a new
+  // view field, and it is what makes the refusal's named fix ("shorten the
+  // fades") doable from the panel the refusal opens.
+  if (!bed && lastState && lastState.music_error && ctx) {
+    const opened = musicSelection;
+    ctx
+      .api("/api/music", {})
+      .then((payload) => {
+        if (musicSelection !== opened || !payload || !payload.music) return;
+        opened.stored = payload.music;
+        if (musicAssetInputEl) musicAssetInputEl.value = payload.music.asset || "";
+        if (musicFadeInEl) musicFadeInEl.value = payload.music.fade_in ? String(payload.music.fade_in) : "";
+        if (musicFadeOutEl) musicFadeOutEl.value = payload.music.fade_out ? String(payload.music.fade_out) : "";
+        if (musicToEndEl && wordIndexEnd === null) {
+          musicToEndEl.checked = payload.music.word_index_end === null;
+        }
+        refreshMusicToolbar();
+      })
+      .catch(() => {
+        // The read failed, so the panel stays on what it could draw — the
+        // Remove verb below is offered off `music_error` either way, which
+        // is the one action that always works on a bed that cannot resolve.
+      });
+  }
+}
+
+/** The bed the panel is editing: the resolved projection when there is one,
+ * the stored cue read back when the projection refused. Never a third
+ * shape — both carry `asset`/`fade_in`/`fade_out`, and only `to_end` needs
+ * the stored form's `word_index_end === null` reading. */
+function bedInForce() {
+  if (lastState && lastState.music) return lastState.music;
+  if (musicSelection && musicSelection.stored) {
+    const stored = musicSelection.stored;
+    return { ...stored, to_end: stored.word_index_end === null, refused: true };
+  }
+  return null;
+}
+
+function cancelMusicSelection() {
+  gesture = null;
+  musicSelection = null;
+  selection = null;
+  refreshMusicToolbar();
+  render();
+}
+
+/** Blank means "leave this field alone" — `ops.music` treats an absent key
+ * as unchanged, and sending 0 for an empty box would silently wipe a fade
+ * the panel was never asked to touch. */
+function fadeValue(input) {
+  const raw = (input.value || "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The word echo, three either side and the boundary word bracketed — the
+ * same `cueEcho` the cue toolbar draws, because it is the same question
+ * (CLAUDE.md: an index one past the intended phrase reads correctly on its
+ * own, so the neighbours are the point). Falls back to the bed's own words
+ * when this open is not re-spanning it. */
+function musicEcho() {
+  const words = (lastState && lastState.words) || null;
+  const bed = bedInForce();
+  const start = musicSelection.wordIndexStart !== null
+    ? musicSelection.wordIndexStart
+    : bed
+      ? bed.word_index_start
+      : null;
+  const end = musicSelection.wordIndexEnd !== null
+    ? musicSelection.wordIndexEnd
+    : musicSelection.wordIndexStart !== null
+      ? null
+      : bed && !bed.to_end
+        ? bed.word_index_end
+        : null;
+  if (start === null) {
+    if (!bed) return "no bed yet — drag a range to place one";
+    // Say that the bed is refused rather than drawing its cue as though it
+    // played: the lane behind this panel is showing the refusal, and a
+    // panel that reads like an ordinary bed over it is the surface
+    // disagreeing with itself.
+    return bed.refused ? `bed on ${bed.asset} — refused, see the lane` : `bed on ${bed.asset}`;
+  }
+  // A refused bed says so wherever it is drawn — the lane behind this panel
+  // is showing the refusal, and a panel reading like an ordinary bed over it
+  // is the surface disagreeing with itself.
+  const mark = bed && bed.refused ? "refused — " : "";
+  if (!words) return `${mark}bed from word ${start}${end === null ? "" : ` to ${end}`}`;
+  const head = `${mark}from ${cueEcho(words, start)}`;
+  return end === null ? head : `${head}\nto ${cueEcho(words, end)}`;
+}
+
+/** Clamped by the one `clampFloating`, with `--plan-max-h` set before the
+ * measure — `refreshPlanToolbar`'s own two rules, for the reason its comment
+ * gives: the clamp moves a box and cannot shrink one. */
+function refreshMusicToolbar() {
+  if (!musicToolbarEl) return;
+  if (!musicSelection || !lastState) {
+    musicToolbarEl.hidden = true;
+    return;
+  }
+  musicToolbarEl.hidden = false;
+  musicInfoEl.textContent = musicEcho();
+  musicActionsEl.textContent = "";
+
+  const bed = bedInForce();
+  const applyBtn = el("button", "primary", bed ? "Update bed" : "Set bed");
+  applyBtn.addEventListener("click", () => applyMusic());
+  musicActionsEl.append(applyBtn);
+  if (bed || lastState.music_error) {
+    // `music_error` and no `music`: the bed is real, it just cannot resolve
+    // (a cut orphaned its word, or fades outgrew it). Removing it is exactly
+    // the verb that case wants, so the button is offered off either.
+    const removeBtn = el("button", null, "Remove bed");
+    removeBtn.addEventListener("click", () => applyMusic({ reset: true }));
+    musicActionsEl.append(removeBtn);
+  }
+  const cancelBtn = el("button", null, "Cancel");
+  cancelBtn.addEventListener("click", cancelMusicSelection);
+  musicActionsEl.append(cancelBtn);
+
+  const lanes = $("track-lanes");
+  if (lanes) {
+    musicToolbarEl.style.setProperty("--plan-max-h", `${lanes.clientHeight}px`);
+    const { left, top } = clampFloating(
+      musicSelection.boxLeft,
+      musicSelection.boxTop,
+      musicToolbarEl.offsetWidth,
+      musicToolbarEl.offsetHeight,
+      lanes.scrollLeft,
+      lanes.scrollLeft + lanes.clientWidth,
+      0,
+      lanes.clientHeight,
+    );
+    musicToolbarEl.style.left = `${left.toFixed(1)}px`;
+    musicToolbarEl.style.top = `${top.toFixed(1)}px`;
+  } else {
+    musicToolbarEl.style.left = `${musicSelection.boxLeft.toFixed(1)}px`;
+    musicToolbarEl.style.top = `${musicSelection.boxTop.toFixed(1)}px`;
+  }
+}
+
+/** `POST /api/music`. The result is never rendered here — same rule as
+ * Cut/Restore and Place cue: it goes on the shared bus for agent.js to draw
+ * into the feed, and 'project-changed' brings the new lane through the
+ * normal update() path. A bed that no longer *resolves* comes back as the
+ * lane's own `music_error`, which is where that belongs. */
+async function applyMusic({ reset = false } = {}) {
+  if (!musicSelection || !ctx || !lastState) return;
+
+  let body;
+  if (reset) {
+    body = { reset: true };
+  } else {
+    const asset = musicAssetInputEl.value.trim();
+    if (!asset) {
+      musicAssetInputEl.focus();
+      ctx.emit("toast", "Type a music asset — a registered clip_id — before setting the bed.");
+      return;
+    }
+    body = { asset };
+    // `clip_id` rides the word index and never travels alone: it is the
+    // transcript the index is an index INTO, so sending the view's current
+    // clip on a fades-only change would silently re-address a bed placed on
+    // another clip — correct in every call that happens to be a first set,
+    // which is exactly how that class of bug survives. Absent, `ops.music`
+    // keeps the one it stored.
+    if (musicSelection.wordIndexStart !== null) {
+      body.clip_id = lastState.clip_id;
+      body.word_index_start = musicSelection.wordIndexStart;
+    }
+    if (musicToEndEl.checked) body.clear_end = true;
+    else if (musicSelection.wordIndexEnd !== null) body.word_index_end = musicSelection.wordIndexEnd;
+    const fadeIn = fadeValue(musicFadeInEl);
+    const fadeOut = fadeValue(musicFadeOutEl);
+    if (fadeIn !== null) body.fade_in = fadeIn;
+    if (fadeOut !== null) body.fade_out = fadeOut;
+  }
+
+  let payload = null;
+  let error = null;
+  try {
+    payload = await ctx.api("/api/music", body);
+  } catch (err) {
+    error = err.message;
+    ctx.emit("toast", error);
+  }
+  ctx.emit("op-result", { payload, error });
+  if (!error) cancelMusicSelection();
 }
 
 /** Plain context words, space-joined — the unbracketed half of an echo. */
@@ -1326,6 +1688,7 @@ function handleLanesMouseDown(event) {
   suppressNextClick = false;
   if (cueToolbarEl && cueToolbarEl.contains(event.target)) return;
   if (planToolbarEl && planToolbarEl.contains(event.target)) return;
+  if (musicToolbarEl && musicToolbarEl.contains(event.target)) return;
   if (!lastState) return;
 
   const handle = event.target.closest && event.target.closest(".trim-handle");
@@ -1360,7 +1723,13 @@ function handleLanesMouseDown(event) {
   }
   cueSelection = null;
   refreshCueToolbar();
-  gesture = { kind: "cue", anchorIndex: word.index, currentIndex: word.index, moved: false };
+  // Which lane the press landed on decides which panel the drag OPENS, and
+  // nothing else about the gesture: A2 is the bed's lane, so a drag across
+  // it re-spans the bed, while the same drag anywhere else places a cue.
+  // Read at mousedown rather than at mouseup because the pointer has moved
+  // by then — a drag that starts on A2 and ends on V1 is still the bed's.
+  const onMusicLane = !!(event.target.closest && event.target.closest(".lane-a2"));
+  gesture = { kind: "cue", anchorIndex: word.index, currentIndex: word.index, moved: false, onMusicLane };
   selection = [word.index];
   // properties.js's word-inspection input — raised on every lane mousedown
   // that resolves to a word, drag or plain click alike, since a plain click
@@ -1434,10 +1803,26 @@ function handleLanesMouseUp(event) {
       // resolves a click into — scrollLeft folded back in, for the same
       // reason (the container's own rect does not move when its content
       // scrolls). refreshCueToolbar's clamp expects this space.
+      const boxLeft = Math.max(0, event.clientX - rect.left + lanes.scrollLeft);
+      const boxTop = Math.max(0, event.clientY - rect.top + 10);
+      // A cue is placed at the drag's START word and has no end (`cue_add`
+      // is in-point only); a music bed spans two words, so the ORDERED pair
+      // is carried too — a right-to-left drag means the same span, and
+      // `ops.music` refuses an end before its start rather than reordering.
+      const first = Math.min(gesture.anchorIndex, gesture.currentIndex);
+      const last = Math.max(gesture.anchorIndex, gesture.currentIndex);
+      if (gesture.onMusicLane) {
+        gesture = null;
+        openMusicPanel(first, last, boxLeft, boxTop);
+        updateGestureOverlay();
+        return;
+      }
       cueSelection = {
         wordIndex: gesture.anchorIndex,
-        boxLeft: Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
-        boxTop: Math.max(0, event.clientY - rect.top + 10),
+        wordIndexStart: first,
+        wordIndexEnd: last,
+        boxLeft,
+        boxTop,
       };
       refreshCueToolbar();
     } else {
@@ -1633,6 +2018,8 @@ function render() {
   refreshCueToolbar();
   lanes.append(planToolbarEl);
   refreshPlanToolbar();
+  lanes.append(musicToolbarEl);
+  refreshMusicToolbar();
 
   // Deferred until the rows are actually in the DOM: drawWaveformLane reads
   // row.clientHeight, which is 0 for a detached node.
@@ -1661,6 +2048,7 @@ export function init(passedCtx) {
   ctx = passedCtx;
   buildCueToolbar();
   buildPlanToolbar();
+  buildMusicToolbar();
 
   const lanes = $("track-lanes");
   if (lanes) {

@@ -396,6 +396,19 @@ installed package or the upstream repo, not your memory.
       a fade-out ends where the music *audibly* ends, and a fade pair the
       bed cannot hold refuses at `_music_plan` ("shorten the fades"), never
       clamps. HISTORY.md § The A2 fades and the lane, drawn.
+    - **The window sets the bed as well as drawing it (`POST /api/music`),
+      and the two traps in that are general to any editor over a
+      projection.** First: a **refusal is sent *instead of* the state** —
+      `music_error` means `state.music` is null, so a panel filling itself
+      from the view says "no bed yet" over a bed that exists, and cannot
+      offer the refusal's own named fix. Read the stored cue back through
+      the op's no-argument read (changes nothing, reports what is in
+      force), never by adding a view field or by guessing. Second:
+      **`clip_id` rides the word index and never travels alone** — it is the
+      transcript the index is an index *into*, so sending the view's current
+      clip on a fades-only change re-addresses the bed, and reads as correct
+      in every call that happens to be a first set. HISTORY.md § The A2 lane
+      became settable.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

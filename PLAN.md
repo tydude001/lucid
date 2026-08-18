@@ -3751,6 +3751,10 @@ against a real melt render read back by the probe's own Goertzel scripts;
 the two calls the build had to settle beyond this note (the cue stores its
 addressing `clip_id`; an unbounded bed ends where the `Edit` does) and the
 `reel` handling it took early are in HISTORY.md § The A2 music lane, built.
+The lane became **settable from the window** the same day — `POST /api/music`,
+a drag or a click on A2, and the cue toolbar's own "Music bed" verb for the
+first bed, which has no lane to drag on yet: HISTORY.md § The A2 lane became
+settable.
 What this note settles: the render side needs nothing new that
 isn't already named in `mlt.py`'s own docstring, verified rather than assumed,
 including the two directions (short/long) that could have made that false;

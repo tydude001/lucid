@@ -226,6 +226,12 @@
  *                             existing `[hidden]` rule already covers it;
  *                             `.plan-actions` is also reused inside
  *                             `#agent-plan-banner` above (item H)
+ *   .music-toolbar / .music-fields
+ *                                the A2 bed's own panel — combines with
+ *                             `.selection-toolbar .plan-toolbar` so both the
+ *                             `[hidden]` rule and the `--plan-max-h` height
+ *                             cap already cover it; this adds the field row
+ *                             and nothing else
  *
  * Agent pane (#agent-feed / #agent-composer, filled by agent.js):
  *   .agent-feed               the scrolling list — "one feed for everything
@@ -1577,6 +1583,38 @@ textarea {
 
 .plan-toolbar .plan-actions {
   flex: none;
+}
+
+/* The A2 bed's panel (timeline.js `buildMusicToolbar`:
+   `class="selection-toolbar plan-toolbar music-toolbar"`). It rides
+   `.plan-toolbar` deliberately rather than beside it: the column layout,
+   the `[hidden]` companion rule and the `--plan-max-h` height cap are all
+   already correct there, and a second copy of that cap is how the clamp fix
+   reached one toolbar and not the other the first time. This adds the field
+   row, which wraps so a narrow lane box gets two short rows rather than one
+   overflowing one. */
+.music-toolbar {
+  max-width: 30em;
+}
+
+.music-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.music-fields label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+.music-fields input[type="number"] {
+  width: 4.5em;
 }
 
 /* Also reused verbatim inside `#agent-plan-banner` below (item H) — one
