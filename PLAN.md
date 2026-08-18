@@ -623,6 +623,14 @@ essay and teaser were declared done. Its status rows live in the wiki, as ever.
   camera footage, no VFR, no speed changes (HISTORY.md § What this does not
   establish). The October bracket is where several get their first real test;
   expect this section to reshuffle then.
+  - **The first of them is costed, 2026-08-18: § The co-hosted recording —
+    the design note.** It moved the item's premise twice. The scale spike's
+    two-stream framing is not what this event records — both prior runs
+    published one mixed track and OBS on this box is still `RecTracks=1` — and
+    a two-mic recording turns out **not** to need the new `Edit` primitive the
+    spike named, because the mics are one performance cut together and the
+    only per-word fact is a label. What it does need is a decision taken
+    before part 1 is recorded, which is why the note exists in August.
 
 **What separates tier 2 from tier 3 is finishing, not mutation** — the
 definition stands, and lucid crossed it 2026-08-08: Export renders a
@@ -3800,6 +3808,305 @@ an independent checklist:
 Fade curves, `reel`'s handling of a pruned music cue, and where the cue table
 itself lives (§ What this note does not settle, items 1–3) are none of them
 blocking — each can land after (1)–(4) render a plain bed correctly.
+
+## The co-hosted recording — the design note — 2026-08-18
+
+§ Parked's *everything one video couldn't establish* lists one speaker as the
+first thing the Scream video could not test, and § The completion queue's
+October scale spike named the shape of the answer: *"the two streams are a new
+`Edit` primitive, not a parameter"* (HISTORY.md § The scale spike, half-run).
+The October Horror Bracket is where that gets tested — co-hosted with Natalie,
+four or five parts, part 1 publishing Oct 1, with the live-vs-recorded call
+wanted late August and the rest of the format mid-September
+(`goodsometimes/ideas/october-horror-bracket-2026.md`). This note is written
+now because **the only decision here that cannot be taken later is what the
+recording is**, and it is taken by a setting in OBS before anyone presses
+record.
+
+Everything below was measured today against real material and a controlled
+fixture, not reasoned from the spike's summary. Scripts, renders and result
+JSON: `~/lucid-cohost-spike/{fixture,fixture2,fixture3,fixture4,fixture5,
+goertzel}.py`.
+
+### Verify first — the spike's four points, re-read at 0.9.0
+
+All four hold, unchanged:
+
+1. `media.probe()` still takes `next((s for s in streams if codec_type ==
+   "audio"), None)` — the first audio stream, and no other is recorded
+   anywhere (`media.py:93`).
+2. `media.import_media()` still dedups on the resolved source path and
+   **returns the existing record**, so importing one container twice to reach
+   its second stream is a silent no-op (`media.py:354-355`).
+3. `asr.transcribe` still hands the *container* to the whisper binary, which
+   picks a stream by ffmpeg's own automatic selection (`asr.py:127`).
+4. `Segment` addresses one `clip_id`, and `transcript.Word` is
+   `(index, text, start, end)` with no speaker field.
+
+Two more the spike did not name, and both matter to the design:
+
+5. **A transcript is one file per clip** — `cache/transcripts/<clip_id>.json`,
+   `Project.transcript_path(clip_id)`. There is no key space for a second one
+   under the same clip.
+6. **The single-pass ASR path never decodes**, so there is nowhere to put a
+   `-map` today. Only the *windowed* path decodes (`asr._to_mono_wav`), and
+   that call is `-i <container> -vn -ac 1` with no map either — ffmpeg picks.
+   Stream selection is therefore a new decode step in `transcribe`, not an
+   argument threaded through an existing one.
+
+### The premise does not survive contact with the event
+
+The spike measured a 58m08s two-stream capture and framed the problem as two
+streams. **What this event has produced, every prior time, is one mixed
+track**, and what this box would record today is one mixed track:
+
+| evidence | reads |
+|---|---|
+| `2021/Ep 11 …/…1 of 5.mp4` — 2999.88s, h264 1280x720, **one** AAC stereo stream at 128 kbps; `2022/Ep 18 …mp4` — 2853.78s, the same one-stream shape | both prior runs published one mixed track per part, and it is a mix, not a mic |
+| the `.mp3` beside the 2021 file — one stereo stream, **2643.39s** | the podcast cut is its own edit, ~6 min shorter than the video; two deliverables per part, not one file published twice |
+| OBS 32.2.1 on this box: `UseAdvanced=false`, `RecTracks=1` in both `[SimpleOutput]` and `[AdvOut]`, `RecFormat2=hybrid_mp4` | a capture started right now writes **one** track — the mics are summed before anything lucid could see them |
+
+So the two-stream work the spike scoped is not what October produces by
+default. It is what October produces **only if someone changes a setting
+first**, and that is the decision this note exists to force.
+
+### What lucid does with a real co-hosted mixed track, today
+
+A 120s slice from the middle of Ep 11 (`slice_1200_120s.m4a`, two people
+talking at conversational pace) through `asr.transcribe` — the real
+`lucid transcribe` path, turbo, GPU idle at 1406 MiB of 12227:
+
+- **10.53s wall, 11.39× real-time**, 410 words, 23 segments, **3
+  hallucinated words** reported by the guard. Extrapolated, a 50m part costs
+  ~4.4 min and a 58m one ~5.1 min. **Scale is not the problem.**
+- The transcript is correct and unusable for attribution. It reads: *"…that's
+  it for scares and kills I only gave her two out of four because there's not
+  really any amazing kills it's more like a fun movie I would say yeah um
+  really the best part is the the werewolf scene…"* — the turn changes hands
+  inside that run of words and nothing in the payload marks it. Every word
+  indexes one `clip_id`, which is the show.
+
+So a mixed-track bracket part is, to lucid, a long single-clip VO. **Cutting,
+cues, captions, export and every check work on it unchanged.** What is missing
+is only speaker identity — and with it per-speaker captions, "cut Natalie's
+tangent", and any per-speaker mix move.
+
+**There is no local route to speaker identity on a mixed track.** The tag venv
+has torch 2.11 and openai-whisper; there is no `pyannote`, `whisperx`, `nemo`,
+`speechbrain` or `faster-whisper` in any of the nine venvs under `~/projects`, and pyannote's
+diarization models are gated behind an accepted licence on Hugging Face.
+Adding one is a new gated dependency with a model download, on the far side of
+lucid's "no cloud, no accounts" line only in spirit — it is local at inference
+time, but it is not something this repo can ship and expect to work on a fresh
+checkout. It is the wrong first move for an event eight weeks out.
+
+### If two mics are recorded: what the fixture measured
+
+Ground truth by construction. Two disjoint 120s stretches of the film's own VO
+(`~/lucid-final-cut/proj/media/vo.wav` at 60s and 240s) cut into alternating
+6s turns, then `mic_A = turns_A + g·turns_B` and its mirror, for a bleed `g`.
+**Same voice on both mics is deliberate** — the rule under test is an energy
+ratio between two streams, and one voice removes a gain/timbre confound the
+rule never gets to see. What it also removes is realism, and that is this
+fixture's honest limit (§ What this note does not answer).
+
+**Finding 1 — per-stream transcripts do not separate speakers, at any
+isolation.** Each mic's own transcript, scored against which turn each word
+falls in:
+
+| bleed | mic A words | of the other speaker | mic B words | of the other speaker |
+|---|---|---|---|---|
+| −6 dB | 269 | **135** | 269 | 134 |
+| −12 dB | 268 | 134 | 267 | 133 |
+| −18 dB | 266 | 133 | 266 | 130 |
+| −24 dB | 259 | 126 | 258 | 128 |
+
+Half of each mic's transcript is the other person, and the share barely moves
+across 18 dB of isolation. Pushing further does not fix it — **it changes the
+failure mode**: at −30 dB the count falls to 61 of 185, at −36 dB to 37 of 164
+**with 145 words dropped by the hallucination guard**, at −48 dB 41 of 160.
+An isolated mic is a track that is silent half the time, which is whisper's
+own documented trigger (CLAUDE.md § Both passes hallucinate). Transcribing
+each mic and diffing them is the obvious design and it is dead.
+
+**Finding 2 — the energy ratio does separate, and cheaply.** For each word,
+compare the two mics' RMS over that word's own span and take the louder:
+
+| bleed | mic A correct | mic B correct |
+|---|---|---|
+| −6 dB | 266/269 (98.9%) | 266/269 |
+| −12 dB | 263/268 | 261/267 |
+| −18 dB | 261/266 | 262/266 |
+| −24 dB | 254/259 | 256/258 |
+
+It costs one decode of each mic and no second ASR pass. **Transcribe once —
+either mic, or the mix — and attribute.**
+
+**Finding 3 — simultaneous speech takes it to chance, which is the whole
+risk.** The turns above never overlap and real co-hosts interrupt. Rebuilt at
+−12 dB bleed with each turn running into the next:
+
+| overlap per turn | share of runtime | words clear of overlap | correct | words inside overlap | correct |
+|---|---|---|---|---|---|
+| 1.0s | 15.8% | 210 | **208 (99.0%)** | 72 | **47 (65%)** |
+| 3.0s | 47.5% | 128 | 127 (99.2%) | 153 | 77 (50%, chance) |
+
+**Finding 4 — the rule half-knows when it is guessing.** Recording the
+margin (how many dB louder the winner is) and refusing below a floor, on the
+1.0s-overlap condition:
+
+| margin | flags, of 72 overlapped | costs, of 211 clear | accuracy on what it keeps |
+|---|---|---|---|
+| 0.5 dB | 3 | 2 | 91.4% |
+| 2 dB | 13 | 2 | 92.5% |
+| 6 dB | **32** | **2** | **95.6%** |
+
+The asymmetry is the useful part — 6 dB flags 44% of the overlapped words and
+costs 1% of the clear ones — and the limit is equally clear: 40 overlapped
+words survive the floor and about half of those are wrong. **The margin is a
+report, not a fix.**
+
+**Finding 5 (negative) — an envelope-only overlap detector does not work, and
+it was built before being called unfit.** Frame-level "both mics hot at once",
+each mic thresholded against its own speech level: recall 0.38–0.73 at
+precision 0.25–0.88, fragmenting into 107–241 spans over 120s, because speech
+has gaps inside a turn. Given its fair form — `speech.merge_runs` on each mic
+then `speech.intersect_runs`, this repo's own treatment — the fragmentation
+goes (25–55 spans) and the precision does not: at the 15.8%-overlap condition,
+recall 0.86–0.90 buys precision 0.21–0.32, i.e. **81.6s of "simultaneous" in a
+clip that holds 19.0s of it**. Recorded so nobody builds it a second time.
+
+### The render trap, measured: a two-track container plays one mic, at exit 0
+
+Built `twostream.mkv` — h264 at stream 0, a 300 Hz tone at stream 1, a 1200 Hz
+tone at stream 2 — and rendered it through the real `melt`
+(`picture.melt_command()`/`display_env()`), reading the result back with a
+Goertzel probe rather than trusting a level meter:
+
+| document | 300 Hz | 1200 Hz |
+|---|---|---|
+| no `audio_index` (what `mlt.py` writes for the Edit lane today) | 1448 | **0.0** |
+| `audio_index=0` | 1448 | 0.0 |
+| `audio_index=1` | 1448 | 0.0 |
+| `audio_index=2` | 0.1 | **1448** |
+| controls: `-map 0:a:0` / `-map 0:a:1` off the source | 1679 / 0.1 | 0.0 / 1638 |
+
+Two things, and the second is a trap:
+
+1. **A dual-track capture imported and rendered today loses the second mic
+   entirely, silently, at exit 0.** `mlt.py` emits `audio_index` only as `-1`
+   to *silence* a picture node (`mlt.py:1052,1080,1102`); the Edit lane's own
+   producer carries no property, so MLT picks, and it picks the first.
+   Half the conversation would be missing from the render with `verify`,
+   `check_frames` and `film_check` all clean, because every one of them
+   compares the render against the timeline and the timeline never knew.
+2. **`audio_index` is the container's absolute stream index, not the audio
+   ordinal.** With video at 0, the first mic is `1` and the second is `2`,
+   while ffmpeg's own `-map 0:a:1` means the *second* audio. Two numbering
+   systems for the same choice, agreeing exactly when the file is audio-only —
+   which is every fixture anyone would write first.
+
+### The design
+
+The smallest thing that holds every invariant. **One clip, one word-index
+space** — the speaker is an attribute of a word, never a second address.
+
+1. **`Word.speaker: str | None = None`**, additive and optional.
+   `parse_whisper` carries `entry.get("speaker")` through. Absent means what
+   every transcript on disk already means, so no migration and **no schema
+   bump** — the `CANVAS_KEY`/`TAIL_KEY`/`caption_style` precedent. Cues,
+   descriptions, unspoken marks, the music bed and `captions.place` all
+   address `(clip_id, word_index)` and are untouched.
+2. **`clip["audio_streams"]`** recorded at import (additive, optional; absent
+   means one, which is what every older record meant). `import_media`'s path
+   dedup stays exactly as it is — the second stream is *not* reached by
+   importing the file twice, which is the workaround the dedup blocks and
+   should keep blocking.
+3. **`asr.transcribe(..., stream=k)`** decodes with `-map 0:a:k` first and
+   hands whisper a WAV, `_to_mono_wav`'s shape. Needed for the *attribution*
+   decode even when the transcript comes from the mix.
+4. **Attribution is one pass over an existing transcript**, not a second ASR
+   run: `speakers.attribute(transcript, mics, labels, margin_db=6.0)` — pure,
+   stdlib, `speech.py`'s tier — returning a new transcript with `speaker` set
+   and a report carrying the per-word margin, the count left `None`, and the
+   ambiguous spans. It **reports and never decides** below the floor, on
+   `reframe_detect`'s precedent (`apply` off by default).
+5. **Playback and render mix the mics at import, not in the writer.** A
+   mixdown lands beside the source the way `attenuate_noises` already does —
+   `media_path()` prefers `clip["attenuated"]` today, and a `mixed` key is the
+   same move — so `Edit`, `export`, `verify` and the whole writer stay
+   single-stream and the `audio_index` trap above is never in the render path
+   at all. Two real lanes in the writer is the A2 mechanism and is already
+   proven, but it buys nothing until per-speaker *gain* becomes an edit
+   operation; that is the named trigger for revisiting, not a step now.
+6. **Captions are out of scope for the first build.** With `speaker` on the
+   word the look question opens (a prefix, a colour per speaker, a lower
+   third), and `caption_style` is where it would live. It is a second note.
+
+What this deliberately does **not** do: no second transcript per clip, no
+speaker in any address, no `Edit` primitive. The spike's phrase "a new `Edit`
+primitive" was right about the shape of a *simultaneous second source* and
+wrong about what a two-mic recording needs — the mics are one performance, cut
+together, and the only thing that is genuinely per-word is a label.
+
+### The format decision, which is the deliverable to the event
+
+**Recommendation, and the reasoning is the fixture above: record two tracks.**
+In OBS, Advanced output, tracks 1 and 2 enabled with one mic on each, keeping
+the mixed track for the stream itself. It costs one settings change and a test
+recording; it buys 99% per-word speaker attribution on clear speech, with the
+ambiguity reportable. On one mixed track lucid can do nothing at all here
+today, and the only route to it is a gated ML dependency.
+
+**If the format stays one mixed track, nothing is lost that exists now** — a
+bracket part is a long single-clip VO and every op works on it, at ~4.4 min of
+transcription per part. What does not happen is per-speaker anything.
+
+**The deadline is real and asymmetric.** A setting changed before part 1 is
+free; a part recorded on one track can never be separated afterwards. Late
+August, with the live-vs-recorded call, is when this has to be decided.
+
+### What this note does not answer
+
+- **The fixture is synthetic in the way that matters most.** One voice, an
+  injected bleed at a chosen level, no room, no different mic gains, and turns
+  that alternate on a metronome. The rule it validates is an energy ratio, and
+  the numbers should be treated as an upper bound. **The cheapest thing that
+  would settle it is a five-minute two-mic test recording** of two people
+  actually talking over each other — before October, not during it.
+- **There is no real dual-mic recording on this box to check against.** The
+  scale spike's 58m08s two-stream capture has an effectively dead second
+  stream (2.2 kbps), which is why this note built a fixture rather than
+  measuring that file.
+- **Whether whisper's word timings are good enough for attribution at the
+  boundary.** Every number above attributes over the word span whisper
+  reported, and this repo's standing rule is that those durations are not to
+  be trusted (CLAUDE.md § Trust a transcript's word order, never its word
+  durations). An inflated duration spans a turn change; the margin report is
+  what would show it, and it has not been measured against a hand-marked turn
+  list.
+- **Two speakers on two separate *files*** — a remote guest recorded locally,
+  the third shape — is not measured here. It is the same attribution problem
+  plus a sync offset, and the offset is the part that has no answer yet.
+
+### Build order, if this is approved
+
+1. `Word.speaker` + `parse_whisper` + `clip["audio_streams"]` at import. No
+   behaviour change; every existing transcript loads unchanged.
+2. `asr.transcribe(stream=)`, its CLI flag and its MCP argument, with the
+   decode step.
+3. `speakers.attribute` as a pure module with the fixture above as its test,
+   plus `ops.attribute_speakers` (`plan`-shaped: reports, applies on request)
+   and its CLI/MCP pair.
+4. The import mixdown for a multi-stream container, and the refusal that
+   catches the trap: **importing a container with more than one audio stream
+   says so**, rather than registering it as if the first mic were the
+   recording.
+5. Only then, and only against a real recording: captions per speaker.
+
+Steps 1–2 are safe to ship in one session. Step 4 is the one that prevents a
+silent wrong render and could reasonably go first if a two-track recording
+exists before the rest is built.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 

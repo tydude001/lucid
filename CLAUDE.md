@@ -49,6 +49,18 @@ installed package or the upstream repo, not your memory.
     read back off the finished document by `mlt.declared_frames` before it is
     returned: melt renders to the longest one it finds. HISTORY.md § The MLT
     writer.
+    - **A container with two audio streams renders its first mic and drops
+      the second, at exit 0** — the Edit lane's producer carries no
+      `audio_index` (the writer emits one only as `-1`, to silence a picture
+      node), so MLT picks, and it picks the first. Every check stays clean:
+      they compare the render against the timeline, and the timeline never
+      knew there was a second stream. **And `audio_index` is the container's
+      absolute stream index, not the audio ordinal** — with video at 0 the
+      first mic is `1` and the second is `2`, while ffmpeg's own `-map 0:a:1`
+      means the second audio. The two numberings agree exactly on an
+      audio-only file, which is every fixture anyone writes first. Measured by
+      Goertzel readback of a real melt render. PLAN.md § The co-hosted
+      recording.
 - **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
   → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
