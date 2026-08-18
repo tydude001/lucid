@@ -3,6 +3,13 @@ name = "lucid"
 version = "0.1.0"
 description = "Open-source, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
 readme = "README.md"
+license = "LicenseRef-PolyForm-Shield-1.0.0"
+# The code is PolyForm Shield 1.0.0 (LICENSE). The vendored typefaces are not
+# covered by it and carry their
+# own OFL-1.1 texts beside them, which ship in the package because they sit
+# inside it: src/lucid/fonts/ (the caption face, FONTS.md) and src/lucid/web/
+# (the three UI faces, web/FONTS.md).
+license-files = ["LICENSE"]
 authors = [
     { name = "tydude001", email = "tylergrose321@gmail.com" }
 ]

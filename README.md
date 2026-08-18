@@ -550,3 +550,10 @@ record of what shipped and what the evidence said, first real video included;
 the build order that fell out of it is [PLAN.md](PLAN.md) § Direction and
 order, and the Daydream parity plan is [DAYDREAM.md](DAYDREAM.md). Project status is tracked in the wiki's Open items
 table, not here.
+
+## License
+
+[PolyForm Shield 1.0.0](LICENSE) — that covers the code. The vendored typefaces
+are not covered by it and are not lucid's to relicense: the caption face under `src/lucid/fonts/` and the
+three browser faces under `src/lucid/web/` are OFL-1.1, each shipping its
+licence text beside it and its provenance in that directory's `FONTS.md`.
