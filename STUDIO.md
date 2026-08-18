@@ -396,8 +396,10 @@ playhead/zoom/mode restored.
 
 ## Step 05 — the A2 design note (a note, not a build)
 
-Note, not shipped — see PLAN.md § The A2 music lane — the design note,
-awaiting review.
+The note was written 2026-08-17, reviewed and approved 2026-08-18, and the
+build shipped the same day — PLAN.md § The A2 music lane — the design note;
+HISTORY.md § The A2 music lane, built. The requirements below are what the
+note had to answer, kept for the record.
 
 The only step that touches the model, so it ships as a PLAN.md design note
 and **stops for review** — the standing plan-before-building rule.

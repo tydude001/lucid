@@ -8965,3 +8965,73 @@ when something new becomes callable, the patch for fixes.
 No `CHANGELOG.md`, on the one-fact-one-place rule — this file is already the
 dated record of what shipped, so a tag annotation names the `##` section
 rather than restating it.
+
+## The A2 music lane, built — 2026-08-18
+
+PLAN.md § The A2 music lane — the design note, approved and built the day
+after it was written, to its own five-step order. The render side needed
+nothing the note had not already measured: `mlt.document` grew a `music`
+lane — one more per-role node set (`mchain*`), playlist pair
+(`playlist8`/`playlist9`), tractor (`tractorA`), stack entry and additive
+`mix` against track 0 — built to the probe's own shape
+(`~/lucid-a2-probe/build_doc.py`), with the lane's ids in their own
+namespace so a document without music is byte-identical to before the lane
+existed (asserted, not assumed). The lane must cover the timeline exactly,
+by construction — resolution (b): a bed starting mid-film gets a real
+silent-WAV entry ahead of it (never a `<blank>`), one running short pads
+out, one running long is trimmed by frame count — so `declared_frames()`
+kept needing zero exceptions, which the tests read back off the built
+document.
+
+The addressing is the note's: `MUSIC_KEY` holds `(asset,
+word_index_start, word_index_end | None)` plus recorded-but-not-yet-drawn
+`fade_in`/`fade_out` (`tail.fade`'s precedent), and **no field in it is a
+timeline second or a frame count** — `_music_plan` derives the frame span
+live through `Edit.timeline_span` on every build, the cached-length
+alternative staying rejected for the note's reason. Two calls the note's
+field list left implicit got settled here:
+
+- **The cue stores `clip_id` too.** The note said "addressed into the
+  transcript exactly like `cue_add`", and `cue_add`'s address has always
+  been `(clip_id, word_index)` — a word index without its addressing clip
+  resolves against nothing on any project with a second transcript.
+- **An unbounded bed ends where the `Edit` does, and a tail holds over
+  silence.** The note's own line decides it: a cue addresses moments
+  *inside* the film and a tail is after it. The lane still pads across the
+  tail's frames, because the document's total includes them.
+
+The gate landed in the same change as the writer, as the note demanded:
+`_is_layered` gained the fifth trigger, and the export reply reports the
+resolved bed on both roads — a bed recorded but not rendered is the silent
+failure the trigger exists to prevent, and the reply is where a caller sees
+the render actually carried it. `timeline_view` projects the resolved bed
+as `music` (or `music_error`, `shots_error`'s refuse-nothing policy), so a
+future A2 lane in the web UI gates on what the render will carry — drawn
+only once something draws it, per the standing rule. `ops.music` /
+`lucid music` / the MCP tool are `tail`'s read/write shape with both
+boundary words echoed with neighbours; an orphaned boundary refuses naming
+the word.
+
+One thing the note flagged as not-settled got its minimal answer now
+rather than later: **`reel` drops the bed and names it (`music_dropped`),
+the tail's rule, not the cue table's** — reel copies the film's manifest
+wholesale, so without the explicit pop the key would have ridden across
+silently, and unlike a picture cue the bed cannot simply be kept where its
+word survives: the film's bed has been playing for however long by the
+reel's first second, and re-opening it from its head is the `cues_pinned`
+shape with no pin to give it. Inheriting it *well* is the future design;
+inheriting it silently was about to be the accident.
+
+Verified live, not just in the 40 new tests: a real project
+(`~/lucid-a2-build`), hand transcript, bed anchored to word 2, rendered
+through real melt via `lucid export --render`, and the audio read back by
+the probe's own Goertzel scripts — voice at −27.1 dBFS-equiv through all
+6s (the probe's pure-voice control: −27.10), music at noise floor for
+0–2s, −33.1 for 2–5s (control: −33.12), floor again for the 5–6s pad: the
+offset, the single-pass hold and the amplitudes all exact. Then the note's
+core property, watched happening: `lucid cut voice 1:1` moved the bed's
+start from 2.0s to 1.6s with no replanning and nothing re-derived.
+
+Not built, deliberately: the fades' rendering, and the web UI's A2 lane —
+the projection is there for it, and it lands with a change that can be
+driven in a real browser (`verify-live`), not alongside a model change.

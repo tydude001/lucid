@@ -368,6 +368,25 @@ installed package or the upstream repo, not your memory.
     whichever picture was already playing frozen across it by default, with
     `shots_error`/`verify`/`check_frames` all staying clean. HISTORY.md
     § `vo_extend`, built.
+  - **The A2 music bed is project state too (`MUSIC_KEY`), and no field in it
+    is a timeline second or a frame count** — `(clip_id, word_index_start,
+    word_index_end | None)`, duration derived live through
+    `Edit.timeline_span` on every build (`_music_plan`), never stored and
+    never cached: a stored length was measured drifting onto live material,
+    and a cached one is two facts kept in step only by a hook nobody has
+    forgotten yet. No end word means "to the end of the `Edit`" — a tail is
+    after the film, so the end card holds over silence. The bed's lane is
+    padded/trimmed to the document's exact total by construction (real
+    silent-WAV entries, never a `<blank>`), so `mlt.declared_frames` still
+    takes no exceptions. **`MUSIC_KEY` is `_is_layered`'s fifth trigger and
+    must never lag the writer** — a bed recorded but routed through
+    auto-editor renders with no music at exit 0, invisible to every check
+    but listening; the export reply's `music` field is where a caller sees
+    the render carried it, and `timeline_view`'s `music`/`music_error` is
+    what a front end gates any A2 lane on. `reel` drops the bed and names it
+    (`music_dropped`) — the tail's rule, because a bed re-opened from its
+    head mid-film is the `cues_pinned` shape with no pin to give it.
+    HISTORY.md § The A2 music lane, built.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

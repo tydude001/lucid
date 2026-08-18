@@ -3741,7 +3741,12 @@ precedent — a survivable cost, not a new kind of one.
    note whose job was the addressing and render questions, not the full
    feature.
 
-Not started. What this note settles: the render side needs nothing new that
+**Approved and built 2026-08-18** — to the five-step order below, verified
+against a real melt render read back by the probe's own Goertzel scripts;
+the two calls the build had to settle beyond this note (the cue stores its
+addressing `clip_id`; an unbounded bed ends where the `Edit` does) and the
+`reel` handling it took early are in HISTORY.md § The A2 music lane, built.
+What this note settles: the render side needs nothing new that
 isn't already named in `mlt.py`'s own docstring, verified rather than assumed,
 including the two directions (short/long) that could have made that false;
 the addressing side is word-index-start-plus-optional-word-index-end with
