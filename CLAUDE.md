@@ -61,37 +61,28 @@ installed package or the upstream repo, not your memory.
       audio-only file, which is every fixture anyone writes first. Measured by
       Goertzel readback of a real melt render. PLAN.md § The co-hosted
       recording.
-      - **That trap is now unreachable from a project, because `import`
-        refuses a multi-stream container** — `--mix` sums the streams into
-        the one track lucid edits, `--audio-stream k` keeps one (ffmpeg's
-        audio ordinal, *not* `audio_index`), and either writes a derived copy
-        to `cache/mixed/` that `media_path()` prefers the way it prefers
-        `attenuated`. **Nothing downstream of import ever chooses a stream**,
-        which is the containment; adding a caller that does is the whole
-        hole. `original_media_path` keeps the mixdown too — the untouched
-        original of a two-mic container *is* the mixdown, and reading the
-        container would attenuate mic A alone. **And auto-editor's half of
-        the trap fails differently**: it passes both tracks through, so the
-        file holds two streams, everything that decodes it takes the first,
-        and a stream count answers "both are there" about a film that plays
-        one. Judge it by tone power, never by counting streams. HISTORY.md
-        § The two mics survive import.
+      - **That trap is unreachable from a project now: `import` refuses a
+        multi-stream container.** `--mix` sums, `--audio-stream k` keeps one
+        (ffmpeg's audio ordinal, *not* `audio_index`), and either writes a
+        derived copy to `cache/mixed/` that `media_path()` prefers the way it
+        prefers `attenuated` — so **nothing downstream of import ever chooses
+        a stream**, and a caller that does is the whole hole.
+        `original_media_path` keeps the mixdown too: the untouched original
+        of a two-mic container *is* the mixdown. **Judge any of it by tone
+        power, never by counting streams** — auto-editor's half of the trap
+        passes both tracks through, so the file holds two and everything that
+        decodes it takes the first. HISTORY.md § The two mics survive import.
         - **`_reel_media`'s key tuple *is* `media_path()`'s preference
-          chain** — `("media", "attenuated", "mixed")`, in `ops.py` and again
-          in `reel(plan=True)`'s `would_link`. A key added to the chain and
-          not to the tuple gives the derived project a manifest entry naming
-          a file nothing linked into it, which is worse than the stale-media
-          bug the tuple exists for. **And the refusal sits *behind* the
-          source dedup**, or a retried import of an already-resolved
-          container raises about a choice taken days ago.
-        - **The window can comply with the refusal, and that is not
-          decoration** — `media.MultiAudioError` carries `streams` so the
-          import job puts a count on the bus and the assets pane draws *Sum
-          the N mics* / *Keep track 1*, rather than the pane string-matching
-          a sentence. Its cost was measured, not assumed: the refusal message
-          alone renders 194px in that column and took `#assets-list` from
-          129px to **0**, so `.asset-status` is capped at 60px and scrolls.
-          A long server message is a control that spends the pane's height.
+          chain** (`ops.py`, and again in `reel(plan=True)`'s `would_link`);
+          a key in one and not the other hands the derived project a path
+          with nothing at it. New import guards go **behind** the source
+          dedup, or a retried import raises about a choice taken days ago.
+        - **A long server message is a control that spends the pane's
+          height** — this refusal renders 194px in the assets pane and took
+          `#assets-list` from 129px to 0, hence `.asset-status`'s 60px cap.
+          The pane complies with the refusal rather than only printing it:
+          `media.MultiAudioError` carries `streams`, so nothing there
+          string-matches a sentence.
       - **`transcript.Word` has a `speaker`, and it is a label, never an
         address** — `(clip_id, word_index)` still resolves every cue,
         description, mark, music anchor and caption. Additive and optional,
