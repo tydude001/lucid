@@ -338,6 +338,26 @@ function handleResult(data) {
   setBusy(false);
 }
 
+// The pane's whole premise is that the agent reaches the project through
+// lucid's MCP server, so a server that failed to start is the one condition
+// under which nothing it says can be trusted — and it is otherwise invisible:
+// `claude` carries on with an empty tool set and answers the prompt in prose.
+// The harness states the outcome in its own `init` event, so this draws that
+// rather than deriving anything (this file's contract: the pane displays).
+function reportMcpServers(servers) {
+  if (!Array.isArray(servers)) return;
+  const lucid = servers.find((s) => s && s.name === "lucid");
+  if (lucid && lucid.status === "connected") return;
+  const said = lucid ? lucid.status : "not started";
+  append(
+    entry(
+      "agent-entry--system bad",
+      `lucid's MCP server is ${said} — this agent has no lucid tools, so anything it ` +
+        "says about the project is guesswork. Nothing it does can reach the timeline.",
+    ),
+  );
+}
+
 function handleAgentEvent(data) {
   if (!data || typeof data !== "object") return;
   switch (data.type) {
@@ -353,7 +373,10 @@ function handleAgentEvent(data) {
       // Daydream-style progress story, and noisy every turn if shown. The
       // one field worth keeping is `init`'s `model` (item 1) — every other
       // subtype (e.g. a future compaction notice) stays a no-op.
-      if (data.subtype === "init") setModel(data.model);
+      if (data.subtype === "init") {
+        setModel(data.model);
+        reportMcpServers(data.mcp_servers);
+      }
       return;
     default: {
       // An event shape this pane does not recognise — degrade to a compact

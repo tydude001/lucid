@@ -1539,6 +1539,44 @@ def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
     assert argv[argv.index("--tools") + 1] == ""
 
 
+def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`"command": "lucid"` is a PATH lookup performed by `claude`, and PATH is
+    not this process's.
+
+    Every launch that skips an activated venv — `.venv/bin/lucid web`, a
+    desktop entry, whatever `lucid open` is wired to — leaves the name
+    unresolvable, and the failure is silent in the worst way: measured on this
+    box, `claude`'s own `system`/`init` event came back
+    `mcp_servers: [{"name": "lucid", "status": "failed"}]` with `tools: []`,
+    and the panel answered the prompt in prose while its banner went on saying
+    it reaches the timeline through lucid's tools. The property that cannot
+    degrade that way is an absolute interpreter that exists on disk, so that is
+    what this asserts — not the string that happens to be there today.
+    """
+    argv_file = tmp_path / "argv.txt"
+    stub = tmp_path / "agent-stub.sh"
+    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    status, _ = _post(f"{server}/api/agent", {"prompt": "hello"})
+    assert status == 202
+    deadline = time.time() + 5
+    while time.time() < deadline and not argv_file.exists():
+        time.sleep(0.05)
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+
+    config = json.loads(Path(argv[argv.index("--mcp-config") + 1]).read_text(encoding="utf-8"))
+    entry = config["mcpServers"]["lucid"]
+    command = Path(entry["command"])
+    assert command.is_absolute(), f"{entry['command']!r} is a PATH lookup, not a resolved binary"
+    assert command.exists(), f"{command} does not exist"
+    assert entry["args"][:2] == ["-m", "lucid.cli"]
+    assert entry["args"][-1] == "mcp"
+    assert "-C" in entry["args"]
+
+
 def _write_silent_agent_stub(path: Path) -> None:
     """A fake `claude` that reproduces the real bug this test guards against:
     it errors to stderr and exits 0 without ever writing a `stream-json` line

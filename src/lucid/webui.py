@@ -39,6 +39,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -591,13 +592,28 @@ class AgentSession:
         accepts *before* the subcommand (`lucid mcp -C <project>` does not
         parse), so it is spelled out here as `command`/`args` rather than as
         a single shell string.
+
+        **The command is this interpreter, never the name `lucid`.** A bare
+        name is a PATH lookup performed by `claude`, not by the process that
+        knows where lucid is, and it is absent from PATH for every launch
+        that does not go through an activated venv — `.venv/bin/lucid web`,
+        a desktop entry, anything `lucid open` is wired to. Measured on this
+        box: with `"command": "lucid"` the harness's own `system`/`init`
+        event reports `mcp_servers: [{"name": "lucid", "status": "failed"}]`
+        and **`tools: []`**, and the panel then answers the prompt in prose
+        with no way to touch the project, while the pane's banner goes on
+        saying it reaches the timeline through lucid's tools. Same probe with
+        this interpreter: `"status": "connected"`, 68 tools. `sys.executable`
+        plus `-m lucid.cli` is the same resolution `_vlm_worker`/`_face_worker`
+        already use — run the interpreter you are, not a name you hope is on
+        someone's PATH.
         """
         if self._mcp_config_path is None:
             config = {
                 "mcpServers": {
                     "lucid": {
-                        "command": "lucid",
-                        "args": ["-C", str(self.project_root), "mcp"],
+                        "command": sys.executable,
+                        "args": ["-m", "lucid.cli", "-C", str(self.project_root), "mcp"],
                     }
                 }
             }
