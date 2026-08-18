@@ -73,6 +73,18 @@ installed package or the upstream repo, not your memory.
   tool named in neither list just runs, unprompted — `--tools ''` is what
   actually confines the agent panel to lucid's MCP tools. Both verified by
   reproduction. PLAN.md § The agent panel, in mechanism.
+  - **A generated MCP config's `command` is resolved by `claude` against
+    *its* PATH, never by lucid — so it names `sys.executable` and
+    `-m lucid.cli`, never the string `lucid`.** A bare name is absent from
+    PATH for every launch that skips an activated venv (`.venv/bin/lucid
+    web`, a desktop entry, what `lucid open` spawns), and the failure is
+    silent in the worst way: the harness reports the server `failed` with
+    `tools: []`, `claude` runs anyway, exits 0, and answers the prompt in
+    prose while the pane's banner still says it reaches the timeline through
+    lucid's tools. Measured both ways — 0 tools against 68. `agent.js` now
+    draws the init event's `mcp_servers` when lucid is not connected, because
+    the next thing that breaks this will break it silently too. HISTORY.md
+    § The agent panel had no tools at all.
 - **OTIO's edit algorithms are C++ only.** `overwrite`/`insert`/`trim`/`slice`/
   `ripple`/`roll`/… have no Python bindings; `opentimelineio.algorithms` gives
   you only trimming, flattening, and transition expansion. Cutting means
@@ -359,6 +371,16 @@ installed package or the upstream repo, not your memory.
     reads `videoWidth`. Its size claim holds on real footage only — a
     `testsrc` fixture proxies *larger* than its hevc source, so never assert a
     reduction. HISTORY.md § The preview proxy.
+  - **`GET /api/output` is the only route that serves `renders/`, and it
+    resolves through `renderlog.last` — never the manifest and never
+    `preview_path()`.** It streams the one file the last pipeline run
+    recorded: not a listing, not a path the client names, and confined inside
+    the project anyway, because lucid writing that log itself is the argument
+    for not letting one hand-edited line turn a loopback server into a file
+    server. The window still plays the *project* everywhere else; this is the
+    single place it plays an artifact, and widening it is a new decision.
+    PLAN.md § Open questions, *Should the workspace play its own output*.
+    HISTORY.md § The window plays its own render.
   - **A thumbnail is a preview artifact and keeps the same containment rather
     than adding a caller to it.** `ops.thumbnail` never enters the manifest
     and never calls `preview_path()` — it resolves media through

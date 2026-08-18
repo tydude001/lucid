@@ -458,6 +458,15 @@ available). The truth strip's flag count on the real project reaches zero by
 actions taken in the window, and the render log shows a pipeline run whose
 burn stage ran.
 
+Walked 2026-08-18 — see HISTORY.md § The Studio reshape's own walk, end to
+end. Met: 1 flag → 0 by a Finish render whose log records `burn: done`, with
+the burn confirmed in the render's own pixels rather than from its status
+line. Two defects came out of the walk rather than out of a step, both fixed
+in the same session — HISTORY.md § The agent panel had no tools at all,
+§ The window plays its own render. What the walk does **not** clear: import
+and transcribe are still not window mutations, so "footage in" holds only
+through the agent pane.
+
 ## Open questions, deliberately left
 
 - Whether Apply-from-agent-plan should also cover `reframe` proposals (step

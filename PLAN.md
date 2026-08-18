@@ -234,6 +234,25 @@ left. The conclusion survives because it was always the load-bearing one, but
   artifact — but it is undocumented and surprised Tyler, and the failure mode is
   bad: when the live rebuild refuses, the page draws nothing and looks broken
   rather than saying the export is elsewhere.
+  - **The narrow half is answered and built, 2026-08-18; the general half
+    stays open deliberately.** Walking the reshape end to end turned this from
+    a worry into a demonstration — the pipeline finished, the report said
+    *Render complete*, and the page could not open the file, name it, or say
+    where it was, because `webui.py` had no route under `renders/` at all.
+    What shipped is the one file the flow itself recorded:
+    `finish_report`'s new `last_render`, `GET /api/output` streaming it
+    through the existing `_stream_file`, and a Watch button in Finish. It is
+    **not** a listing of `renders/`, not a path the client may name, and not
+    a third caller of `media.preview_path()` — a render is not a preview.
+    HISTORY.md § The window plays its own render.
+  - **Still open, and it is a design question rather than a defect:** whether
+    the workspace should reach *any* render — an earlier one, a reference, an
+    A/B against the file `film_check` compares against — or whether that stays
+    `lucid review serve`'s job, which is built for it and reachable off the
+    machine. The recommendation is that it stays split: a workspace shows the
+    project, a review tool shows the artifact, and the one exception now built
+    is the file the window itself just made, which is not a browsing surface
+    and cannot grow into one without a new decision.
 - **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host

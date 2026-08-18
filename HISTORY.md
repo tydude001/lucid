@@ -8762,3 +8762,175 @@ the moment a tail is configured, and a reference carrying the tail agrees.
 The stale 410s project still reports `agrees: false` at **74.726s**.
 
 1385 passed, ruff clean.
+
+## The Studio reshape's own walk, end to end — 2026-08-18
+
+STUDIO.md § Cross-cutting sets a definition of done for the reshape as a
+whole, separate from any step's: *the walk that produced the audit — footage
+in, exported film out, captions burned, framing reviewed — completes in the
+window, the truth strip's flag count reaches zero by actions taken there, and
+the render log shows a pipeline run whose burn stage ran.* Steps 01–04 each
+shipped with their own browser pass; nothing had ever walked all four in one
+sitting, so the file's own bar was unverified while every step under it read
+green. That is the same shape as the captionless film: four clean surfaces
+and no one check that asks the question the surfaces were built to answer.
+
+Walked on a copy of the film's project (`~/lucid-studio-walk/proj`, the
+`lucid.json`/`project.otio`/`media`/`assets`/`cache` of `~/lucid-final-cut`
+with `renders/` left behind — the `reference` key is absolute, so
+`film_check` on the copy re-asks against the original's own render). Checked
+before anything else, per CLAUDE.md's standing warning about scratch copies:
+**63 segments, 336.269s edit, `agrees: true`** against `essay-flashfix.mp4`.
+Driven over CDP with real `Input.dispatchMouseEvent` pairs, `elementFromPoint`
+asserted at every button press. Dwell, stated exactly rather than claimed
+wholesale: the walk's own clicks ran at ~120ms, the hand's speed, and the two
+controls this session *added* — Finish's Watch, and Send against a failing
+MCP server — ran at both 0ms and ~120ms, which is the rule's actual subject.
+
+- **Home.** The picker lists the copy with its chips off `scan_projects`'s own
+  fields (`5:36.3 timeline · 63 segments · 10 clips · ready`); Open binds it
+  and the full workspace loads.
+- **Edit.** A press-drag across words 18–20 of the VO raised the selection
+  toolbar with the plan echo — *"in the 90s. **The first 12** minutes of
+  scream"*, `#18–#20`, source 13.620s–14.800s, the neighbours included the
+  way CLAUDE.md requires. Cut took it: 336.269 → 335.402s, and the truth
+  strip went **1 flag → 2**, the new one a cue the cut had orphaned, toasted
+  by name. Undo put both back — 336.269s, 1 flag — so the render below is the
+  film rather than the film minus three words.
+- **Frame.** Coverage read `11.719s stale · 1 unexplained step · 12/54 cuts
+  framed`. Build sheet ran for several minutes (this project's footage lives
+  on the NAS and every tile is a decode across it) and drew **39 rows, 117
+  tiles**. All 117 decode: the 30 that read broken on the first pass are
+  `loading="lazy"` and below the fold, and scrolling `#frame-view` — the
+  actual scroller, not the row container — brings every one in. Worth
+  recording as a near-miss: a lazy image measured through the wrong scroll
+  parent reads exactly like a route that 404s.
+- **Finish.** Preset cards drew the `tiktok-reels` refusal with its fix
+  quoted; burn arrived checked, off `caption_style` existing. Render ran the
+  pipeline live over SSE — **Export done → Burn captions done → Frame count
+  done (`agrees: yes`, 8208 frames) → Audio verify done (similarity
+  0.967) → Render complete.** The render log's line records
+  `burn: {"outcome": "done"}`, and the truth strip settled on
+  `5:42.3 · 1920x816 · burned · 0 flags`.
+
+**The flag cleared, so the pixels got asked too.** `burned: "yes"` is a
+status line, and a status line is exactly what carried the captionless film
+for three days. At source t=40s the caption band of the burn holds *"Now
+here's the thing I actually want"* with the `\k` fill in the brand yellow,
+and the same band of the un-burned export beside it holds nothing; band means
+0.2526 against 0.2436. The definition of done is met, and met on evidence
+rather than on the report's own word.
+
+**What the walk does not clear, stated rather than glossed:** import and
+transcribe are still not window mutations — `_POST_ROUTES` reaches nine, and
+neither is among them — so "footage in" holds only through the agent pane.
+Which is how the walk found the next two sections.
+
+## The agent panel had no tools at all — 2026-08-18
+
+Asked in the pane, on the real project: *report this project's timeline
+duration and segment count*. It answered that it could not, because there
+were no lucid tools in the session — while the pane's own banner two inches
+above said it *"reaches the timeline only through lucid's own MCP tools, and
+nothing else"*.
+
+An agent's account of its own tools is not evidence, so it was reproduced
+under control instead: the exact argv `AgentSession._spawn` builds, run twice
+against the same project, reading `claude`'s own `system`/`init` event.
+
+| generated config's `command` | `mcp_servers` | `tools` |
+|---|---|---|
+| `"lucid"` — what shipped | `[{"name": "lucid", "status": "failed"}]` | `[]` |
+| `sys.executable` + `-m lucid.cli` | `[{"name": "lucid", "status": "connected"}]` | 68 |
+
+A bare `lucid` in the MCP config is a **PATH lookup performed by `claude`**,
+not by the process that knows perfectly well where lucid is — and PATH has no
+`lucid` for any launch that skips an activated venv: `.venv/bin/lucid web`, a
+desktop entry, whatever `lucid open` hands to a browser. Under `uv run lucid
+web` — README's documented invocation, which puts `.venv/bin` on PATH —
+the name resolves and the panel works — the likeliest reason this survived
+the earlier browser passes, though none of them recorded how they launched —
+and the launch it breaks under is exactly the one step 04 added. Nothing is installed as `lucid` on this box outside the venv. The degrade is this
+repo's favourite shape: `claude` starts anyway, runs with an empty tool set,
+exits 0, and answers in prose. Nothing anywhere said the server had failed.
+
+It also settles a question the failure could have muddied: `--tools ''` is
+doing its job. Row one has *zero* tools, not "the standard set minus lucid's"
+— the confinement held even while the capability was gone.
+
+Two changes, because the second one is what survives the next environment.
+The config now names `sys.executable` with `-m lucid.cli`, the same
+run-the-interpreter-you-are resolution `_vlm_worker`/`_face_worker` already
+use. And `agent.js` reads `mcp_servers` off the init event it was already
+receiving (it kept only `model`) and draws a warning when lucid is not
+connected. Verified both ways in the browser: the panel now answers
+**"336.269s across 63 segments"** through `mcp__lucid__*`, naming the 6s tail
+and 8208 frames beside it; and against a stub `claude` reporting the server
+failed, the pane draws *"lucid's MCP server is failed — this agent has no
+lucid tools…"* above the stub's confident prose, at 0ms and ~120ms dwell.
+
+The test asserts the property that cannot degrade — an absolute interpreter
+that exists on disk — rather than the string that happens to be right today.
+
+## The window plays its own render — 2026-08-18
+
+PLAN.md § Open questions has carried *should the workspace play its own
+output?* since 2026-08-17. The walk turned it from a question into a
+demonstration: the pipeline finished, the report card read *Render
+complete*, and the page could not open the file, name it, or say where it
+was. `webui.py` had no route under `renders/` at all.
+
+The narrow half is now answered and the general half deliberately is not.
+`ops.finish_report` gained `last_render` — the render log's own last
+`output`, its basename, its timestamp, and whether the file is still on disk
+(measured, because a render deleted after its run leaves a log line that
+still names it). `GET /api/output` streams **that one file** through the
+existing `_stream_file`, so Range works and `reviewserver.py`'s copy of the
+Range math is still the only other one. Finish names the render and offers
+Watch, which builds a `<video>` against the route.
+
+What it is not, on purpose: not a listing of `renders/`, not a path the
+client may name, and **not a third caller of `media.preview_path()`** — a
+render is not a preview and must never be resolvable as one, which is the
+entire point of that split. It resolves through `renderlog.last` the way
+`_send_reframe_tile` resolves through `cache/sheets`, and confines the
+result inside the project anyway: lucid writes that log itself, which is
+precisely the argument for not trusting one hand-edited line to turn a
+loopback server into a file server. Both refusals are tested over a real
+socket, along with a 206 that matches the file's own bytes.
+
+Verified in the browser on the film's own render: `readyState 4`,
+`duration 342.357`, `1920x816`, no error, clean at 700/900/1200px, no console
+errors, Watch driven at 0ms and ~120ms. And settled the way this repo
+settles a `<video>` — **canvas readback, not a screenshot**: `drawImage` at
+t=40 with `!seeking && readyState >= 2` gives back the burned caption, so
+what the page plays is the file the pipeline made rather than something that
+merely loaded.
+
+## A licence, and the version literal that never moved — 2026-08-18
+
+README's first line has called lucid open-source since 2026-08-06 and there
+was no LICENSE beside it — only the four vendored OFL texts, which cover the
+typefaces and say nothing about the code. It is MIT now, declared to a build
+through PEP 639 and checked by building the wheel and reading its metadata
+back: `License-Expression: MIT`, the text under `dist-info/licenses/`, the
+four OFL files riding along inside the package directories they document.
+
+The version has been `0.1.0` in `pyproject.toml` and `src/lucid/__init__.py`
+since the first milestone commit, across 182 commits, with `lucid --version`
+its only reader. Nothing was wrong with the number; nothing had ever asked it
+to move, because there is no release path for it to move along. What was
+wrong is that two copies were held together by nothing.
+
+Deleting one copy is the obvious fix and is the worse one here.
+`importlib.metadata.version("lucid")` reads the *installed* dist-info, which
+under this repo's editable install is a snapshot written at sync time — bump
+`pyproject.toml`, skip the sync, and `lucid --version` goes on printing the
+old number with nothing disagreeing. That trades a loud failure for a silent
+one, which is the wrong direction. Both copies stay and
+`tests/test_version.py` holds them together, checks the CLI prints what the
+package holds, and checks the declared licence file exists.
+
+`v0.1.0` is tagged at this point as the baseline the number never had.
+
+1394 passed, ruff clean (1385 before this session).
