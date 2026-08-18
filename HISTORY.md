@@ -8934,3 +8934,34 @@ package holds, and checks the declared licence file exists.
 `v0.1.0` is tagged at this point as the baseline the number never had.
 
 1394 passed, ruff clean (1385 before this session).
+
+## The version caught up — 2026-08-18
+
+`0.1.0` was written in the first milestone commit and never touched again,
+through 187 commits. § A licence, and the version literal that never moved
+guarded the two copies against each other and tagged `v0.1.0` as the baseline
+the number never had; what it deliberately did not do is move the number.
+
+Nothing dynamic is missing, and the dynamic answer is the wrong one twice
+over. A semver number marks releases, not elapsed days or a commit count, so
+there is no drift for a clock to correct — lucid had simply never cut a
+second release. And a VCS-derived version (setuptools-scm, hatch-vcs) fails
+in exactly the shape § A licence already rejected `importlib.metadata` for:
+it is computed at build time and stamped into dist-info, so under this
+repo's editable install `lucid --version` reports whatever the last
+`uv sync` wrote rather than the tree being edited. It would also mean
+swapping `uv_build` out for hatchling to buy a number that goes stale
+silently.
+
+So the bump stays a deliberate act: `0.5.0` in both copies, `uv sync` behind
+it so the installed dist-info agrees, and `v0.5.0` tagged. The number is a
+judgement rather than a derivation — still pre-1.0, because the manifest
+schema is at 4 and moving and nothing outside this box installs lucid, but
+plainly past "package skeleton": the MCP server over stdio and HTTP, the CLI,
+the Studio workspace, `review serve`, cards, packs and per-shot framing all
+shipped after `0.1.0` was written. The rule going forward is the minor moves
+when something new becomes callable, the patch for fixes.
+
+No `CHANGELOG.md`, on the one-fact-one-place rule — this file is already the
+dated record of what shipped, so a tag annotation names the `##` section
+rather than restating it.
