@@ -796,6 +796,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_music = sub.add_parser(
+        "music", help="read or change the A2 music bed this project mixes under its edit"
+    )
+    p_music.add_argument(
+        "--asset", metavar="CLIP_ID", help="the music clip — a registered clip_id, never a card"
+    )
+    p_music.add_argument(
+        "--clip-id", help="the transcript track the word indices address"
+    )
+    p_music.add_argument(
+        "--start-word", type=int, metavar="N", help="word index the bed starts on"
+    )
+    p_music.add_argument(
+        "--end-word",
+        type=int,
+        metavar="N",
+        help="word index the bed runs through — omit for a single pass to the end of the timeline",
+    )
+    p_music.add_argument(
+        "--fade-in", type=float, help="recorded and echoed but not yet drawn"
+    )
+    p_music.add_argument(
+        "--fade-out", type=float, help="recorded and echoed but not yet drawn"
+    )
+    p_music.add_argument(
+        "--clear-end",
+        action="store_true",
+        help="drop the end word back to running to the end of the timeline",
+    )
+    p_music.add_argument("--reset", action="store_true", help="drop the music bed entirely")
+    p_music.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
     p_vo_extend = sub.add_parser(
         "vo-extend",
         help="open a gap in a clip's track for material the recording never had",
@@ -1664,6 +1698,23 @@ def _cmd_tail(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_music(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.music(
+            args.project,
+            asset=args.asset,
+            clip_id=args.clip_id,
+            word_index_start=args.start_word,
+            word_index_end=args.end_word,
+            fade_in=args.fade_in,
+            fade_out=args.fade_out,
+            clear_end=args.clear_end,
+            reset=args.reset,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_vo_extend(args: argparse.Namespace) -> int:
     return _emit(
         ops.vo_extend(
@@ -1924,6 +1975,7 @@ _COMMANDS = {
     "canvas": _cmd_canvas,
     "fonts": _cmd_fonts,
     "tail": _cmd_tail,
+    "music": _cmd_music,
     "vo-extend": _cmd_vo_extend,
     "reel": _cmd_reel,
     "review": _cmd_review,

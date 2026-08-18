@@ -76,6 +76,7 @@ EXPECTED_TOOLS = {
     "caption_style",
     "canvas",
     "tail",
+    "music",
     "vo_extend",
     "reel",
     "review_add",
@@ -268,6 +269,7 @@ TOOL_TO_COMMAND = {
     "caption_style": "caption-style",
     "canvas": "canvas",
     "tail": "tail",
+    "music": "music",
     "vo_extend": "vo-extend",
     "reel": "reel",
     "review_add": "review",
@@ -2139,6 +2141,76 @@ def test_tail_refuses_a_media_clip_asset(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "card" in out["text"]
+
+
+def test_music_over_the_wire(tmp_path: Path) -> None:
+    """Registration and the word-index echo for the A2 bed: the cue stores
+    word indices and never a length, both boundary words come back echoed
+    with their neighbours, and `reset` drops the key (PLAN.md § The A2 music
+    lane — the design note)."""
+    from lucid import transcript as tx
+
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["clips"] = [
+            {"clip_id": "vo", "source": "/tmp/vo.wav", "duration": 6.0,
+             "has_video": False, "has_audio": True},
+            {"clip_id": "bed", "source": "/tmp/bed.wav", "duration": 2.0,
+             "has_video": False, "has_audio": True},
+        ]
+        opened.write_manifest(manifest)
+        tx.save(
+            tx.Transcript(
+                clip_id="vo",
+                words=(
+                    tx.Word(index=0, text="the", start=0.0, end=0.3),
+                    tx.Word(index=1, text="first", start=0.5, end=0.9),
+                    tx.Word(index=2, text="twelve", start=1.0, end=1.4),
+                ),
+            ),
+            opened.transcript_path("vo"),
+        )
+
+        derived = await client.call("music", path=str(project))
+        set_ = await client.call(
+            "music", path=str(project), asset="bed", clip_id="vo", word_index_start=1
+        )
+        bounded = await client.call("music", path=str(project), word_index_end=2)
+        cleared = await client.call("music", path=str(project), clear_end=True)
+        reset = await client.call("music", path=str(project), reset=True)
+        refused = await session.call_tool(
+            "music",
+            {"path": str(project), "asset": "card:outro", "clip_id": "vo",
+             "word_index_start": 1},
+        )
+        return {
+            "derived": derived,
+            "set": set_,
+            "bounded": bounded,
+            "cleared": cleared,
+            "reset": reset,
+            "refused": {"is_error": refused.is_error, "text": refused.content[0].text},
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["derived"]["music"] is None
+    assert out["set"]["music"]["asset"] == "bed"
+    assert out["set"]["music"]["word_index_end"] is None
+    assert out["set"]["start_word"]["text"] == "first"
+    assert out["bounded"]["music"]["word_index_end"] == 2
+    assert out["bounded"]["end_word"]["text"] == "twelve"
+    assert out["cleared"]["music"]["word_index_end"] is None
+    assert out["reset"]["music"] is None
+    assert Project.open(project).read_manifest().get("music") is None
+    assert out["refused"]["is_error"]
+    assert "no sound" in out["refused"]["text"]
 
 
 @needs_ffprobe

@@ -3057,6 +3057,13 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
       `export`'s rate (`_export_fps`) and **not** `timebase` — an audio-only
       project's timebase is milliseconds, and the picture is not.
 
+    `music` is the A2 lane's projection — the bed's cue resolved through
+    `_music_plan`, the same derivation `export` builds its lane from, so a
+    front end gates a music lane on what the render will actually carry
+    rather than on the manifest key alone (PLAN.md § The A2 music lane,
+    step 5). Null with no bed; null with a `music_error` when the bed cannot
+    resolve — an orphaned boundary word, `shots_error`'s policy exactly.
+
     `canvas` and `reframe` are the frame, and they are here so a preview can
     draw the shape the render declares instead of the shape its media happens
     to be — step 4 of PLAN.md § Aspect swap. `canvas` is `_mlt_resolution`,
@@ -3100,6 +3107,40 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         shots, _ = _picture_plan(project, shots_rate)
     except _PICTURE_REFUSALS as exc:
         shots, shots_error = [], str(exc)
+
+    # The A2 lane's projection — the resolved bed the writer would build, so
+    # a front end has something to gate a music lane on, the picture lane's
+    # own precedent: the lane is drawn only because `export` can render it
+    # (PLAN.md § The A2 music lane, step 5). `None` with no bed; a bed that
+    # cannot resolve is reported as `music_error`, `shots_error`'s policy —
+    # the view is how a person finds the cue to fix.
+    music_view: dict[str, Any] | None = None
+    music_error: str | None = None
+    if project.read_manifest().get(MUSIC_KEY):
+        try:
+            edit_frames = sum(
+                frames for _, frames in autoeditor.frame_layout(edit, shots_rate)
+            )
+            plan = _music_plan(project, edit, shots_rate, edit_frames=edit_frames)
+            if plan is not None:
+                music_view = {
+                    key: plan[key]
+                    for key in (
+                        "asset",
+                        "clip_id",
+                        "word_index_start",
+                        "word_index_end",
+                        "timeline_start",
+                        "timeline_end",
+                        "to_end",
+                        "music_frames",
+                        "padded_frames",
+                        "fade_in",
+                        "fade_out",
+                    )
+                }
+        except (ProjectError, tx.TranscriptError) as exc:
+            music_error = str(exc)
 
     resolution = _mlt_resolution(project)
     reframe_error: str | None = None
@@ -3163,6 +3204,7 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "reframe": placement,
         "shots": shots or None,
         "shots_rate": shots_rate,
+        "music": music_view,
         "segments": _placed_segments(edit),
         "seams": _seams(edit, clip_id, placements),
     }
@@ -3170,6 +3212,8 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         result["shots_error"] = shots_error
     if reframe_error is not None:
         result["reframe_error"] = reframe_error
+    if music_error is not None:
+        result["music_error"] = music_error
     # A clip can be registered, transcribed, and still not be in the edit — and
     # then every one of its words comes back `present: false`, which is exactly
     # what a clip somebody cut entirely looks like. Reported rather than left to
@@ -7014,7 +7058,8 @@ def _frame_total_with_tail(project: Project, edit: tl.Edit, rate: float) -> int:
 
 
 def _tail_silence(project: Project, seconds: float) -> Path:
-    """The cached silent WAV a tail's audio-track entry reads from.
+    """The cached silent WAV a manufactured-silence entry reads from — the
+    tail's audio-track entry, `vo_extend`'s hold, and the music lane's pads.
 
     Keyed on `seconds` alone — not on the frame rate a particular export
     happens to run at — because `picture.render_silence` already renders a
@@ -7279,23 +7324,321 @@ def vo_extend(
     }
 
 
+#: Where a project keeps its A2 music bed (PLAN.md § The A2 music lane — the
+#: design note). Read with `.get()` and additive, the `CANVAS_KEY`/`TAIL_KEY`
+#: shape: absent means what every project written before this key existed
+#: meant — no second audio track — so this is not a `SCHEMA_VERSION` bump.
+#:
+#: **No field in it is a timeline second or a frame count.** The cue is
+#: `(clip_id, word_index_start, word_index_end | None)` addressed into the
+#: transcript exactly like `cue_add` addresses picture, and duration is
+#: derived at build time through `Edit.timeline_span` — never stored, and
+#: never cached either, because A2's boundaries sit *inside* the film where
+#: an earlier cut is always upstream of them (the note's argument 2: a cached
+#: frame count next to a word-index cue is two facts that can disagree,
+#: unlike a tail's `seconds`, which is safe only because nothing is upstream
+#: of the end). `word_index_end` absent means "to the end of the timeline" —
+#: the hold HISTORY.md § The three served answers settled on, made the
+#: default. `fade_in`/`fade_out` are recorded and echoed but **not yet
+#: drawn**, `tail`'s own `fade` precedent.
+MUSIC_KEY = "music"
+
+
+def _stored_music(project: Project) -> dict[str, Any] | None:
+    """The project's music cue, resolved to its fields, or None for no bed.
+
+    Validated on every read, `_stored_tail`'s discipline: a manifest edited
+    by hand or carried over from a future lucid gets a message naming the
+    shape rather than a `KeyError` inside `_build_mlt`.
+    """
+    stored = project.read_manifest().get(MUSIC_KEY)
+    if stored is None:
+        return None
+    if not isinstance(stored, dict):
+        raise ProjectError(f"{project.manifest_path}'s {MUSIC_KEY!r} must be a JSON object")
+    try:
+        asset = str(stored["asset"])
+        clip_id = str(stored["clip_id"])
+        word_index_start = int(stored["word_index_start"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProjectError(
+            f"{project.manifest_path}'s {MUSIC_KEY!r} must hold at least "
+            f"'asset', 'clip_id' and an integer 'word_index_start', not {stored!r}"
+        ) from exc
+    end = stored.get("word_index_end")
+    return {
+        "asset": asset,
+        "clip_id": clip_id,
+        "word_index_start": word_index_start,
+        "word_index_end": int(end) if end is not None else None,
+        "fade_in": float(stored.get("fade_in", 0.0)),
+        "fade_out": float(stored.get("fade_out", 0.0)),
+    }
+
+
+def music(
+    path: Path | str,
+    *,
+    asset: str | None = None,
+    clip_id: str | None = None,
+    word_index_start: int | None = None,
+    word_index_end: int | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    clear_end: bool = False,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the A2 music bed this project mixes under its edit.
+
+    PLAN.md § The A2 music lane — the design note, and the one op step 05 of
+    the Studio reshape stopped for review over. Called with no arguments it
+    changes nothing and reports what is in force, `tail`'s shape throughout:
+    first set needs `asset`, `clip_id` and `word_index_start` together;
+    either alone after that updates its own field; `reset` drops the bed
+    entirely.
+
+    **The cue stores word indices and an asset — never a length.** The bed
+    starts where `word_index_start` of `clip_id` lands on the timeline and
+    runs to where `word_index_end` ends — or, with no end word, to the end of
+    the timeline: the single-pass "hold" the music-bed listen settled on,
+    made the default. A cut before either boundary moves both automatically,
+    because word indices are what survives a cut for free; the alternative —
+    a stored duration — was measured losing (0.341s of drift and a splice on
+    live material, HISTORY.md § The music bed, measured against a dumb
+    control). `word_index_end` is cleared back to "to the end" with
+    `clear_end`, since None already means "don't change this field".
+
+    `asset` is a registered clip_id — checked here, because a music cue with
+    a typo'd asset would otherwise surface three calls later inside
+    `_build_mlt` — and never a `card:name`: a held frame has no sound to mix.
+    The asset plays from its own head; a bed shorter than its span pads out
+    with real silence, one longer is trimmed by frame count, both by
+    construction so the writer's declared lengths keep agreeing
+    (`mlt.document`).
+
+    A tail is *after* the timeline, so an unbounded bed ends where the
+    `Edit` does and the end card holds over silence — a cue addresses moments
+    inside the film, the same reason a tail is not a cue.
+
+    `fade_in`/`fade_out` are recorded and echoed but **not yet drawn** —
+    `tail.fade`'s precedent, spent later without a second manifest key.
+    `plan` resolves and validates without writing.
+    """
+    if reset and any(
+        value is not None
+        for value in (asset, clip_id, word_index_start, word_index_end, fade_in, fade_out)
+    ):
+        raise ProjectError("pass fields to change, or `reset`, not both")
+    if clear_end and word_index_end is not None:
+        raise ProjectError("pass `word_index_end` or `clear_end`, not both")
+
+    project = Project.open(path)
+    stored = _stored_music(project)
+    changing = clear_end or any(
+        value is not None
+        for value in (asset, clip_id, word_index_start, word_index_end, fade_in, fade_out)
+    )
+
+    if reset:
+        after: dict[str, Any] | None = None
+    elif not changing:
+        after = stored
+    else:
+        base = stored or {}
+        merged: dict[str, Any] = {
+            "asset": asset if asset is not None else base.get("asset"),
+            "clip_id": clip_id if clip_id is not None else base.get("clip_id"),
+            "word_index_start": (
+                int(word_index_start)
+                if word_index_start is not None
+                else base.get("word_index_start")
+            ),
+            "word_index_end": (
+                None
+                if clear_end
+                else int(word_index_end)
+                if word_index_end is not None
+                else base.get("word_index_end")
+            ),
+            "fade_in": float(fade_in) if fade_in is not None else base.get("fade_in", 0.0),
+            "fade_out": float(fade_out) if fade_out is not None else base.get("fade_out", 0.0),
+        }
+        if merged["asset"] is None or merged["clip_id"] is None or merged["word_index_start"] is None:
+            raise ProjectError(
+                "a music bed needs `asset`, `clip_id` and `word_index_start` set "
+                "together the first time — there is no bed without music to play, "
+                "a transcript to address, and a word to start on. Either alone "
+                "after that updates its own field."
+            )
+        if str(merged["asset"]).startswith("card:"):
+            raise ProjectError(
+                f"music asset must be a clip_id, not {merged['asset']!r} — a held "
+                "frame has no sound to mix"
+            )
+        if merged["fade_in"] < 0 or merged["fade_out"] < 0:
+            raise ProjectError(
+                f"music fades must not be negative, not "
+                f"{merged['fade_in']!r}/{merged['fade_out']!r}"
+            )
+        if merged["word_index_end"] is not None and merged["word_index_end"] < merged["word_index_start"]:
+            raise ProjectError(
+                f"music word_index_end ({merged['word_index_end']}) sits before "
+                f"word_index_start ({merged['word_index_start']}) — the bed runs "
+                "forward from its start word"
+            )
+        # A typo'd asset or clip_id fails here, with the known-ids message,
+        # rather than three calls later inside `_build_mlt`.
+        media.get_clip(project, str(merged["asset"]))
+        after = merged
+
+    write = (reset or changing) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if after is None:
+            manifest.pop(MUSIC_KEY, None)
+        else:
+            manifest[MUSIC_KEY] = after
+        project.write_manifest(manifest)
+
+    # Anything taking a word index echoes the words it resolved to (CLAUDE.md)
+    # — an index one past the intended phrase reads correctly on its own.
+    start_word: dict[str, Any] | None = None
+    end_word: dict[str, Any] | None = None
+    if after is not None:
+        parsed = _transcript(project, after["clip_id"])
+        start_word = _cue_echo(parsed, after["word_index_start"])
+        if after["word_index_end"] is not None:
+            end_word = _cue_echo(parsed, after["word_index_end"])
+
+    return {
+        "project": str(project.root),
+        "music": after,
+        "start_word": start_word,
+        "end_word": end_word,
+        "written": write,
+        "reset": bool(reset),
+        "plan": bool(plan),
+    }
+
+
+def _music_plan(
+    project: Project, edit: tl.Edit, rate: float, *, edit_frames: int
+) -> dict[str, Any] | None:
+    """Resolve the music cue to the frame span the writer builds its lane at.
+
+    The `build_shots`-shaped derivation the design note argues for over a
+    cached field: `word_index_start`/`word_index_end` through
+    `Edit.timeline_span`, live, every time — never stored, so no hook has to
+    remember to refresh it. None with no bed; a bed that cannot resolve
+    raises, and the two callers split that the picture lane's way — `export`
+    refuses, `timeline_view` reports it as `music_error` for the front end
+    to draw.
+
+    `edit_frames` is the timeline's own frame total off
+    `autoeditor.frame_layout` — never derived from `edit.duration` here,
+    because each segment edge quantises on its own (CLAUDE.md) — and the
+    resolved boundaries are clamped to it: a word ending at the timeline's
+    last instant can round one frame past the layout's own sum.
+
+    An orphaned boundary — the word a cut removed entirely — refuses by name,
+    `build_shots`' policy: word-indexing keeps a cue valid across cuts, it
+    does not keep the word on the timeline.
+    """
+    stored = _stored_music(project)
+    if stored is None:
+        return None
+
+    parsed = _transcript(project, stored["clip_id"])
+    start_echo = _cue_echo(parsed, stored["word_index_start"])
+    span = edit.timeline_span(stored["clip_id"], start_echo["start"], start_echo["end"])
+    if span is None:
+        raise ProjectError(
+            f"the music bed starts at {stored['clip_id']!r} word "
+            f"{stored['word_index_start']} ({start_echo['text']!r}), which a cut "
+            "removed from the timeline — move the start word or restore the "
+            "material (music, or CLI `lucid music`)"
+        )
+    start_seconds = span[0]
+
+    to_end = stored["word_index_end"] is None
+    if to_end:
+        end_seconds = edit.duration
+        end_frame = edit_frames
+    else:
+        end_echo = _cue_echo(parsed, stored["word_index_end"])
+        end_span = edit.timeline_span(stored["clip_id"], end_echo["start"], end_echo["end"])
+        if end_span is None:
+            raise ProjectError(
+                f"the music bed ends at {stored['clip_id']!r} word "
+                f"{stored['word_index_end']} ({end_echo['text']!r}), which a cut "
+                "removed from the timeline — move the end word, or clear it to "
+                "run to the end (music clear_end)"
+            )
+        end_seconds = end_span[1]
+        end_frame = min(round(end_seconds * rate), edit_frames)
+
+    start_frame = min(round(start_seconds * rate), end_frame)
+    if end_frame <= start_frame:
+        raise ProjectError(
+            f"the music bed resolves to zero frames — it starts at timeline "
+            f"{start_seconds:.3f}s and ends at {end_seconds:.3f}s on the "
+            f"{rate:g} fps grid"
+        )
+
+    clip = media.get_clip(project, stored["asset"])
+    duration = clip.get("duration")
+    if not duration:
+        raise ProjectError(
+            f"music asset {stored['asset']!r} has no known duration, so there "
+            "is no way to trim it to its span"
+        )
+    available = round(float(duration) * rate)
+    span_frames = end_frame - start_frame
+    return {
+        **stored,
+        "asset_path": str(media.media_path(project, clip)),
+        "start_frame": start_frame,
+        "end_frame": end_frame,
+        "timeline_start": start_seconds,
+        "timeline_end": end_seconds,
+        "to_end": to_end,
+        # The asset trimmed by frame count where it outruns its span; where it
+        # runs short the lane pads out with real silence instead, and both are
+        # by construction rather than melt's un-checked padding (the note's
+        # resolution (b)).
+        "music_frames": min(span_frames, available),
+        "padded_frames": max(0, span_frames - available),
+    }
+
+
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
     """Does this timeline need the MLT writer?
 
-    Four ways to get there and they hit the same wall: a cue table lays
+    Five ways to get there and they hit the same wall: a cue table lays
     picture over the edit, an edit naming two clips already holds two `src`
     files, a canvas override names a shape auto-editor can only letterbox
-    into, and a tail names a second and third resource (the card, the
-    silence) auto-editor has no export for at all. auto-editor 31.x refuses
-    to *export* a multi-source timeline (exit 2) and *renders* one at 720x576
-    with exit 0 (CLAUDE.md); it would take a canvas override and quietly
-    ignore it, which is the same failure wearing a different hat. All four
-    route through the MLT writer.
+    into, a tail names a second and third resource (the card, the silence)
+    auto-editor has no export for at all, and a music bed asks for a second
+    audio track auto-editor has no more concept of than it has of the tail.
+    auto-editor 31.x refuses to *export* a multi-source timeline (exit 2) and
+    *renders* one at 720x576 with exit 0 (CLAUDE.md); it would take a canvas
+    override and quietly ignore it, which is the same failure wearing a
+    different hat. All five route through the MLT writer — and the music
+    trigger must never lag the writer's music lane, or a project with a bed
+    recorded exports through auto-editor and the render comes back with no
+    music in it, at exit 0, invisible to every check but listening (PLAN.md
+    § The A2 music lane, the gate).
     """
     if len({segment.clip_id for segment in edit.segments}) > 1:
         return True
     manifest = project.read_manifest()
-    return bool(manifest.get("cues") or manifest.get(CANVAS_KEY) or manifest.get(TAIL_KEY))
+    return bool(
+        manifest.get("cues")
+        or manifest.get(CANVAS_KEY)
+        or manifest.get(TAIL_KEY)
+        or manifest.get(MUSIC_KEY)
+    )
 
 
 def _mlt_resolution(project: Project) -> tuple[int, int]:
@@ -7352,6 +7695,13 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     # required), so appending the same `tail_frames` to both keeps the
     # lane-covers-track invariant true by construction — nothing below has to
     # relax it.
+    # The Edit's own frame total, off the layout the entries above were built
+    # from — the music bed's boundaries resolve against this, *before* the
+    # tail is appended: a cue addresses moments inside the film and a tail is
+    # after it, so an unbounded bed ends where the `Edit` does and the end
+    # card holds over silence.
+    edit_frames = sum(entry.frames for entry in audio)
+
     tail_report: dict[str, Any] | None = None
     tail = _stored_tail(project)
     if tail is not None:
@@ -7375,6 +7725,50 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         lane.append(mlt.Entry(card["asset_path"], 0, tail_frames, is_image=True, has_video=True))
         tail_report = {**tail, "frames": tail_frames}
 
+    # The A2 music lane: the resolved bed plus real silent entries padding it
+    # to the document's exact frame total — lead silence for a bed starting
+    # mid-film, trail silence past where its own content (or its span) ends,
+    # the tail's frames included. Pad/trim by construction, never melt's
+    # un-checked blank-padding, so `mlt.document`'s declared-length check
+    # needs no exception (PLAN.md § The A2 music lane, resolution (b)). An
+    # offset is a real silent producer entry, never a `<blank>`.
+    music_report: dict[str, Any] | None = None
+    music_lane: list[mlt.Entry] = []
+    music_plan = _music_plan(project, edit, rate, edit_frames=edit_frames)
+    if music_plan is not None:
+        total_frames = sum(entry.frames for entry in audio)
+        lead = music_plan["start_frame"]
+        if lead:
+            lead_silence = _tail_silence(project, lead / rate)
+            music_lane.append(mlt.Entry(str(lead_silence), 0, lead, is_image=False, has_video=False))
+        music_lane.append(
+            mlt.Entry(music_plan["asset_path"], 0, music_plan["music_frames"], has_video=False)
+        )
+        trail = total_frames - lead - music_plan["music_frames"]
+        if trail:
+            trail_silence = _tail_silence(project, trail / rate)
+            music_lane.append(
+                mlt.Entry(str(trail_silence), 0, trail, is_image=False, has_video=False)
+            )
+        # Deliberately NOT added to `clip_of`: a reframe crops what is on
+        # screen, and nothing of the music lane is — its nodes never take one.
+        music_report = {
+            key: music_plan[key]
+            for key in (
+                "asset",
+                "clip_id",
+                "word_index_start",
+                "word_index_end",
+                "timeline_start",
+                "timeline_end",
+                "to_end",
+                "music_frames",
+                "padded_frames",
+                "fade_in",
+                "fade_out",
+            )
+        }
+
     resolution = _mlt_resolution(project)
     by_clip = _reframe_map(project, resolution)
     reframes = {
@@ -7383,6 +7777,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     document = mlt.document(
         audio=audio,
         picture=lane,
+        music=music_lane,
         rate=rate,
         resolution=resolution,
         reframe=reframes,
@@ -7394,8 +7789,11 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "resolution": resolution,
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
-        "sources": len({entry.resource for entry in [*audio, *lane]}),
+        "sources": len({entry.resource for entry in [*audio, *lane, *music_lane]}),
         "tail": tail_report,
+        # None with no bed, or the resolved cue plus the frames its asset
+        # actually plays — the rest of its lane is silence padding.
+        "music": music_report,
         # What the render will actually crop, named where the render is built
         # rather than left for a pixel probe to discover.
         "reframed": sorted(
@@ -7423,6 +7821,11 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
         # — `frames` above already includes them, this is what accounts for
         # the difference from `autoeditor.frame_total` alone.
         "tail": built["tail"],
+        # None with no music bed, or the resolved cue — reported on both
+        # roads because a bed recorded but not rendered is the exact silent
+        # failure the `_is_layered` trigger exists to prevent, and the reply
+        # is where a caller sees the render actually carried it.
+        "music": built["music"],
         # Named on both roads because a crop is a decision about what is on
         # screen, and the render that made it looks entirely plausible.
         "reframed": built["reframed"],
@@ -9604,6 +10007,15 @@ def reel(
     # — a `tail` is never inherited (taken 2026-08-12), so this is what the
     # film had, reported rather than silently left behind.
     tail_dropped = _stored_tail(source)
+    # The music bed follows the tail's rule, not the cue table's: it is
+    # project state beside `Edit`, and a derivation inherits nothing — it
+    # reports (PLAN.md § The A2 music lane, what the note does not settle,
+    # item 1). Unlike a picture cue the bed cannot simply be kept where its
+    # word survives: the film's bed has been playing for however long by the
+    # reel's first second, and a reel re-opening it from its head is the
+    # `cues_pinned` shape with no pin to give it. Dropped and named, so the
+    # reel's author decides — the future design can do better.
+    music_dropped = _stored_music(source)
     # Checked here rather than left to `cut_by_time`, at the granularity a reel
     # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
     # is reported and never refused, which is `cut_by_time`'s own convention
@@ -9662,6 +10074,9 @@ def reel(
         # onto the derived project — a bumper is a decision about this cut,
         # not a fact the span carries with it.
         "tail_dropped": tail_dropped,
+        # Same rule, same reason: what the film's bed was, never carried onto
+        # the derived project.
+        "music_dropped": music_dropped,
         "plan": bool(plan),
     }
     report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
@@ -9692,6 +10107,8 @@ def reel(
         # makes "never" true rather than "true until the next key gets copied
         # here by accident".
         manifest.pop(TAIL_KEY, None)
+        # `music_dropped`'s own "never" line, for the same reason.
+        manifest.pop(MUSIC_KEY, None)
         # Provenance, and the answer to the question a hand-made scratch copy
         # could not answer once already: which film is this, and which seconds
         # of it (HISTORY.md § The VO the project was holding). Additive and

@@ -1318,6 +1318,53 @@ def tail(
 
 
 @_tool()
+def music(
+    path: str,
+    asset: str | None = None,
+    clip_id: str | None = None,
+    word_index_start: int | None = None,
+    word_index_end: int | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    clear_end: bool = False,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the A2 music bed this project mixes under its edit.
+
+    The cue stores word indices and an asset, never a length: the bed starts
+    where `word_index_start` of `clip_id` lands on the timeline and runs to
+    where `word_index_end` ends — or, with no end word, to the end of the
+    timeline (the single-pass hold). Duration is derived at build time
+    through the edit, so a cut before either boundary moves both
+    automatically; a stored length was measured drifting onto live material
+    (PLAN.md § The A2 music lane — the design note).
+
+    `asset` is a registered clip_id, never `card:name` — a held frame has no
+    sound to mix. It plays from its own head; shorter than its span pads out
+    with real silence, longer is trimmed. Call with no arguments to read what
+    is in force; first set needs `asset`, `clip_id` and `word_index_start`
+    together, either alone after that updates its own field. `clear_end`
+    drops the end word back to "to the end"; `reset` drops the bed entirely.
+    `fade_in`/`fade_out` are recorded and echoed but not yet drawn. `plan`
+    resolves and validates without writing. Both word indices are echoed with
+    their resolved words and neighbours — check them.
+    """
+    return ops.music(
+        path,
+        asset=asset,
+        clip_id=clip_id,
+        word_index_start=word_index_start,
+        word_index_end=word_index_end,
+        fade_in=fade_in,
+        fade_out=fade_out,
+        clear_end=clear_end,
+        reset=reset,
+        plan=plan,
+    )
+
+
+@_tool()
 def vo_extend(
     path: str,
     clip_id: str,

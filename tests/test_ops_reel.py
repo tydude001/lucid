@@ -444,6 +444,36 @@ def test_tail_dropped_is_reported_under_plan_too(film: Project, tmp_path: Path) 
     assert not (tmp_path / "teaser").exists()
 
 
+def test_a_films_music_bed_is_dropped_and_named(film: Project, tmp_path: Path) -> None:
+    """The tail's rule, not the cue table's: the bed is project state beside
+    `Edit`, and unlike a picture cue it cannot simply be kept where its word
+    survives — the film's bed has been playing for however long by the reel's
+    first second, and re-opening it from its head is the `cues_pinned` shape
+    with no pin to give it (PLAN.md § The A2 music lane, what the note does
+    not settle)."""
+    manifest = film.read_manifest()
+    manifest["clips"].append(
+        {"clip_id": "bed", "source": "/tmp/bed.wav", "duration": 30.0,
+         "has_video": False, "has_audio": True}
+    )
+    film.write_manifest(manifest)
+    ops.music(film.root, asset="bed", clip_id="vo", word_index_start=2)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+
+    assert result["music_dropped"]["asset"] == "bed"
+    assert ops.MUSIC_KEY not in reel.read_manifest()
+    assert ops.music(reel.root)["music"] is None
+    assert ops.music(film.root)["music"]["asset"] == "bed", "the film is untouched"
+
+
+def test_a_film_with_no_music_reports_none_dropped(film: Project, tmp_path: Path) -> None:
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+
+    assert result["music_dropped"] is None
+
+
 # -- the edges of the span -----------------------------------------------
 
 

@@ -820,6 +820,7 @@ def document(
     *,
     audio: list[Entry],
     picture: list[Entry] | None = None,
+    music: list[Entry] | None = None,
     rate: float,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
     reframe: dict[str, Reframe] | None = None,
@@ -837,6 +838,21 @@ def document(
     The picture lane must cover the timeline exactly. A short lane would
     become a `<blank>` and a long one would extend the render past the audio,
     and both are silent — hence a refusal here rather than a warning.
+
+    `music` is the A2 lane — a second audio track mixed additively alongside
+    the edit's own (PLAN.md § The A2 music lane — the design note). It is one
+    more per-role node set, playlist pair, tractor, stack entry and `mix`
+    transition, generalized from what this module's own docstring already
+    named for unmuting a shot; nothing about it is a new writer concept, and
+    that was measured against real `melt` rather than assumed
+    (`~/lucid-a2-probe`). **The lane must cover the timeline exactly, by
+    construction** — the caller pads with real silent entries and trims an
+    over-long asset by frame count, the note's resolution (b), so that
+    `declared_frames()` below keeps needing zero exceptions. melt would in
+    fact pad a short A2 with true silence and clip a long one (both measured,
+    both exit 0), but the check refuses the mismatch anyway: relying on an
+    un-checked melt behaviour because it happens to be safe today is the
+    thing the tail's own silent-WAV precedent exists to not do.
 
     `reframe` maps a resource to the rects of it that survive into the frame —
     one, or a window per camera shot — and is what turns a swapped canvas from
@@ -862,6 +878,23 @@ def document(
                 f"the picture lane covers {covered} frames but the timeline is "
                 f"{total_frames} — MLT would pad the difference with a silent "
                 "<blank> (or run the render long), so the lane has to be exact"
+            )
+    music = music or []
+    if music:
+        covered = sum(entry.frames for entry in music)
+        if covered != total_frames:
+            raise MLTError(
+                f"the music lane covers {covered} frames but the timeline is "
+                f"{total_frames} — the caller pads with real silent entries and "
+                "trims an over-long asset by frame count, so every declared "
+                "length keeps agreeing and declared_frames() needs no exception "
+                "(PLAN.md § The A2 music lane, resolution (b))"
+            )
+        wrong = [entry.resource for entry in music if entry.is_image]
+        if wrong:
+            raise MLTError(
+                f"the music lane holds a still ({wrong[0]!r}) — a held frame has "
+                "no sound to mix, so a card can never be a music entry"
             )
 
     root = ET.Element(
@@ -893,7 +926,7 @@ def document(
     # of the producer, not of the entry — but both point at one bin entry, so
     # `kdenlive:id` is keyed on the resource and not on the node.
     sources: dict[str, Entry] = {}
-    for entry in [*audio, *picture]:
+    for entry in [*audio, *picture, *music]:
         sources.setdefault(entry.resource, entry)
     bin_ids = {resource: index + 2 for index, resource in enumerate(sources)}
 
@@ -1024,6 +1057,34 @@ def document(
         for playlist_id in ("playlist6", "playlist7"):
             ET.SubElement(picture_pane_track, "track", {"producer": playlist_id, "hide": "audio"})
 
+    # The A2 music lane: audio-only, so its nodes take the probe's own shape
+    # (`~/lucid-a2-probe/build_doc.py`) — sound on, picture declared absent —
+    # and no reframe ever reaches one, because there is nothing of it on
+    # screen to frame. Ids live in their own namespace (mchain/playlist8/
+    # playlist9/tractorA) so a document without music is byte-identical to
+    # the one this writer produced before the lane existed.
+    music_nodes: dict[str, str] = {}
+    if music:
+        for entry in music:
+            if entry.resource in music_nodes:
+                continue
+            node_id = f"mchain{len(music_nodes)}"
+            music_nodes[entry.resource] = node_id
+            node = _source_node(node_id, entry, bin_ids[entry.resource], rate)
+            _property(node, "set.test_audio", "0")
+            _property(node, "set.test_video", "1")
+            root.append(node)
+
+        root.append(_playlist("playlist8", music, music_nodes))
+        root.append(ET.Element("playlist", {"id": "playlist9"}))
+        music_track = ET.SubElement(
+            root, "tractor", {"id": "tractorA", "in": "0", "out": str(total_frames - 1)}
+        )
+        _property(music_track, "kdenlive:timeline_active", "1")
+        _property(music_track, "kdenlive:track_name", "Music")
+        for playlist_id in ("playlist8", "playlist9"):
+            ET.SubElement(music_track, "track", {"producer": playlist_id, "hide": "video"})
+
     # A deterministic uuid: the same project rebuilt twice should produce the
     # same document, so a diff of two exports shows what actually changed.
     sequence_uuid = f"{{{uuid.uuid5(uuid.NAMESPACE_URL, f'lucid:{name}')}}}"
@@ -1043,6 +1104,8 @@ def document(
         stack.append("tractor1")
     if picture_panes:
         stack.append("tractor4")
+    if music:
+        stack.append("tractorA")
     for producer in stack:
         ET.SubElement(sequence, "track", {"producer": producer})
 
@@ -1063,11 +1126,13 @@ def document(
     )
     # `b_track` is an index into the track list just written, which is why the
     # order above and the order here are one loop and not two lists that have
-    # to be kept in step. The edit is the only track that can be soundless
-    # picture-less audio; every other one carries video by construction.
+    # to be kept in step. The edit and the music lane are the only tracks that
+    # can be soundless-picture audio; every other one carries video by
+    # construction — and the music lane never blends, because it has nothing
+    # on screen to composite.
     blended = 0
     for index, producer in enumerate(stack):
-        if index == 0 or (producer == "tractor0" and not audio_has_video):
+        if index == 0 or producer == "tractorA" or (producer == "tractor0" and not audio_has_video):
             continue
         _transition(
             sequence,
@@ -1082,6 +1147,25 @@ def document(
             },
         )
         blended += 1
+    # The music lane's own mix — the second `mix` the module docstring said an
+    # unmuted track would need, here for a whole track rather than a shot.
+    # Against track 0 like transition0: mix does not care that the black
+    # background carries no sound, and `sum=1` keeps it additive and lossless
+    # (measured — both tones survive at their exact source amplitudes,
+    # `~/lucid-a2-probe`).
+    if music:
+        _transition(
+            sequence,
+            f"transition{blended + 1}",
+            {
+                "a_track": "0",
+                "b_track": str(stack.index("tractorA")),
+                "mlt_service": "mix",
+                "internal_added": "237",
+                "always_active": "1",
+                "sum": "1",
+            },
+        )
 
     # The bin. `xml_retain` keeps this playlist out of the render — it is the
     # project's media list, not a track — and every timeline producer points

@@ -1019,3 +1019,93 @@ def test_the_rate_comes_from_the_profile_and_a_missing_one_refuses() -> None:
 
     with pytest.raises(mlt.MLTError, match="no <profile>"):
         mlt.read_ranges(ET.fromstring('<mlt><playlist id="p"/></mlt>'))
+
+
+# -- the music lane: A2, one more of everything and no new concept ----------
+
+
+def _music(*frames: int) -> list[mlt.Entry]:
+    entries, names = [], iter(("/media/bed.wav", "/media/sil.wav", "/media/sil2.wav"))
+    for count in frames:
+        entries.append(mlt.Entry(next(names), 0, count))
+    return entries
+
+
+def test_the_music_lane_must_cover_the_timeline_exactly() -> None:
+    """The one real finding of the A2 probe (PLAN.md § The A2 music lane):
+    melt itself pads a short A2 with true silence and clips a long one, both
+    at exit 0 — but the caller pads/trims by construction (resolution (b)),
+    so a lane arriving short or long here is a bug, not a request."""
+    with pytest.raises(mlt.MLTError, match="music lane covers 90 frames but the timeline is 120"):
+        mlt.document(audio=_audio(120), music=_music(90), rate=RATE)
+    with pytest.raises(mlt.MLTError, match="music lane covers 150"):
+        mlt.document(audio=_audio(120), music=_music(150), rate=RATE)
+
+
+def test_a_still_on_the_music_lane_is_refused() -> None:
+    with pytest.raises(mlt.MLTError, match="no sound to mix"):
+        mlt.document(
+            audio=_audio(120),
+            music=[mlt.Entry("/cards/x.png", 0, 120, is_image=True)],
+            rate=RATE,
+        )
+
+
+def test_the_music_track_declares_the_timeline_total_with_no_exception() -> None:
+    """Resolution (b)'s whole payoff: A2's own tractor agrees with every
+    other declared length, so `declared_frames` keeps needing zero special
+    cases."""
+    document = mlt.document(audio=_audio(120), music=_music(90, 30), rate=RATE)
+    declared = mlt.declared_frames(document)
+    assert declared["tractor tractorA out"] == 120
+    assert set(declared.values()) == {120}
+
+
+def test_the_music_lane_gets_its_own_mix_and_no_qtblend() -> None:
+    """The second `mix` the module docstring always said a second audio
+    track would need — additive (`sum=1`), against the black background like
+    transition0 — and no compositing transition, because nothing of the lane
+    is on screen."""
+    document = mlt.document(
+        audio=_audio(120),
+        picture=[mlt.Entry("/media/film.mp4", 0, 120, has_video=True)],
+        music=_music(120),
+        rate=RATE,
+    )
+    sequence = next(
+        t for t in document.findall("tractor") if t.get("id", "").startswith("{")
+    )
+    tracks = [t.get("producer") for t in sequence.findall("track")]
+    music_index = tracks.index("tractorA")
+
+    mixes = []
+    for transition in sequence.findall("transition"):
+        service = transition.find("property[@name='mlt_service']")
+        b_track = transition.find("property[@name='b_track']")
+        mixes.append(((service.text or ""), (b_track.text or "")))
+    assert ("mix", str(music_index)) in mixes, mixes
+    assert ("qtblend", str(music_index)) not in mixes, "the music lane never blends"
+
+
+def test_the_music_tracks_video_is_hidden() -> None:
+    """A bed ripped from a video file still plays as sound only — the track
+    hides video, so nothing of the file's picture can reach the frame."""
+    document = mlt.document(audio=_audio(120), music=_music(120), rate=RATE)
+    music_track = next(t for t in document.findall("tractor") if t.get("id") == "tractorA")
+    assert all(t.get("hide") == "video" for t in music_track.findall("track"))
+
+
+def test_music_sources_reach_the_bin() -> None:
+    document = mlt.document(audio=_audio(120), music=_music(90, 30), rate=RATE)
+    main_bin = next(p for p in document.findall("playlist") if p.get("id") == "main_bin")
+    assert len(main_bin.findall("entry")) == 1 + 3  # sequence + vo + bed + silence
+
+
+def test_a_document_without_music_is_byte_identical_to_before_the_lane_existed() -> None:
+    """The lane's ids live in their own namespace (mchain/playlist8/9/
+    tractorA) precisely so an unswapped project's document cannot move."""
+    plain = mlt.to_string(mlt.document(audio=_audio(120), rate=RATE))
+    with_none = mlt.to_string(mlt.document(audio=_audio(120), music=None, rate=RATE))
+    with_empty = mlt.to_string(mlt.document(audio=_audio(120), music=[], rate=RATE))
+    assert plain == with_none == with_empty
+    assert "tractorA" not in plain and "playlist8" not in plain

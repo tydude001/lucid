@@ -1,0 +1,361 @@
+"""`music` — the A2 bed as project state, and `_music_plan`, its derivation.
+
+PLAN.md § The A2 music lane — the design note, built after review. Three
+things pinned here, in the note's own order: the cue stores word indices and
+never a length (`tail`'s read/write shape, `cue_add`'s addressing); the
+resolver derives the frame span live through `Edit.timeline_span`, so a cut
+before either boundary moves both and an orphaned boundary refuses by name
+(`build_shots`' policy); and a bed alone tips `_is_layered`, because a
+project with music recorded but routed through auto-editor renders with no
+music in it at exit 0 — the silent failure the fifth trigger exists to
+prevent.
+
+Built by hand rather than through `import_media`, following
+`test_ops_tail.py`: no ffprobe is needed to have a project with a shape.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from lucid import autoeditor, ops
+from lucid import timeline as tl
+from lucid import transcript as tx
+from lucid.media import MediaError
+from lucid.project import Project, ProjectError
+
+CLIPS = {
+    "vo": {
+        "clip_id": "vo",
+        "source": "/tmp/vo.wav",
+        "duration": 6.0,
+        "has_video": False,
+        "has_audio": True,
+    },
+    "bed": {
+        "clip_id": "bed",
+        "source": "/tmp/bed.wav",
+        "duration": 2.0,
+        "has_video": False,
+        "has_audio": True,
+    },
+    "long-bed": {
+        "clip_id": "long-bed",
+        "source": "/tmp/long-bed.wav",
+        "duration": 100.0,
+        "has_video": False,
+        "has_audio": True,
+    },
+}
+
+RATE = 30.0
+
+
+def _words(clip_id: str, *specs: tuple[str, float, float]) -> tx.Transcript:
+    return tx.Transcript(
+        clip_id=clip_id,
+        words=tuple(
+            tx.Word(index=i, text=text, start=start, end=end)
+            for i, (text, start, end) in enumerate(specs)
+        ),
+    )
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> Project:
+    project = Project.create(tmp_path / "proj")
+    manifest = project.read_manifest()
+    manifest["clips"] = list(CLIPS.values())
+    project.write_manifest(manifest)
+    tx.save(
+        _words(
+            "vo",
+            ("the", 0.0, 0.3),
+            ("first", 0.5, 0.9),
+            ("twelve", 1.0, 1.4),
+            ("minutes", 1.5, 1.9),
+            ("of", 2.0, 2.2),
+            ("scream", 5.0, 5.4),
+        ),
+        project.transcript_path("vo"),
+    )
+    edit = tl.Edit([tl.Segment("vo", 0.0, 6.0)])
+    tl.write(tl.to_otio(edit, {"vo": CLIPS["vo"]}, rate=1000.0), project.timeline_path)
+    return project
+
+
+def _edit_frames(edit: tl.Edit) -> int:
+    return sum(frames for _, frames in autoeditor.frame_layout(edit, RATE))
+
+
+# -- reading and writing ---------------------------------------------------
+
+
+def test_no_arguments_reads_without_writing(project: Project) -> None:
+    before = project.manifest_path.stat().st_mtime_ns
+    result = ops.music(project.root)
+
+    assert result["music"] is None
+    assert result["written"] is False
+    assert project.manifest_path.stat().st_mtime_ns == before
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+def test_setting_stores_the_cue_and_echoes_both_words(project: Project) -> None:
+    result = ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1, word_index_end=4
+    )
+
+    assert result["written"] is True
+    assert result["music"] == {
+        "asset": "bed",
+        "clip_id": "vo",
+        "word_index_start": 1,
+        "word_index_end": 4,
+        "fade_in": 0.0,
+        "fade_out": 0.0,
+    }
+    assert project.read_manifest()[ops.MUSIC_KEY] == result["music"]
+    # Anything taking a word index echoes what it resolved to (CLAUDE.md).
+    assert result["start_word"]["text"] == "first"
+    assert result["end_word"]["text"] == "of"
+    assert [w["text"] for w in result["start_word"]["context_before"]] == ["the"]
+
+
+def test_no_end_word_means_to_the_end_and_echoes_no_end(project: Project) -> None:
+    result = ops.music(project.root, asset="bed", clip_id="vo", word_index_start=0)
+
+    assert result["music"]["word_index_end"] is None
+    assert result["end_word"] is None
+
+
+def test_a_field_alone_updates_only_that_field(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1, fade_in=0.5)
+    result = ops.music(project.root, asset="long-bed")
+
+    assert result["music"]["asset"] == "long-bed"
+    assert result["music"]["word_index_start"] == 1
+    assert result["music"]["fade_in"] == 0.5
+
+
+def test_clear_end_drops_the_end_word_back_to_the_hold(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1, word_index_end=4)
+    result = ops.music(project.root, clear_end=True)
+
+    assert result["music"]["word_index_end"] is None
+    assert result["end_word"] is None
+
+
+def test_reset_drops_the_key(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    result = ops.music(project.root, reset=True)
+
+    assert result["music"] is None
+    assert result["written"] is True
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+def test_plan_resolves_without_writing(project: Project) -> None:
+    planned = ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1, plan=True)
+
+    assert planned["music"]["asset"] == "bed"
+    assert planned["start_word"]["text"] == "first"
+    assert planned["written"] is False
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+# -- what it refuses --------------------------------------------------------
+
+
+def test_reset_and_a_field_together_are_refused(project: Project) -> None:
+    with pytest.raises(ProjectError, match="not both"):
+        ops.music(project.root, asset="bed", reset=True)
+
+
+def test_end_word_and_clear_end_together_are_refused(project: Project) -> None:
+    with pytest.raises(ProjectError, match="not both"):
+        ops.music(project.root, word_index_end=4, clear_end=True)
+
+
+def test_the_first_set_needs_asset_clip_and_start_together(project: Project) -> None:
+    for partial in (
+        {"asset": "bed"},
+        {"clip_id": "vo"},
+        {"word_index_start": 1},
+        {"asset": "bed", "clip_id": "vo"},
+    ):
+        with pytest.raises(ProjectError, match="together"):
+            ops.music(project.root, **partial)
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+def test_a_card_asset_is_refused(project: Project) -> None:
+    with pytest.raises(ProjectError, match="no sound"):
+        ops.music(project.root, asset="card:outro", clip_id="vo", word_index_start=1)
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+def test_an_unregistered_asset_is_refused_with_the_known_ids(project: Project) -> None:
+    with pytest.raises(MediaError, match="registered"):
+        ops.music(project.root, asset="nope", clip_id="vo", word_index_start=1)
+    assert ops.MUSIC_KEY not in project.read_manifest()
+
+
+def test_an_out_of_range_word_index_is_refused(project: Project) -> None:
+    with pytest.raises(tx.TranscriptError, match="outside"):
+        ops.music(project.root, asset="bed", clip_id="vo", word_index_start=99)
+
+
+def test_an_end_before_the_start_is_refused(project: Project) -> None:
+    with pytest.raises(ProjectError, match="before"):
+        ops.music(
+            project.root, asset="bed", clip_id="vo", word_index_start=4, word_index_end=1
+        )
+
+
+def test_negative_fades_are_refused(project: Project) -> None:
+    with pytest.raises(ProjectError, match="negative"):
+        ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1, fade_in=-0.1)
+
+
+def test_a_hand_broken_manifest_key_names_the_shape(project: Project) -> None:
+    manifest = project.read_manifest()
+    manifest[ops.MUSIC_KEY] = {"asset": "bed"}
+    project.write_manifest(manifest)
+
+    with pytest.raises(ProjectError, match="word_index_start"):
+        ops.music(project.root)
+
+
+# -- the resolver -----------------------------------------------------------
+
+
+def test_no_bed_resolves_to_none(project: Project) -> None:
+    edit = ops._load_edit(project)
+    assert ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit)) is None
+
+
+def test_an_unbounded_bed_runs_from_its_word_to_the_timeline_end(project: Project) -> None:
+    ops.music(project.root, asset="long-bed", clip_id="vo", word_index_start=1)
+    edit = ops._load_edit(project)
+    frames = _edit_frames(edit)
+
+    plan = ops._music_plan(project, edit, RATE, edit_frames=frames)
+
+    assert plan["start_frame"] == round(0.5 * RATE)
+    assert plan["end_frame"] == frames
+    assert plan["to_end"] is True
+    # 100s of bed against a ~5.5s span: trimmed by frame count, no padding.
+    assert plan["music_frames"] == frames - plan["start_frame"]
+    assert plan["padded_frames"] == 0
+
+
+def test_a_bounded_bed_runs_through_its_end_word(project: Project) -> None:
+    ops.music(
+        project.root, asset="long-bed", clip_id="vo", word_index_start=1, word_index_end=3
+    )
+    edit = ops._load_edit(project)
+
+    plan = ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+    assert plan["start_frame"] == round(0.5 * RATE)
+    assert plan["end_frame"] == round(1.9 * RATE)
+    assert plan["to_end"] is False
+
+
+def test_a_short_asset_pads_rather_than_loops(project: Project) -> None:
+    """The single-pass hold: 2.0s of bed under a ~5.5s span plays once and
+    the lane pads out with real silence — the listen that rejected the loop
+    (HISTORY.md § The three served answers) made not-looping the contract."""
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    edit = ops._load_edit(project)
+    frames = _edit_frames(edit)
+
+    plan = ops._music_plan(project, edit, RATE, edit_frames=frames)
+
+    assert plan["music_frames"] == round(2.0 * RATE)
+    assert plan["padded_frames"] == (frames - plan["start_frame"]) - round(2.0 * RATE)
+
+
+def test_a_cut_before_the_start_moves_the_bed_with_it(project: Project) -> None:
+    """The property everything in the note defends: no stored length, so a
+    cut upstream of the bed shifts it for free, exactly like every other
+    word-indexed cue."""
+    ops.music(project.root, asset="long-bed", clip_id="vo", word_index_start=2)
+    edit = ops._load_edit(project)
+    before = ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+    edit.remove("vo", 0.0, 0.5)  # cut ahead of word 2 ("twelve", 1.0s)
+    after = ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+    assert before["start_frame"] == round(1.0 * RATE)
+    assert after["start_frame"] == round(0.5 * RATE)
+
+
+def test_an_orphaned_start_word_refuses_by_name(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    edit = ops._load_edit(project)
+    edit.remove("vo", 0.4, 1.0)  # removes "first" (0.5-0.9) entirely
+
+    with pytest.raises(ProjectError, match="'first'"):
+        ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+
+def test_an_orphaned_end_word_refuses_by_name(project: Project) -> None:
+    ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=0, word_index_end=3
+    )
+    edit = ops._load_edit(project)
+    edit.remove("vo", 1.45, 1.95)  # removes "minutes" (1.5-1.9) entirely
+
+    with pytest.raises(ProjectError, match="'minutes'"):
+        ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+
+# -- the gate ---------------------------------------------------------------
+
+
+def test_a_bed_alone_makes_the_project_layered(project: Project) -> None:
+    """The fifth trigger, landed in the same change as the writer's lane: a
+    project with a bed recorded but still single-source-eligible would export
+    through auto-editor and the render would carry no music, at exit 0."""
+    edit = ops._load_edit(project)
+    assert ops._is_layered(project, edit) is False
+
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    assert ops._is_layered(project, edit) is True
+
+
+# -- the projection ---------------------------------------------------------
+
+
+def test_timeline_view_has_no_music_without_a_bed(project: Project) -> None:
+    view = ops.timeline_view(project.root)
+    assert view["music"] is None
+    assert "music_error" not in view
+
+
+def test_timeline_view_projects_the_resolved_bed(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    view = ops.timeline_view(project.root)
+
+    assert view["music"]["asset"] == "bed"
+    assert view["music"]["timeline_start"] == pytest.approx(0.5, abs=1e-6)
+    assert view["music"]["to_end"] is True
+    assert "music_error" not in view
+    assert view["layered"] is True
+
+
+def test_timeline_view_reports_an_unresolvable_bed_as_music_error(project: Project) -> None:
+    """`shots_error`'s policy: a stale cue must not take the whole view down
+    with it, because the view is how a person finds the cue to fix."""
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    ops.cut_by_transcript(project.root, "vo", cut=[[1, 1]])  # cut "first", the bed's start word
+
+    view = ops.timeline_view(project.root)
+
+    assert view["music"] is None
+    assert "first" in view["music_error"]
+    assert view["segments"], "the rest of the view still renders"
