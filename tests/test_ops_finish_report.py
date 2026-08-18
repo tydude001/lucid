@@ -135,6 +135,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "marks",
         "seams",
         "framing",
+        "last_render",
         "flags",
     }
     assert set(result["duration"]) == {"edit_seconds", "tail_seconds", "total_seconds"}
@@ -146,6 +147,9 @@ def test_finish_report_field_shape(project: Project) -> None:
     assert set(result["picture"]) == {"cue_count", "pinned_count", "shots_error"}
     assert set(result["marks"]) == {"applied", "stale"}
     assert set(result["seams"]) == {"count"}
+    # `None` here rather than a dict: this fixture has never rendered, which is
+    # the same absent log that leaves `captions.burned` unknown.
+    assert result["last_render"] is None
     assert set(result["flags"]) == {"count", "items"}
     for item in result["flags"]["items"]:
         assert set(item) == {"kind", "message", "mode"}

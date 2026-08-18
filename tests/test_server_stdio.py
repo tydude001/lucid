@@ -210,6 +210,7 @@ def test_finish_report_reachable_over_stdio(
         "marks",
         "seams",
         "framing",
+        "last_render",
         "flags",
     }
 

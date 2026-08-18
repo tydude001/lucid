@@ -1016,6 +1016,7 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
         "marks",
         "seams",
         "framing",
+        "last_render",
         "flags",
     }
     # Unasked-for, so `None` — the truth strip re-reads this route on every
@@ -3571,6 +3572,92 @@ def test_reframe_endpoints_reject_a_bad_host(server: str) -> None:
 # contract: `name` must never escape `project.sheet_dir`, whether by a `..`
 # traversal, an absolute path, or a symlink placed inside the cache dir
 # pointing outside it.
+
+
+# -- /api/output: the file the last run made ---------------------------------
+#
+# The window plays the project, never `renders/` — which is what left Export
+# writing something the page could not open (PLAN.md § Should the workspace
+# play its own output?). These cover the narrow route that answers it: the
+# render log's own last output, and nothing the client gets to name.
+
+
+def _write_render_log(project: Path, output: Path, **extra: Any) -> None:
+    log = Project.open(project).renders_log_path
+    log.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": "2026-08-18T00:00:00+00:00",
+        "output": str(output),
+        "preset": None,
+        "expected_duration": 1.0,
+        "stages": {"export": {"outcome": "done", "detail": None}},
+    }
+    record.update(extra)
+    log.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+
+def test_output_says_so_when_nothing_has_been_rendered(server: str) -> None:
+    status, payload = _json(f"{server}/api/output")
+    assert status == 400
+    assert "rendered" in payload["error"]
+
+
+def test_output_streams_the_last_render_with_range(project: Path, server: str) -> None:
+    render = Project.open(project).render_dir
+    render.mkdir(parents=True, exist_ok=True)
+    made = render / "final.mp4"
+    made.write_bytes(b"not really an mp4, but bytes are bytes")
+    _write_render_log(project, made)
+
+    status, headers, body = _get(f"{server}/api/output")
+    assert status == 200
+    assert body == made.read_bytes()
+    assert headers["Accept-Ranges"] == "bytes"
+
+    status, headers, body = _get(f"{server}/api/output", headers={"Range": "bytes=0-3"})
+    assert status == 206
+    assert body == b"not "
+    assert headers["Content-Range"].endswith(f"/{made.stat().st_size}")
+
+
+def test_output_refuses_a_log_line_naming_a_file_outside_the_project(
+    project: Path, server: str
+) -> None:
+    """lucid writes this log itself, which is exactly the argument for not
+    trusting it: one hand-edited line should not turn a loopback server into
+    a file server for the whole disk.
+    """
+    outside = project.parent / "secret.txt"
+    outside.write_text("not part of any project", encoding="utf-8")
+    _write_render_log(project, outside)
+
+    status, payload = _json(f"{server}/api/output")
+    assert status == 400
+    assert "inside this project" in payload["error"]
+
+
+def test_output_refuses_a_render_deleted_after_its_run(project: Path, server: str) -> None:
+    render = Project.open(project).render_dir
+    render.mkdir(parents=True, exist_ok=True)
+    gone = render / "deleted.mp4"
+    _write_render_log(project, gone)
+
+    status, payload = _json(f"{server}/api/output")
+    assert status == 400
+    assert "no longer on disk" in payload["error"]
+
+
+def test_finish_report_names_the_last_render_for_the_page(project: Path, server: str) -> None:
+    render = Project.open(project).render_dir
+    render.mkdir(parents=True, exist_ok=True)
+    made = render / "final.mp4"
+    made.write_bytes(b"bytes")
+    _write_render_log(project, made)
+
+    status, payload = _json(f"{server}/api/finish")
+    assert status == 200
+    assert payload["last_render"]["name"] == "final.mp4"
+    assert payload["last_render"]["exists"] is True
 
 
 def test_reframe_tile_serves_a_real_tile(project: Path, server: str) -> None:

@@ -2051,6 +2051,31 @@ textarea {
   gap: 8px;
 }
 
+/* The last render, named and (on request) played. The <video> is capped to
+ * the pane rather than the file's own size: a 1920-wide render would
+ * otherwise widen the whole column and push the page into a sideways
+ * scroll, which is the one layout fault this workspace keeps measuring for
+ * (HISTORY.md § The web UI review). */
+.finish-output {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.finish-output-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.finish-output video {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+}
+
 /* -- frame view (frame.js, Studio reshape step 03) --------------------- *
  * The #finish-view precedent exactly: same grid slot (rows 3-4), same
  * flex-column-with-scroll shell. See that rule's own comment for why the

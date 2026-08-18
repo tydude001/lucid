@@ -2568,6 +2568,16 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
     a measured zero: a consumer can tell "not measured" from "nothing
     stale", and no framing flag is raised either way.
 
+    `last_render` is the render log's own last `output`, its basename, its
+    timestamp, and whether that file is still on disk — `None` when nothing
+    has ever rendered here. It is what `GET /api/output` streams and what the
+    Finish pane offers to play: the window rebuilds the picture live and
+    never reads `renders/`, so before this the Export button wrote a file the
+    page could not open or even name (PLAN.md § Should the workspace play its
+    own output?). This answers only the narrow half of that question — *the
+    file this flow just made* — and deliberately not the general one: there
+    is no listing of `renders/` here and no way to name a different file.
+
     `worst_offset` is not composed in at all: it only exists on a
     `reframe_sheet(extremes=True)` row, an opt-in job this function cannot
     block on and cannot read a stale answer for (`cache/sheets` is wiped
@@ -2620,6 +2630,23 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
         else:
             burned = "no"
     captions_section = {"configured": configured, "font": font, "burned": burned}
+
+    # The file the last pipeline run produced, so a caller can say what the
+    # window just made — and, behind `GET /api/output`, play it. `exists` is
+    # measured rather than assumed: the log records what a run wrote, and a
+    # render deleted afterwards would otherwise be offered as watchable.
+    # `None` with no log at all, which is the same "nobody has rendered here"
+    # that leaves `burned` unknown.
+    if run is None:
+        last_render_section: dict[str, Any] | None = None
+    else:
+        out_path = Path(str(run.get("output") or ""))
+        last_render_section = {
+            "output": str(out_path),
+            "name": out_path.name,
+            "exists": out_path.is_file(),
+            "timestamp": run.get("timestamp"),
+        }
 
     view = timeline_view(path)
     cues = cue_ls(path)
@@ -2791,6 +2818,7 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
         "marks": marks_section,
         "seams": seams_section,
         "framing": framing_section,
+        "last_render": last_render_section,
         "flags": {"count": len(flags), "items": flags},
     }
 

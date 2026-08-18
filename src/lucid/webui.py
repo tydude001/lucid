@@ -1574,6 +1574,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(
                     ops.finish_report(str(self.project_root), framing=want_framing)
                 )
+            elif path == "/api/output":
+                self._send_last_render(head_only=head_only)
             elif path == "/api/reframe/coverage":
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
@@ -1780,6 +1782,50 @@ class Handler(BaseHTTPRequestHandler):
         if not target.is_file():
             raise WebUIError(f"no such tile: {name}")
         self._stream_file(target, head_only=head_only)
+
+    def _send_last_render(self, *, head_only: bool) -> None:
+        """`GET /api/output` — stream the file the last pipeline run produced.
+
+        The window rebuilds the picture live from the cue table and never
+        reads `renders/`, so Export wrote a file the page could not open,
+        name, or say anything about (PLAN.md § Should the workspace play its
+        own output?). This is the narrow answer: the *one* file the render
+        log's last run recorded, resolved through `renderlog.last` — never a
+        listing of `renders/`, and never a path the client gets to name.
+
+        **Not a third caller of `media.preview_path()`.** A render is not a
+        preview and must never be resolvable as one, which is the whole point
+        of that split (CLAUDE.md § The preview proxy) — this resolves through
+        the render log and streams the file directly, the way
+        `_send_reframe_tile` resolves through `cache/sheets`.
+
+        The confinement is not ceremony even though lucid writes the log
+        itself: a loopback server that streams whatever absolute path a JSON
+        file happens to name is a file server, and one hand-edited line
+        should not turn this into one. So the resolved path has to sit inside
+        the project directory, and `exists` is re-checked here rather than
+        trusted from the report — a render deleted after its run leaves a log
+        line that still names it.
+        """
+        project = Project.open(self.project_root)
+        run = renderlog.last(project)
+        if run is None:
+            raise WebUIError(
+                "nothing has been rendered from this project yet — Finish → Render writes one"
+            )
+        named = str(run.get("output") or "")
+        if not named:
+            raise WebUIError("the last render recorded no output path")
+        target = Path(named)
+        root = project.root.resolve()
+        try:
+            resolved = target.resolve()
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            raise WebUIError(f"the last render's output is not inside this project: {named}") from None
+        if not resolved.is_file():
+            raise WebUIError(f"the last render's output is no longer on disk: {named}")
+        self._stream_file(resolved, head_only=head_only)
 
     @staticmethod
     def _int_query(raw: str | None, name: str) -> int | None:

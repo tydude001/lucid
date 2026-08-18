@@ -270,6 +270,11 @@
       </label>
       <button id="finish-render" class="primary">Render</button>
       <div id="finish-report" class="finish-report"></div>
+      <!-- The last render, playable. `finish.js` fills this in; the <video>
+           it builds points at /api/output, which streams the render log's
+           own last output and nothing else. Empty (and silent) when nothing
+           has been rendered here. -->
+      <div id="finish-output" class="finish-output"></div>
     </section>
 
     <!-- Studio reshape step 03 (STUDIO.md): the Frame view — `frame.js`

@@ -884,6 +884,7 @@ def test_finish_report_subcommand_emits_json(
         "marks",
         "seams",
         "framing",
+        "last_render",
         "flags",
     }
 

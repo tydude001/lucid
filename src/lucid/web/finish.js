@@ -158,6 +158,41 @@ function renderManifest() {
   for (const line of lines) box.append(el("div", null, line));
 }
 
+/* -- the last render, playable ---------------------------------------------- */
+
+// The window plays the project, not the file — it rebuilds the picture live
+// from the cue table and never reads `renders/`. That left Export writing
+// something the page could not open or even name, which reads as "nothing
+// happened" (PLAN.md § Should the workspace play its own output?). This says
+// what the last run produced and, on request, plays it from /api/output.
+// It never lists `renders/` and never lets the page name a file: the route
+// resolves the render log's own last output, so what plays here is exactly
+// what the report above describes.
+function renderLastOutput() {
+  const box = $("finish-output");
+  if (!box) return;
+  box.textContent = "";
+  const last = lastFinish && lastFinish.last_render;
+  if (!last) return;
+  if (!last.exists) {
+    box.append(el("div", "warn", `last render: ${last.name} — no longer on disk`));
+    return;
+  }
+  const line = el("div", "finish-output-line", `last render: ${last.name} `);
+  const watch = el("button", null, "Watch");
+  watch.addEventListener("click", () => {
+    if (box.querySelector("video")) return;
+    const video = el("video");
+    video.controls = true;
+    video.preload = "metadata";
+    video.src = "/api/output";
+    box.append(video);
+    watch.disabled = true;
+  });
+  line.append(watch);
+  box.append(line);
+}
+
 /* -- the burn checkbox ------------------------------------------------------ */
 
 function applyBurnDefault(bundle) {
@@ -173,6 +208,7 @@ function renderBundle(bundle) {
   lastFinish = bundle;
   renderPresets(bundle);
   renderManifest();
+  renderLastOutput();
   applyBurnDefault(bundle);
   if (ctx) ctx.emit("finish-report", bundle);
 }
