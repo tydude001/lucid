@@ -3740,6 +3740,11 @@ precedent — a survivable cost, not a new kind of one.
    `fade`). Likely the same shape, not measured here — out of scope for a
    note whose job was the addressing and render questions, not the full
    feature.
+   - **Settled and built 2026-08-18, by measurement — and "likely the same
+     shape" was wrong in the detail that renders**: a `volume` filter's
+     `level` keyframes are dB, not gain factors, and entry-relative, so the
+     fades ride the bed's own entry and end where the music audibly ends.
+     HISTORY.md § The A2 fades and the lane, drawn.
 
 **Approved and built 2026-08-18** — to the five-step order below, verified
 against a real melt render read back by the probe's own Goertzel scripts;

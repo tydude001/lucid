@@ -175,7 +175,7 @@
  *                             independent scrollers
  *   .ruler / .ruler-tick / .ruler-label
  *   .lane                     one lane's row; modifiers .lane-v2 .lane-v1
- *                             .lane-a1 .lane-cc are cosmetic only — *which*
+ *                             .lane-a1 .lane-a2 .lane-cc are cosmetic only — *which*
  *                             lanes exist is a data question answered by the
  *                             view, never a lane `export` cannot produce
  *                             (CLAUDE.md / PLAN.md § The trap this section
@@ -191,8 +191,10 @@
  *                             has no V1 lane at all. .trim-handle-in / -out,
  *                             hidden until the block (or the handle itself)
  *                             is hovered
- *   .lane-refusal               why V2 has no shots to draw — the picture
+ *   .lane-refusal               why V2 (or A2) has nothing to draw — the
  *                             plan refused, and the message is the point
+ *   .music-block / .fade-ramp   the A2 bed's audible span, and its fade
+ *                             ramps (timeline.js's `buildMusicRow`)
  *   .filmstrip / .filmstrip img  V1/V2 thumbnails (timeline.js's
  *                             `buildFilmstrip`, `/api/thumb/<clip_id>`) —
  *                             fixed-width frames reading the block's OWN
@@ -451,6 +453,7 @@
   --clip-mint: light-dark(hsl(152 40% 85%), hsl(152 22% 26%));
   --clip-rose: light-dark(hsl(350 58% 89%), hsl(350 20% 33%));
   --clip-sand: light-dark(hsl(41 34% 88%), hsl(41 10% 24%));
+  --clip-peach: light-dark(hsl(24 52% 88%), hsl(24 18% 29%));
   --clip-ink: light-dark(hsl(48 14% 18%), hsl(48 20% 90%));
   --clip-edge: light-dark(hsl(42 12% 76% / 0.9), hsl(42 6% 30% / 0.9));
 
@@ -2448,6 +2451,34 @@ textarea {
    stay quieter than the picture and audio it describes. */
 .lane-cc {
   --clip-fill: var(--clip-sand);
+}
+
+/* A2 — the music bed, mixed under the edit (timeline.js `buildMusicRow`).
+   The block spans only the bed's audible stretch; the writer's silence
+   padding is drawn as nothing, because that is what silence is. */
+.lane-a2 {
+  --clip-fill: var(--clip-peach);
+}
+
+/* Fade ramps on the bed's own edges — the writer's frame counts scaled to
+   pixels, drawn as the lane's background washing over the block so the block
+   visibly rises out of (and sinks back into) silence. Tokens only: both ends
+   of the gradient are theme vars, so no JS ever reads a colour here. */
+.fade-ramp {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.fade-ramp-in {
+  left: 0;
+  background: linear-gradient(90deg, var(--sunken), transparent);
+}
+
+.fade-ramp-out {
+  right: 0;
+  background: linear-gradient(270deg, var(--sunken), transparent);
 }
 
 .clip-block {

@@ -9035,3 +9035,75 @@ start from 2.0s to 1.6s with no replanning and nothing re-derived.
 Not built, deliberately: the fades' rendering, and the web UI's A2 lane —
 the projection is there for it, and it lands with a change that can be
 driven in a real browser (`verify-live`), not alongside a model change.
+
+## The A2 fades and the lane, drawn — 2026-08-18
+
+The two things § The A2 music lane, built deliberately left: the recorded
+`fade_in`/`fade_out` now render, and the web UI draws an A2 lane. Both landed
+together because the lane's browser pass (`verify-live`) is what the fades'
+ramps get judged in.
+
+**The fade mechanism was probed before it was trusted, and the training
+prior was wrong in the way that renders.** A `volume` filter's `level`
+animation takes keyframe values in **dB, not gain factors** — keys of 0..1
+render as a 1 dB wiggle at exit 0, a fade that reads correct in the XML and
+does not exist in the audio. Its keyframe positions are **relative to the
+playlist entry the filter is attached to** (probed with a lead silence entry
+ahead of the bed), and `level=0` is exactly unity — the faded render's
+plateau sits at the no-filter control's own −33.12 dBFS. The dB ramp is
+also the right fade: linear-in-dB is the perceptually even one, and the
+legacy `gain`/`end` mechanism measured linear-in-amplitude (front-loaded)
+and needs two windowed filters where this needs one animation string.
+`~/lucid-a2-probe/fade_probe.py` and `fade_probe2.py` are the probes.
+
+The build follows from those three facts. `mlt.Entry` carries
+`fade_in_frames`/`fade_out_frames` (zero means no filter node at all, so a
+fade-free document is byte-identical to before fades existed — asserted);
+`_playlist` attaches one `volume` filter to the entry itself, which is what
+makes the fade land on the bed's own first and last *audible* frames however
+much silence pads the lane — a fade-out ends where the music ends, not where
+the film does. Every animation string states both edges explicitly, because
+how MLT extrapolates past a final keyframe was not measured. `_music_plan`
+converts the stored seconds to frames on the export grid and **refuses a
+pair that outgrows the bed's audible span** — a cut upstream can shrink the
+bed under fades that used to fit, and that is a decision point ("shorten the
+fades, or move the bed's boundary words"), never a quiet clamp. The refusal
+reaches `timeline_view` as `music_error` and `export` by name, and the
+export reply now carries `fade_in_frames`/`fade_out_frames` beside the
+stored seconds — the fade the render carries, not the one the manifest asked
+for.
+
+Verified on a real render, not the document: 1s fades on `~/lucid-a2-build`
+(the bed starting at 1.6s after its 0.4s cut), rendered through real melt
+and Goertzel-read at the bed's own 1200 Hz — noise floor to 1.6s, a
+linear-in-dB ramp to −34.88 over 1.6–2.6s, plateau at −33.11 against the
+probe control's −33.12, and the fade-out ending at **4.6s, the bed's audible
+end, not the film's 5.6s** — entry-attachment proven end to end.
+
+**The A2 lane draws `state.music` — the projection already through
+`_music_plan` — and nothing else**, the picture lane's own rule: the block
+is the bed the render will mix. It spans only the audible stretch (the
+writer's silence padding draws as lane background, because that is what
+silence is), its fade ramps are the writer's frame counts scaled to pixels,
+and clicking it inspects the bed's start word. On `music_error` the lane
+draws the message across itself, `shots_error`'s policy — a bed a cut
+orphaned, or fades a cut shrank the bed under, is a thing worth walking
+into the window to find. No bed, no lane. Seconds are derived from the
+span's own frame ratio rather than a rate the view does not send, so no
+second clock enters the file.
+
+The browser pass, driven over CDP at 0ms *and* ~120ms dwell (the standing
+rule): lane geometry pixel-exact against the plan's own numbers (block at
+1.6s × 235 px/s = 376px, audible 3.0s = 705px, ramps 235px each), clicks
+hit-tested and seeking at both dwells with the inspector showing the bed's
+start word, the refusal rendered with its full named fix on the
+oversized-fades copy, zero console errors, no page-level overflow at
+700/1024/1400 (`body.scrollWidth == innerWidth` throughout), and both
+themes resolving the peach block and the ramp gradients to the lane's own
+background. Suite at 1440 passed, melt-rendering stdio tests included.
+
+Not built, deliberately: the preview still does not *play* the bed — audio
+mixing in the browser is its own decision, and the lane's job was to show
+what the render mixes. The tail's video dissolve (`tail.fade`) is a separate
+deferral and still stands: it is a picture transition, a new writer concept,
+and nothing here touched it.

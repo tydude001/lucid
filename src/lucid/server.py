@@ -1346,9 +1346,11 @@ def music(
     is in force; first set needs `asset`, `clip_id` and `word_index_start`
     together, either alone after that updates its own field. `clear_end`
     drops the end word back to "to the end"; `reset` drops the bed entirely.
-    `fade_in`/`fade_out` are recorded and echoed but not yet drawn. `plan`
-    resolves and validates without writing. Both word indices are echoed with
-    their resolved words and neighbours — check them.
+    `fade_in`/`fade_out` are seconds of fade drawn over the bed's audible
+    span — a fade-out ends where the music actually ends, and a pair that
+    outgrows the bed refuses at build time. `plan` resolves and validates
+    without writing. Both word indices are echoed with their resolved words
+    and neighbours — check them.
     """
     return ops.music(
         path,

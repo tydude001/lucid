@@ -3137,6 +3137,8 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
                         "padded_frames",
                         "fade_in",
                         "fade_out",
+                        "fade_in_frames",
+                        "fade_out_frames",
                     )
                 }
         except (ProjectError, tx.TranscriptError) as exc:
@@ -7339,8 +7341,9 @@ def vo_extend(
 #: unlike a tail's `seconds`, which is safe only because nothing is upstream
 #: of the end). `word_index_end` absent means "to the end of the timeline" —
 #: the hold HISTORY.md § The three served answers settled on, made the
-#: default. `fade_in`/`fade_out` are recorded and echoed but **not yet
-#: drawn**, `tail`'s own `fade` precedent.
+#: default. `fade_in`/`fade_out` are drawn as one entry-attached `volume`
+#: filter over the bed's audible frames (`mlt._fade_level`) — dB keyframes,
+#: measured, HISTORY.md § The A2 fades.
 MUSIC_KEY = "music"
 
 
@@ -7421,9 +7424,12 @@ def music(
     `Edit` does and the end card holds over silence — a cue addresses moments
     inside the film, the same reason a tail is not a cue.
 
-    `fade_in`/`fade_out` are recorded and echoed but **not yet drawn** —
-    `tail.fade`'s precedent, spent later without a second manifest key.
-    `plan` resolves and validates without writing.
+    `fade_in`/`fade_out` are seconds of fade drawn over the bed's *audible*
+    span — entry-attached in the writer, so a fade-out ends where the music
+    actually ends, before any trail silence — and a pair that outgrows the
+    bed refuses at build time (a cut upstream can shrink the bed under
+    them), reported as `music_error` in `timeline_view` and by name from
+    `export`. `plan` resolves and validates without writing.
     """
     if reset and any(
         value is not None
@@ -7595,6 +7601,24 @@ def _music_plan(
         )
     available = round(float(duration) * rate)
     span_frames = end_frame - start_frame
+    music_frames = min(span_frames, available)
+
+    # The fades are drawn over the bed's *audible* frames — entry-attached,
+    # so a fade-out ends where the music actually ends, before any trail
+    # silence — and a pair that no longer fits refuses here rather than in
+    # the writer, so `timeline_view` reports it as `music_error` and `export`
+    # refuses by name. A cut can shrink the bed under fades that used to fit;
+    # that is a real decision point, not something to clamp quietly.
+    fade_in_frames = round(stored["fade_in"] * rate)
+    fade_out_frames = round(stored["fade_out"] * rate)
+    if fade_in_frames + fade_out_frames > max(music_frames - 1, 0):
+        raise ProjectError(
+            f"the music fades ({stored['fade_in']:g}s + {stored['fade_out']:g}s) "
+            f"do not fit inside the bed's audible {music_frames / rate:.3f}s — "
+            "shorten the fades, or move the bed's boundary words to lengthen "
+            "it (music, or CLI `lucid music`)"
+        )
+
     return {
         **stored,
         "asset_path": str(media.media_path(project, clip)),
@@ -7607,8 +7631,13 @@ def _music_plan(
         # runs short the lane pads out with real silence instead, and both are
         # by construction rather than melt's un-checked padding (the note's
         # resolution (b)).
-        "music_frames": min(span_frames, available),
+        "music_frames": music_frames,
         "padded_frames": max(0, span_frames - available),
+        # What the writer will actually draw, in its own units, so the reply
+        # and the view state the fade the render carries rather than the one
+        # the manifest asked for.
+        "fade_in_frames": fade_in_frames,
+        "fade_out_frames": fade_out_frames,
     }
 
 
@@ -7742,7 +7771,16 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             lead_silence = _tail_silence(project, lead / rate)
             music_lane.append(mlt.Entry(str(lead_silence), 0, lead, is_image=False, has_video=False))
         music_lane.append(
-            mlt.Entry(music_plan["asset_path"], 0, music_plan["music_frames"], has_video=False)
+            mlt.Entry(
+                music_plan["asset_path"],
+                0,
+                music_plan["music_frames"],
+                has_video=False,
+                # Entry-attached, so the fades land on the bed's own first
+                # and last audible frames however much silence pads the lane.
+                fade_in_frames=music_plan["fade_in_frames"],
+                fade_out_frames=music_plan["fade_out_frames"],
+            )
         )
         trail = total_frames - lead - music_plan["music_frames"]
         if trail:
@@ -7766,6 +7804,8 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
                 "padded_frames",
                 "fade_in",
                 "fade_out",
+                "fade_in_frames",
+                "fade_out_frames",
             )
         }
 

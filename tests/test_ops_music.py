@@ -359,3 +359,61 @@ def test_timeline_view_reports_an_unresolvable_bed_as_music_error(project: Proje
     assert view["music"] is None
     assert "first" in view["music_error"]
     assert view["segments"], "the rest of the view still renders"
+
+
+# -- the fades ----------------------------------------------------------------
+
+
+def test_fade_frames_are_derived_on_the_export_rate(project: Project) -> None:
+    """Seconds in the manifest, frames in the plan — converted here, once,
+    on the same grid the writer builds at."""
+    ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1,
+        fade_in=0.5, fade_out=1.0,
+    )
+    edit = ops._load_edit(project)
+
+    plan = ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+    assert plan["fade_in_frames"] == round(0.5 * RATE)
+    assert plan["fade_out_frames"] == round(1.0 * RATE)
+
+
+def test_fades_that_outgrow_the_bed_refuse_with_the_fix_named(project: Project) -> None:
+    """A cut upstream can shrink the bed under fades that used to fit — a
+    decision point, never a quiet clamp. The bed is 2.0s of asset here, so
+    1.5 + 1.0 of fade cannot fit its audible span."""
+    ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1,
+        fade_in=1.5, fade_out=1.0,
+    )
+    edit = ops._load_edit(project)
+
+    with pytest.raises(ProjectError, match="shorten the fades"):
+        ops._music_plan(project, edit, RATE, edit_frames=_edit_frames(edit))
+
+
+def test_timeline_view_carries_the_fade_frames(project: Project) -> None:
+    """The view states the fade the render will carry (writer units), beside
+    the seconds the manifest asked for — the lane draws from these."""
+    ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1,
+        fade_in=0.5, fade_out=0.5,
+    )
+    view = ops.timeline_view(project.root)
+
+    assert view["music"]["fade_in"] == pytest.approx(0.5)
+    assert view["music"]["fade_in_frames"] == round(0.5 * RATE)
+    assert view["music"]["fade_out_frames"] == round(0.5 * RATE)
+
+
+def test_oversized_fades_surface_as_music_error_not_an_exception(project: Project) -> None:
+    ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1,
+        fade_in=1.5, fade_out=1.0,
+    )
+    view = ops.timeline_view(project.root)
+
+    assert view["music"] is None
+    assert "shorten the fades" in view["music_error"]
+    assert view["segments"], "the rest of the view still renders"

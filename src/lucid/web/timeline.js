@@ -31,6 +31,15 @@
  * a stale cue is exactly the thing a person opens this window to find, so
  * the lane says so rather than quietly disappearing.
  *
+ * **A2 is the music bed's lane, legal since the render carried a bed**
+ * (PLAN.md § The A2 music lane, step 5): it is drawn from `state.music` and
+ * nothing else — `ops._music_plan`'s answer, the same derivation `export`
+ * builds its lane from, so the block here is the bed the render will mix
+ * (start, audible length, fades) rather than the manifest's ask. When the
+ * plan refuses — an orphaned boundary word, fades a cut shrank the bed
+ * under — the view sends `music_error` and the lane draws the message,
+ * `shots_error`'s policy exactly. No bed, no lane.
+ *
  * One honest asymmetry to expect: V2 runs on `export`'s frame grid
  * (`state.shots_rate`) while the ruler runs on the edit's own seconds, so
  * the last shot can end a fraction of a frame past the ruler — 411.077s of
@@ -507,6 +516,75 @@ function buildPictureRow(state, pxPerSec, duration) {
     });
     row.append(block);
   });
+
+  seekOnClick(row, pxPerSec);
+  return row;
+}
+
+/** A2 — the music bed's lane, drawn from `state.music` and nothing else.
+ *
+ * `state.music` is the resolved bed (`ops._music_plan`), the derivation
+ * `export` builds its lane from — so the block is what the render mixes:
+ * it spans the bed's *audible* stretch, which ends where the asset runs out
+ * (`padded_frames`), not where the manifest's span does, and the fade ramps
+ * are the writer's own frame counts scaled to seconds. The rest of the lane
+ * is the silence the writer pads with — drawn as lane background, because
+ * that is what silence is. On `music_error` this draws the message across
+ * the lane instead (`shots_error`'s policy): a bed a cut orphaned, or fades
+ * a cut shrank the bed under, is a thing worth walking into this window to
+ * find.
+ */
+function buildMusicRow(state, pxPerSec, duration) {
+  const row = el("div", "lane lane-a2");
+  row.style.width = `${Math.max(1, duration * pxPerSec)}px`;
+
+  if (state.music_error) {
+    row.append(el("div", "lane-refusal", `music refused — ${state.music_error}`));
+    seekOnClick(row, pxPerSec);
+    return row;
+  }
+
+  const music = state.music;
+  const span = music.timeline_end - music.timeline_start;
+  const spanFrames = music.music_frames + music.padded_frames;
+  // Frames → seconds through the span's own ratio rather than a rate the
+  // view does not send: the two counts were built on one grid, so the
+  // fraction is exact and no second clock enters this file.
+  const secondsPerFrame = spanFrames ? span / spanFrames : 0;
+  const audible = music.music_frames * secondsPerFrame;
+
+  const block = el("div", "clip-block music-block");
+  block.style.left = `${(music.timeline_start * pxPerSec).toFixed(1)}px`;
+  block.style.width = `${Math.max(1, audible * pxPerSec).toFixed(1)}px`;
+  const fades = [];
+  if (music.fade_in) fades.push(`fade in ${music.fade_in}s`);
+  if (music.fade_out) fades.push(`fade out ${music.fade_out}s`);
+  block.title = [
+    `music: ${music.asset} — mixed under the edit`,
+    `plays ${fmt(music.timeline_start)}–${fmt(music.timeline_start + audible)}`
+      + (music.padded_frames ? ` (the asset ends there; silence pads to ${fmt(music.timeline_end)})` : ""),
+    music.to_end
+      ? "no end word — the bed runs to the end of the timeline"
+      : `cue: ${music.clip_id} words ${music.word_index_start}–${music.word_index_end}`,
+    ...fades,
+  ].join("\n");
+  if (music.fade_in_frames) {
+    const ramp = el("div", "fade-ramp fade-ramp-in");
+    ramp.style.width = `${(music.fade_in_frames * secondsPerFrame * pxPerSec).toFixed(1)}px`;
+    block.append(ramp);
+  }
+  if (music.fade_out_frames) {
+    const ramp = el("div", "fade-ramp fade-ramp-out");
+    ramp.style.width = `${(music.fade_out_frames * secondsPerFrame * pxPerSec).toFixed(1)}px`;
+    block.append(ramp);
+  }
+  block.append(el("span", "clip-label", music.asset));
+  // Target-phase, like a shot block: clicking the bed inspects its start
+  // word, so the cue that placed it is one click from the thing it placed.
+  block.addEventListener("click", () => {
+    if (ctx) ctx.emit("inspect-word", { clipId: music.clip_id, wordIndex: music.word_index_start });
+  });
+  row.append(block);
 
   seekOnClick(row, pxPerSec);
   return row;
@@ -1508,20 +1586,24 @@ function render() {
   if (state.shots || state.shots_error) kinds.push("V2"); // topmost: the picture sits over the edit's own track
   if (clip.has_video) kinds.push("V1");
   kinds.push("A1"); // always — the recording has audio even for a picture clip
+  if (state.music || state.music_error) kinds.push("A2"); // only with a bed recorded — never a lane `export` does not mix
   if (state.words && state.words.length) kinds.push("CC"); // captions come out of the timeline (CLAUDE.md) — any transcript is enough to try
 
   const waveformDraws = [];
   for (const kind of kinds) {
     let note;
     if (kind === "V2") note = "the cue table's picture, over the edit";
+    if (kind === "A2") note = "the music bed, mixed under the edit";
     if (kind === "CC") note = "one block per cue, as the .ass will break them";
     headers.append(header(kind, note));
     const row =
       kind === "V2"
         ? buildPictureRow(state, pxPerSec, duration)
-        : kind === "CC"
-          ? buildCaptionRow(captions, pxPerSec, duration)
-          : buildLaneRow(kind, state.segments, pxPerSec, duration, state, kind === "V1");
+        : kind === "A2"
+          ? buildMusicRow(state, pxPerSec, duration)
+          : kind === "CC"
+            ? buildCaptionRow(captions, pxPerSec, duration)
+            : buildLaneRow(kind, state.segments, pxPerSec, duration, state, kind === "V1");
     if (kind === "A1") {
       const canvas = el("canvas", "waveform-canvas");
       // The blocks underneath still carry hover/title/hit-testing; letting

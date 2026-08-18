@@ -815,10 +815,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="word index the bed runs through — omit for a single pass to the end of the timeline",
     )
     p_music.add_argument(
-        "--fade-in", type=float, help="recorded and echoed but not yet drawn"
+        "--fade-in", type=float, help="seconds of fade drawn over the bed's audible start"
     )
     p_music.add_argument(
-        "--fade-out", type=float, help="recorded and echoed but not yet drawn"
+        "--fade-out", type=float, help="seconds of fade ending where the music audibly ends"
     )
     p_music.add_argument(
         "--clear-end",

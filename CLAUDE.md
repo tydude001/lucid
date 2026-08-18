@@ -383,10 +383,19 @@ installed package or the upstream repo, not your memory.
     auto-editor renders with no music at exit 0, invisible to every check
     but listening; the export reply's `music` field is where a caller sees
     the render carried it, and `timeline_view`'s `music`/`music_error` is
-    what a front end gates any A2 lane on. `reel` drops the bed and names it
+    what the web UI's A2 lane gates on (`timeline.js` `buildMusicRow` — no
+    bed, no lane). `reel` drops the bed and names it
     (`music_dropped`) — the tail's rule, because a bed re-opened from its
     head mid-film is the `cues_pinned` shape with no pin to give it.
     HISTORY.md § The A2 music lane, built.
+    - **A `volume` filter's `level` keyframes are dB, positioned relative to
+      the entry the filter is attached to — never gain factors.** Keys of
+      0..1 render as a 1 dB wiggle at exit 0: a fade correct in the XML and
+      absent from the audio. `level=0` is exactly unity. Both measured
+      (`~/lucid-a2-probe/fade_probe.py`); the fades ride the bed's entry so
+      a fade-out ends where the music *audibly* ends, and a fade pair the
+      bed cannot hold refuses at `_music_plan` ("shorten the fades"), never
+      clamps. HISTORY.md § The A2 fades and the lane, drawn.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

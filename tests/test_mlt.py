@@ -1109,3 +1109,71 @@ def test_a_document_without_music_is_byte_identical_to_before_the_lane_existed()
     with_empty = mlt.to_string(mlt.document(audio=_audio(120), music=[], rate=RATE))
     assert plain == with_none == with_empty
     assert "tractorA" not in plain and "playlist8" not in plain
+
+# -- the A2 fades: one entry-attached volume filter, dB keyframes ------------
+
+
+def test_a_fade_is_one_entry_attached_volume_filter_with_db_keyframes() -> None:
+    """Both facts here were measured, not recalled (`mlt.FADE_FLOOR_DB`):
+    `level` keyframe values are dB — gain-factor keys 0..1 render as a 1 dB
+    wiggle at exit 0 — and positions are relative to the entry the filter is
+    attached to, so the fade lands on the bed's own audible frames however
+    much silence pads the lane."""
+    bed = mlt.Entry("/media/bed.wav", 0, 120, fade_in_frames=30, fade_out_frames=30)
+    document = mlt.document(audio=_audio(120), music=[bed], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist8")
+    filters = playlist.findall("entry/filter")
+    assert len(filters) == 1
+    service = filters[0].find("property[@name='mlt_service']")
+    level = filters[0].find("property[@name='level']")
+    assert service is not None and service.text == "volume"
+    assert level is not None and level.text == "0=-60;30=0;89=0;119=-60"
+
+
+def test_a_one_sided_fade_states_the_other_edge_explicitly() -> None:
+    """Nothing relies on how MLT extrapolates past a final keyframe — the
+    probe did not measure it, so the animation string always pins both ends."""
+    fade_in_only = mlt.Entry("/media/bed.wav", 0, 120, fade_in_frames=30)
+    document = mlt.document(audio=_audio(120), music=[fade_in_only], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist8")
+    assert playlist.find("entry/filter/property[@name='level']").text == "0=-60;30=0;119=0"
+
+    fade_out_only = mlt.Entry("/media/bed.wav", 0, 120, fade_out_frames=30)
+    document = mlt.document(audio=_audio(120), music=[fade_out_only], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist8")
+    assert playlist.find("entry/filter/property[@name='level']").text == "0=0;89=0;119=-60"
+
+
+def test_the_fade_rides_the_bed_entry_never_the_silence_beside_it() -> None:
+    """Entry-attached is the whole point: lead/trail silence on the same lane
+    gets no filter, so the fade-out ends where the music audibly ends."""
+    lead = mlt.Entry("/media/sil.wav", 0, 30)
+    bed = mlt.Entry("/media/bed.wav", 0, 60, fade_in_frames=15, fade_out_frames=15)
+    trail = mlt.Entry("/media/sil2.wav", 0, 30)
+    document = mlt.document(audio=_audio(120), music=[lead, bed, trail], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist8")
+    entries = playlist.findall("entry")
+    assert [len(e.findall("filter")) for e in entries] == [0, 1, 0]
+    assert entries[1].find("filter/property[@name='level']").text == "0=-60;15=0;44=0;59=-60"
+
+
+def test_fades_that_do_not_fit_the_entry_are_refused() -> None:
+    with pytest.raises(mlt.MLTError, match="do not fit inside the 120 frames"):
+        mlt.document(
+            audio=_audio(120),
+            music=[mlt.Entry("/media/bed.wav", 0, 120, fade_in_frames=90, fade_out_frames=60)],
+            rate=RATE,
+        )
+    with pytest.raises(mlt.MLTError, match="negative fade"):
+        mlt.document(
+            audio=_audio(120),
+            music=[mlt.Entry("/media/bed.wav", 0, 120, fade_in_frames=-1)],
+            rate=RATE,
+        )
+
+
+def test_a_fade_free_bed_is_byte_identical_to_before_fades_existed() -> None:
+    """`fade_*_frames=0` emits no filter node at all — the no-fade document
+    cannot move, the same rule the no-music document already lives under."""
+    document = mlt.document(audio=_audio(120), music=_music(120), rate=RATE)
+    assert "<filter" not in mlt.to_string(document)

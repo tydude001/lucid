@@ -106,6 +106,12 @@ class Entry:
     frames: int
     is_image: bool = False
     has_video: bool = False
+    #: Audio fade lengths in frames, drawn as one entry-attached `volume`
+    #: filter (`_playlist`). Zero means no filter at all, which is what keeps
+    #: every fade-free document byte-identical to before fades existed. Only
+    #: the music lane sets these today; the mechanism is generic.
+    fade_in_frames: int = 0
+    fade_out_frames: int = 0
 
     @property
     def src_out(self) -> int:
@@ -696,16 +702,54 @@ def _source_node(node_id: str, entry: Entry, bin_id: int, rate: float) -> ET.Ele
     return node
 
 
+#: Where a fade starts and ends, in dB. Not silence — but the render's own
+#: edge sample sits 60 dB under the bed's level, which is under any noise
+#: floor this pipeline meets, and the dB ramp is the perceptually even fade.
+#: Both facts measured, not recalled: `level`'s keyframe VALUES are dB
+#: (gain-factor keys 0..1 rendered as a 1 dB wiggle at exit 0 — the silent
+#: wrong answer), its POSITIONS are relative to the entry the filter is
+#: attached to (probed with a lead entry ahead of it), and `level=0` is
+#: exactly unity (plateau at the no-filter control's own -33.12 dBFS).
+#: `~/lucid-a2-probe/fade_probe.py`, HISTORY.md § The A2 fades.
+FADE_FLOOR_DB = -60
+
+
+def _fade_level(entry: Entry) -> str:
+    """The `volume` filter's animation string for this entry's fades.
+
+    Every edge is stated explicitly — the head key when only fading out, the
+    tail key when only fading in — so nothing relies on how MLT extrapolates
+    past a final keyframe, which the probe did not measure.
+    """
+    last = entry.frames - 1
+    keys: list[tuple[int, int]] = []
+    if entry.fade_in_frames:
+        keys += [(0, FADE_FLOOR_DB), (entry.fade_in_frames, 0)]
+    else:
+        keys += [(0, 0)]
+    if entry.fade_out_frames:
+        keys += [(last - entry.fade_out_frames, 0), (last, FADE_FLOOR_DB)]
+    else:
+        keys += [(last, 0)]
+    return ";".join(f"{frame}={level}" for frame, level in keys)
+
+
 def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> ET.Element:
     """One track's entries, laid end to end.
 
     No `<blank>` is emitted, ever — see this module's docstring. The entries
     are contiguous because the caller has already been refused if they were
     not, so a gap cannot arrive here to be papered over.
+
+    An entry carrying fades gets one `volume` filter attached to the entry
+    itself — keyframe positions are relative to the entry (measured, see
+    `FADE_FLOOR_DB`), which is what makes the fade land on the bed's own
+    first and last audible frames however much silence sits beside it on
+    the lane.
     """
     playlist = ET.Element("playlist", {"id": playlist_id})
-    for entry in entries:
-        ET.SubElement(
+    for index, entry in enumerate(entries):
+        node = ET.SubElement(
             playlist,
             "entry",
             {
@@ -714,6 +758,10 @@ def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> 
                 "out": str(entry.src_out),
             },
         )
+        if entry.fade_in_frames or entry.fade_out_frames:
+            filt = ET.SubElement(node, "filter", {"id": f"{playlist_id}fade{index}"})
+            _property(filt, "mlt_service", "volume")
+            _property(filt, "level", _fade_level(entry))
     return playlist
 
 
@@ -895,6 +943,16 @@ def document(
             raise MLTError(
                 f"the music lane holds a still ({wrong[0]!r}) — a held frame has "
                 "no sound to mix, so a card can never be a music entry"
+            )
+    for entry in [*audio, *picture, *music]:
+        if entry.fade_in_frames < 0 or entry.fade_out_frames < 0:
+            raise MLTError(f"negative fade frames on {entry.resource!r}")
+        if entry.fade_in_frames + entry.fade_out_frames > max(entry.frames - 1, 0):
+            raise MLTError(
+                f"fades of {entry.fade_in_frames}+{entry.fade_out_frames} frames "
+                f"do not fit inside the {entry.frames} frames of "
+                f"{entry.resource!r} — the caller sizes fades to the audible "
+                "span before they reach the writer"
             )
 
     root = ET.Element(
