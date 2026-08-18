@@ -8584,3 +8584,84 @@ cuts…" now, and clear to the real chip text only on the job's `done` event.
   `hidden`; no console errors.
 
 1367 passed, ruff clean (1343 before this step).
+
+## Home, and the come-back-later step — 2026-08-17
+
+STUDIO.md § Step 04, built. `lucid open [--root DIR | -C PATH]` binds an
+ephemeral port, prints the URL, then tries to open a window — in that order,
+because the second half is allowed to fail. Resolution is `$LUCID_BROWSER`
+(taken literally, no existence check), then a chromium-family binary on PATH
+(`_APP_BROWSER_BINS`, eleven names), then a chromium-family flatpak if
+`flatpak` itself is on PATH (`_APP_BROWSER_FLATPAKS`, probed with `flatpak
+info`). On this box the first two tiers come up empty — nothing chromium is
+on PATH — so `com.google.Chrome` is what actually fires, every time, through
+the third. Finding nothing at either tier is not an error: the URL was
+already on stdout before `_launch_app` ran, which is the entire reason the
+print comes first rather than after a successful launch. Playwright's cached
+`chrome-headless-shell` sits on this same box and is deliberately not a
+fourth tier — it exists here only as a test fixture, and it cannot open a
+window at all, so resolving to it would hand `lucid open` a binary that runs,
+does nothing visible, and reports success.
+
+`cache/session.json` — playhead, zoom, timeline scroll, pane-expand, mode,
+selection — round-trips through `GET`/`POST /api/session`, debounced 800ms on
+top of a 2s comparison heartbeat in `app.js`, full-object replace, no merge.
+It is cache, so there is no schema bump, but the fact that matters is not
+"nothing bumped" — it is which two functions can't reach it. `_revision()`
+stats `project.otio`, the manifest, and `len(project.snapshots())`, full
+stop; `_session_set` writes only `session_path`, which is none of those
+three, by construction rather than by omission. A session POST is therefore
+mechanically invisible to `_revision`, the same fact `_agent_thumb` already
+established about `Project.thumbs_path`. There is a test
+(`test_session_post_does_not_bump_the_revision_or_fire_project_changed`)
+that opens the SSE stream, POSTs, and asserts nothing arrives within two poll
+cycles — but it is confirming a property the file's address already
+guarantees, not discovering one.
+
+Home grows cards off `scan_projects`'s existing per-entry payload — no second
+scan, three chips (`fmt(timeline_duration)`, `segments`, `clips`) each read
+straight off a field `_scan_one` already computed, plus the existing status
+badge. A poster is written exactly once, by `_ensure_poster` on a *bound*
+session's first `GET /api/view` — never on the picker's scan, never on a
+timer. It reaches into `view["shots"][0]` for `asset` (the shot's footage,
+never its addressing `clip_id` — the filmstrip trap, CLAUDE.md), calls
+`ops.thumbnail` unmodified, and `shutil.copy2`s the cached frame to the
+stable `cache/poster.jpg` name the picker serves. `media.preview_path()`'s
+caller list was grepped, not assumed, before and after: two callers,
+`ops.preview_source` and `webui._send_media`, same two as before this
+branch — a poster never goes near it, and the picker never binds a project
+to get one.
+
+### Verified in a browser, `--root` over three directories
+
+A good project, an init-but-unseeded one, and a symlink pointing outside the
+root.
+
+- The listing shows two cards. The unseeded project reports its own error
+  inline — "this project has no timeline yet — run `lucid seed <clip_id>`" —
+  without taking the good one down with it. The symlinked directory is not
+  listed at all: `scan_projects`'s own `is_symlink()` filter, upstream of
+  everything below it.
+- The good card's chips read `5:14.7 timeline · 63 segments · 10 clips ·
+  ready`, all four off the scan's own fields — nothing computed on the page.
+- `/api/poster?path=/etc` — 400. `/api/poster?path=<the symlink>` — 400,
+  same message as the outside-path case (`"not a project under"`), because
+  neither the symlinked path nor an arbitrary outside path is in the scan's
+  output; there is no separate symlink check to fool. A real project with no
+  poster yet — 400, "no poster ... yet", never a 500 and never a served
+  broken image.
+- Opening the good card binds and loads the full workspace, all three mode
+  tabs present.
+- Session restore across a real reload: a stored playhead of 120.0s puts the
+  playhead marker at 0.381 of the lane against the project's 314.728s
+  timeline — 120/314.728 = 0.3813 — with zoom (3) and mode restored beside
+  it.
+- A session POST left `/api/view`'s own revision unchanged.
+- Home is clean at 700/900/1200px — zero overflowing elements
+  (`body.scrollWidth === innerWidth` at all three); nothing drawn despite
+  `hidden`; no console errors.
+- `lucid open` given both `-C` and `--root` is refused before either binds a
+  socket, the message naming both: "open was given two ways to pick a
+  project: -C ... and --root ...".
+
+1384 passed, ruff clean (1367 before this step).

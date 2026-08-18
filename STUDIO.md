@@ -343,6 +343,8 @@ spinner forever).
 
 ## Step 04 — `lucid open`, Home, and session restore
 
+Shipped — see HISTORY.md § Home, and the come-back-later step.
+
 The "come back later" step. (Mockup screen 01.)
 
 ### Verify first
