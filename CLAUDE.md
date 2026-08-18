@@ -163,8 +163,11 @@ installed package or the upstream repo, not your memory.
   - **A browser pass driven at CDP's default zero dwell is not a pass** — a
     fix whose transition sits inside a real click's 60-150ms dwell reads green
     at 0ms and is dead at every real speed, which has already shipped here.
-    Drive every click at 0ms *and* ~120ms. The measurement and the mechanism:
-    wiki `tooling.md` § Headless browser. HISTORY.md § The dwell-timing lesson.
+    Drive every click at 0ms *and* ~120ms. The harness is
+    `.claude/skills/verify-live/` — dwell, hit-tested clicks, drags, viewport
+    overflow probes — rather than a fifth hand-rolled one. The measurement and
+    the mechanism: wiki `tooling.md` § Headless browser. HISTORY.md § The
+    dwell-timing lesson.
     - **So redraw only the node a gesture owns while it is live** — rebuilding
       the container the mousedown landed in removes its target, and Chrome
       then drops the trailing `click` with nothing thrown, which is how a lane
