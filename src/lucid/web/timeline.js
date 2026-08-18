@@ -1723,3 +1723,48 @@ export function update(state) {
   lastState = state;
   render();
 }
+
+// -- session restore accessors (STUDIO.md Step 04, contract § E) -----------
+//
+// Four small getters/setters, added for `app.js`'s session restore/save and
+// nothing else — no other caller exists yet. Each setter reuses the exact
+// path the UI control it mirrors already uses (the #zoom slider's own
+// `input` listener, above) rather than inventing a second redraw route.
+
+/** The #zoom slider's current multiplier — 1..10, whatever `#zoom`'s own
+ * `input` listener last set (or the slider's markup default before init()). */
+export function getZoom() {
+  return zoomMultiplier;
+}
+
+/** Sets the multiplier and re-renders, exactly like a person dragging the
+ * slider would — also moves `#zoom`'s own value so the widget agrees with
+ * what got restored, not just the internal state. */
+export function setZoom(v) {
+  zoomMultiplier = v;
+  const zoomInput = $("zoom");
+  if (zoomInput) zoomInput.value = v;
+  if (lastState) render();
+}
+
+/** `#track-lanes`'s raw `scrollLeft` — the element IS the state, there is no
+ * module variable to read (see `lastFollowScrollLeft`'s own comment above:
+ * that tracks a nudge, not the position). */
+export function getScrollLeft() {
+  const lanes = $("track-lanes");
+  return lanes ? lanes.scrollLeft : 0;
+}
+
+export function setScrollLeft(v) {
+  const lanes = $("track-lanes");
+  if (lanes) lanes.scrollLeft = v;
+}
+
+/** The word-highlight selection, `{indices}` (never the bare array — matches
+ * the shape the `'selection'` bus event above already accepts) or `null`
+ * when nothing is selected. No setter: driving a selection in already goes
+ * through `ctx.emit("selection", {indices})`, per this file's own listener
+ * a few lines up — a second way in would be a second thing to keep in sync. */
+export function getSelection() {
+  return selection ? { indices: selection } : null;
+}

@@ -304,6 +304,8 @@ CLI_ONLY = {
     # and stands its descriptions down to a count, because describe_ls is
     # where the text is meant to be read
     "web",  # serves the UI until Ctrl-C; an agent cannot watch a page
+    "open",  # same as `web` — serves the UI until Ctrl-C and launches a
+    # browser window; an agent cannot watch a page or use a GUI browser
     "waveform",  # 19,000 floats is a picture, not something an agent reasons
     # over — PLAN.md § Read-model additions
     "preview",  # answers "will a *browser* play this", and an agent has no

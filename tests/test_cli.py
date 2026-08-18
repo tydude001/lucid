@@ -99,6 +99,46 @@ def test_web_refuses_both_dash_c_and_root(
     assert "two ways" in capsys.readouterr().err
 
 
+# -- `open` (Studio Step 04 § A) --------------------------------------------
+#
+# `open` blocks on `serve_forever()` once it actually starts a server, so
+# only the mutual-refusal path (which raises before `webui.open_studio` is
+# ever called) and plain argparse shape are safe to exercise here — nothing
+# below binds a socket.
+
+
+def test_open_refuses_both_dash_c_and_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Same refusal as `web`'s, fired the same way: before `webui.open_studio`
+    is ever called, so `open`'s own ephemeral-port bind never happens either."""
+    assert main(["-C", str(tmp_path / "proj"), "open", "--root", str(tmp_path)]) == 1
+    assert "two ways" in capsys.readouterr().err
+
+
+def test_open_parses_root_with_no_host_or_port_flags() -> None:
+    """`open` is deliberately narrower than `web`: no `--host`/`--port`/
+    `--open`/`--verbose` — the port is always ephemeral, per STUDIO.md's own
+    wording — so `--root` is the only flag it should accept."""
+    from lucid.cli import _build_parser
+
+    args = _build_parser().parse_args(["open", "--root", "/tmp/somewhere"])
+    assert args.command == "open"
+    assert args.root == "/tmp/somewhere"
+    assert not hasattr(args, "host")
+    assert not hasattr(args, "port")
+    assert not hasattr(args, "verbose")
+
+
+def test_open_defaults_root_to_none(tmp_path: Path) -> None:
+    """With no `--root`, `open` means "open -C's project directly" — `args.root`
+    stays `None` so `_cmd_open` takes the `-C` branch, not the picker one."""
+    from lucid.cli import _build_parser
+
+    args = _build_parser().parse_args(["-C", str(tmp_path / "proj"), "open"])
+    assert args.root is None
+
+
 def test_init_with_neither_uses_the_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

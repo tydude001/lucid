@@ -37,6 +37,7 @@ import json
 import mimetypes
 import os
 import queue
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -57,7 +58,13 @@ from lucid.faces import FaceError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
 from lucid.picture import PictureError
-from lucid.project import MANIFEST_NAME, SCHEMA_VERSION, Project, ProjectError
+from lucid.project import (
+    CACHE_DIR,
+    MANIFEST_NAME,
+    SCHEMA_VERSION,
+    Project,
+    ProjectError,
+)
 from lucid.timeline import TimelineError
 from lucid.transcript import TranscriptError
 from lucid.verify import VerifyError
@@ -290,6 +297,19 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
 def _scan_one(path: Path) -> dict[str, Any]:
     """Classify one directory already known to hold `lucid.json`."""
     entry: dict[str, Any] = {"path": str(path), "name": path.name}
+    # Resume line (Studio Step 04 § D): a plain, best-effort file read that
+    # rides this scan rather than adding a second one — no `Project.open`,
+    # no binding. Works for every status below, `needs_migration` included,
+    # because `session.json` carries no schema version of its own.
+    session_file = path / CACHE_DIR / "session.json"
+    if session_file.is_file():
+        try:
+            with session_file.open(encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                entry["session"] = data
+        except (json.JSONDecodeError, OSError):
+            pass  # no resume line for this project; the rest of the entry stands
     project = Project(path)
     try:
         manifest = project.read_manifest()
@@ -419,6 +439,87 @@ def _revision(project_root: Path) -> list[float | int]:
     mtime = timeline.stat().st_mtime if timeline.exists() else 0.0
     manifest = project.manifest_path
     return [mtime, manifest.stat().st_mtime if manifest.exists() else 0.0, len(project.snapshots())]
+
+
+def _session_get(root: str) -> dict[str, Any]:
+    """`GET /api/session` — read back `cache/session.json`, or `{}`.
+
+    Best-effort by design (Studio Step 04 contract § B): a missing or
+    corrupt session file restores nothing rather than failing the page
+    load, since it holds nothing but UI convenience state — playhead, zoom,
+    scroll, pane-expand, mode, selection — and every key is optional on
+    both read and write.
+    """
+    project = Project.open(root)
+    path = project.session_path
+    if not path.is_file():
+        return {}
+    try:
+        with path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _session_set(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/session` — replace `cache/session.json` wholesale.
+
+    Deliberately does not touch `project.otio` or the manifest: `_revision()`
+    (above) only stats `project.timeline_path`, `project.manifest_path`, and
+    counts `project.snapshots()`, and this writes to none of the three — so
+    no `project-changed` event fires from this call, the same fact
+    `_agent_thumb`'s own docstring states about `Project.thumbs_path`.
+
+    Full-object replace, last-write-wins: the client always POSTs its whole
+    current snapshot, never a partial patch, so there is nothing to merge
+    here. Atomic write, `Project.write_manifest`'s own tmp+`.replace()`
+    pattern (project.py:439-445), aimed at `session_path` instead of
+    `manifest_path` — cache, no schema version, disposable by design.
+    """
+    project = Project.open(root)
+    path = project.session_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, sort_keys=True)
+        fh.write("\n")
+    tmp.replace(path)
+    return {"saved": True}
+
+
+def _ensure_poster(project: Project, view: dict[str, Any]) -> None:
+    """Best-effort — a poster failure must never break `/api/view`.
+
+    Written once, on the workspace's first real data fetch (whether reached
+    via `-C` or via `/api/open`) — no auto-refresh. `view["shots"]` is
+    `timeline_view`'s own picture-lane projection (already through
+    `mlt.plan_picture`), and its first shot's `asset` is the footage
+    actually on screen — CLAUDE.md: a shot's *addressing* clip (`clip_id`)
+    is not its footage, and reaching in by `clip_id` is the exact bug the
+    first filmstrip draft had.
+
+    `ops.thumbnail` is used unmodified: it resolves the source through
+    `media.media_path()`, never `media.preview_path()`, and caches its own
+    frame under `cache/thumbs/<clip_id>/<ms>.jpg`. This function does a
+    plain byte copy of that cached frame into the stable `cache/poster.jpg`
+    name the picker's `_send_poster` serves — not a symlink, not a reused
+    path — so the thumbnail cache can be pruned independently later without
+    breaking the poster.
+    """
+    if project.poster_path.is_file():
+        return  # written once; no auto-refresh
+    shots = view.get("shots") or []
+    if not shots:
+        return  # audio-only or unedited project: no poster, acceptable
+    first = shots[0]
+    asset_clip_id = first.get("asset")
+    if not asset_clip_id:
+        return
+    at = first.get("src_start") or 0.0
+    resolved = ops.thumbnail(str(project.root), asset_clip_id, at)
+    project.poster_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path(resolved["path"]), project.poster_path)
 
 
 class EventBus:
@@ -1410,7 +1511,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path = url.path
         if self.root_dir is not None and not self._project_bound():
-            self._route_picker(path)
+            self._route_picker(path, url.query, head_only=head_only)
             return
         try:
             if path in ("/", "/index.html"):
@@ -1420,7 +1521,17 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/view":
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
-                self._send_json(ops.timeline_view(str(self.project_root), clip_id=clip_id))
+                view = ops.timeline_view(str(self.project_root), clip_id=clip_id)
+                # Best-effort, on the workspace's first real data fetch —
+                # never lets a poster failure turn a page load into a 400
+                # (Studio Step 04 contract § C).
+                try:
+                    _ensure_poster(Project.open(self.project_root), view)
+                except Exception:  # noqa: BLE001, S110 — a poster is best-effort, never fatal
+                    pass
+                self._send_json(view)
+            elif path == "/api/session":
+                self._send_json(_session_get(str(self.project_root)))
             elif path == "/api/captions":
                 query = parse_qs(url.query)
                 clip_id = (query.get("clip_id") or [None])[0]
@@ -1504,14 +1615,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(HTTPStatus.OK, target.read_bytes(), _STATIC_TYPES[target.suffix])
 
-    def _route_picker(self, path: str) -> None:
+    def _route_picker(self, path: str, query: str, *, head_only: bool) -> None:
         """GET routing while `root_dir` is set and no project is open yet.
 
-        Three routes only — the picker page, its own static assets, and the
-        scan itself — because everything else on a normal server needs a
-        bound `project_root` or the singletons `/api/open` has not built
-        yet. `POST /api/open` is handled in `do_POST`, not here; this method
-        only ever answers GET/HEAD.
+        Four routes — the picker page, its own static assets, the scan
+        itself, and a project's poster image — because everything else on a
+        normal server needs a bound `project_root` or the singletons
+        `/api/open` has not built yet. `POST /api/open` is handled in
+        `do_POST`, not here; this method only ever answers GET/HEAD.
         """
         try:
             if path in ("/", "/index.html"):
@@ -1521,12 +1632,51 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/projects":
                 assert self.root_dir is not None
                 self._send_json({"root": str(self.root_dir), "projects": scan_projects(self.root_dir)})
+            elif path == "/api/poster":
+                params = parse_qs(query)
+                raw_path = (params.get("path") or [None])[0]
+                if not raw_path:
+                    raise WebUIError("'path' is required")
+                self._send_poster(raw_path, head_only=head_only)
             else:
                 self._fail(HTTPStatus.NOT_FOUND, "no project open yet — pick one at /")
         except WebUIError as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
         except EXPECTED as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+
+    def _send_poster(self, raw_path: str, *, head_only: bool) -> None:
+        """`GET /api/poster?path=<project>` — the Home gallery's still image.
+
+        Picker-only, modeled directly on `_send_reframe_tile` (Studio Step
+        03's own confinement precedent — CLAUDE.md names it as the model to
+        copy). The picker never binds and never thumbnails: this only ever
+        reads a file a *bound* session already wrote via `_ensure_poster`.
+
+        The symlink refusal is inherited, not re-implemented: `raw_path` is
+        matched against `scan_projects`'s own output, and `scan_projects`'s
+        `is_symlink()` filter (webui.py, `walk()`) already excludes a
+        symlinked directory from that list — a poster request naming a path
+        outside the scan, symlinked or not, simply has no matching entry and
+        404s here rather than needing a second symlink check. The
+        resolved-parent check below is belt-and-suspenders on top of that,
+        catching a symlink placed *inside* a scanned project's own `cache/`
+        pointing elsewhere on disk — the one thing matching against the scan
+        alone would not catch, same reasoning as `_send_reframe_tile`'s own
+        third layer.
+        """
+        assert self.root_dir is not None
+        entries = scan_projects(self.root_dir)
+        match = next((e for e in entries if e["path"] == raw_path), None)
+        if match is None:
+            raise WebUIError(f"{raw_path!r} is not a project under {self.root_dir}")
+        project = Project(Path(match["path"]))
+        poster = project.poster_path
+        if poster.resolve().parent != (project.root / CACHE_DIR).resolve():
+            raise WebUIError(f"{raw_path!r} has no poster")
+        if not poster.is_file():
+            raise WebUIError(f"no poster for {raw_path!r} yet")
+        self._stream_file(poster, head_only=head_only)
 
     def _send_media(self, clip_id: str, *, head_only: bool) -> None:
         """Stream a clip's media, honouring Range so the browser can seek.
@@ -2260,6 +2410,7 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/clip-role": _clip_role,
     "/api/agent/thumbs": _agent_thumb,
     "/api/reframe": _reframe,
+    "/api/session": _session_set,
 }
 
 
@@ -2417,6 +2568,161 @@ def serve_root(
         import webbrowser
 
         threading.Timer(0.3, webbrowser.open, args=(url,)).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        server.shutdown()
+        server.server_close()
+        agent = getattr(server, "agent", None)
+        if agent is not None:
+            agent.close()
+
+
+#: Checked in order by `_resolve_app_browser`; a chromium-family browser is
+#: required because `--app=<url>` (a chromeless window, no tabs/toolbar) is
+#: a Chromium flag with no Firefox/Safari equivalent — the whole reason
+#: `lucid open` prefers one over the default browser. Verified live on this
+#: box: nothing here is on PATH (only reachable through the flatpak tier
+#: below), but the tuple is what should be probed, portably.
+_APP_BROWSER_BINS = (
+    "chromium",
+    "chromium-browser",
+    "google-chrome",
+    "google-chrome-stable",
+    "google-chrome-unstable",
+    "chrome",
+    "brave-browser",
+    "brave",
+    "vivaldi",
+    "microsoft-edge",
+    "microsoft-edge-stable",
+)
+
+#: Same chromium-family constraint, one flatpak app ID per vendor.
+#: `com.google.Chrome` is confirmed installed on this box (flathub, system)
+#: and is what actually fires `lucid open` here today, since nothing above
+#: is on PATH.
+_APP_BROWSER_FLATPAKS = (
+    "com.google.Chrome",
+    "com.brave.Browser",
+    "com.microsoft.Edge",
+    "org.chromium.Chromium",
+    "com.vivaldi.Vivaldi",
+)
+
+#: Env var naming an exact browser command to launch `lucid open`'s window
+#: with. Checked first and taken literally — no existence check — because an
+#: operator who set it wrong would rather see the failure than have it
+#: silently ignored.
+LUCID_BROWSER_ENV = "LUCID_BROWSER"
+
+
+def _resolve_app_browser() -> list[str] | None:
+    """The command to launch a chromeless `--app=<url>` window with, or None.
+
+    Checked in order, stopping at the first hit: `$LUCID_BROWSER` (taken
+    literally, unconditionally); a chromium-family binary on PATH
+    (`_APP_BROWSER_BINS`); a chromium-family flatpak, only if `flatpak`
+    itself is on PATH (`_APP_BROWSER_FLATPAKS`, probed with `flatpak info`).
+
+    Deliberately does not add a fourth tier for Playwright's cached
+    Chromium under `~/.cache/ms-playwright/` — it exists on this box only as
+    a test fixture, and `chrome-headless-shell` specifically cannot open a
+    window at all, so launching either as the user's app surface would be
+    silently wrong (Studio Step 04 contract § A).
+    """
+    override = os.environ.get(LUCID_BROWSER_ENV)
+    if override:
+        return [override]
+
+    for name in _APP_BROWSER_BINS:
+        resolved = shutil.which(name)
+        if resolved:
+            return [resolved]
+
+    if shutil.which("flatpak"):
+        for app_id in _APP_BROWSER_FLATPAKS:
+            try:
+                probe = subprocess.run(
+                    ["flatpak", "info", app_id], capture_output=True, check=False
+                )
+            except OSError:
+                continue
+            if probe.returncode == 0:
+                return ["flatpak", "run", app_id]
+
+    return None
+
+
+def _launch_app(url: str) -> None:
+    """Open `url` in a chromeless app window, falling back to `xdg-open`.
+
+    Best-effort only: a vanished binary, a permission error, or nothing
+    found at all must never crash `lucid open` — the URL was already
+    printed by the caller before this runs, which is what satisfies "print
+    the URL either way."
+    """
+    cmd = _resolve_app_browser()
+    if cmd is not None:
+        try:
+            subprocess.Popen(
+                [*cmd, f"--app={url}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            pass
+        return
+
+    xdg_open = shutil.which("xdg-open")
+    if xdg_open:
+        try:
+            subprocess.Popen(
+                [xdg_open, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError:
+            pass
+
+
+def open_studio(path: Path | str | None = None, *, root: Path | str | None = None) -> None:
+    """`lucid open` — an ephemeral-port server plus a chromeless browser window.
+
+    Studio Step 04 contract § A. Composes the existing `make_server`/
+    `make_picker_server` rather than adding a mode to `serve`/`serve_root`,
+    so neither function's signature or existing callers/tests are touched.
+    Port is hardcoded `0` — always ephemeral, never configurable, per
+    STUDIO.md's own wording; there is no `--host`/`--port` here the way
+    `lucid web` has them.
+
+    `-C` (`path`) opens straight into that project; `--root` opens Home.
+    Mutual refusal between the two lives in `cli._cmd_open`, matching where
+    `_cmd_web` already refuses `-C`+`--root` together.
+    """
+    if root is not None:
+        server = make_picker_server(root, host=DEFAULT_HOST, port=0)
+        bound = server.server_address[1]
+        url = f"http://{DEFAULT_HOST}:{bound}/"
+        root_dir = server.RequestHandlerClass.root_dir  # type: ignore[attr-defined]
+        print(f"lucid open: {url}  (projects under: {root_dir})", flush=True)
+    else:
+        server = make_server(path if path is not None else ".", host=DEFAULT_HOST, port=0)
+        bound = server.server_address[1]
+        url = f"http://{DEFAULT_HOST}:{bound}/"
+        print(f"lucid open: {url}  (project: {Project.open(path if path is not None else '.').root})", flush=True)
+    print("Ctrl-C to stop.", flush=True)
+
+    # 0.3s, same delay `serve`'s own `open_browser` path already uses — the
+    # socket is listening (bound above) before anything dials it, and the
+    # print above already happened, so the URL is on screen even if
+    # `_launch_app` finds nothing.
+    threading.Timer(0.3, _launch_app, args=(url,)).start()
 
     try:
         server.serve_forever()

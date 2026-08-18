@@ -24,7 +24,7 @@
  * section's own comment for the specific measurement or trap it answers.
  */
 
-import { $, fmt } from "./dom.js";
+import { $, fmt, debounce } from "./dom.js";
 import { api, connectEvents } from "./api.js";
 import * as player from "./player.js";
 import * as transcript from "./transcript.js";
@@ -328,7 +328,12 @@ for (const btn of document.querySelectorAll(".pane-rail-tab, .pane-collapse-btn"
 // per the implementation contract. `#workspace` and `#timeline-pane` (the
 // timeline section) move together: Edit is the only mode that shows either
 // one, since Frame and Finish each have their own single full-height view.
+let currentMode = "edit"; // agrees with index.html's own default-visible pane;
+// tracked here (not re-derived from the DOM) so getMode() below is O(1) —
+// step 04's session restore/save is the first caller (contract § E).
+
 function setMode(mode) {
+  currentMode = mode;
   $("workspace").hidden = mode !== "edit";
   $("timeline-pane").hidden = mode !== "edit";
   $("frame-view").hidden = mode !== "frame";
@@ -337,6 +342,11 @@ function setMode(mode) {
     if (btn.dataset.mode === mode) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
   }
+}
+
+/** The active mode — `"edit" | "frame" | "finish"` — for session save. */
+function getMode() {
+  return currentMode;
 }
 
 $("mode-tab-edit").addEventListener("click", () => setMode("edit"));
@@ -413,6 +423,86 @@ on("finish-report", (bundle) => {
   setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0);
 });
 
+/* -- session restore and save (STUDIO.md Step 04, contract § E) -----------
+ *
+ * `cache/session.json` — playhead, zoom, timeline scroll, pane collapse,
+ * mode, selection. Cache, never manifest: `/api/session` touches no file
+ * `_revision` watches, so it never fires `project-changed` and this file
+ * never has to guard against its own save round-tripping into a reload.
+ *
+ * `restoring` blocks the save heartbeat from firing while step 2-7 below
+ * apply a saved value — each of those calls (setMode, a dataset write,
+ * timeline.setZoom/setScrollLeft, emit('selection', ...), player.seek) would
+ * otherwise look exactly like a person just did that thing.
+ */
+let restoring = true;
+let lastSavedSnapshot = null;
+
+const sendSession = debounce((snapshot) => {
+  // Best-effort: a session write failing must never toast — losing the
+  // resume position is not worth interrupting anyone over.
+  api("/api/session", snapshot).catch(() => {});
+}, 800);
+
+function sessionSnapshot() {
+  const sel = timeline.getSelection();
+  return {
+    playhead: player.player.now(),
+    zoom: timeline.getZoom(),
+    scroll_left: timeline.getScrollLeft(),
+    pane_expand: $("workspace").dataset.expand ?? "",
+    mode: getMode(),
+    selection: sel && view ? { clip_id: view.clip_id, indices: sel.indices } : null,
+  };
+}
+
+// The cheap half of "debounced": a 2s comparison heartbeat, matching
+// timeline.js's own hand-rolled per-frame throttling idiom rather than a
+// change listener on every field (fragile — easy to miss one). Only the
+// actual network write, inside sendSession above, is what's debounced.
+function checkAndSave() {
+  const snapshot = sessionSnapshot();
+  const serialized = JSON.stringify(snapshot);
+  if (serialized === lastSavedSnapshot) return;
+  sendSession(snapshot);
+  lastSavedSnapshot = serialized;
+}
+
+async function restoreSession() {
+  let session;
+  try {
+    session = await api("/api/session");
+  } catch {
+    session = {}; // a corrupt or unreadable session file restores nothing
+  }
+  try {
+    // 1. Mode first, so hidden/shown panes match before anything below
+    // queries their layout.
+    if (session.mode) setMode(session.mode);
+    if (session.pane_expand != null) $("workspace").dataset.expand = session.pane_expand;
+    // Zoom before scroll: zoom changes the scrollable width scroll_left
+    // addresses.
+    if (session.zoom != null) timeline.setZoom(session.zoom);
+    if (session.scroll_left != null) timeline.setScrollLeft(session.scroll_left);
+    // A saved selection is only ever applied against the transcript it was
+    // taken from — a stale one (a different clip loaded since) is silently
+    // skipped rather than misapplied to the wrong words.
+    if (session.selection && view && session.selection.clip_id === view.clip_id) {
+      emit("selection", session.selection);
+    }
+    // Seek last, so it sees the already-restored zoom/scroll rather than
+    // fighting the follow-playhead nudge those trigger.
+    if (session.playhead != null) player.player.seek(session.playhead);
+  } finally {
+    restoring = false;
+  }
+  lastSavedSnapshot = JSON.stringify(sessionSnapshot());
+  setInterval(() => {
+    if (restoring) return;
+    checkAndSave();
+  }, 2000);
+}
+
 /* -- startup -------------------------------------------------------------- */
 
 player.init(ctx);
@@ -424,7 +514,7 @@ properties.init(ctx);
 finish.init(ctx);
 frame.init(ctx);
 setMode("edit");
-load(null);
+load(null).then(restoreSession);
 
 // Started last, after the panes exist and the first load is underway: the
 // server sends the current revision immediately on connect, which is itself

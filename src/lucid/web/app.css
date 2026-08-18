@@ -2772,9 +2772,53 @@ body.picker {
   background: var(--panel);
 }
 
+/* A bound session's first `/api/view` writes this once (`_ensure_poster`,
+   webui.py) — 404 until then, which is the ordinary case for an unopened or
+   audio-only project, not an error. `--sunken` shows through as the
+   placeholder while it loads and while it 404s (the `error` listener in
+   picker.js only hides the broken-image glyph, the background is what
+   fills the box either way). Fixed 16:9 box, never resized to the source —
+   `object-fit: cover` crops rather than distorting. */
+.picker-poster {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 54px;
+  border-radius: var(--radius-xs);
+  background: var(--sunken);
+  object-fit: cover;
+  display: block;
+}
+
+/* `display: block` two lines up is an author rule and outranks the UA's own
+   `[hidden] { display: none }` (CLAUDE.md's standing trap) — this is the
+   companion rule `poster.hidden = true` needs to actually draw nothing. */
+.picker-poster[hidden] {
+  display: none;
+}
+
 .picker-card-main {
   flex: 1;
   min-width: 0;
+}
+
+.picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* Read-only info pills, not controls — the `.frame-coverage-row .chip`
+   precedent for overriding `.chip`'s own `cursor: pointer` on a chip that
+   is not clickable. */
+.picker-chips .chip {
+  cursor: default;
+}
+
+.picker-resume {
+  margin-top: 2px;
+  color: var(--dim);
+  font-size: 11px;
 }
 
 .picker-name {

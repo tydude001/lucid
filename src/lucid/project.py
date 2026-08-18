@@ -282,6 +282,29 @@ class Project:
         return self.root / THUMBS_LOG
 
     @property
+    def session_path(self) -> Path:
+        """Studio Step 04 § B: playhead/zoom/scroll/pane/mode/selection.
+
+        Cache, not manifest — no schema version, every key optional on read
+        and write, disposable by design. `webui._session_get`/`_session_set`
+        are the only readers/writers; `_revision()` never stats this file, so
+        writing it deliberately cannot fire `project-changed`.
+        """
+        return self.root / CACHE_DIR / "session.json"
+
+    @property
+    def poster_path(self) -> Path:
+        """A bound session's one still frame for the Home gallery card.
+
+        Written once by `webui._ensure_poster` (a plain byte copy of an
+        `ops.thumbnail` frame — `media.preview_path()` gains no new caller
+        here), served by the picker's `_send_poster` only if this file
+        already exists. Cache: re-derivable, never read by anything render-
+        facing.
+        """
+        return self.root / CACHE_DIR / "poster.jpg"
+
+    @property
     def renders_log_path(self) -> Path:
         return self.root / RENDERS_LOG
 

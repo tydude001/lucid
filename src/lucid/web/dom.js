@@ -76,3 +76,18 @@ export function clampFloating(left, top, width, height, minX, maxX, minY, maxY) 
     top: Math.min(Math.max(top, minY), maxTop),
   };
 }
+
+/**
+ * Trailing-edge debounce: returns a wrapper that calls `fn` with its most
+ * recent arguments `ms` after the last call, cancelling any pending call
+ * each time it is invoked again first. Step 04's session-save heartbeat
+ * (app.js) is the first caller — no debounce/throttle helper existed in
+ * `web/` before it (grepped, confirmed absent).
+ */
+export function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}

@@ -657,6 +657,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "instead of one project (default: none — serve -C's project, as always)",
     )
 
+    # `open` is `web` with the discovery removed: the port is *always*
+    # ephemeral (no --host/--port — that is the point) and it launches a
+    # browser window itself rather than taking `--open` (Studio Step 04
+    # contract § A). `-C` is the existing global flag; no new flag for it.
+    p_open = sub.add_parser(
+        "open", help="start the webui on an ephemeral port and launch a browser window"
+    )
+    p_open.add_argument(
+        "--root",
+        help="open Home over every lucid project found under this directory, "
+        "instead of one project (default: none — opens -C's project directly)",
+    )
+
     sub.add_parser("undo", help="roll back the last timeline mutation")
 
     p_cap = sub.add_parser("captions", help="write word-timed ASS captions for the timeline")
@@ -1553,6 +1566,23 @@ def _cmd_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_open(args: argparse.Namespace) -> int:
+    # Blocks until Ctrl-C, same as `_cmd_web` — `open_studio` prints its own
+    # URL line and then serves forever; there is no JSON to emit.
+    if args.root is not None:
+        if args.project_given:
+            raise ProjectError(
+                f"open was given two ways to pick a project: -C {args.project!r} and "
+                f"--root {args.root!r}. Pass one — --root opens Home over every project "
+                "found under it, -C opens straight into one project, and there is no "
+                "sensible way to pick between them."
+            )
+        webui.open_studio(root=args.root)
+        return 0
+    webui.open_studio(args.project)
+    return 0
+
+
 def _cmd_undo(args: argparse.Namespace) -> int:
     return _emit(ops.undo(args.project))
 
@@ -1886,6 +1916,7 @@ _COMMANDS = {
     "thumbnail": _cmd_thumbnail,
     "preview": _cmd_preview,
     "web": _cmd_web,
+    "open": _cmd_open,
     "undo": _cmd_undo,
     "captions": _cmd_captions,
     "caption-view": _cmd_caption_view,

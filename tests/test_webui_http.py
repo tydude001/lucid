@@ -2690,6 +2690,235 @@ def test_a_plain_single_project_server_has_no_picker_routes(server: str) -> None
     assert view["clip_id"] == "vo"
 
 
+# -- session state and the poster (Studio Step 04 §§ B, C) -----------------
+#
+# `cache/session.json` is cache, never manifest: disposable, no schema
+# version, and deliberately invisible to `_revision` — the `_agent_thumb`
+# precedent (CLAUDE.md, webui.py's own `_session_set` docstring). The
+# poster route is picker-only, modeled on `_send_reframe_tile`'s own
+# confinement (CLAUDE.md names it as the model to copy).
+
+
+def test_session_round_trips(server: str) -> None:
+    payload = {
+        "playhead": 12.34,
+        "zoom": 2.5,
+        "scroll_left": 340,
+        "pane_expand": "inspector",
+        "mode": "frame",
+        "selection": {"clip_id": "vo", "indices": [12, 13, 14]},
+    }
+    status, posted = _post(f"{server}/api/session", payload)
+    assert status == 200
+    assert posted["saved"] is True
+
+    status, got = _json(f"{server}/api/session")
+    assert status == 200
+    assert got == payload
+
+
+def test_session_get_is_empty_before_anything_is_saved(server: str) -> None:
+    status, payload = _json(f"{server}/api/session")
+    assert status == 200
+    assert payload == {}
+
+
+def test_session_get_recovers_from_a_corrupt_file_rather_than_failing_the_page(
+    project: Path, server: str
+) -> None:
+    session_path = Project.open(project).session_path
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text("{not json", encoding="utf-8")
+
+    status, payload = _json(f"{server}/api/session")
+    assert status == 200
+    assert payload == {}
+
+
+def test_session_post_does_not_bump_the_revision_or_fire_project_changed(
+    project: Path, server: str
+) -> None:
+    """The load-bearing guarantee: a session write must be mechanically
+    invisible to `_revision` (webui.py), which stats only `project.otio`,
+    the manifest, and the snapshot count — none of which `_session_set`
+    touches."""
+    before = webui._revision(project)
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=1.2)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, _ = _post(
+            f"{server}/api/session",
+            {"playhead": 1.0, "zoom": 1.0, "mode": "edit"},
+        )
+        assert status == 200
+
+        # A poll cycle or two (`_REVISION_POLL_SECONDS` is 0.5) should pass
+        # with nothing arriving — a session write fires no `project-changed`.
+        with pytest.raises(TimeoutError):
+            next(events)
+    finally:
+        conn.close()
+
+    after = webui._revision(project)
+    assert after == before
+
+
+def test_session_post_requires_json_content_type(server: str) -> None:
+    status, payload = _post(
+        f"{server}/api/session", {"playhead": 1.0}, content_type="text/plain"
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_session_before_open_404s_under_picker_root(picker_server: str) -> None:
+    """The same bind-order rule every other route already follows: neither
+    verb of `/api/session` is reachable before `POST /api/open` binds a
+    project — GET falls through `_route_picker`'s allowlist, POST falls
+    through `do_POST`'s `_project_bound()` check."""
+    status, payload = _json(f"{picker_server}/api/session")
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+    status, payload = _post(f"{picker_server}/api/session", {"playhead": 1.0})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+
+def test_session_rejects_a_bad_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/session",
+        data=b'{"playhead": 1.0}',
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
+def test_poster_route_refuses_a_path_outside_the_scanned_root(
+    project: Path, picker_server: str, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    outside = tmp_path_factory.mktemp("poster-outside") / "proj"
+    ops.init(outside)
+    poster = Project.open(outside).poster_path
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    poster.write_bytes(b"\xff\xd8\xff fake jpeg")
+
+    status, payload = _json(f"{picker_server}/api/poster?path={outside}")
+    assert status == 400
+    assert "not a project under" in payload["error"]
+
+
+def test_poster_route_refuses_a_symlink_planted_inside_the_cache_dir(
+    project: Path, picker_server: str
+) -> None:
+    """The layer matching against the scan alone cannot catch: the project
+    directory itself is real and unsymlinked (so the scan reports it
+    normally), but `cache/poster.jpg` inside it is a symlink pointing
+    outside — the exact `_send_reframe_tile` third-layer precedent."""
+    real_project = Project.open(project)
+    secret = project.parent / "poster-secret.jpg"
+    secret.write_bytes(b"\xff\xd8\xff not yours")
+    real_project.poster_path.parent.mkdir(parents=True, exist_ok=True)
+    real_project.poster_path.symlink_to(secret)
+
+    status, payload = _json(f"{picker_server}/api/poster?path={project}")
+    assert status == 400
+    assert "poster" in payload["error"]
+
+
+def test_poster_route_refuses_a_symlinked_project_directory(
+    project: Path, picker_server: str, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """A project directory reached only via a symlink under `--root` never
+    appears in the scan at all (`scan_projects`'s own `is_symlink()`
+    filter) — so a poster request naming it has no matching entry and 400s
+    the same way an unrelated outside path does, never a served file."""
+    outside = tmp_path_factory.mktemp("poster-link-target") / "proj"
+    ops.init(outside)
+    poster = Project.open(outside).poster_path
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    poster.write_bytes(b"\xff\xd8\xff fake jpeg")
+    link = project.parent / "poster-escape-link"
+    link.symlink_to(outside)
+
+    status, payload = _json(f"{picker_server}/api/poster?path={link}")
+    assert status == 400
+    assert "not a project under" in payload["error"]
+
+
+def test_poster_route_serves_a_real_poster(project: Path, picker_server: str) -> None:
+    poster = Project.open(project).poster_path
+    poster.parent.mkdir(parents=True, exist_ok=True)
+    jpeg_bytes = b"\xff\xd8\xff fake jpeg bytes"
+    poster.write_bytes(jpeg_bytes)
+
+    status, headers, body = _get(f"{picker_server}/api/poster?path={project}")
+    assert status == 200
+    assert headers["Content-Type"] == "image/jpeg"
+    assert body == jpeg_bytes
+
+
+def test_poster_route_reports_no_poster_yet_rather_than_a_500(
+    project: Path, picker_server: str
+) -> None:
+    status, payload = _json(f"{picker_server}/api/poster?path={project}")
+    assert status == 400
+    assert "no poster" in payload["error"]
+
+
+def test_scan_reports_a_resume_line_only_when_a_session_file_exists(
+    project: Path, picker_server: str
+) -> None:
+    """`_scan_one`'s best-effort `session` field (Studio Step 04 § D) rides
+    the existing scan — no second fetch, no binding."""
+    _, payload = _json(f"{picker_server}/api/projects")
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert "session" not in entries[str(project)]
+
+    session_path = Project.open(project).session_path
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(json.dumps({"mode": "frame", "playhead": 3.0}), encoding="utf-8")
+
+    _, payload = _json(f"{picker_server}/api/projects")
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert entries[str(project)]["session"] == {"mode": "frame", "playhead": 3.0}
+
+
+def test_broken_project_with_a_stale_session_file_still_does_not_take_down_the_listing(
+    project: Path, picker_server: str
+) -> None:
+    """Extends the existing one-bad-project resiliency test
+    (`test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone`)
+    to the new resume-line read: a broken (unseeded) project can carry a
+    `session.json` of its own — the scan must still list it (as `error`,
+    with the session field alongside) and must still list every healthy
+    project next to it."""
+    unseeded = project.parent / "unseeded-with-session"
+    ops.init(unseeded)
+    session_path = Project.open(unseeded).session_path
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text(json.dumps({"mode": "edit"}), encoding="utf-8")
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert entries[str(unseeded)]["status"] == "error"
+    assert entries[str(unseeded)]["session"] == {"mode": "edit"}
+    assert entries[str(project)]["status"] == "ok"
+
+
 # -- the F1 guard: a dropped CSS rule, caught with no browser ----------------
 #
 # F1 was a `*/` closing #picture's own comment early, so CSS error recovery
