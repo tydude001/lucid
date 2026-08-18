@@ -6782,8 +6782,17 @@ matters:
 
 | project | `timeline_duration` | segments | `duration_delta` | `agrees` |
 |---|---|---|---|---|
-| `lucid-final-cut` (the film) | 336.269 | 63 | **−0.072** | true |
-| `lucid-scream-v2` (the stale cut) | 410.963 | 73 | **74.622** | false |
+| a project holding the shipped cut | 336.269 | 63 | **−0.072** | true |
+| the stale cut | 410.963 | 73 | **74.622** | false |
+
+**Corrected 2026-08-18: the first row was labelled `lucid-final-cut` and the
+second `lucid-scream-v2`, and the first label was false.** `lucid-final-cut`'s
+`project.otio` has held the 73-segment edit since 2026-08-10 — byte-identical
+to `lucid-scream-v2`'s, md5 `705540da…` — so it was the *second* row, not the
+first, on the day this table was written. The numbers reproduce exactly; only
+the names were wrong, and naming the stale project as the verified one is a
+good part of why it stayed stale for five more days. § The film's project,
+restored.
 
 **`FILM_CHECK_TOLERANCE` is 1.0s and both numbers above are why**, cited in the
 constant's own docstring rather than reasoned about: the film's own delta is
