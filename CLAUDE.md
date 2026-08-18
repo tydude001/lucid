@@ -266,6 +266,14 @@ installed package or the upstream repo, not your memory.
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
   changed.
+- **The version is a hand-typed literal in two places and is bumped
+  deliberately, never derived.** `pyproject.toml` and `lucid/__init__.py`,
+  held together by `tests/test_version.py` — a VCS-derived or
+  `importlib.metadata` version reads the *installed* dist-info, so an
+  editable checkout reports whatever the last `uv sync` wrote. Bump the minor
+  when something new becomes callable, `uv sync` behind it, tag, and name the
+  HISTORY.md `##` section in the annotation. There is no `CHANGELOG.md` on
+  purpose. HISTORY.md § The version caught up.
 - **`Project.open` refuses an old manifest and must never migrate one** — it
   backs `info` and `status`, so a read would rewrite a project someone only
   looked at. Migration is explicit (`lucid migrate`), and a schema bump adds a
