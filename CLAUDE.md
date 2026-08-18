@@ -791,12 +791,14 @@ installed package or the upstream repo, not your memory.
   - **A dogfood project can be the wrong cut while every check passes.** The
     Scream project held the *silence-cut* VO, not the shipped one — 410.96s/73
     segments against 336.27s/63 — and the render, `verify`, the cue table and
-    the shot plan all agreed with it. **It is `~/lucid-final-cut/proj`, whose
-    name says the opposite**; the shipped 63-segment edit is byte-identical in
-    `brief-check`, `framing-detect`, `threshold` and `split-detect`. Settle it
-    against the renders, which are 336.34s (`essay-cards-fixed.mp4`) and
-    342.36s with the 6s endcard. Before building anything for review on
-    one, compare its `timeline_duration` against the film it is meant to be.
+    the shot plan all agreed with it. That was `~/lucid-final-cut/proj`, and it
+    is **restored as of 2026-08-18** — 63 segments, all 38 shots projecting,
+    `essay-flashfix.mp4` declared as its `reference` so `film_check` re-asks
+    with no argument. `~/lucid-scream-v2` still holds the same stale edit,
+    byte-identical; the shipped one is also in `brief-check`, `framing-detect`,
+    `threshold` and `split-detect`. Settle any copy against the renders, which
+    are 336.34s (`essay-cards-fixed.mp4`) and 342.36s with the 6s endcard,
+    before building anything for review on it.
     - **The right edit is not the right film — `brief-check`'s cue table is
       not the film's, 27 of its 38 cues naming a different asset.** It is
       where § Choosing the b-roll was measured and the experiment stayed in
