@@ -26,11 +26,22 @@
  *     endpoint both refuse it independently — see the backend report).
  *
  * The `finish.js` two-export module contract exactly: `init(ctx)` wires
- * listeners once, `update(state)` (state unused — this pane's own data
- * comes from its own endpoints, the `finish.js`/`properties.js` precedent)
- * re-fetches coverage on every project reload. The sheet/detect jobs are
- * NOT re-triggered by update() — they stay whatever they were, keyed on
- * their own buttons, exactly like finish.js's render job.
+ * listeners once, `update(state)` marks coverage owed. The sheet/detect
+ * jobs are NOT re-triggered by update() — they stay whatever they were,
+ * keyed on their own buttons, exactly like finish.js's render job.
+ *
+ * **Coverage is fetched when this view is looked at, never merely when the
+ * project reloads.** `reframe_coverage` decodes every placed clip for its
+ * scene-cut scan — 5.5s measured on the film, uncached, per call — and
+ * `update()` runs on every `project-changed`, so re-fetching there made
+ * every cut taken in Edit mode pay for a scan of a view nobody had open
+ * (twice per page load, once per mutation). That is the exact cost
+ * `finish_report`'s framing is opt-in to avoid (CLAUDE.md), and this pane
+ * had reintroduced it. `update()` now sets `coverageStale`; the fetch runs
+ * if Frame is already on screen, and otherwise when `app.js` emits `mode`
+ * for it. The two rules that outrank the saving: the scan still says
+ * "scanning for cuts…" while it runs, and a project with no placements
+ * says so rather than drawing a blank chip.
  */
 
 import { $, el, secs, clampFloating } from "./dom.js";
@@ -41,6 +52,10 @@ let lastSheet = null; // the full "done" event payload from the reframe-sheet jo
 let lastDetect = null; // the full "done" event payload from the reframe-detect job
 let sheetBusy = false;
 let detectBusy = false;
+let lastState = null; // the last /api/view payload, read only for `shots`
+let coverageStale = true; // is a coverage fetch owed? set by update(), paid
+// for when this view is on screen — the scan is 5.5s of decoding per call,
+// so it rides being *looked at* rather than every project reload.
 
 // Ephemeral, both of them — reset whenever update() runs (a fresh project
 // state), never persisted anywhere. Approve is pure bookkeeping for one
@@ -107,8 +122,40 @@ function setButtonBusy(btn, busyLabel, idleLabel) {
 
 /* -- coverage chips ------------------------------------------------------ */
 
+/** Is the Frame view actually on screen? `app.js`'s `setMode` owns this
+ * element's `hidden`, and this pane only ever reads it. */
+function frameVisible() {
+  const view = $("frame-view");
+  return Boolean(view) && !view.hidden;
+}
+
+/** Does this project have anything a crop window could apply to?
+ *
+ * `ops.reframe_coverage` refuses outright when it has no footage
+ * placements — correct for the CLI, but as a fetch it is a 400 and a red
+ * toast on every load of an audio-only project, where having no picture is
+ * the normal state rather than a fault. `/api/view` already answers this
+ * (`shots`), so the question is not asked rather than asked and refused.
+ * A `shots_error` means the projection itself refused — that is a real
+ * finding and coverage is still worth asking, so it is NOT treated as
+ * "nothing here". */
+function hasPlacements(state) {
+  if (!state) return false;
+  if (state.shots_error) return true;
+  return Boolean(state.shots && state.shots.length);
+}
+
 async function refreshCoverage() {
   if (!ctx) return;
+  coverageStale = false;
+  if (!hasPlacements(lastState)) {
+    // Not a warning and not a blank chip — both would read as a verdict on
+    // framing that nobody measured.
+    setChip($("frame-chip-stale"), "no footage placements to frame", false);
+    $("frame-chip-steps") && ($("frame-chip-steps").textContent = "");
+    $("frame-chip-cuts") && ($("frame-chip-cuts").textContent = "");
+    return;
+  }
   // Say so while it runs. `reframe_coverage` decodes placed footage for a
   // scene-cut scan and took ~4s on the real film, during which these three
   // chips sat empty — and an empty chip where a warning would go reads as
@@ -527,14 +574,28 @@ export function init(passedCtx) {
 
   ctx.on("reframe-sheet", onSheetEvent);
   ctx.on("reframe-detect", onDetectEvent);
+  // The other half of the deferral in `update()`: opening Frame is what
+  // pays for the scan, and only if something changed since the last one.
+  ctx.on("mode", (mode) => {
+    if (mode === "frame" && coverageStale) refreshCoverage();
+  });
 }
 
-export function update(_state) {
+export function update(state) {
   // Ephemeral, per-sitting UI state — reset on every reload, never
   // persisted (STUDIO: "report-only is the standing precedent"). The sheet
   // and detect jobs themselves are NOT re-triggered here — they stay
   // whatever they were, keyed on their own buttons, the finish.js render-job
   // precedent.
   approvedKeys = new Set();
-  refreshCoverage();
+  lastState = state;
+  // Coverage is NOT re-fetched here unless this view is on screen. It was,
+  // and it cost 5.5s of scene-cut decoding per call on the film — twice on
+  // every page load and once more on every `project-changed`, so every cut
+  // made in Edit mode paid for a scan of footage nobody was looking at.
+  // That is precisely the cost `finish_report`'s framing was made opt-in to
+  // avoid (CLAUDE.md), reintroduced through this pane. Deferred, the answer
+  // is fetched when Frame is opened, and refreshed while it stays open.
+  coverageStale = true;
+  if (frameVisible()) refreshCoverage();
 }

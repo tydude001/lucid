@@ -342,6 +342,12 @@ function setMode(mode) {
     if (btn.dataset.mode === mode) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
   }
+  // A hidden mode's pane can now defer its work until it is looked at.
+  // `frame.js` is why this exists: its coverage scan decodes every placed
+  // clip (5.5s measured on the film, uncached, per call), which must not
+  // ride a reload nobody in Edit mode asked for — the same cost that made
+  // `finish_report`'s framing opt-in (CLAUDE.md).
+  emit("mode", mode);
 }
 
 /** The active mode — `"edit" | "frame" | "finish"` — for session save. */

@@ -812,6 +812,11 @@ installed package or the upstream repo, not your memory.
           `--framing`), and `None` when unasked, distinct from a measured
           zero: "nobody scanned" reading as "nothing stale" is the
           captionless-film shape again. HISTORY.md § Frame mode.
+          **`frame.js` broke this rule from the other side** — its own
+          `update()` runs on every `project-changed`, so every cut paid 5.5s
+          of decoding for a hidden pane. A pane's work rides being *looked
+          at*: `app.js`'s `setMode` emits `mode` for that. HISTORY.md § The
+          two console 400s.
         - **A blank chip where a warning would go reads as "nothing to
           report."** Frame mode's coverage chips drew empty for the ~4s the
           sheet job takes, which is indistinguishable from a clean project —

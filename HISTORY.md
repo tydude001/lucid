@@ -9301,6 +9301,54 @@ Also watched, on the same pass: a refusal draws the server's own sentence
 and re-enables the form (`no such file: …`); `copy: true` writes a real
 1.1MB file where the default writes a symlink; the inline attach form
 reports `vo-c: 41 words · en`; a 700px viewport probe walking `body *`
-finds only a pre-existing 3px `clip-block`; and the console is clean apart
-from the `/api/output` 400 a never-rendered project has answered since that
-route shipped.
+finds only a pre-existing 3px `clip-block`; and the console carried two
+pre-existing 400s per load, which turned out to be worth chasing — the
+section below.
+
+## The two console 400s were a five-second scan nobody asked for — 2026-08-18
+
+Two `400`s in the browser console on every page load, dismissed in the same
+session's own report as `/api/output` answering a project that had never
+rendered. **That attribution was wrong, and it was wrong in the way this repo
+keeps writing down: it was inferred from a `curl` probe of a plausible route
+rather than read off the requests the page actually made.** `/api/output` does
+404-shaped work only when asked, and `finish.js` only ever sets `video.src`
+after a click and only when `last_render.exists` — it is never fetched on load
+at all. Served with `--verbose`, the log named the real one immediately:
+`GET /api/reframe/coverage`, twice.
+
+**Behind the noise was the cost `finish_report`'s framing is opt-in to
+avoid, reintroduced through the Frame pane.** `reframe_coverage` decodes every
+placed clip for its scene-cut scan — **measured here at 5.5s per call on the
+film's own project, uncached, twice in a row** — and `frame.js`'s
+`update(state)` re-fetched it unconditionally. `update()` runs from `app.js`'s
+`load()`, which runs on every `project-changed`. So **every cut taken in Edit
+mode kicked off a full decode of footage nobody was looking at**, with
+`#frame-view` hidden the whole time; a page load paid for two. Confirmed by
+counting requests in the server log around a real `POST /api/cut`: one cut,
+one scan.
+
+The fix is deferral, not caching. `app.js`'s `setMode` now emits `mode` on the
+pane bus — a hidden pane can put work off until it is looked at — and
+`frame.js` marks coverage owed in `update()`, paying for it if Frame is on
+screen and otherwise when Frame is opened. Measured after: an Edit-mode load
+of the film makes **0** coverage calls where it made 2, opening Frame makes
+exactly 1, a cut with Frame open refreshes, a cut with Frame closed does not,
+reopening Frame then pays the one deferred scan, and reopening with nothing
+changed pays nothing. The chips read identically either way — `11.719s stale`,
+`1 unexplained step`, `12/54 cuts framed`.
+
+**And the 400 itself was a fair question asked of the wrong project.**
+`ops.reframe_coverage` refuses outright with "no footage placements to check",
+which is right for the CLI and wrong as a fetch: on an audio-only project,
+having no picture is the normal state, and the window met it with a red error
+toast on every load. `/api/view` already answers the question (`shots`), so the
+window no longer asks one it can answer itself — the request is not made, the
+chip says `no footage placements to frame`, and it is deliberately not a
+`warn`. A `shots_error` is excluded from that shortcut on purpose: a refused
+projection is a real finding, and coverage is still worth asking about.
+
+Both rules that outrank the saving still hold, and were re-watched: the scan
+says `scanning for cuts…` while it runs, because a blank chip where a warning
+would go reads as "nothing to report"; and a project with nothing to frame
+says so rather than drawing nothing. Console is clean on both projects now.
