@@ -9315,7 +9315,10 @@ rather than read off the requests the page actually made.** `/api/output` does
 404-shaped work only when asked, and `finish.js` only ever sets `video.src`
 after a click and only when `last_render.exists` — it is never fetched on load
 at all. Served with `--verbose`, the log named the real one immediately:
-`GET /api/reframe/coverage`, twice.
+`GET /api/reframe/coverage`, twice. The harness had the answer the whole time
+and was throwing it away — CDP's `Log.entryAdded` carries a `url` and
+`cdp.mjs`'s console capture kept only the message text, which is now fixed,
+so the next failing request names itself.
 
 **Behind the noise was the cost `finish_report`'s framing is opt-in to
 avoid, reintroduced through the Frame pane.** `reframe_coverage` decodes every

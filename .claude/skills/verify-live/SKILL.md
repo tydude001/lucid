@@ -31,7 +31,7 @@ node cdp.mjs eval '(() => document.querySelector("#truth-strip").textContent)()'
 node cdp.mjs click "#finish-render" 120      # dwell in ms; 0 and ~120 both
 node cdp.mjs dragxy 81 327 145 326 120       # press, move in steps, release
 node cdp.mjs viewport 700 900                # resizes and reports overflowing nodes
-node cdp.mjs console 3000                    # collect console errors for N ms
+node cdp.mjs console 3000                    # console errors for N ms, each with its url
 node cdp.mjs shot out.png
 ```
 

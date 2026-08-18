@@ -147,8 +147,13 @@ async function main() {
           lines.push({ type: m.params.type, text: m.params.args.map((a) => a.value ?? a.description).join(' ') });
         if (m.method === 'Runtime.exceptionThrown')
           lines.push({ type: 'exception', text: m.params.exceptionDetails.exception?.description });
+        // `url` is the whole value of this branch: a failed request logs
+        // "Failed to load resource: ... 400" and names no route, and
+        // guessing which one from a plausible-looking endpoint has already
+        // cost a wrong diagnosis here (lucid HISTORY.md § The two console
+        // 400s). CDP hands it over; only dropping it made it a mystery.
         if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error')
-          lines.push({ type: 'log', text: m.params.entry.text });
+          lines.push({ type: 'log', text: m.params.entry.text, url: m.params.entry.url });
       });
       await sleep(Number(rest[0] ?? 3000));
       console.log(JSON.stringify(lines, null, 2));
