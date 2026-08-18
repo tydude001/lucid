@@ -3473,6 +3473,294 @@ Not started. What this note changes about the item's cost: the addressing work
 everyone expected is not there, and a reporting obligation nobody had costed
 is.
 
+## The A2 music lane — the design note — 2026-08-17
+
+STUDIO.md § Step 05: the only step in the reshape that touches the model, so
+it stops here rather than becoming code. Everything below was measured, not
+reasoned about — a hand-built two-audio-track MLT document, rendered through
+the real `melt` (resolved via `picture.melt_command()`/`display_env()`, staged
+under `~/lucid-a2-probe`, never `/tmp`), and verified by reading raw PCM back
+out rather than trusting `ffmpeg -ss` — which, on this box, was caught
+misplacing an output seek on a WAV (a region confirmed silent by direct sample
+inspection read back as −30.9 dB through `-ss 2.5 -t 0.5 -af astats`; a
+Goertzel filter over `wave`-module samples was used for every number below
+instead). Full script and renders: `~/lucid-a2-probe/{build_doc.py,
+analyze.py, goertzel.py}`.
+
+### Render: no new writer concept, and the two failure modes that could have made that false did not
+
+`mlt.py`'s own docstring already named the shape: *"Unmuting a shot ... needs
+a producer of its own and a second `mix` transition, since `audio_index` is a
+producer property and not a per-entry one"* (`mlt.py:53–56`). A2 is exactly
+that, generalized from "a shot's audio" to "a second track": one more
+per-role node dict (`music_nodes`, same shape as `audio_nodes`/`picture_nodes`),
+one more playlist pair, one more per-lane `tractor`, one more entry in the
+sequence's `stack`, and one more `mix` transition — `a_track="0"` (the black
+background — mix does not care that it carries no sound; every mix in the
+document composites against it) — `b_track` set to the new track's index.
+Built and rendered exactly this way (`case1_equal.mlt`): both tones survive at
+their **exact source amplitudes** — a Goertzel probe at the render's voice
+band reads −27.10 dBFS-equiv against a pure-voice control's −27.10; the music
+band reads −33.12 against a pure-music control's −33.12; each track probed at
+the *other's* frequency sits at noise floor (≈−50 to −53 dB). `sum="1"` mixing
+is additive and lossless — nothing here needs a gain filter to avoid clipping
+at these levels, and if it ever did, that is one more property on the node,
+not a new service. `declared_frames()` on the built document agrees at every
+site when A2's own tractor is built to span the timeline exactly, the same
+discipline `tractor0`/`tractor1` already hold to.
+
+**Two things that could have made "no new concept" false, tested rather than
+assumed:**
+
+1. **A shorter A2 than the timeline.** Built at 90 frames of music against a
+   180-frame (voice) timeline (`case2_short.mlt`, `case3_marker.mlt` with a
+   distinguishable silence marker to catch a hidden loop). Render duration
+   stayed the full 180 frames, and the tail — the 90 frames past where music's
+   own content ends — measured at **true digital silence** (Goertzel power
+   `−323 dBFS-equiv`, i.e. exactly zero, not a decayed ring or a repeated
+   loop). melt does not truncate the render to the short track, and it does
+   not loop it to fill the gap — it pads with silence, correctly, at exit 0.
+2. **A longer A2 than the timeline.** Built at 180 frames of music against a
+   90-frame (voice) timeline (`case4_longer.mlt`). The render came back at
+   exactly 90 frames (3.0s) with both tones present and correct for the whole
+   render — the excess 90 frames of music were dropped, not appended. This is
+   the finding worth being explicit about, because it looks like it should
+   contradict the module docstring's own warning that *"melt renders to the
+   longest declared length in the document."* It doesn't: that warning is
+   about the four **top-level, mutually-independent** slots `document()`
+   already controls and cross-checks (`producer0`'s `length`, each lane
+   tractor's own `out`, the sequence tractor's `out`) — not about an arbitrary
+   child track referenced inside a `<track producer="…">` of a shorter
+   enclosing tractor. A nested track's own declared length is irrelevant to
+   how long it plays; the enclosing tractor clips it. Both directions are safe
+   at the render level.
+
+**They are not safe at the write-time check level, unmodified**, which is the
+one real finding here. `declared_frames()` as written scans *every* tractor's
+`out` and `document()` refuses any that disagree with the timeline total. A2's
+own tractor, honestly declaring its own (shorter or longer) length, would trip
+that refusal even though the render it would have produced is provably
+correct. Two ways to close that gap, and only one is free:
+
+- **(a) Special-case A2's tractor in the check** — teach `declared_frames()`
+  or its caller that one more site is allowed to disagree. This is a standing
+  exception living forever next to a rule whose entire value is having no
+  exceptions.
+- **(b) Pad or trim A2 to the timeline's exact length by construction**, the
+  same way the tail already appends a real silent-WAV entry rather than
+  relying on melt's un-enforced blank-padding. A trailing silent `Entry`
+  closes a short cue to the timeline's length; an over-long asset is trimmed
+  by frame count before it is written. Every declared length keeps agreeing
+  uniformly and `document()`'s existing check needs **zero** changes.
+
+**(b), for the reason the tail already established: pad, never rely on an
+un-checked melt behavior just because it happens to be safe today.** The
+finding that melt pads safely is worth having measured — it means a padding
+bug in the writer degrades to "the padding is redundant," not to a broken
+render — but it is not a reason to skip padding.
+
+**An offset (music starting partway in) is not a `<blank>`.** `mlt.py`'s own
+docstring carves out exactly one deliberate `<blank>` — a split pane's overlay
+track — and calls every other occurrence of one a trap: a lane silently
+running short, invisible to every downstream cue position. A pre-roll is
+instead a **real silent producer entry**, first in A2's playlist, ahead of the
+music entry — the same shape `vo_extend`'s manufactured stretch and the tail's
+own silent WAV already use. Built and rendered (`case5_offset.mlt`, 2s
+silence + 3s music against a 6s timeline): silence measured exactly through
+2.0s, tone measured exactly from 2.0s to 5.0s, silence again 5.0–6.0s (the
+short-track padding from finding 1, composing cleanly with the offset). Frame-
+accurate, no artifact at either seam, voice track undisturbed throughout.
+
+### Addressing: word-index start, derived duration, argued against two alternatives
+
+The cautionary prior is not abstract — it was measured. § The property
+everything below defends: cues carrying explicit lengths tuned to a runtime
+were invalidated wholesale by a ~12s append. HISTORY.md § The music bed,
+measured against a dumb control ran the actual A/B this design note would
+otherwise have to reason about from scratch: a machine-anchored wrap (never a
+stored length) against a hand-typed one (a stored length, typed carefully, by
+someone trying). **The hand-typed length undershot the real remainder by
+0.341s and landed its splice on live material (−46.3 dB max at the seam);
+the anchored version landed in genuine hush (−91.0 dB max).** That is the
+failure shape a stored duration produces even when nobody is being careless
+about it. A follow-up listen (HISTORY.md § The music bed: the loop lost, and
+the reason is not length) rejected a *looping* arrangement in favor of a
+single pass that plays out once — "hold," in that note's own word — which is
+the shape recommended below, not a new one.
+
+**Recommended mechanism:** a music cue is `(asset, word_index_start,
+word_index_end | None)` — addressed into the transcript exactly like `cue_add`
+already addresses picture, through `Edit.timeline_span`. **No field in it is a
+timeline second or a frame count.** Duration is derived at build time, the
+same way a picture shot's length is derived from one cue to the next in
+`build_shots`, never stored: it runs from the resolved start to the resolved
+end cue if one is given, or **to the end of the timeline** if not — the
+"hold" HISTORY.md already settled on, made the default rather than a special
+case. A cut anywhere before either boundary moves both automatically, because
+both are word indices and word indices are what survives a cut for free
+(§ The property everything below defends's own worked example: a 4.4s shift
+recomputed a 37-shot plan from two `lucid cut` commands, no replanning).
+
+**Argued against two alternatives, not one:**
+
+1. **Store an explicit stop time or duration in seconds** (shape A of the
+   cautionary prior, and the literal control arm HISTORY.md already measured
+   losing). Refuted by measurement above, not by the general rule alone — a
+   0.341s drift and a live-material splice are what "tuned carefully by hand"
+   produces at this scale, and nothing about lucid’s tooling improves that; the
+   number moves because the runtime it was tuned to moves.
+2. **Anchor to a word index but store the *derived* frame count as a cache**,
+   refreshed by some hook on cut. This was seriously considered because
+   `TAIL_KEY`'s own `seconds` field is a stored duration and it is safe — but
+   it is safe for a specific, narrow reason the "Tail time" note states
+   plainly: *"a length is only dangerous when something upstream of it can
+   move,"* and a tail is anchored to **the end**, which nothing is ever
+   upstream of. A2's start (and its optional end) sit **inside** the film,
+   where an earlier cut is always upstream of them. A cached frame count next
+   to a word-index cue is two facts that can disagree, and the only thing
+   keeping them in step is a hook nobody has forgotten to call yet — the
+   exact shape `caption_style`/`covered_by`/every other derived-and-reported
+   field in this repo refuses to trust. Deriving it live, every time, off the
+   same `Edit.timeline_span` every other cue already goes through, costs one
+   more `build_shots`-shaped function and removes the hook entirely.
+
+### Ducking: out of scope, and it is the recording's fault, not the model's
+
+HISTORY.md § `speech_overlap`, the ducking prerequisite Billy/Stu never had:
+the actual clip/VO pairing measured **74–85% overlap with only sub-second
+clean seams** (the longest, 0.620s, "none of them a real insertion point").
+There is no seam in that recording for a duck to open into — PLAN.md § What
+stays blocked, and it is not lucid already names this as a property of *the
+v1 recording*, fixed only by a re-record or by `vo_extend` opening a hold,
+neither of which A2 changes. A2 gives lucid a second audio track to mix a bed
+into; it does not give a VO take a pause it does not have. Building a ducking
+mechanism now would be solving a problem the model does not have and the
+recording does — nothing here changes that math, so it stays out.
+
+### The gate: A2 draws only when `export` can render it, restated against `_is_layered`'s own four triggers
+
+The standing rule (`CLAUDE.md`, "Timeline lanes are projections of one
+`Edit`... never draw a lane `export` cannot produce") exists because the
+single-source path silently degrades: auto-editor 31.x renders a multi-`src`
+timeline at 720×576 with **exit 0** rather than failing (CLAUDE.md; HISTORY.md
+§ The multi-track costing spike). `_is_layered` (`ops.py:7254–7270`) is the
+switch — currently four triggers, all routing to the MLT writer because
+auto-editor has no export path for any of them: more than one `clip_id` on
+the edit, a cue table, a `CANVAS_KEY` override, a `TAIL_KEY`. **A music cue is
+a fifth**, on exactly the same footing as the fourth: `manifest.get(TAIL_KEY)`
+becomes `manifest.get(TAIL_KEY) or manifest.get(MUSIC_KEY)` (or however the
+cue table itself is namespaced), because auto-editor's export has no more
+concept of a second audio track than it has of a card-and-silence tail.
+
+**The failure this specifically guards against**, named rather than left
+implicit: a project with a music cue recorded in the manifest but *not yet*
+wired into `_is_layered`'s check would still be single-source-eligible by
+every existing test, still export through auto-editor, and the render would
+come back with no music in it — at exit 0, with `status`/`verify`/
+`check_frames` all silent, because none of them know to look for a lane that
+was never on the write path to begin with. That is indistinguishable from
+success on every check this repo has except listening to the file, which is
+exactly the shape `check_frames`/`verify`/the tail's own history exist to
+prevent. So the web UI's A2 lane, when it is drawn, is gated the same way the
+picture lane already is (CLAUDE.md: *"drawn as of step 6, and only because
+step 5 made `export` able to render it"*) — it appears only once `_is_layered`
+reports `True` **because of** the music cue specifically, never speculatively
+ahead of the writer.
+
+### What `Edit` is afterwards: beside it, on the `TAIL_KEY` precedent
+
+**Recommend beside, not in.** `Edit` is one subtractive list of source
+segments over one addressing space (`CLAUDE.md`: *"`Edit` never stored what it
+removed"*), and every mutator on it — `remove`/`keep_only`/`restore`/`insert`
+— answers a question about *what survived a cut*. A2 answers a different
+question: what plays alongside whatever survived. Folding it into `Edit` would
+mean either a second `clip_id` axis inside one segment (this repo's segment
+model does not have parallel tracks, and `_is_layered`'s own existence is the
+tell — two simultaneous `clip_id`s already force the MLT writer specifically
+*because* `Edit` cannot represent them as one sequence) or a parallel list
+inside the same dataclass that every one of `Edit`'s four mutators would now
+have to know about and not accidentally corrupt — the exact `_SpanIndex`
+staleness risk `CLAUDE.md` already flags for a much smaller change ("assigning
+`segments` drops the cached index... a caller mutating the list in place is
+the one way round the guard").
+
+Project state, like `TAIL_KEY`, is the shape that already exists for
+"something that isn't a cut but has to survive one, expressed and re-derived
+against the current `Edit` rather than stored as part of it." Both are
+additive-optional manifest keys, no schema bump, on the same precedent
+`CANVAS_KEY`/`TAIL_KEY`/a window's `interp` already set. And `status`/
+`check_frames` already stopped reading `edit.duration` alone once `TAIL_KEY`
+needed a second answer to "how long is this" (`_frame_total_with_tail`) — a
+music cue does not even add a second *duration* (the timeline's own length is
+unchanged by an audio bed inside it), so it costs nothing there. What it does
+cost, matching § What this note does not settle below, is one more thing
+`reel` has to decide about on derivation, on the `tail_dropped`/`cues_dropped`
+precedent — a survivable cost, not a new kind of one.
+
+### What this note does not settle
+
+1. **What `reel` does with a music cue that survives a prune vs one that
+   does not.** `tail_dropped` and `cues_dropped` are the two existing
+   precedents; a music cue anchored to a word index that gets cut is the same
+   shape as any other orphaned cue (`CLAUDE.md`'s `build_shots` refusal
+   rule) and should report the same way. Not designed here because it is a
+   restatement of an existing pattern, not a new one — flagged so the build
+   step doesn't skip it.
+2. **Where the cue table lives** — the same `cues` manifest key `_is_layered`
+   already checks, tagged by kind (`picture` vs `music`), or a second key.
+   Either is additive-optional; picking one is an implementation detail of
+   the build step, not a modeling question this note needs to answer.
+3. **Fade in/out at the cue's own boundaries** (the tail already has
+   `fade`). Likely the same shape, not measured here — out of scope for a
+   note whose job was the addressing and render questions, not the full
+   feature.
+
+Not started. What this note settles: the render side needs nothing new that
+isn't already named in `mlt.py`'s own docstring, verified rather than assumed,
+including the two directions (short/long) that could have made that false;
+the addressing side is word-index-start-plus-optional-word-index-end with
+derived duration, argued against both a stored-length shape (measured losing)
+and a cached-derived-length shape (unsafe for the same reason a tail's cached
+length is safe — proximity to something that can move); ducking stays blocked
+on the recording; the gate is `_is_layered`'s existing fifth trigger; and A2
+lives beside `Edit`, not in it.
+
+### What would have to be true to start
+
+The smallest set, in build order — each item is what the next one needs, not
+an independent checklist:
+
+1. **`MUSIC_KEY` on the manifest**, validated on every read the way
+   `_stored_tail` validates `TAIL_KEY` — additive-optional, no schema bump,
+   holding `{"asset", "word_index_start", "word_index_end": int | None,
+   "fade_in", "fade_out"}`. Nothing downstream has anything to resolve until
+   this exists.
+2. **A resolver from that cue to a frame span**, the `build_shots`-shaped
+   function this note argues for over a cached field — `word_index_start`/
+   `word_index_end` through `Edit.timeline_span`, "no end" meaning "to the
+   end of the timeline." This is the one piece with no direct precedent to
+   copy verbatim (the tail computes a span from a fixed end; this computes
+   one from two resolved cues), so it is where a build session should expect
+   to spend its own measurement time.
+3. **`mlt.py`: the second per-role node/playlist/tractor/`mix` shape**,
+   built exactly as measured in `~/lucid-a2-probe/build_doc.py` — including
+   the pad/trim step this note recommends (§ Render, resolution (b)) so
+   `declared_frames()` needs no special case. Depends on (2) to know what
+   frame span to build the entry at.
+4. **`_is_layered`'s fifth trigger**: `manifest.get(MUSIC_KEY)` added beside
+   the existing four, so a project with a music cue routes to the MLT writer
+   automatically rather than silently degrading through auto-editor. This is
+   the gate — it must land in the same change as (3), never after it, or
+   there is a window where a music cue exists but exports silently without it.
+5. **`timeline_view`'s `music` projection**, echoing the resolved span (or a
+   `music_error`) so the web UI's future A2 lane has something to gate on,
+   on the picture lane's own precedent — the lane is drawn only once this
+   exists and only because (3) made `export` able to render it.
+
+Fade curves, `reel`'s handling of a pruned music cue, and where the cue table
+itself lives (§ What this note does not settle, items 1–3) are none of them
+blocking — each can land after (1)–(4) render a plain bed correctly.
+
 ## The completion queue — what the Scream video left — 2026-08-12
 
 Provenance: a full review of HISTORY.md, DAYDREAM.md, the design notes above,
