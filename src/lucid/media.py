@@ -34,6 +34,21 @@ class MediaError(Exception):
     """Raised when media cannot be probed or registered."""
 
 
+class MultiAudioError(MediaError):
+    """`import_media` refusing a container that holds more than one mic.
+
+    A `MediaError` subclass, so every `except media.MediaError` already
+    written catches it unchanged — the type exists so a *client* can offer
+    the choice rather than reprint the sentence. `webui`'s import job reads
+    `streams` off it and the assets pane turns it into a button; nothing
+    string-matches the message to work out what happened.
+    """
+
+    def __init__(self, message: str, *, streams: int) -> None:
+        super().__init__(message)
+        self.streams = streams
+
+
 @dataclass(frozen=True)
 class MediaInfo:
     """What ffprobe knows about one file."""
@@ -52,6 +67,12 @@ class MediaInfo:
     #: acted on: cut-and-concat works in the time domain where VFR is mostly
     #: fine, so normalising is deferred to NLE export.
     vfr: bool
+    #: How many audio streams the *container* holds. Every other audio field
+    #: above describes the first one, which is the whole reason this is
+    #: counted: a two-mic capture reads exactly like a one-mic capture
+    #: through them. Defaulted so a hand-built `MediaInfo` still means what
+    #: it always meant — one stream. PLAN.md § The co-hosted recording.
+    audio_streams: int = 1
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -117,6 +138,7 @@ def probe(path: Path | str) -> MediaInfo:
         audio_codec=audio.get("codec_name") if audio else None,
         # A 1% tolerance: 30000/1001 vs 29.97 is rounding, not variability.
         vfr=bool(fps and avg and abs(fps - avg) / fps > 0.01),
+        audio_streams=sum(1 for s in streams if s.get("codec_type") == "audio"),
     )
 
 
@@ -332,21 +354,116 @@ def _unique_clip_id(candidate: str, taken: set[str]) -> str:
     return f"{candidate}-{n}"
 
 
+def derive_single_audio(
+    source: Path,
+    dest: Path,
+    *,
+    streams: int,
+    pick: int | None = None,
+    has_video: bool = False,
+) -> dict[str, Any]:
+    """Write a one-audio-stream copy of `source`, either summed or picked.
+
+    The whole point is that nothing downstream ever has to choose a stream.
+    `mlt.py` emits `audio_index` only as `-1`, to silence a picture node, so
+    the Edit lane's producer carries no property at all and MLT picks — and
+    it picks the first. A dual-mic container rendered today loses the second
+    mic entirely, at exit 0, with `verify`, `check_frames` and `film_check`
+    all clean, because every one of them compares the render against the
+    timeline and the timeline never knew there was a second stream. Measured
+    by Goertzel readback of a real melt render: PLAN.md § The co-hosted
+    recording, *The render trap*.
+
+    So the choice is made once, here, and written down. `pick` is **ffmpeg's
+    own audio ordinal** (`-map 0:a:1` is the second *audio* stream), which is
+    deliberately not MLT's `audio_index` (an absolute stream index, where the
+    second mic of a video container is 2). The two numberings agree exactly
+    on an audio-only file, which is every fixture anyone writes first — this
+    path never uses MLT's.
+
+    A pick is a stream copy, so a rip with a commentary track costs a remux
+    and no quality. A sum has to re-encode; video is copied through either
+    way, or a mixdown would silently drop the picture.
+    """
+    if streams < 2:
+        raise MediaError(f"{source} has {streams} audio stream(s) — nothing to derive")
+    if pick is not None and not 0 <= pick < streams:
+        raise MediaError(
+            f"{source} has {streams} audio streams, numbered 0-{streams - 1}; asked for {pick}"
+        )
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    codec = "copy"
+    command = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source)]
+    if pick is None:
+        taps = "".join(f"[0:a:{k}]" for k in range(streams))
+        command += [
+            "-filter_complex",
+            f"{taps}amix=inputs={streams}:duration=longest:normalize=1[a]",
+        ]
+        command += ["-map", "0:v"] if has_video else []
+        command += ["-map", "[a]"]
+        command += ["-c:v", "copy"] if has_video else []
+        codec = "pcm_s16le" if dest.suffix.lower() == ".wav" else "aac"
+        command += ["-c:a", codec]
+    else:
+        command += ["-map", "0:v"] if has_video else []
+        command += ["-map", f"0:a:{pick}", "-c", "copy"]
+    command += [str(dest)]
+
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    if completed.returncode != 0 or not dest.exists():
+        raise MediaError(
+            f"ffmpeg could not reduce {source} to one audio stream: "
+            f"{completed.stderr.strip()[-800:]}"
+        )
+    return {
+        "streams": streams,
+        "mode": "pick" if pick is not None else "sum",
+        "stream": pick,
+        "codec": codec,
+    }
+
+
 def import_media(
     project: Project,
     path: Path | str,
     *,
     clip_id: str | None = None,
     copy: bool = False,
+    mix: bool = False,
+    audio_stream: int | None = None,
 ) -> dict[str, Any]:
     """Probe `path`, link it into the project, and record it in the manifest.
 
     Returns the clip record. Re-importing the same source path is a no-op that
     returns the existing record, so an agent retrying a call cannot silently
-    register the same media twice under two ids.
+    register the same media twice under two ids. That dedup is also why the
+    second audio stream of a container is *not* reached by importing the file
+    twice, which is the workaround it should keep blocking.
+
+    **A container with more than one audio stream is refused**, rather than
+    registered as if the first one were the recording. Every audio field on
+    the record describes the first stream, whisper is handed the container
+    and ffmpeg picks, and MLT picks again at render — three independent
+    places that would all quietly agree on mic A while mic B never reached
+    the film. `mix=True` sums the streams into one track lucid edits;
+    `audio_stream=k` keeps one of them. Either way the choice is made once,
+    written to `cache/mixed/`, recorded as `mixed`/`mix`, and picked up by
+    `media_path()` everywhere downstream — the `attenuated` precedent.
+    PLAN.md § The co-hosted recording.
     """
     source = Path(path).expanduser().resolve()
     info = probe(source)
+
+    if mix and audio_stream is not None:
+        raise MediaError(
+            "mix sums every audio stream and audio_stream keeps one of them — "
+            "pass one or the other, not both"
+        )
 
     manifest = project.read_manifest()
     clips: list[dict[str, Any]] = manifest.setdefault("clips", [])
@@ -355,6 +472,27 @@ def import_media(
     if existing is not None:
         return existing
 
+    # Only now, on a source this project has not already resolved: the dedup
+    # above is a documented no-op that returns the existing record, and a
+    # refusal ahead of it would make a retried call raise about a container
+    # whose two mics were summed days ago.
+    if info.audio_streams > 1 and not mix and audio_stream is None:
+        raise MultiAudioError(
+            f"{source.name} holds {info.audio_streams} audio streams, and lucid edits one. "
+            "Registering it as it stands would record only the first: whisper picks a stream "
+            "of its own and so does MLT at render, so the other streams would be missing from "
+            "the film with every check clean. Sum them into the one track lucid edits with "
+            "`--mix` (mix=True) — two mics of one performance — or keep one with "
+            "`--audio-stream k` (audio_stream=k), numbered from 0. Either writes a derived "
+            "copy and records which was taken.",
+            streams=info.audio_streams,
+        )
+    if audio_stream is not None and not 0 <= audio_stream < max(info.audio_streams, 1):
+        raise MediaError(
+            f"{source.name} has {info.audio_streams} audio stream(s), numbered "
+            f"0-{max(info.audio_streams, 1) - 1}; asked for {audio_stream}"
+        )
+
     taken = {c["clip_id"] for c in clips}
     if clip_id is None:
         clip_id = _unique_clip_id(slugify(source.name), taken)
@@ -362,6 +500,29 @@ def import_media(
         raise MediaError(f"clip_id {clip_id!r} is already registered in this project")
 
     record: dict[str, Any] = {"clip_id": clip_id, "source": str(source)}
+
+    # Derive *before* placing, because `_place` writes a symlink or a whole
+    # copy under `media/` and a derivation that then fails would leave it
+    # there with no clip record pointing at it. This order leaves nothing
+    # behind on any failure path.
+    if info.audio_streams > 1:
+        # An extensionless source would hand ffmpeg an output path it cannot
+        # infer a muxer from, so a container with no name for itself gets one.
+        derived = project.mixed_dir / f"{clip_id}{source.suffix or '.mkv'}"
+        try:
+            mix_report = derive_single_audio(
+                source,
+                derived,
+                streams=info.audio_streams,
+                pick=audio_stream,
+                has_video=info.has_video,
+            )
+        except MediaError:
+            derived.unlink(missing_ok=True)
+            raise
+        record["mix"] = mix_report
+        record["mixed"] = str(derived.relative_to(project.root))
+
     record.update(_place(project, source, clip_id, copy=copy))
     record.update(info.as_dict())
 
@@ -410,12 +571,16 @@ def media_path(project: Project, clip: dict[str, Any]) -> Path:
     """The path tools should hand to ffmpeg/auto-editor for this clip.
 
     The `attenuated` entry when `attenuate_noises` has produced one, else the
-    `media/` entry, else the original source when the filesystem would not
-    take a symlink. Preferring `attenuated` here — rather than threading a
-    "use the calm copy" flag through every caller — is what makes attenuation
-    transparent to every downstream op (seed/cut/export/verify) for free.
+    `mixed` entry when the container held more than one audio stream, else
+    the `media/` entry, else the original source when the filesystem would
+    not take a symlink. Preferring them here — rather than threading a "use
+    the calm copy" flag through every caller — is what makes both
+    transparent to every downstream op (seed/cut/export/verify) for free,
+    and it is what keeps the writer single-stream: nothing downstream of
+    import ever chooses an audio stream, so MLT's `audio_index` trap is
+    never in the render path at all.
     """
-    local = clip.get("attenuated") or clip.get("media")
+    local = clip.get("attenuated") or clip.get("mixed") or clip.get("media")
     return (project.root / local) if local else Path(clip["source"])
 
 
@@ -425,8 +590,14 @@ def original_media_path(project: Project, clip: dict[str, Any]) -> Path:
     `attenuate_noises` always reads from here, never from `media_path()`, so a
     second call cannot attenuate an already-attenuated file — every run is a
     clean rebuild from the untouched original, not a compounding one.
+
+    It keeps the `mixed` copy, though, which is the point of the split: the
+    untouched original of a two-mic container is the *mixdown*, not the
+    container. Reading the container here would attenuate mic A alone and
+    hand `media_path()` back a one-mic file — the very loss import refuses
+    to make silently.
     """
-    local = clip.get("media")
+    local = clip.get("mixed") or clip.get("media")
     return (project.root / local) if local else Path(clip["source"])
 
 

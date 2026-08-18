@@ -1422,7 +1422,15 @@ class ImportJob:
         self._lock = threading.Lock()
         self._running = False
 
-    def start(self, source: str, *, clip_id: str | None = None, copy: bool = False) -> str:
+    def start(
+        self,
+        source: str,
+        *,
+        clip_id: str | None = None,
+        copy: bool = False,
+        mix: bool = False,
+        audio_stream: int | None = None,
+    ) -> str:
         job_id = uuid.uuid4().hex
         # Resolve before claiming the slot: a bad project and a bad source
         # path both raise here, on the request thread, where they become a
@@ -1450,7 +1458,7 @@ class ImportJob:
                 raise ImportBusyError("an import is already running")
             self._running = True
         threading.Thread(
-            target=self._run, args=(job_id, source, clip_id, copy), daemon=True
+            target=self._run, args=(job_id, source, clip_id, copy, mix, audio_stream), daemon=True
         ).start()
         return job_id
 
@@ -1458,13 +1466,42 @@ class ImportJob:
         with self._lock:
             self._running = False
 
-    def _run(self, job_id: str, source: str, clip_id: str | None, copy: bool) -> None:
+    def _run(
+        self,
+        job_id: str,
+        source: str,
+        clip_id: str | None,
+        copy: bool,
+        mix: bool = False,
+        audio_stream: int | None = None,
+    ) -> None:
         self.bus.publish("import", {"job_id": job_id, "status": "running", "source": source})
         try:
             try:
                 result = ops.import_media(
-                    str(self.project_root), source, clip_id=clip_id, copy=copy
+                    str(self.project_root),
+                    source,
+                    clip_id=clip_id,
+                    copy=copy,
+                    mix=mix,
+                    audio_stream=audio_stream,
                 )
+            except media.MultiAudioError as exc:
+                # The one refusal a client can *act* on rather than only
+                # print: the window offers to sum the mics and re-post.
+                # `streams` rides the event so the pane never has to
+                # string-match the sentence to know which refusal this is.
+                self.bus.publish(
+                    "import",
+                    {
+                        "job_id": job_id,
+                        "status": "error",
+                        "error": str(exc),
+                        "audio_streams": exc.streams,
+                        "source": source,
+                    },
+                )
+                return
             except (*EXPECTED, OSError) as exc:
                 # Same rule as `ProxyJob._run`: lucid's own refusals (an
                 # already-registered clip_id, a source ffprobe cannot read)
@@ -2355,7 +2392,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_import_start(self) -> None:
         """`POST /api/import {"source": str, "clip_id": str | null, "copy":
-        bool | null}` — 202, work happens on the stream.
+        bool | null, "mix": bool | null, "audio_stream": int | null}` — 202,
+        work happens on the stream.
 
         Like `/api/proxy`, the reply only acknowledges; `running` → `done`/
         `error` arrive as `import` events on `/api/events`. `source` is a
@@ -2386,12 +2424,26 @@ class Handler(BaseHTTPRequestHandler):
                 copy = False
             elif not isinstance(copy, bool):
                 raise WebUIError("'copy' must be a boolean")
+            mix = payload.get("mix")
+            if mix is None:
+                mix = False
+            elif not isinstance(mix, bool):
+                raise WebUIError("'mix' must be a boolean")
+            audio_stream = payload.get("audio_stream")
+            # `isinstance(True, int)` is True in Python, and a stray `true`
+            # here would read as stream 1 — the second mic — silently.
+            if audio_stream is not None and (
+                isinstance(audio_stream, bool) or not isinstance(audio_stream, int)
+            ):
+                raise WebUIError("'audio_stream' must be an integer")
         except WebUIError as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
             return
         job: ImportJob = self.server.import_job  # type: ignore[attr-defined]
         try:
-            job_id = job.start(source, clip_id=clip_id, copy=copy)
+            job_id = job.start(
+                source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream
+            )
         except ImportBusyError as exc:
             self._fail(HTTPStatus.CONFLICT, str(exc))
             return

@@ -9355,3 +9355,155 @@ Both rules that outrank the saving still hold, and were re-watched: the scan
 says `scanning for cuts…` while it runs, because a blank chip where a warning
 would go reads as "nothing to report"; and a project with nothing to frame
 says so rather than drawing nothing. Console is clean on both projects now.
+
+## The two mics survive import — 2026-08-18
+
+PLAN.md § The co-hosted recording's build order, steps 1 and 4, taken ahead of
+the format decision because **neither depends on it**. Step 1 is additive and
+changes no behaviour; step 4 closes a silent wrong render that exists today,
+whether or not October records two tracks. Steps 2, 3 and 5 wait on Tyler's
+call and on a real two-mic recording, as the note says.
+
+**`Word.speaker` is a label and never an address.** `(clip_id, word_index)`
+still resolves every cue, description, unspoken mark, music anchor and
+caption, so attributing a recording adds a per-word fact and moves nothing.
+`parse_whisper` carries `entry.get("speaker")` through, normalised to a
+non-empty string — a label that is `1` going in and `"1"` coming out is not
+equal to itself across a round trip, and a padded one silently forks a
+speaker. No schema bump: absent means what every transcript on disk already
+means.
+
+**The one thing that took thought is that `Word.as_dict` is now hand-written.**
+`asdict` would stamp `"speaker": null` onto every word of every transcript the
+day the field landed, so re-saving an untouched transcript would rewrite the
+file for no change at all. It emits the key only when there is a label, and a
+test holds it: an unattributed transcript round-trips with no `speaker`
+anywhere in it.
+
+### The refusal, and what it is protecting against
+
+`media.probe` now counts audio streams (`MediaInfo.audio_streams`, defaulted
+to 1 so a hand-built one still means what it meant), and **`import_media`
+refuses a container holding more than one**. The alternative is not "lucid
+picks the first" — it is *three* independent places picking the first without
+saying so: every audio field on the clip record describes stream 0,
+`asr.transcribe` hands whisper the container and ffmpeg picks, and `mlt.py`
+writes `audio_index` only as `-1` to silence a picture node, so MLT picks at
+render. Half the conversation is missing from the film with `verify`,
+`check_frames` and `film_check` all clean, because each compares the render
+against the timeline and the timeline never knew.
+
+Two ways forward, both recorded: `--mix` (`mix=True`) sums the streams into
+the one track lucid edits — two mics of one performance — and
+`--audio-stream k` keeps one. Either writes a derived copy to `cache/mixed/`
+and records `mixed` plus a `mix` dict; `media_path()` prefers it exactly the
+way it prefers `attenuated`, so every op downstream reads it without knowing.
+**Nothing downstream of import ever chooses an audio stream, which is what
+keeps MLT's `audio_index` trap out of the render path entirely.**
+
+`--audio-stream` is not in the design note, and it is what makes the refusal
+safe to ship. A sum is right for two mics and nonsense for a film rip with a
+commentary track — and a pick is a stream copy, so a rip costs a remux and no
+quality, where a sum has to re-encode. Measured against this repo's own
+material first: all ten clips of `~/lucid-final-cut/proj` are single-audio, so
+a blanket refusal breaks nothing that exists here, but the wild case is a
+movie rip and it wanted an answer that is not `--mix`.
+
+`original_media_path` keeps the mixdown too, and that is the point of the
+split rather than an oversight of it: the untouched original of a two-mic
+container **is** the mixdown. Reading the container there would have
+`attenuate_noises` process mic A alone and hand `media_path()` back a one-mic
+file — the very loss import refuses to make silently.
+
+### What the renders said, with a control
+
+The note measured the trap through `melt`. The auto-editor path was never
+measured, and **it fails differently, in a way that is harder to see**: given
+the two-stream container directly, auto-editor *passes both tracks through* —
+the output has two audio streams and its first is mic A alone. Nothing is
+dropped and nothing is wrong with the file; it is just that everything which
+decodes it takes the first stream, so the film plays as mic A and a stream
+count would answer "both are there". Goertzel power at each mic's own tone,
+which is why the tests read tones rather than counting streams or metering
+levels.
+
+End to end through the real server, import → attach → seed → render, on a
+12s container with a 300 Hz mic and a 1200 Hz one:
+
+| import | 300 Hz | 1200 Hz |
+|---|---|---|
+| `--mix` | 1024.9 | 1017.8 |
+| `--audio-stream 0` (what every import did before this) | 2042.3 | **0.0** |
+
+The control is the row that matters: mic B is not quiet in it, it is absent.
+Both rows are in `test_server_stdio.py` as one test, because a render that
+carries both mics proves nothing without the render that does not.
+
+A control ran on the way, too, and saved a wrong diagnosis: the first
+end-to-end attempt failed inside auto-editor (`Could not write packet …
+timebase 1/16000`) on an `.mkv` fixture, which read exactly like the mixdown
+being unrenderable. A single-stream `.mkv` built the same way failed
+identically, so it is auto-editor against that container shape and nothing to
+do with this change; the fixtures are `.mp4`.
+
+`tests/test_media_streams.py` pins the derivation itself — both tones present
+and *equal* after a sum, since `amix`'s `normalize=1` averages rather than
+favouring a mic; the picture surviving, because a mixdown that dropped the
+video would take the co-hosts' faces with it and `media_path()` hands this
+file to `export`; and the container's own readback as the control that says
+why any of it is needed.
+
+### The review, and what it changed
+
+Four defects came back from an adversarial pass over the diff, and three of
+them are the same shape — **a new key in `media_path()`'s preference chain
+has reach the diff did not follow**:
+
+- **`_reel_media` carried `media` and `attenuated` and not `mixed`.** A reel
+  copies the source manifest wholesale, so a derived project kept a `mixed`
+  entry naming a `cache/mixed/` file nothing had linked into it — worse than
+  the silent single-mic render the key exists to prevent, because every op
+  resolving that clip would hit a path with nothing at it. Its docstring said
+  "Both keys, and `attenuated` is the one that matters"; it now says the
+  tuple *is* `media_path()`'s list, and that adding one there without adding
+  it here is the whole bug.
+- **The refusal ran ahead of the source dedup**, so re-importing a container
+  whose mics were summed days ago raised instead of returning the existing
+  record — contradicting `import_media`'s own docstring in the same commit.
+  The guard now sits behind the dedup, where only an unresolved source
+  reaches it.
+- **A failed derivation stranded the `media/` symlink `_place` had already
+  written.** The derivation now runs first and unlinks its own partial output
+  on failure, so nothing survives any failure path. It also gave the
+  extensionless-source case an answer: a container with no name for itself
+  gets `.mkv`, since ffmpeg cannot infer a muxer from a bare path.
+
+The fourth was missing coverage of the `mix` + `audio_stream` refusal, and
+the pass also asked the question that produced the window's half of this:
+**the refusal was reachable from the assets pane and could not be complied
+with there**, in the one surface whose stated point is that the terminal is
+never required. `MultiAudioError` is a `MediaError` subclass carrying
+`streams` so the import job can put a count on the bus, and the pane draws
+two buttons — *Sum the N mics* and *Keep track 1*, the second because a rip
+with a commentary track is the other real multi-stream shape and summing it
+is nonsense. Nothing string-matches the sentence.
+
+### What the browser pass found, which the HTTP tests could not
+
+Driven over CDP at 0ms **and** ~120ms dwell, both offers work on a video
+container and an audio-only one, and `elementFromPoint` returns each button
+at its own centre. What that pass caught is the pane, not the gesture:
+**`#assets-list` went to 0px.** The refusal message renders 194px in that
+column — it is a long sentence, written for a terminal — and took the list
+from 129px to 23px on its own, the offer row taking the rest. This is
+CLAUDE.md's "a new control spends the pane's height" defect arriving through
+an *error message* rather than a control, which is why the height budget has
+to be measured rather than reasoned about.
+
+`.asset-status` is now capped at 60px with `overflow-y: auto` — the whole
+message stays readable, it just cannot take the pane with it — and the two
+button labels are short enough to hold one row. Measured after: list 77px
+and scrolling 598px of content, status 60px, offer 27px. The page's own
+overflow is unchanged at 700px and 1400px (`body.scrollWidth == innerWidth`
+at both; the three nodes the probe names are pre-existing and inside their
+own scroll containers).

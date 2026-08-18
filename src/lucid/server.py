@@ -242,14 +242,31 @@ def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
 
 @_tool()
 def import_media(
-    path: str, source: str, clip_id: str | None = None, copy: bool = False
+    path: str,
+    source: str,
+    clip_id: str | None = None,
+    copy: bool = False,
+    mix: bool = False,
+    audio_stream: int | None = None,
 ) -> dict[str, Any]:
     """Register a media file with the project, probing it with ffprobe.
 
     Links the media by default rather than copying it. Returns the clip record,
-    including the `clip_id` every other tool takes.
+    including the `clip_id` every other tool takes, and `audio_streams` — how
+    many the container holds, since every other audio field on the record
+    describes only the first.
+
+    A container with more than one audio stream is refused rather than
+    registered as if the first were the recording: whisper picks a stream of
+    its own and MLT picks again at render, so the others would be missing
+    from the film with every check clean. `mix=True` sums them into one track
+    (two mics of one performance); `audio_stream=k` keeps one, numbered from
+    0 in ffmpeg's own audio ordering. Either writes a derived copy under
+    `cache/mixed/` that every later op reads without knowing it.
     """
-    return ops.import_media(path, source, clip_id=clip_id, copy=copy)
+    return ops.import_media(
+        path, source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream
+    )
 
 
 @_tool()

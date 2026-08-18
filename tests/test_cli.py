@@ -769,6 +769,40 @@ def test_import_edit_flags_parse_and_reach_ops(
     assert seen == {"document": "cut.kdenlive", "clip_id": "vo", "plan": True}
 
 
+def test_import_audio_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--mix` and `--audio-stream` are the two ways to comply with the
+    multi-mic refusal, so a flag that parses but never arrives would leave a
+    two-mic container un-importable with the message saying otherwise.
+    `--audio-stream 0` in particular must arrive as `0`, not as `None` —
+    they are the same falsy value and mean opposite things here.
+    """
+    from lucid import cli as cli_module
+
+    seen: dict[str, object] = {}
+
+    def _stub(path: object, source: object, *, clip_id: str | None = None, copy: bool = False,
+              mix: bool = False, audio_stream: int | None = None) -> dict[str, object]:
+        seen.update({"mix": mix, "audio_stream": audio_stream, "copy": copy})
+        return {"clip_id": "c"}
+
+    monkeypatch.setattr(cli_module.ops, "import_media", _stub)
+    project = tmp_path / "proj"
+
+    assert main(["-C", str(project), "import", "cohost.mkv"]) == 0
+    capsys.readouterr()
+    assert seen == {"mix": False, "audio_stream": None, "copy": False}
+
+    assert main(["-C", str(project), "import", "cohost.mkv", "--mix"]) == 0
+    capsys.readouterr()
+    assert seen == {"mix": True, "audio_stream": None, "copy": False}
+
+    assert main(["-C", str(project), "import", "cohost.mkv", "--audio-stream", "0"]) == 0
+    capsys.readouterr()
+    assert seen == {"mix": False, "audio_stream": 0, "copy": False}
+
+
 # -- `role`, `assets`, `properties`, `thumbnail` -----------------------------
 #
 # These landed this session with no CLI-level parsing coverage of their own,

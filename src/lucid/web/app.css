@@ -278,6 +278,19 @@
  *                                 enough without a companion rule, unlike
  *                                 the toolbars this file's own header
  *                                 warns about.
+ *   #import-offer / .import-offer  the two ways out of a multi-mic import
+ *                                 refusal, drawn only after one: sum every
+ *                                 mic, or keep the first track (a film rip
+ *                                 with a commentary track, where a sum is
+ *                                 nonsense). Re-posts the same payload with
+ *                                 `mix` / `audio_stream`. Hidden the rest of
+ *                                 the time, so it costs `#assets-list` no
+ *                                 height — and it HAS an author `display`,
+ *                                 so the `[hidden]` companion below is
+ *                                 load-bearing, not defensive
+ *   #import-mix / #import-pick / .import-mix
+ *                                 the two buttons inside it, labelled by
+ *                                 assets.js with the real stream count
  *   .asset-transcribe              per-clip Transcribe / Attach… controls,
  *                                 drawn only when a clip has no transcript
  *   .asset-attach-form             the inline path input Attach… opens,
@@ -1978,13 +1991,56 @@ textarea {
   align-items: center;
 }
 
+/* The offer that replaces a refusal nobody in the window could act on: a
+   two-mic container is refused by `import`, and the only ways to comply were
+   CLI flags. Drawn only after that refusal, so it spends none of the pane's
+   height otherwise — and `.asset-status`'s cap below is what keeps the
+   refusal *message* from spending it instead. Measured: the message alone
+   renders 194px in this pane and took `#assets-list` from 129px to 23px,
+   the offer taking the rest to 0. The `[hidden]` companion is load-bearing
+   here, since this rule sets `display`. */
+.import-offer[hidden] {
+  display: none;
+}
+
+.import-offer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.import-mix {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.import-mix:hover {
+  background: var(--panel-2);
+}
+
 /* A status line, not a toast — CLAUDE.md's own rule for the render chip
    applies here too: a minutes-long job needs a signal still on screen when
    it ends, not one that expired ages ago. Deliberately no explicit
    `display` — a plain block div's UA default already respects
-   `[hidden]{display:none}` with no companion rule needed. */
+   `[hidden]{display:none}` with no companion rule needed.
+
+   **Capped, because a status line grows with the length of the sentence the
+   server sent.** The multi-mic refusal is a long one and it measured 194px
+   here, which left `#assets-list` 23px of 129 — a pane whose asset controls
+   are outside the scroll window, which is the defect CLAUDE.md's own
+   "a new control spends the pane's height" note is about, arriving through
+   an error message rather than a control. Scrolls rather than truncates: the
+   whole message is still readable, it just cannot take the pane with it. */
 .asset-status {
   margin: 0;
+  max-height: 60px;
+  overflow-y: auto;
   padding: 6px 10px;
   border-left: 2px solid var(--line);
   border-radius: 0 var(--radius-xs) var(--radius-xs) 0;

@@ -85,6 +85,7 @@ Trimming the retakes out of a voiceover, end to end:
 uv sync
 uv run lucid init myproject
 uv run lucid -C myproject import VO.wav --clip-id vo
+uv run lucid -C myproject import cohost.mp4 --mix         # two mics on one recording, summed
 uv run lucid -C myproject attach-transcript vo VO.json   # word-timed whisper JSON
 uv run lucid -C myproject transcribe vo                  # or: run whisper on vo directly
 uv run lucid -C myproject seed vo                        # auto-editor strips silences
@@ -121,6 +122,13 @@ first three commands above have a window equivalent and the terminal is never
 required. Riding all three is the truth strip —
 `lucid finish-report` made ambient, so a film that would ship wrong says so
 while you edit. STUDIO.md is the design.
+
+A recording with more than one audio stream is **refused** rather than
+registered as if the first mic were the whole of it — three separate places
+would otherwise pick a stream without saying so, and the film would play half
+a conversation with every check clean. `--mix` sums the mics into the one
+track lucid edits; `--audio-stream k` keeps one. Either writes the choice down
+and every later command reads it without knowing.
 
 `--render` exports media instead of an NLE project, `--preset youtube|web|custom`
 picks a quality bundle for it, and `undo` rolls back the last mutation while

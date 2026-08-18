@@ -189,6 +189,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_import.add_argument(
         "--copy", action="store_true", help="copy the media in rather than linking it"
     )
+    p_import.add_argument(
+        "--mix",
+        action="store_true",
+        help="sum a multi-stream container's audio into the one track lucid edits",
+    )
+    p_import.add_argument(
+        "--audio-stream",
+        type=int,
+        help="keep one audio stream of a multi-stream container (0 is the first)",
+    )
 
     p_role = sub.add_parser(
         "role", help="read or set a clip's import role — voiceover vs footage"
@@ -1313,7 +1323,14 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
 
 def _cmd_import(args: argparse.Namespace) -> int:
     return _emit(
-        ops.import_media(args.project, args.source, clip_id=args.clip_id, copy=args.copy)
+        ops.import_media(
+            args.project,
+            args.source,
+            clip_id=args.clip_id,
+            copy=args.copy,
+            mix=args.mix,
+            audio_stream=args.audio_stream,
+        )
     )
 
 

@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from lucid import ops, webui
+from lucid import media, ops, webui
 from lucid import timeline as tl
 from lucid.faces import FaceError
 from lucid.project import Project, ProjectError
@@ -2688,7 +2688,15 @@ def test_a_second_import_while_one_is_running_is_refused(
     _make_wav(source, duration=1.0)
     gate = threading.Event()
 
-    def _stub(path: str, src: Any, *, clip_id: str | None = None, copy: bool = False) -> dict[str, Any]:
+    def _stub(
+        path: str,
+        src: Any,
+        *,
+        clip_id: str | None = None,
+        copy: bool = False,
+        mix: bool = False,
+        audio_stream: int | None = None,
+    ) -> dict[str, Any]:
         gate.wait(timeout=5)
         return {"clip_id": clip_id or "b", "source": str(src)}
 
@@ -2702,6 +2710,92 @@ def test_a_second_import_while_one_is_running_is_refused(
         assert "already running" in payload["error"]
     finally:
         gate.set()
+
+
+def test_import_forwards_the_audio_choice(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A two-mic container is refused unless the caller says what to do with
+    it, and the window is a client of the same op — so the choice has to
+    reach `ops.import_media` from here exactly as it does from the CLI.
+    """
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+    seen: dict[str, Any] = {}
+    done = threading.Event()
+
+    def _stub(path: str, src: Any, **kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        done.set()
+        return {"clip_id": "b", "source": str(src)}
+
+    monkeypatch.setattr(ops, "import_media", _stub)
+    status, _ = _post(f"{server}/api/import", {"source": str(source), "mix": True})
+    assert status == 202
+    assert done.wait(timeout=5)
+    assert seen["mix"] is True
+    assert seen["audio_stream"] is None
+
+    # And stream 0 must arrive as 0, not as the None it shares a falsiness
+    # with — "keep the first track" is the pane's other offer.
+    seen.clear()
+    done.clear()
+    status, _ = _post(f"{server}/api/import", {"source": str(source), "audio_stream": 0})
+    assert status == 202
+    assert done.wait(timeout=5)
+    assert seen["audio_stream"] == 0
+    assert seen["mix"] is False
+
+
+def test_import_rejects_a_boolean_audio_stream(server: str, tmp_path: Path) -> None:
+    """`isinstance(True, int)` is True in Python, so a stray `true` would
+    read as stream 1 — the *second* mic — and import the wrong person.
+    """
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+
+    status, payload = _post(
+        f"{server}/api/import", {"source": str(source), "audio_stream": True}
+    )
+
+    assert status == 400
+    assert "audio_stream" in payload["error"]
+
+
+def test_a_multi_mic_refusal_reaches_the_window_as_a_count(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal the pane can act on rather than only print.
+
+    `audio_streams` rides the error event so the offer button never has to
+    string-match the sentence to know which refusal came back — the same
+    reason `MultiAudioError` is a type rather than a message.
+    """
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+
+    def _stub(path: str, src: Any, **kwargs: Any) -> dict[str, Any]:
+        raise media.MultiAudioError("two mics in there", streams=2)
+
+    monkeypatch.setattr(ops, "import_media", _stub)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)
+
+        status, payload = _post(f"{server}/api/import", {"source": str(source)})
+        assert status == 202
+        found = _next_event(events, "import", payload["job_id"])
+    finally:
+        conn.close()
+
+    assert found["status"] == "error"
+    assert found["audio_streams"] == 2
+    assert found["error"] == "two mics in there"
+    # The source rides it too, so a re-post can be built without the form.
+    assert found["source"] == str(source)
 
 
 def test_import_of_a_missing_source_is_400_not_a_job(server: str, tmp_path: Path) -> None:

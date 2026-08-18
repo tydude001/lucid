@@ -8,6 +8,7 @@ transport, and the tool registry is exactly what a unit test would miss
 
 from __future__ import annotations
 
+import array
 import inspect
 import json
 import math
@@ -6517,3 +6518,140 @@ def test_a_stale_mark_is_reported_and_never_applied(
     assert out["view"]["unspoken_stale"][0]["recorded"] == "w11"
     assert out["view"]["unspoken_stale"][0]["found"] == "different"
     assert out["listed"]["stale"] == 1
+
+
+# -- a co-hosted recording's two mics --------------------------------------
+#
+# PLAN.md § The co-hosted recording. `test_media_streams.py` pins the
+# derivation itself; these two go through the real server, because whether
+# `import_media` *refuses* is a property of the registered tool and its
+# arguments, not of `media.py`.
+
+
+def _two_mic_source(root: Path, *, seconds: float = 12.0) -> Path:
+    """A video container with a 300 Hz mic on one track and 1200 Hz on the other."""
+    dest = root / "cohost.mp4"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"testsrc=size=320x240:rate=25:duration={seconds}",
+         "-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}:sample_rate=48000",
+         "-f", "lavfi", "-i", f"sine=frequency=1200:duration={seconds}:sample_rate=48000",
+         "-map", "0:v", "-map", "1:a", "-map", "2:a",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(dest)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    return dest
+
+
+def _tone(path: Path, hz: float) -> float:
+    """Goertzel power at `hz` over whatever a player would hear — the first
+    audio stream, decoded. A two-track file "has" both mics and plays one."""
+    decoded = path.with_name(f"{path.stem}-probe.wav")
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(path), "-vn", "-ac", "1",
+         "-c:a", "pcm_s16le", str(decoded)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    with wave.open(str(decoded), "rb") as handle:
+        rate, count = handle.getframerate(), handle.getnframes()
+        raw = handle.readframes(count)
+    samples = array.array("h")
+    samples.frombytes(raw)
+    k = int(0.5 + (len(samples) * hz) / rate)
+    w = 2 * math.pi * k / len(samples)
+    coeff = 2 * math.cos(w)
+    q1 = q2 = 0.0
+    for sample in samples:
+        q0 = coeff * q1 - q2 + sample
+        q2, q1 = q1, q0
+    return math.sqrt(abs(q1 * q1 + q2 * q2 - coeff * q1 * q2)) / len(samples)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_import_refuses_a_two_mic_container(tmp_path: Path) -> None:
+    """Registering it as it stands would record only the first mic, and every
+    check downstream would agree with the timeline about it.
+    """
+    project = tmp_path / "proj"
+    source = _two_mic_source(tmp_path, seconds=2.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        result = await session.call_tool(
+            "import_media", {"path": str(project), "source": str(source)}
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "2 audio streams" in out["text"]
+    # The refusal has to say what to do instead, on both surfaces.
+    assert "--mix" in out["text"] and "--audio-stream" in out["text"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_auto_editor
+def test_a_mixed_import_puts_both_mics_in_the_film(tmp_path: Path) -> None:
+    """The end of the chain, measured rather than reasoned: import → seed →
+    render, read back at each mic's own tone with the first-mic import as a
+    control. The control is what every import did before this shipped.
+    """
+    project = tmp_path / "proj"
+    control = tmp_path / "control"
+    source = _two_mic_source(tmp_path)
+    words = [
+        {"word": f"w{burst}{n}", "start": burst * 3 + n, "end": burst * 3 + n + 0.9}
+        for burst in range(4)
+        for n in range(2)
+    ]
+    transcript = tmp_path / "cohost.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        out: dict[str, Any] = {}
+        for root, key, extra in (
+            (project, "mixed", {"mix": True}),
+            (control, "first", {"audio_stream": 0}),
+        ):
+            await client.call("init", path=str(root))
+            clip = await client.call(
+                "import_media", path=str(root), source=str(source), **extra
+            )
+            await client.call(
+                "attach_transcript",
+                path=str(root),
+                clip_id=clip["clip_id"],
+                transcript_path=str(transcript),
+            )
+            await client.call("seed_timeline", path=str(root), clip_id=clip["clip_id"])
+            rendered = await client.call(
+                "export",
+                path=str(root),
+                output=str(tmp_path / f"{key}.mp4"),
+                export_format=None,
+            )
+            out[key] = {"clip": clip, "render": rendered}
+        return out
+
+    out = anyio.run(_with_server, body)
+
+    clip = out["mixed"]["clip"]
+    assert clip["audio_streams"] == 2
+    assert clip["mixed"] == "cache/mixed/cohost.mp4"
+    assert clip["mix"] == {"streams": 2, "mode": "sum", "stream": None, "codec": "aac"}
+
+    both = tmp_path / "mixed.mp4"
+    assert _tone(both, 300.0) > 100.0
+    assert _tone(both, 1200.0) > 100.0
+
+    # The control: one mic chosen, and the other is simply not in the film.
+    only_a = tmp_path / "first.mp4"
+    assert _tone(only_a, 300.0) > 100.0
+    assert _tone(only_a, 1200.0) < 10.0

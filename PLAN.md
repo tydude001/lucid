@@ -4108,6 +4108,43 @@ Steps 1–2 are safe to ship in one session. Step 4 is the one that prevents a
 silent wrong render and could reasonably go first if a two-track recording
 exists before the rest is built.
 
+**Steps 1 and 4 shipped 2026-08-18, ahead of the format decision and
+deliberately not waiting on it** — step 1 changes no behaviour and step 4
+closes a wrong render that exists today either way. HISTORY.md § The two mics
+survive import. Three things the build moved:
+
+- **A third way forward was needed, and the note has only two.** `--mix`
+  sums, which is right for two mics of one performance and nonsense for a
+  film rip with a commentary track — so `--audio-stream k` keeps one, as a
+  stream copy rather than a re-encode. Without it the refusal would have
+  been a new wall in front of ordinary footage. (Measured first: all ten
+  clips of `~/lucid-final-cut/proj` are single-audio, so nothing here was
+  behind that wall — but the wild case is a rip.)
+- **The trap is not only MLT's, and the auto-editor half fails in a way that
+  is harder to see.** Handed the container directly, auto-editor passes
+  *both* tracks through: nothing is dropped, the output holds two audio
+  streams, and everything that decodes it takes the first — so the film
+  plays as mic A while a stream count answers "both are there". Read by
+  Goertzel power at each mic's own tone, with the first-mic import as the
+  control: 300 Hz 1024.9 / 1200 Hz 1017.8 mixed, against 2042.3 / **0.0**.
+- **`original_media_path` keeps the mixdown**, which the note's item 5 did
+  not say and which follows from it: the untouched original of a two-mic
+  container is the mixdown, and reading the container there would attenuate
+  mic A alone. The same reach reaches `reel`: `_reel_media`'s key tuple is
+  `media_path()`'s preference chain, and a key added to one and not the
+  other hands the derived project a path with nothing at it.
+- **The window is a client of this op and had to be able to comply.** The
+  note is silent on the assets pane, and a refusal reachable there with no
+  way out of it is the one surface whose point is that the terminal is never
+  required. Both offers are drawn only after a refusal — and the *message*
+  turned out to be the thing spending the pane's height, at 194px against a
+  129px list.
+
+What is still owed on this note is unchanged: **the format decision itself**
+(the OBS setting, before part 1 is recorded) and the five-minute two-mic test
+recording, and then steps 2, 3 and 5, which have nothing to be built against
+until one exists.
+
 ## The completion queue — what the Scream video left — 2026-08-12
 
 Provenance: a full review of HISTORY.md, DAYDREAM.md, the design notes above,

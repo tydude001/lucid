@@ -268,3 +268,61 @@ def test_real_whisper_dump_shape(tmp_path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
     parsed = tx.load(path, clip_id="vo")
     assert parsed.span(0, 1) == (2.92, 3.8)
+
+
+# -- the speaker label ----------------------------------------------------
+#
+# PLAN.md § The co-hosted recording. A label, never an address: every cue,
+# description, mark and caption still resolves through `(clip_id, index)`.
+
+
+def test_speaker_is_carried_through_the_parse() -> None:
+    parsed = _parse(
+        {
+            "words": [
+                {"word": "mine", "start": 0.0, "end": 0.4, "speaker": "tyler"},
+                {"word": "yours", "start": 0.5, "end": 0.9, "speaker": "natalie"},
+            ]
+        }
+    )
+    assert [w.speaker for w in parsed.words] == ["tyler", "natalie"]
+
+
+def test_an_unattributed_word_has_no_speaker() -> None:
+    """Absent means what every transcript already on disk means."""
+    assert all(w.speaker is None for w in _parse().words)
+
+
+def test_an_unattributed_transcript_saves_without_the_key(tmp_path) -> None:
+    """The field must not rewrite every transcript on disk the day it lands.
+
+    `asdict` would put `"speaker": null` on every word, so re-saving an
+    untouched transcript would change the file for no change at all.
+    """
+    dest = tmp_path / "vo.json"
+    tx.save(_parse(), dest)
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    assert all("speaker" not in word for word in payload["words"])
+
+
+def test_speaker_survives_a_save_and_load(tmp_path) -> None:
+    """lucid's own dump is re-read by `parse_whisper`, so the key must ride it."""
+    attributed = _parse({"words": [{"word": "mine", "start": 0.0, "end": 0.4, "speaker": "A"}]})
+    dest = tmp_path / "vo.json"
+    tx.save(attributed, dest)
+    assert [w.speaker for w in tx.load(dest, clip_id="vo").words] == ["A"]
+
+
+def test_a_non_string_speaker_is_normalised() -> None:
+    """A label that is `1` on the way in and `"1"` on the way out is not equal
+    to itself across a round trip, and a padded one silently forks a speaker."""
+    parsed = _parse(
+        {
+            "words": [
+                {"word": "one", "start": 0.0, "end": 0.4, "speaker": 1},
+                {"word": "two", "start": 0.5, "end": 0.9, "speaker": "  A  "},
+                {"word": "three", "start": 1.0, "end": 1.4, "speaker": "   "},
+            ]
+        }
+    )
+    assert [w.speaker for w in parsed.words] == ["1", "A", None]

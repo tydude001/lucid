@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +33,40 @@ OVERLAP_EPSILON = 1e-6
 
 @dataclass(frozen=True)
 class Word:
-    """One spoken word, located in *source* time."""
+    """One spoken word, located in *source* time.
+
+    `speaker` is a label and never an address: every cue, description,
+    unspoken mark, music anchor and caption still resolves through
+    `(clip_id, word_index)`, so attributing a two-mic recording adds a
+    per-word fact and moves nothing. It is additive and optional — absent
+    means what every transcript already on disk means, which is why it is
+    not a schema bump (CLAUDE.md § An additive *optional* key does not
+    bump). PLAN.md § The co-hosted recording.
+    """
 
     index: int
     text: str
     start: float
     end: float
+    speaker: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """The saved shape — and it omits `speaker` when there is none.
+
+        `asdict` would write `"speaker": null` into every word of every
+        transcript the moment this field existed, so re-saving an
+        unattributed transcript would rewrite the file for no change. A
+        transcript nobody has attributed round-trips byte-identical.
+        """
+        out: dict[str, Any] = {
+            "index": self.index,
+            "text": self.text,
+            "start": self.start,
+            "end": self.end,
+        }
+        if self.speaker is not None:
+            out["speaker"] = self.speaker
+        return out
 
 
 @dataclass(frozen=True)
@@ -280,6 +305,22 @@ def find_repeats(
     return found
 
 
+def _speaker(entry: dict[str, Any]) -> str | None:
+    """The speaker label on one raw word entry, or None.
+
+    Read through `.get` like every other optional key, and normalised to a
+    non-empty string: an attributed transcript is lucid's own output going
+    back out and in again, but a hand-written one can carry an integer or a
+    padded label, and a `speaker` that is sometimes `1` and sometimes `"1"`
+    would compare unequal to itself across a round trip.
+    """
+    raw = entry.get("speaker")
+    if raw is None:
+        return None
+    label = str(raw).strip()
+    return label or None
+
+
 def parse_whisper(payload: dict[str, Any], *, clip_id: str, origin: str | None = None) -> Transcript:
     """Normalise a whisper JSON dump into a `Transcript`.
 
@@ -314,7 +355,9 @@ def parse_whisper(payload: dict[str, Any], *, clip_id: str, origin: str | None =
             start, end = float(entry["start"]), float(entry["end"])
         except (KeyError, TypeError, ValueError) as exc:
             raise TranscriptError(f"word {text!r} has unusable timings: {entry}") from exc
-        words.append(Word(index=len(words), text=text, start=start, end=end))
+        words.append(
+            Word(index=len(words), text=text, start=start, end=end, speaker=_speaker(entry))
+        )
 
     if not words:
         raise TranscriptError("transcript contains no usable words")

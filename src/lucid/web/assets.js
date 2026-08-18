@@ -450,14 +450,32 @@ function setImportFormBusy(busy) {
   for (const field of form.elements) field.disabled = busy;
 }
 
-async function onImportSubmit(event) {
-  event.preventDefault();
-  if (!ctx || importBusy) return;
-  const source = $("import-source").value.trim();
-  const clipIdRaw = $("import-clip-id").value.trim();
-  const copy = $("import-copy").checked;
-  if (!source) return;
-  const payload = { source, clip_id: clipIdRaw || null, copy };
+/* The payload of the last import attempted, so the mix offer below can
+   re-post exactly it with `mix` set — rather than re-reading the form, which
+   the user may have edited since the refusal came back. */
+let lastImportPayload = null;
+
+function setMixOffer(streams) {
+  const offer = $("import-offer");
+  const sum = $("import-mix");
+  const pick = $("import-pick");
+  if (!offer || !sum || !pick) return;
+  offer.hidden = !streams;
+  if (!streams) {
+    sum.textContent = "";
+    pick.textContent = "";
+    return;
+  }
+  sum.textContent = `Sum the ${streams} mics`;
+  // The other real shape: a film rip whose second stream is a commentary
+  // track, where summing is nonsense. Track 1 is `audio_stream: 0` — the
+  // label counts the way a person does, the payload the way ffmpeg does.
+  pick.textContent = "Keep track 1";
+}
+
+async function postImport(payload) {
+  lastImportPayload = payload;
+  setMixOffer(0);
   try {
     await ctx.api("/api/import", payload);
   } catch (err) {
@@ -468,15 +486,43 @@ async function onImportSubmit(event) {
   }
 }
 
+async function onImportSubmit(event) {
+  event.preventDefault();
+  if (!ctx || importBusy) return;
+  const source = $("import-source").value.trim();
+  const clipIdRaw = $("import-clip-id").value.trim();
+  const copy = $("import-copy").checked;
+  if (!source) return;
+  await postImport({ source, clip_id: clipIdRaw || null, copy });
+}
+
+/* A two-mic container is refused rather than registered as if the first mic
+   were the recording, and until this existed the only ways to comply were
+   CLI flags — a refusal the window could state and not act on, in the one
+   pane whose point is that the terminal is never required. The server sends
+   `audio_streams` on the error event, so nothing here reads the sentence. */
+async function onImportMix() {
+  if (!ctx || importBusy || !lastImportPayload) return;
+  await postImport({ ...lastImportPayload, mix: true });
+}
+
+async function onImportPick() {
+  if (!ctx || importBusy || !lastImportPayload) return;
+  await postImport({ ...lastImportPayload, audio_stream: 0 });
+}
+
 function onImportEvent(data) {
   if (!data || typeof data !== "object") return;
   if (data.status === "running") {
     importBusy = true;
     setImportFormBusy(true);
+    setMixOffer(0);
     setImportStatus("running", `importing ${data.source}…`);
   } else if (data.status === "done") {
     importBusy = false;
     setImportFormBusy(false);
+    setMixOffer(0);
+    lastImportPayload = null;
     setImportStatus("done", `imported ${data.clip_id}`);
     const form = $("import-form");
     if (form) form.reset();
@@ -492,6 +538,9 @@ function onImportEvent(data) {
     setImportFormBusy(false);
     // The server's own message, verbatim — never invent a reason.
     setImportStatus("error", data.error || "import failed");
+    // `setImportFormBusy(false)` re-enables every form element including
+    // this button, so the offer has to be (re)drawn after it, not before.
+    setMixOffer(data.audio_streams || 0);
   }
 }
 
@@ -564,6 +613,10 @@ export function init(passedCtx) {
   ctx.on("transcribe", onTranscribeEvent);
   const form = $("import-form");
   if (form) form.addEventListener("submit", onImportSubmit);
+  const mix = $("import-mix");
+  if (mix) mix.addEventListener("click", onImportMix);
+  const pick = $("import-pick");
+  if (pick) pick.addEventListener("click", onImportPick);
   const toggle = $("import-toggle");
   if (toggle) {
     toggle.addEventListener("click", () => setImportOpen(form ? form.hidden : true));

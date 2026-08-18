@@ -140,10 +140,18 @@ def migrate(path: Path | str, *, plan: bool = False) -> dict[str, Any]:
 
 
 def import_media(
-    path: Path | str, source: Path | str, *, clip_id: str | None = None, copy: bool = False
+    path: Path | str,
+    source: Path | str,
+    *,
+    clip_id: str | None = None,
+    copy: bool = False,
+    mix: bool = False,
+    audio_stream: int | None = None,
 ) -> dict[str, Any]:
     project = Project.open(path)
-    return media.import_media(project, source, clip_id=clip_id, copy=copy)
+    return media.import_media(
+        project, source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream
+    )
 
 
 def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
@@ -9717,12 +9725,16 @@ def _reel_media(source: Project, reel: Project, manifest: dict[str, Any]) -> lis
     becomes a symlink to the file the *film* resolves, so `media_path()` on the
     reel and on the film return the same bytes.
 
-    **Both keys, and `attenuated` is the one that matters.** `media_path()`
-    prefers it over `media/` — that is what makes attenuation transparent to
-    every downstream op — so carrying `media/` alone would give the reel a
-    render at full noise with nothing in the manifest saying so, which is the
-    shape of bug `test_export_renders_the_attenuated_copy_not_the_original`
-    exists for pointing the other way.
+    **Every key `media_path()` prefers, not just `media/`.** It resolves
+    `attenuated` → `mixed` → `media`, so carrying `media/` alone would give
+    the reel a render at full noise with nothing in the manifest saying so —
+    the shape of bug `test_export_renders_the_attenuated_copy_not_the_original`
+    exists for, pointing the other way. `mixed` joins them for the same
+    reason and a worse failure: the derived manifest is copied wholesale, so
+    a two-mic clip's `mixed` entry would name a `cache/mixed/` file that was
+    never linked into the reel and every op resolving that clip would hit a
+    path with nothing at it. **This tuple is the list of keys `media_path()`
+    reads; adding one there without adding it here is the whole bug.**
 
     Falls back to writing the film's absolute path into the derived manifest
     where the filesystem will not take a symlink — the NAS case that already
@@ -9735,7 +9747,7 @@ def _reel_media(source: Project, reel: Project, manifest: dict[str, Any]) -> lis
     """
     linked: list[dict[str, Any]] = []
     for clip in manifest.get("clips", []):
-        for key in ("media", "attenuated"):
+        for key in ("media", "attenuated", "mixed"):
             entry = clip.get(key)
             if not entry:
                 continue
@@ -10126,7 +10138,7 @@ def reel(
         report["would_link"] = [
             {"clip_id": clip.get("clip_id"), "key": key}
             for clip in source.read_manifest().get("clips", [])
-            for key in ("media", "attenuated")
+            for key in ("media", "attenuated", "mixed")
             if clip.get(key)
         ]
         # The one call the real path makes, so what is planned is what would

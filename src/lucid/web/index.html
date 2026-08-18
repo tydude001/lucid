@@ -292,6 +292,14 @@
             <button id="import-submit" type="submit">Import</button>
           </div>
           <div id="import-status" class="asset-status" hidden></div>
+          <!-- Drawn only when import refuses a multi-mic container, so it
+               costs the pane no height the rest of the time — the lesson
+               the add-footage form itself taught (CLAUDE.md § its sibling).
+               Its label carries the stream count, set by assets.js. -->
+          <div id="import-offer" class="import-offer" hidden>
+            <button id="import-mix" class="import-mix" type="button"></button>
+            <button id="import-pick" class="import-mix" type="button"></button>
+          </div>
         </form>
         <div id="transcribe-status" class="asset-status" hidden></div>
         <div id="assets-list"></div>

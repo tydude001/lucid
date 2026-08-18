@@ -56,6 +56,7 @@ FRAMES_DIR = "cache/frames"
 #: nothing reads it back — a person looks at it.
 SHEET_DIR = "cache/sheets"
 ATTENUATED_DIR = "cache/attenuated"
+MIXED_DIR = "cache/mixed"
 WAVEFORM_DIR = "cache/waveform"
 #: Browser-playable stand-ins for footage a `<video>` cannot decode
 #: (PLAN.md § The preview proxy transcode). Cache because it is re-derivable
@@ -234,6 +235,10 @@ class Project:
     @property
     def attenuated_dir(self) -> Path:
         return self.root / ATTENUATED_DIR
+
+    @property
+    def mixed_dir(self) -> Path:
+        return self.root / MIXED_DIR
 
     @property
     def waveform_dir(self) -> Path:
