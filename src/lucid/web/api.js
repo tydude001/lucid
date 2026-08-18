@@ -33,7 +33,26 @@ export async function api(path, body) {
 // a topic missing here is never delivered to onEvent at all, which is
 // exactly the spinner-forever failure mode a missing FaceError handler
 // would otherwise cause on the detect job (see webui.py's own note).
-const SSE_EVENTS = ["project-changed", "agent", "render", "reframe-sheet", "reframe-detect"];
+//
+// "import"/"transcribe" (the "footage in" job route, assets.js) are the
+// same trap in a worse shape: ImportJob/TranscribeJob publish `running` →
+// `done`/`error` on these topics and nothing else — no `project-changed`
+// escorts a transcription (webui.py's own ops.transcribe/attach_transcript
+// touch only a transcript file, never project.otio or the manifest, so
+// `_revision()` never sees it). Leave either name out of this array and
+// its "done"/"error" record is simply never handed to onEvent — the button
+// that started the job stays disabled and the status line stays on
+// "running…" forever, with no console error and no failed request to
+// notice, because the SSE connection itself is fine.
+const SSE_EVENTS = [
+  "project-changed",
+  "agent",
+  "render",
+  "reframe-sheet",
+  "reframe-detect",
+  "import",
+  "transcribe",
+];
 
 /**
  * Subscribe to `/api/events`. `onEvent(name, data)` fires once per SSE

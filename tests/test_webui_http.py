@@ -2621,6 +2621,252 @@ def test_render_on_an_empty_timeline_is_refused_before_a_job_starts(
         thread.join(timeout=5)
 
 
+# -- footage in: /api/import, /api/transcribe, /api/transcript/attach ------
+#
+# STUDIO.md § Cross-cutting: "footage in" becomes a window operation.
+# `ImportJob`/`TranscribeJob` are `ProxyJob`'s exact shape (one slot, request-
+# thread validation before the slot is claimed, a dedicated `*BusyError`
+# -> 409, completion published on the bus `/api/events` already serves), so
+# these tests follow `test_proxy_accepted_returns_a_job_id_and_completes_on_
+# the_stream` and its siblings above rather than inventing a new pattern.
+# `/api/transcript/attach` is a plain `_POST_ROUTES` mutation instead (the
+# `attach_transcript` op is instant), so it is tested the way `/api/music`
+# is above: one HTTP round trip, no job, no stream.
+#
+# The success path of `/api/transcribe` is deliberately NOT exercised here —
+# it would shell out to a real whisper subprocess and load a real model
+# (CLAUDE.md: "Whisper is a subprocess ... it is not on PATH"). Only its
+# refusal paths (resolved on the request thread, before a job starts) are
+# covered; the ASR success path is left to the live browser pass.
+
+
+def _next_event(events: Iterator[tuple[str, Any]], topic: str, job_id: str) -> dict[str, Any]:
+    """The first non-`running` event on `topic` for `job_id` off an open
+    stream — `_next_proxy_event`/`_next_render_event`'s shape, generalised
+    since `import` and `transcribe` are two more bus topics of the same
+    kind."""
+    for event, data in events:
+        if event == topic and data.get("job_id") == job_id and data.get("status") != "running":
+            return data
+    raise AssertionError(f"no completion event arrived for {topic} {job_id}")
+
+
+def test_import_accepted_returns_a_job_id_and_the_clip_lands_in_the_manifest(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=3.0)
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the initial project-changed
+
+        status, payload = _post(f"{server}/api/import", {"source": str(source), "clip_id": "b"})
+        assert status == 202
+        assert isinstance(payload["job_id"], str) and payload["job_id"]
+
+        found = _next_event(events, "import", payload["job_id"])
+        assert found["status"] == "done"
+        assert found["clip_id"] == "b"
+    finally:
+        conn.close()
+
+    clips = Project.open(project).read_manifest()["clips"]
+    assert any(c["clip_id"] == "b" and c["source"] == str(source.resolve()) for c in clips)
+
+
+def test_a_second_import_while_one_is_running_is_refused(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One slot per server, and 409 rather than 400 — `ImportBusyError`,
+    `ProxyBusyError`'s sibling. The path checks that make a *bad* source a
+    400 run before the slot is claimed either way, so a real, readable file
+    is what actually exercises the slot itself."""
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+    gate = threading.Event()
+
+    def _stub(path: str, src: Any, *, clip_id: str | None = None, copy: bool = False) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return {"clip_id": clip_id or "b", "source": str(src)}
+
+    monkeypatch.setattr(ops, "import_media", _stub)
+    try:
+        status, _ = _post(f"{server}/api/import", {"source": str(source), "clip_id": "b"})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/import", {"source": str(source), "clip_id": "c"})
+        assert status == 409
+        assert "already running" in payload["error"]
+    finally:
+        gate.set()
+
+
+def test_import_of_a_missing_source_is_400_not_a_job(server: str, tmp_path: Path) -> None:
+    """Resolved on the request thread — a bad path is a 400, never a job
+    that starts only to fail (decision #2 in STUDIO.md's build order)."""
+    missing = tmp_path / "nope.wav"
+    status, payload = _post(f"{server}/api/import", {"source": str(missing)})
+    assert status == 400
+    assert "no such file" in payload["error"]
+    assert str(missing) in payload["error"]
+
+
+def test_import_of_a_directory_is_400_with_an_actionable_message(
+    server: str, tmp_path: Path
+) -> None:
+    directory = tmp_path / "footage"
+    directory.mkdir()
+    status, payload = _post(f"{server}/api/import", {"source": str(directory)})
+    assert status == 400
+    assert "directory" in payload["error"]
+
+
+def test_import_requires_json_content_type(server: str, tmp_path: Path) -> None:
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+    status, payload = _post(
+        f"{server}/api/import", {"source": str(source)}, content_type="text/plain"
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_import_rejects_a_non_loopback_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/import",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
+def test_import_404s_under_picker_root_before_a_project_is_open(
+    picker_server: str, tmp_path: Path
+) -> None:
+    source = tmp_path / "b.wav"
+    _make_wav(source, duration=1.0)
+    status, payload = _post(f"{picker_server}/api/import", {"source": str(source)})
+    assert status == 404
+    assert "no project open" in payload["error"]
+
+
+def test_transcribe_unknown_clip_is_a_400_before_a_job_starts(server: str) -> None:
+    """`TranscribeJob.start` resolves the clip through `media.get_clip` on
+    the request thread — the `ProxyJob` precedent — so an unknown clip_id is
+    a bad request, not a job that spins up whisper only to error."""
+    status, payload = _post(f"{server}/api/transcribe", {"clip_id": "no-such-clip"})
+    assert status == 400
+    assert "no-such-clip" in payload["error"]
+
+
+def test_transcribe_checks_the_shape_of_its_payload(server: str, project: Path) -> None:
+    for payload in ({}, {"clip_id": ""}, {"clip_id": 3}):
+        status, body = _post(f"{server}/api/transcribe", payload)
+        assert status == 400, payload
+        assert "clip_id" in body["error"]
+
+    status, body = _post(f"{server}/api/transcribe", {"clip_id": _clip_id(project), "model": 7})
+    assert status == 400
+    assert "model" in body["error"]
+
+    status, body = _post(
+        f"{server}/api/transcribe", {"clip_id": _clip_id(project), "language": 7}
+    )
+    assert status == 400
+    assert "language" in body["error"]
+
+
+def test_a_second_transcribe_while_one_is_running_is_refused(
+    server: str, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`TranscribeBusyError`, `ProxyBusyError`'s sibling — same one-slot
+    shape, proven the same way the proxy job's is proven above."""
+    clip_id = _clip_id(project)
+    gate = threading.Event()
+
+    def _stub(path: str, clip: str, **kwargs: Any) -> dict[str, Any]:
+        gate.wait(timeout=5)
+        return {"clip_id": clip, "words": 0, "language": "en"}
+
+    monkeypatch.setattr(ops, "transcribe", _stub)
+    try:
+        status, _ = _post(f"{server}/api/transcribe", {"clip_id": clip_id})
+        assert status == 202
+
+        status, payload = _post(f"{server}/api/transcribe", {"clip_id": clip_id})
+        assert status == 409
+        assert "already running" in payload["error"]
+    finally:
+        gate.set()
+
+
+def test_transcript_attach_round_trips_over_http(
+    project: Path, server: str, tmp_path: Path
+) -> None:
+    """`/api/transcript/attach`'s a plain `_POST_ROUTES` mutation — one round
+    trip, the op's own return value echoed back, and the words it attached
+    reachable off `/api/view` right afterward. Same transcript-fixture shape
+    `test_an_off_timeline_clip_with_a_transcript_reads_as_entirely_cut` above
+    already uses, reused rather than inventing a second one."""
+    other = tmp_path / "b.wav"
+    _make_wav(other, duration=3.0)
+    ops.import_media(project, other, clip_id="b")
+    words = [{"word": f"b{n}", "start": float(n) * 0.5, "end": n * 0.5 + 0.4} for n in range(4)]
+    transcript = tmp_path / "b.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    status, payload = _post(
+        f"{server}/api/transcript/attach", {"clip_id": "b", "path": str(transcript)}
+    )
+    assert status == 200
+    assert payload["clip_id"] == "b"
+    assert payload["words"] == len(words)
+    assert payload["language"] == "en"
+    # The four attach-time findings ops.attach_transcript reports.
+    for key in ("near_duplicates", "suspect_durations", "overlaps", "repeats"):
+        assert key in payload
+
+    _, view = _json(f"{server}/api/view?clip_id=b")
+    assert view["words"], "the attached transcript should now draw as words"
+    assert [w["text"] for w in view["words"]] == [w["word"] for w in words]
+
+
+def test_transcript_attach_requires_json_content_type(server: str, tmp_path: Path) -> None:
+    transcript = tmp_path / "b.json"
+    transcript.write_text(json.dumps({"language": "en", "words": []}), encoding="utf-8")
+    status, payload = _post(
+        f"{server}/api/transcript/attach",
+        {"clip_id": "vo", "path": str(transcript)},
+        content_type="text/plain",
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_transcript_attach_rejects_a_bad_host(server: str) -> None:
+    request = urllib.request.Request(
+        f"{server}/api/transcript/attach",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
 # -- multi-project: the picker over a --root scan --------------------------
 #
 # DAYDREAM.md § Multi-project. `webui.scan_projects` and the picker-mode

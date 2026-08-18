@@ -115,7 +115,10 @@ The window carries the workflow rather than only the timeline: **Edit** (the
 transcript, the preview, and a timeline you can drag-trim and razor), **Frame**
 (every crop window as a row of the sheet's own tiles, approved or nudged in
 place), and **Finish** (the export presets, what the render will actually
-contain, verify after, and the finished file playable in the page). Riding all three is the truth strip —
+contain, verify after, and the finished file playable in the page). Footage
+goes in there too — the assets pane imports a clip and transcribes it, so the
+first three commands above have a window equivalent and the terminal is never
+required. Riding all three is the truth strip —
 `lucid finish-report` made ambient, so a film that would ship wrong says so
 while you edit. STUDIO.md is the design.
 

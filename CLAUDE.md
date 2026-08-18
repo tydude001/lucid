@@ -115,6 +115,17 @@ installed package or the upstream repo, not your memory.
   - **`_revision` watches the manifest as well as `project.otio`** — the cue
     table and the caption style live there and touch no timeline, so an otio-
     only revision leaves an open window drawing a stale lane.
+    - **A job that writes only a transcript file trips neither watch.**
+      `ops.transcribe` and `ops.attach_transcript` touch no `project.otio`
+      and no manifest, so a finished transcription fires no `project-changed`
+      at all — the job's own `done` bus event is the only reload signal a
+      client has. Import is unaffected (`ops.import_media` writes the
+      manifest). **Reload through the pane bus's `reload` event, never
+      `location.reload()`**: the `done` event carries the op's whole return
+      value and a page reload throws it away — on the first real
+      transcription that was `4 suspect durations`, reported and then wiped
+      off the screen. HISTORY.md § Import and transcribe became window
+      operations.
   - **Timeline lanes are projections of one `Edit`, not tracks. Never draw a
     lane `export` cannot produce** — the multi-source render degrades silently
     (see auto-editor above), so the window would look right and the file would
@@ -209,6 +220,13 @@ installed package or the upstream repo, not your memory.
       and by nothing a person can do, which is exactly why nothing caught it
       first. Cap the panel's own height instead. HISTORY.md § Direct
       manipulation on the timeline.
+      - **Its sibling: a new control spends the pane's height, out of the
+        list below it.** The add-footage form left `#assets-list` 126px of
+        613px, so the *second* clip's own button sat outside the scroll
+        window — where a rect still reads on-page and `elementFromPoint`
+        answers about whatever is painted there instead. Measure what a new
+        control leaves the pane; fold away anything used once per asset.
+        HISTORY.md § Import and transcribe became window operations.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind

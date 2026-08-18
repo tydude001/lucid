@@ -525,3 +525,15 @@ connectEvents((name, data) => {
   emit(name, data);
   if (name === "project-changed") load(view ? view.clip_id : null);
 });
+
+// The same reload, asked for by a pane rather than by the revision poll —
+// because two ops write a file `_revision` does not stat. `transcribe` and
+// `attach-transcript` write only a transcript, touching neither
+// `project.otio` nor the manifest, so no 'project-changed' ever follows one
+// (webui.py's TranscribeJob docstring). This is the signal in its place, and
+// it is `load()` rather than `location.reload()` on purpose: a page reload
+// would throw away the very report the finished op just returned — the words
+// attached, the hallucinated ones dropped, the seams found — which is the
+// one thing the panel is supposed to render (CLAUDE.md: the panel renders
+// that function's own return value).
+on("reload", () => load(view ? view.clip_id : null));

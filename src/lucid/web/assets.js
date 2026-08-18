@@ -26,6 +26,38 @@
  * properties.js to inspect that asset, over the `inspect-asset` bus event —
  * the two panes are wired through `ctx`, never importing each other
  * (PLAN.md § Files, and why they split).
+ *
+ * This file also owns "footage in" as a window operation (STUDIO.md's
+ * unmet definition-of-done): the "add footage" form (`POST /api/import`),
+ * and per-clip Transcribe (`POST /api/transcribe`) / Attach… (`POST
+ * /api/transcript/attach`). The first two are ProxyJob-shaped one-slot
+ * jobs — the reply only acknowledges (`job_id`), `running`/`done`/`error`
+ * arrive as bus events (`ctx.on("import", …)` / `ctx.on("transcribe", …)`,
+ * wired the way frame.js wires its own sheet/detect jobs) — attach is a
+ * plain, instant mutation with no job of its own.
+ *
+ * THE TRAP (webui.py's own docstrings on `ImportJob`/`TranscribeJob`, and
+ * confirmed by reading `ops.transcribe`/`ops.attach_transcript`): a
+ * finished import writes the manifest (`ops.import_media`), so
+ * `project-changed` follows it like any other mutation and this pane's own
+ * `refresh()` — plus every other pane's `update()` — picks it up through
+ * app.js's normal reload path. A finished transcription or attach writes
+ * ONLY a transcript file. `webui._revision()` stats `project.otio`, the
+ * manifest and undo depth — none of which moved — so NO `project-changed`
+ * event ever follows either one. So both the "transcribe" job's `done`
+ * event and a successful attach ask for the reload themselves, over
+ * `ctx.emit("reload")` — app.js subscribes and runs the same `load()` its
+ * `project-changed` path runs, so transcript.js, timeline.js and
+ * properties.js all redraw rather than sitting on stale data for a clip
+ * that just gained a transcript.
+ *
+ * It is `load()` and NOT `window.location.reload()`, and the difference is
+ * not tidiness. The op's reply is the finding — words attached, whisper's
+ * hallucinated words dropped, the retakes and seams the four attach-time
+ * checks found — and a page reload throws it away before anyone reads it,
+ * which is the one thing a panel here must not do (CLAUDE.md: the panel
+ * renders that function's own return value). Measured in the browser: the
+ * summary line survives a `load()` and did not survive the reload.
  */
 
 import { $, el, secs } from "./dom.js";
@@ -54,6 +86,24 @@ let refreshSeq = 0; // guards against an in-flight /api/assets fetch from an
 //: first place — `clip_role` refuses anything outside the tuple before it
 //: ever writes.
 const CLIP_ROLES = ["voiceover", "footage"];
+
+// -- "add footage" job state (ImportJob, one slot server-side) -------------
+let importBusy = false;
+// Latched once, so the auto-open for an empty project happens on the first
+// render that sees no clips and never again — a re-render mid-typing that
+// re-opened the form would also steal focus back into it.
+let importOpenedForEmpty = false;
+
+// -- per-clip transcribe job state (TranscribeJob, one slot server-side —
+// only one clip can be transcribing at a time, so this is a single flag
+// plus which clip it belongs to, not a per-clip map) ------------------------
+let transcribeBusy = false;
+let transcribingClipId = null;
+// Which clip's inline "attach an existing transcript" mini-form is open, if
+// any — local UI state only, never sent anywhere, reset whenever a reload
+// or a fresh render would leave it pointing at a row that may not exist
+// (the reload after a successful attach already clears it moot).
+let attachOpenFor = null;
 
 function fmtHz(n) {
   return n ? `${n.toLocaleString()} Hz` : "–";
@@ -170,6 +220,13 @@ function buildClipRow(clip) {
   row.append(flags);
 
   row.append(roleChips(clip));
+
+  // Transcribe / Attach… only make sense before a transcript exists —
+  // `clip.transcript` is `ops.assets`'s own live check
+  // (`project.transcript_path(clip_id).is_file()`), not something this
+  // file derives.
+  if (!clip.transcript) row.append(transcribeControls(clip));
+
   return row;
 }
 
@@ -215,6 +272,229 @@ function buildCardRow(card) {
   return row;
 }
 
+/* -- transcribe / attach (per clip) ---------------------------------------- */
+
+function transcribeControls(clip) {
+  const wrap = el("div", "asset-transcribe");
+  wrap.addEventListener("click", (event) => event.stopPropagation()); // do not also inspect the row
+
+  const busyHere = transcribeBusy && transcribingClipId === clip.clip_id;
+  const tBtn = el("button", null, busyHere ? "transcribing…" : "Transcribe");
+  tBtn.type = "button";
+  tBtn.disabled = transcribeBusy;
+  tBtn.title = "run whisper (asr.transcribe) on this clip's own media";
+  tBtn.addEventListener("click", () => startTranscribe(clip.clip_id));
+  wrap.append(tBtn);
+
+  const attachBtn = el("button", null, attachOpenFor === clip.clip_id ? "cancel" : "Attach…");
+  attachBtn.type = "button";
+  attachBtn.disabled = transcribeBusy;
+  attachBtn.title = "point at an existing word-timed transcript file instead of running ASR";
+  attachBtn.addEventListener("click", () => {
+    attachOpenFor = attachOpenFor === clip.clip_id ? null : clip.clip_id;
+    render();
+  });
+  wrap.append(attachBtn);
+
+  if (attachOpenFor === clip.clip_id) wrap.append(buildAttachForm(clip));
+
+  return wrap;
+}
+
+function buildAttachForm(clip) {
+  const form = el("form", "asset-attach-form");
+  form.addEventListener("click", (event) => event.stopPropagation());
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "/path/on/the/lucid/host/transcript.json";
+  input.setAttribute("aria-label", `transcript path for ${clip.clip_id}`);
+  input.autocomplete = "off";
+  form.append(input);
+  const submit = el("button", null, "Attach");
+  submit.type = "submit";
+  form.append(submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (submit.disabled) return; // in-flight guard against a double click
+    input.disabled = true;
+    submit.disabled = true;
+    attachTranscript(clip.clip_id, input.value.trim()).finally(() => {
+      // Only reachable on failure — success reloads the page before this
+      // would ever run, so there is no row left to re-enable.
+      input.disabled = false;
+      submit.disabled = false;
+    });
+  });
+  return form;
+}
+
+async function startTranscribe(clipId) {
+  if (!ctx || transcribeBusy) return;
+  try {
+    await ctx.api("/api/transcribe", { clip_id: clipId });
+  } catch (err) {
+    // A 400 (unknown clip_id, unopenable project) or a 409
+    // (TranscribeBusyError) both land here before any "running" event
+    // would — frame.js's onBuildSheetClick's own precedent.
+    ctx.emit("toast", err.message);
+  }
+}
+
+/** What an attach or a transcription actually found, off the op's own reply.
+ *
+ * The counts are the point rather than decoration: `hallucinated_words` is
+ * whisper stumbling and the guard containing it, and the four findings are
+ * the retakes, seams and suspect durations `ops.attach_transcript` computes
+ * once, at attach, and never again unless someone runs `transcript-checks`
+ * (CLAUDE.md). A reply that reported them to nobody is the same as not
+ * having asked — so this renders the op's return value rather than
+ * summarising it into "done".
+ */
+function transcriptSummary(clipId, payload) {
+  const bits = [`${payload.words} words`];
+  if (payload.language) bits.push(payload.language);
+  if (payload.hallucinated_words) bits.push(`${payload.hallucinated_words} hallucinated dropped`);
+  const findings = [
+    ["repeat", payload.repeats],
+    ["seam", payload.overlaps],
+    ["near-duplicate", payload.near_duplicates],
+    ["suspect duration", payload.suspect_durations],
+  ];
+  for (const [name, list] of findings) {
+    if (list && list.length) bits.push(`${list.length} ${name}${list.length === 1 ? "" : "s"}`);
+  }
+  return `${clipId}: ${bits.join(" · ")}`;
+}
+
+async function attachTranscript(clipId, path) {
+  if (!ctx || !path) return;
+  let payload = null;
+  try {
+    payload = await ctx.api("/api/transcript/attach", { clip_id: clipId, path });
+  } catch (err) {
+    ctx.emit("toast", err.message);
+    return;
+  }
+  attachOpenFor = null;
+  // Same trap as the transcribe job's own "done" handler below —
+  // ops.attach_transcript also writes only a transcript file, so no
+  // `project-changed` follows this either, and the reload has to be asked
+  // for. `ctx.emit("reload")` is app.js's `load()`, NOT a page reload: the
+  // summary line below has to survive the redraw to be read at all.
+  setTranscribeStatusLine("done", transcriptSummary(clipId, payload));
+  ctx.emit("reload");
+}
+
+function setTranscribeStatusLine(kind, text) {
+  const node = $("transcribe-status");
+  if (!node) return;
+  if (!text) {
+    node.hidden = true;
+    node.textContent = "";
+    node.className = "asset-status";
+    return;
+  }
+  node.hidden = false;
+  node.textContent = text;
+  node.className = `asset-status ${kind}`;
+}
+
+function onTranscribeEvent(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.status === "running") {
+    transcribeBusy = true;
+    transcribingClipId = data.clip_id;
+    setTranscribeStatusLine("running", `transcribing ${data.clip_id}… (minutes, not seconds)`);
+    render();
+  } else if (data.status === "done") {
+    transcribeBusy = false;
+    transcribingClipId = null;
+    // The event carries ops.transcribe's whole return value, so this draws
+    // what the transcription actually found rather than that it finished.
+    setTranscribeStatusLine("done", transcriptSummary(data.clip_id, data));
+    render();
+    // THE TRAP, restated at the one place it actually bites: ops.transcribe
+    // writes only a transcript file, so this "done" event is the client's
+    // *only* reload signal (webui.py's own docstring on TranscribeJob).
+    // `reload` is app.js's `load()` — every pane redraws and the line above
+    // stays on screen; `location.reload()` would throw the report away.
+    ctx.emit("reload");
+  } else if (data.status === "error") {
+    transcribeBusy = false;
+    transcribingClipId = null;
+    // The server's own message, verbatim — never invent a reason.
+    setTranscribeStatusLine("error", data.error || "transcription failed");
+    render();
+  }
+}
+
+/* -- add footage (import) -------------------------------------------------- */
+
+function setImportStatus(kind, text) {
+  const node = $("import-status");
+  if (!node) return;
+  if (!text) {
+    node.hidden = true;
+    node.textContent = "";
+    node.className = "asset-status";
+    return;
+  }
+  node.hidden = false;
+  node.textContent = text;
+  node.className = `asset-status ${kind}`;
+}
+
+function setImportFormBusy(busy) {
+  const form = $("import-form");
+  if (!form) return;
+  for (const field of form.elements) field.disabled = busy;
+}
+
+async function onImportSubmit(event) {
+  event.preventDefault();
+  if (!ctx || importBusy) return;
+  const source = $("import-source").value.trim();
+  const clipIdRaw = $("import-clip-id").value.trim();
+  const copy = $("import-copy").checked;
+  if (!source) return;
+  const payload = { source, clip_id: clipIdRaw || null, copy };
+  try {
+    await ctx.api("/api/import", payload);
+  } catch (err) {
+    // A 400 (bad path, bad project) or 409 (ImportBusyError) both land
+    // here before any "running" event would.
+    setImportStatus("error", err.message);
+    ctx.emit("toast", err.message);
+  }
+}
+
+function onImportEvent(data) {
+  if (!data || typeof data !== "object") return;
+  if (data.status === "running") {
+    importBusy = true;
+    setImportFormBusy(true);
+    setImportStatus("running", `importing ${data.source}…`);
+  } else if (data.status === "done") {
+    importBusy = false;
+    setImportFormBusy(false);
+    setImportStatus("done", `imported ${data.clip_id}`);
+    const form = $("import-form");
+    if (form) form.reset();
+    // Unlike transcribe/attach above, ops.import_media DOES write the
+    // manifest, so `project-changed` follows on its own (webui.py's
+    // `_revision` poll, ≤0.5s) and every pane — including this one, via
+    // app.js's normal reload — picks it up without help. This refresh() is
+    // just for a snappier reflection in THIS pane specifically, not a
+    // second reload mechanism.
+    refresh();
+  } else if (data.status === "error") {
+    importBusy = false;
+    setImportFormBusy(false);
+    // The server's own message, verbatim — never invent a reason.
+    setImportStatus("error", data.error || "import failed");
+  }
+}
+
 function render() {
   const list = $("assets-list");
   if (!list) return;
@@ -226,7 +506,16 @@ function render() {
   }
 
   list.append(el("div", "asset-section-label", `clips · ${data.clips.length}`));
-  if (!data.clips.length) list.append(el("div", "pane-placeholder", "no clips imported"));
+  if (!data.clips.length) {
+    list.append(el("div", "pane-placeholder", "no clips imported"));
+    // The one state where adding footage IS this pane's job, so the form
+    // opens itself. Only ever opened here, never closed — a project that
+    // gains its first clip keeps whatever the person last chose.
+    if (!importOpenedForEmpty) {
+      importOpenedForEmpty = true;
+      setImportOpen(true);
+    }
+  }
   for (const clip of data.clips) list.append(buildClipRow(clip));
 
   list.append(el("div", "asset-section-label", `cards · ${data.cards.length}`));
@@ -251,8 +540,34 @@ async function refresh() {
   render();
 }
 
+/** Open or close the add-footage form, keeping `aria-expanded` honest.
+ *
+ * `hidden` alone would not close it — `.import-form` carries an author
+ * `display: flex`, which outranks the UA's `[hidden] { display: none }`, so
+ * app.css carries the companion `[hidden]` rule this depends on. */
+function setImportOpen(open) {
+  const form = $("import-form");
+  const toggle = $("import-toggle");
+  if (!form || !toggle) return;
+  form.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.textContent = open ? "− Add footage" : "+ Add footage";
+  if (open) {
+    const source = $("import-source");
+    if (source) source.focus();
+  }
+}
+
 export function init(passedCtx) {
   ctx = passedCtx;
+  ctx.on("import", onImportEvent);
+  ctx.on("transcribe", onTranscribeEvent);
+  const form = $("import-form");
+  if (form) form.addEventListener("submit", onImportSubmit);
+  const toggle = $("import-toggle");
+  if (toggle) {
+    toggle.addEventListener("click", () => setImportOpen(form ? form.hidden : true));
+  }
 }
 
 export function update(state) {

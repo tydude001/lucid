@@ -9191,3 +9191,116 @@ field matches the manifest the panel wrote.
 
 Still not built, unchanged by any of this: the preview does not *play* the
 bed, and `tail.fade` is still a picture transition nobody has costed.
+
+## Import and transcribe became window operations — 2026-08-18
+
+STUDIO.md's definition of done had one line left unmet since the reshape's
+own walk: "import and transcribe are still not window mutations, so
+'footage in' holds only through the agent pane." Both are now `POST` routes
+with progress, and `attach-transcript` — the non-ASR sibling, which needs no
+job because it does no work — is a third, plain mutation beside them.
+
+**The source is a server-side absolute path the client types into the
+window, not an upload and not a directory browser.** Import has to reach
+footage on the NAS, which an upload cannot do and a browser-side file picker
+cannot see, so there was no confinement to add on top of what every other
+webui mutation already carries — loopback, the `Host` header, and
+`application/json`. `media.preview_path()` gains no new caller and no new
+route serves an arbitrary path back to the client; the path only ever goes
+*in*, to `ops.import_media`, never back out.
+
+**Both jobs are `ProxyJob`-shaped**, on purpose rather than by convenience:
+one slot each, a dedicated `ImportBusyError`/`TranscribeBusyError` mapped to
+409, everything resolvable without doing the work — a missing source, a
+directory, an unreadable file, an unopenable project, an unknown `clip_id`
+— raised as a plain `WebUIError` on the request thread *before* the slot is
+claimed, so a bad call is a 400 and never a job that starts only to fail.
+`_finish()` runs in a `finally`, and completion publishes on the bus the SSE
+handler already serves. `attach-transcript` needed none of that shape — it
+is instant — so it is a fourth `_POST_ROUTES` entry, not a fifth job class.
+
+**A finished transcription fires no `project-changed` event, and this is
+the same trap `_revision` already has a documented case of, in a shape
+nothing had hit yet.** `_revision()` stats `project.otio`, the manifest, and
+undo depth; `ops.transcribe` and `ops.attach_transcript` write only a
+transcript *file*, touching neither. Import was never at risk of this —
+`ops.import_media` writes the manifest, so `project-changed` follows inside
+the normal 0.5s poll — but a client that reloaded on that event alone would
+have shown a transcribed clip with no transcript, indefinitely, with the
+job itself reporting success. The fix is that the client never waits on
+`project-changed` for this: the job's own `done` event on the `"transcribe"`
+bus topic is the reload signal. The window side reloads off it rather than
+redrawing this one pane, because `transcript.js`, `timeline.js` and
+`properties.js` all need the new words — and it does that through a
+`reload` event on the pane bus `app.js` subscribes to, which is `load()`,
+not `location.reload()`. That distinction is not tidiness and is the second
+half of the browser pass below.
+
+**The review round found two real defects, both in `webui.py`, both fixed
+live against a running server rather than by inspection alone.** `ImportJob._run`'s
+`except EXPECTED` did not include `OSError`, so a real copy failure past the
+slot claim — reproduced by chmod'ing a project's `media/` directory
+read-only under `copy: true` — propagated past the handler with no `error`
+event ever published, latching the client's spinner forever; the fix widens
+the catch to `except (*EXPECTED, OSError)` (a first attempt at
+`except (EXPECTED, OSError)` is itself wrong — `except` needs a flat tuple,
+not a nested one, and raises `TypeError` the moment it's hit, caught by the
+same repro). And `_handle_import_start` 400'd on an explicit `"copy": null`
+rather than treating it as absent, inconsistent with `clip_id` in the same
+handler and with the handler's own documented `bool | null` shape; fixed to
+match the sibling fields' `None`-then-default pattern.
+
+Verified: `ruff check .` clean, and the full suite green — 1462 passed
+(465–467s across three separate runs this session, `rtk proxy uv run
+pytest` per RTK.md's own guidance since the filtered run misreported once).
+Thirteen new HTTP tests in `test_webui_http.py` cover the request-thread
+refusals, both busy-409s via a gated monkeypatch, the `attach-transcript`
+round-trip through a real `GET /api/view`, and the content-type/Host guards
+— `/api/transcribe`'s ASR success path is deliberately not exercised there,
+since it would shell out to a real whisper model load.
+
+**The live browser pass ran, and it found two more — neither of them
+reachable from a test.** Driven over CDP against a real project (two 14s
+snippets cut out of the Scream VO, imported and seeded), every click
+hit-tested at 0ms *and* ~120ms dwell. The routes themselves all worked
+first time: import landed and the pane redrew, the per-clip controls
+appeared only on the clip without a transcript, and a real whisper turbo
+pass ran end to end from a button — `running` to `done` on the bus, ~15s on
+a 14s clip.
+
+**The form ate the pane it was added to.** Opened, `#import-form` is 227px
+of the inspector pane's 613px, which left `#assets-list` a 126px window over
+383px of content — and *two clips* already overflowed it. The second clip's
+Transcribe button was scrolled outside that window while
+`getBoundingClientRect` still reported an on-page position, over the
+properties table underneath, so `elementFromPoint` came back `TD` and the
+harness refused the click: a control drawn, enabled, and unreachable. The
+fix folds the form behind a disclosure, closed by default, opened by
+`assets.js` only for a project with no clips at all — the one state where
+adding footage *is* what the pane is for. `#assets-list` goes 126px → 231px.
+And the disclosure needed `.import-form[hidden] { display: none }`, because
+`.import-form` carries an author `display: flex`: the trap this file already
+records for both toolbars and the pad popover, hit again by the very first
+new thing given a `display:` and a `hidden`.
+
+**And the completion report was being thrown away.** `location.reload()` on
+the job's `done` event discards the payload that event carries, which is
+`ops.transcribe`'s own return value — the thing the panel is supposed to
+render. On the real clip it read **`35 words · en · 4 suspect durations`**,
+and the reload showed none of it: four words whose claimed durations are a
+lie about something, reported by the op, delivered to the client, and wiped
+off the screen ~600ms later. The fix is a `reload` event on the pane bus
+that `app.js` subscribes to, running the same `load()` its `project-changed`
+path runs, so every pane redraws *and* the summary line survives to be read;
+`assets.js` draws words, language, `hallucinated_words` and each of the four
+attach-time findings, for the transcribe job and the attach route alike.
+Measured both ways: the line survives `load()` and did not survive the
+reload.
+
+Also watched, on the same pass: a refusal draws the server's own sentence
+and re-enables the form (`no such file: …`); `copy: true` writes a real
+1.1MB file where the default writes a symlink; the inline attach form
+reports `vo-c: 41 words · en`; a 700px viewport probe walking `body *`
+finds only a pre-existing 3px `clip-block`; and the console is clean apart
+from the `/api/output` 400 a never-rendered project has answered since that
+route shipped.

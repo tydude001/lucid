@@ -238,6 +238,62 @@
           <span class="spacer"></span>
           <button class="pane-collapse-btn" type="button" aria-label="collapse inspector" title="collapse to rail">«</button>
         </div>
+        <!-- Studio's "footage in is still not a window operation" item —
+             assets.js owns every control and status line here; this file
+             only owns the static shell (app.css § Assets pane). `source`
+             is a path on the machine RUNNING LUCID (the server, reachable
+             to the NAS), never a browser file picker — CLAUDE.md decision
+             #1 on the backend report this is wired against. -->
+        <!-- Closed by default, and that is a measurement rather than a
+             preference: opened, this form is 227px of a 613px inspector
+             pane, which left `#assets-list` a 126px window that two clips
+             already overflowed. The pane's job is the asset list; adding
+             footage is a once-per-clip errand, so it folds away. assets.js
+             opens it on its own for a project with no clips, where the
+             errand IS the pane's job. -->
+        <button
+          id="import-toggle"
+          class="import-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="import-form"
+        >
+          + Add footage
+        </button>
+        <form id="import-form" class="import-form" aria-label="add footage" hidden>
+          <div class="import-form-row">
+            <label for="import-source">Add footage — path on the lucid host</label>
+            <input
+              id="import-source"
+              type="text"
+              name="source"
+              placeholder="/path/on/the/machine/running/lucid/clip.mp4"
+              autocomplete="off"
+              required
+            />
+            <span class="hint">Not a file from this browser or phone — a path the lucid server itself can read (e.g. on the NAS).</span>
+          </div>
+          <div class="import-form-row">
+            <label for="import-clip-id">Clip id (optional)</label>
+            <input
+              id="import-clip-id"
+              type="text"
+              name="clip_id"
+              placeholder="leave blank to auto-name"
+              autocomplete="off"
+            />
+          </div>
+          <div class="import-form-row import-form-row-inline">
+            <label for="import-copy" class="toggle" id="import-copy-toggle">
+              <input id="import-copy" type="checkbox" name="copy" />
+              copy into project
+            </label>
+            <span class="spacer"></span>
+            <button id="import-submit" type="submit">Import</button>
+          </div>
+          <div id="import-status" class="asset-status" hidden></div>
+        </form>
+        <div id="transcribe-status" class="asset-status" hidden></div>
         <div id="assets-list"></div>
         <div class="pane-head">
           properties

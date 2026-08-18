@@ -473,7 +473,17 @@ The A2 lane arrived a day later drawing a bed the window could not set — the
 same asymmetry one lane over — and that half is closed: `POST /api/music`,
 with the panel reachable from a drag on A2, a click on the bed, the cue
 toolbar's "Music bed" verb and the refusal itself (HISTORY.md § The A2 lane
-became settable). Import and transcribe remain.
+became settable).
+
+Import and transcribe are now window mutations too — job routes with
+progress, plus a plain `attach-transcript` route, and the assets pane's
+import form and per-clip transcribe/attach controls (HISTORY.md § Import
+and transcribe became window operations). Watched in a real browser at both
+dwell timings on 2026-08-18, which is what turned two defects up that the
+thirteen new HTTP tests could not see — a control the pane's own height made
+unreachable, and a completion report a page reload was discarding. **So the
+reshape's definition of done is met: footage now goes in through the window,
+with the terminal never required.**
 
 ## Open questions, deliberately left
 

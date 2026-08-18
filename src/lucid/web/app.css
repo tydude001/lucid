@@ -265,6 +265,24 @@
  *                                 pure composer sugar)
  *
  * Assets pane (#assets-list, filled by assets.js — `GET /api/assets`):
+ *   .import-form / .import-form-row / .import-form-row-inline
+ *                                  "add footage" (`POST /api/import`, a job)
+ *                                 — static shell in index.html, submit and
+ *                                 field-disable owned by assets.js
+ *   #import-status / #transcribe-status / .asset-status(.running/.done/.error)
+ *                                  a status line that STAYS, not a toast —
+ *                                 a transcription is minutes long, so the
+ *                                 line has to still be there when it ends.
+ *                                 No explicit `display` here on purpose —
+ *                                 the UA's own `[hidden]{display:none}` is
+ *                                 enough without a companion rule, unlike
+ *                                 the toolbars this file's own header
+ *                                 warns about.
+ *   .asset-transcribe              per-clip Transcribe / Attach… controls,
+ *                                 drawn only when a clip has no transcript
+ *   .asset-attach-form             the inline path input Attach… opens,
+ *                                 appended/removed by JS rather than
+ *                                 hidden-toggled — nothing here to trap
  *   .asset-section-label          "clips · N" / "cards · N" divider
  *   .asset-row                     one clip or card; click asks
  *                                 properties.js to inspect it
@@ -1900,6 +1918,119 @@ textarea {
 }
 
 /* -- assets pane (assets.js) ---------------------------------------------- */
+
+/* "footage in" as a window operation — the add-footage form. Static shell
+   in index.html; assets.js owns the submit handler, the disable-while-busy
+   and the status text. */
+
+/* The disclosure that folds the form away. */
+.import-toggle {
+  width: 100%;
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 11px;
+  text-align: left;
+}
+
+.import-toggle:hover {
+  color: var(--ink-2);
+}
+
+/* THE COMPANION RULE, and it is load-bearing: the author `display: flex`
+   below outranks the UA's `[hidden] { display: none }`, so without this
+   line the form is drawn permanently and the toggle reads as broken —
+   the exact failure that already cost both toolbars and the pad popover
+   in this file (CLAUDE.md). */
+.import-form[hidden] {
+  display: none;
+}
+
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--panel-2);
+}
+
+.import-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.import-form-row label {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.import-form-row .hint {
+  margin: 0;
+}
+
+.import-form-row-inline {
+  flex-direction: row;
+  align-items: center;
+}
+
+/* A status line, not a toast — CLAUDE.md's own rule for the render chip
+   applies here too: a minutes-long job needs a signal still on screen when
+   it ends, not one that expired ages ago. Deliberately no explicit
+   `display` — a plain block div's UA default already respects
+   `[hidden]{display:none}` with no companion rule needed. */
+.asset-status {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
+.asset-status.running {
+  border-left-color: var(--accent);
+}
+
+.asset-status.done {
+  border-left-color: var(--kept);
+  background: var(--wash-kept);
+  color: var(--kept);
+}
+
+.asset-status.error {
+  border-left-color: var(--cut);
+  background: var(--wash-cut);
+  color: var(--cut);
+}
+
+#transcribe-status {
+  margin: 8px 14px 0;
+}
+
+.asset-transcribe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.asset-attach-form {
+  display: flex;
+  gap: 6px;
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.asset-attach-form input {
+  flex: 1;
+  min-width: 0;
+}
 
 .asset-section-label {
   padding: 6px 14px 3px;

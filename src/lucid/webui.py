@@ -190,6 +190,19 @@ class ReframeDetectBusyError(WebUIError):
     """A second detect pass was requested while one was already running."""
 
 
+class ImportBusyError(WebUIError):
+    """A second import was requested while one was already running.
+
+    Its own type, same 409-not-400 reasoning as the other `*BusyError`s — a
+    busy import must not be reported as a busy transcribe or a busy render,
+    since each of these jobs holds its own slot.
+    """
+
+
+class TranscribeBusyError(WebUIError):
+    """A second transcription was requested while one was already running."""
+
+
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     """Read and parse a JSON request body, enforcing the content type.
 
@@ -1378,6 +1391,179 @@ class ReframeDetectJob:
             self._finish()
 
 
+class ImportJob:
+    """One import at a time per server (STUDIO.md § Cross-cutting: footage in
+    becomes a window operation, not a CLI-only step).
+
+    `ProxyJob`'s exact shape: the lock, the plain `_running` flag, everything
+    that can raise resolved on the request thread before the slot is
+    claimed, a dedicated `*BusyError` for a distinct 409, `_finish()` in a
+    `finally`, and completion published on the same bus the SSE handler
+    already serves.
+
+    `source` is a **server-side absolute path the client types into the
+    window** — not an upload, not a directory browser (decision taken
+    before this was built). Import has to be able to reach footage on the
+    NAS, so there is no confinement to add beyond the guard every other
+    webui mutation already carries (loopback + Host + `application/json`).
+    This adds no new caller to `media.preview_path()` and no new route that
+    serves arbitrary files — the path only ever flows *into*
+    `ops.import_media`, never back out.
+
+    Registering media is a job rather than a plain `_POST_ROUTES` mutation
+    (`attach_transcript`'s shape) because `_place`'s symlink is ordinarily
+    instant but `copy=True` can be a real file copy off the NAS, and a
+    request that long is a dead window (`RenderJob`'s reasoning).
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(self, source: str, *, clip_id: str | None = None, copy: bool = False) -> str:
+        job_id = uuid.uuid4().hex
+        # Resolve before claiming the slot: a bad project and a bad source
+        # path both raise here, on the request thread, where they become a
+        # 400 rather than a job that starts only to fail immediately.
+        # `media.import_media`'s own error for a bad path routes through
+        # `probe`'s ffprobe call, and while it is not wrong (ffprobe says
+        # "Is a directory" / "Permission denied" plainly enough), it arrives
+        # wrapped inside "ffprobe failed on <path>: <stderr>" and depends on
+        # ffprobe's own phrasing. A directory is the mistake a person
+        # actually makes typing a path by hand — pointing at a folder of
+        # clips instead of one clip in it — so it gets a plain refusal here
+        # instead, alongside the other two ways a hand-typed path is wrong.
+        Project.open(self.project_root)
+        resolved = Path(source).expanduser()
+        if not resolved.exists():
+            raise WebUIError(f"no such file: {resolved}")
+        if resolved.is_dir():
+            raise WebUIError(
+                f"{resolved} is a directory, not a media file — name one clip inside it"
+            )
+        if not os.access(resolved, os.R_OK):
+            raise WebUIError(f"cannot read {resolved} — check file permissions")
+        with self._lock:
+            if self._running:
+                raise ImportBusyError("an import is already running")
+            self._running = True
+        threading.Thread(
+            target=self._run, args=(job_id, source, clip_id, copy), daemon=True
+        ).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(self, job_id: str, source: str, clip_id: str | None, copy: bool) -> None:
+        self.bus.publish("import", {"job_id": job_id, "status": "running", "source": source})
+        try:
+            try:
+                result = ops.import_media(
+                    str(self.project_root), source, clip_id=clip_id, copy=copy
+                )
+            except (*EXPECTED, OSError) as exc:
+                # Same rule as `ProxyJob._run`: lucid's own refusals (an
+                # already-registered clip_id, a source ffprobe cannot read)
+                # are flattened into an event. `OSError` joins them here
+                # specifically because `copy=True` routes through
+                # `media._place`'s `shutil.copy2`, which has no try/except of
+                # its own (unlike the symlink branch beside it) — a disk-full,
+                # permission, or dropped-NAS-connection failure mid-copy would
+                # otherwise escape both `except` clauses, skip the `error`
+                # event, and leave the slot released but the window's import
+                # form latched busy forever (`_handle_import_start`'s only
+                # reload signal is this job's own event). Anything else is
+                # still a bug and keeps its traceback.
+                self.bus.publish("import", {"job_id": job_id, "status": "error", "error": str(exc)})
+                return
+            self.bus.publish("import", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
+class TranscribeJob:
+    """One transcription at a time per server (STUDIO.md § Cross-cutting).
+
+    `ProxyJob`'s exact shape. Wraps `ops.transcribe`, the ASR-driven sibling
+    of `attach_transcript` — this is a job because whisper on real footage is
+    minutes of work; `attach_transcript` stays a plain `_POST_ROUTES`
+    mutation (below) because parsing a transcript file that already has word
+    timings is instant.
+
+    **`_revision()` never sees this job's own write, and that is not a bug
+    to fix here.** `ops.transcribe` writes a transcript file
+    (`project.transcript_path(clip_id)`) and touches neither `project.otio`
+    nor the manifest, and `_revision()` above stats only those two files
+    plus undo depth — so finishing a transcription fires no `project-changed`
+    event. This job's own `done` event on the `"transcribe"` bus topic is the
+    client's *only* reload signal; a panel that reloads on `project-changed`
+    and ignores its own job's `done` event will wait forever.
+
+    **`ASRError` has to be in `EXPECTED`, or a missing whisper binary would
+    leave this slot latched busy with no event ever published** — the same
+    `FaceError` precedent `ReframeDetectJob` documents above. It already is:
+    `lucid.asr.ASRError` is imported and listed in the tuple at the top of
+    this file (for `verify --windowed`'s sake, predating this job) — this
+    note is for whoever next reorders that tuple and assumes it is only
+    about `verify`.
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(
+        self, clip_id: str, *, model: str | None = None, language: str | None = None
+    ) -> str:
+        job_id = uuid.uuid4().hex
+        # Resolve before claiming the slot: an unknown clip_id raises here,
+        # on the request thread, where it becomes a 400 — the `ProxyJob`
+        # precedent (`media.get_clip` there, the same call here).
+        project = Project.open(self.project_root)
+        media.get_clip(project, clip_id)
+        with self._lock:
+            if self._running:
+                raise TranscribeBusyError("a transcription is already running")
+            self._running = True
+        threading.Thread(
+            target=self._run, args=(job_id, clip_id, model, language), daemon=True
+        ).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(self, job_id: str, clip_id: str, model: str | None, language: str | None) -> None:
+        self.bus.publish(
+            "transcribe", {"job_id": job_id, "status": "running", "clip_id": clip_id}
+        )
+        try:
+            try:
+                # `model` only passed through when set, so `asr.DEFAULT_MODEL`
+                # stays the single place the default is spelled out — naming
+                # it again here would give it a second definition to drift.
+                kwargs: dict[str, Any] = {"language": language}
+                if model is not None:
+                    kwargs["model"] = model
+                result = ops.transcribe(str(self.project_root), clip_id, **kwargs)
+            except EXPECTED as exc:
+                self.bus.publish(
+                    "transcribe",
+                    {"job_id": job_id, "status": "error", "clip_id": clip_id, "error": str(exc)},
+                )
+                return
+            self.bus.publish("transcribe", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `project_root` and `verbose` are set by `make_server`.
 
@@ -1494,6 +1680,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/reframe/detect":
             self._handle_reframe_detect_start()
+            return
+        if url.path == "/api/import":
+            self._handle_import_start()
+            return
+        if url.path == "/api/transcribe":
+            self._handle_transcribe_start()
             return
         route = _POST_ROUTES.get(url.path)
         if route is None:
@@ -2161,6 +2353,98 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
 
+    def _handle_import_start(self) -> None:
+        """`POST /api/import {"source": str, "clip_id": str | null, "copy":
+        bool | null}` — 202, work happens on the stream.
+
+        Like `/api/proxy`, the reply only acknowledges; `running` → `done`/
+        `error` arrive as `import` events on `/api/events`. `source` is a
+        server-side absolute path the client types into the window — not an
+        upload, not a directory browser — because import has to be able to
+        reach footage on the NAS; the guard here is the same loopback + Host
+        + `application/json` every mutation on this server already carries,
+        not a new one.
+
+        This handler checks shape only. Whether `source` names a real,
+        readable file is `ImportJob.start`'s judgement, resolved before the
+        slot is claimed so it still surfaces as a 400 here rather than an
+        event nobody asked for; whether `clip_id` collides with one already
+        registered is `ops.import_media`'s, reached on the job's own worker
+        thread and reported as an `import` error event. The window draws and
+        plays, it does not decide (CLAUDE.md).
+        """
+        try:
+            payload = _json_body(self)
+            source = payload.get("source")
+            if not isinstance(source, str) or not source:
+                raise WebUIError("'source' is required")
+            clip_id = payload.get("clip_id")
+            if clip_id is not None and (not isinstance(clip_id, str) or not clip_id):
+                raise WebUIError("'clip_id' must be a non-empty string")
+            copy = payload.get("copy")
+            if copy is None:
+                copy = False
+            elif not isinstance(copy, bool):
+                raise WebUIError("'copy' must be a boolean")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: ImportJob = self.server.import_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(source, clip_id=clip_id, copy=copy)
+        except ImportBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
+    def _handle_transcribe_start(self) -> None:
+        """`POST /api/transcribe {"clip_id": str, "model": str | null,
+        "language": str | null}` — 202, work happens on the stream.
+
+        Like `/api/proxy`, the reply only acknowledges; `running` → `done`/
+        `error` arrive as `transcribe` events on `/api/events` — and per
+        `TranscribeJob`'s docstring, that `done` event is the *only* reload
+        signal a completed transcription fires. A panel watching
+        `project-changed` instead will never reload.
+
+        Shape only, here: `model`/`language` absent (or `null`) leave
+        `ops.transcribe`'s own defaults in force — `asr.DEFAULT_MODEL` stays
+        defined in exactly one place because this handler never repeats it.
+        """
+        try:
+            payload = _json_body(self)
+            clip_id = payload.get("clip_id")
+            if not isinstance(clip_id, str) or not clip_id:
+                raise WebUIError("'clip_id' is required")
+            model = payload.get("model")
+            if model is not None and not isinstance(model, str):
+                raise WebUIError("'model' must be a string")
+            language = payload.get("language")
+            if language is not None and not isinstance(language, str):
+                raise WebUIError("'language' must be a string")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: TranscribeJob = self.server.transcribe_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(clip_id, model=model, language=language)
+        except TranscribeBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
     def _handle_open(self) -> None:
         """`POST /api/open {"path": "..."}` — the picker's one mutation.
 
@@ -2433,6 +2717,31 @@ def _clip_role(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     return ops.clip_role(root, clip_id, role, reset=bool(payload.get("reset")))
 
 
+def _attach_transcript(root: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """`POST /api/transcript/attach {"clip_id": str, "path": str}` —
+    `/api/transcribe`'s non-ASR sibling.
+
+    A plain `_POST_ROUTES` mutation rather than a job, unlike `/api/import`
+    and `/api/transcribe`: `ops.attach_transcript` parses a transcript file
+    that already has word timings, which is instant, so there is no
+    long-running work to report progress on (`TranscribeJob`'s docstring
+    spells out why *that* one is a job). A fifth caller into
+    `ops.attach_transcript`, alongside the CLI and MCP tool, matching every
+    other route in this table (CLAUDE.md: the web UI draws and plays, it
+    never decides).
+
+    `path` is a server-side path the client types into the window, the same
+    "reach what's on the NAS, not an upload" shape `/api/import`'s `source`
+    is — a transcript made outside lucid (the Scream VO's, transcribed
+    before lucid existed) lives on disk, not in the browser.
+    """
+    clip_id = _clip_arg(payload)
+    path = payload.get("path")
+    if not isinstance(path, str) or not path:
+        raise WebUIError("'path' is required")
+    return ops.attach_transcript(root, clip_id, path)
+
+
 def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     """`POST /api/agent/thumbs` — append one rating to `Project.thumbs_path`.
 
@@ -2520,13 +2829,18 @@ def _reframe(root: str, payload: dict[str, Any]) -> dict[str, Any]:
 #: `plan` is a field on the request rather than a separate endpoint, because
 #: it is one flag on one op — giving preview its own URL would invite the two
 #: paths to drift, which is the whole thing `plan=True` exists to prevent.
-#: `/api/agent`, `/api/agent/stop`, `/api/agent/new-task`, `/api/render` and
-#: `/api/render/stop` are handled directly in `do_POST` instead of living
-#: here, because they need `self.server` (the bus, the agent session, the
-#: render job) rather than just the project root a plain `ops` call takes.
-#: `/api/agent/thumbs` is the one `/api/agent*` route that lives here rather
-#: than in `do_POST`: it only ever needs the project root, the same as every
-#: other route in this table.
+#: `/api/agent`, `/api/agent/stop`, `/api/agent/new-task`, `/api/render`,
+#: `/api/render/stop`, `/api/proxy`, `/api/reframe/sheet`,
+#: `/api/reframe/detect`, `/api/import` and `/api/transcribe` are all handled
+#: directly in `do_POST` instead of living here, because each needs
+#: `self.server` (the bus, and its own job or session object) rather than
+#: just the project root a plain `ops` call takes. `/api/agent/thumbs` is the
+#: one `/api/agent*` route that lives here rather than in `do_POST`: it only
+#: ever needs the project root, the same as every other route in this table.
+#: `/api/transcript/attach` is `/api/transcribe`'s non-ASR sibling and lives
+#: here rather than beside it, on the same reasoning: parsing an
+#: already-timed transcript file is instant, so it needs no job, no
+#: `self.server`, and no progress event of its own.
 _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/cut": _cut_words,
     "/api/cut-at": _cut_at,
@@ -2537,6 +2851,7 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
     "/api/clip-role": _clip_role,
     "/api/agent/thumbs": _agent_thumb,
     "/api/reframe": _reframe,
+    "/api/transcript/attach": _attach_transcript,
     "/api/session": _session_set,
 }
 
@@ -2545,8 +2860,9 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
 
 
 def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
-    """One bus, one agent session, one render job and one proxy job — the
-    per-project state a `Handler` reaches through `self.server`.
+    """One bus, one agent session, and one job slot each for render, proxy,
+    reframe-sheet, reframe-detect, import and transcribe — the per-project
+    state a `Handler` reaches through `self.server`.
 
     Called exactly once per server: at construction for a plain `-C` server
     (`make_server`), or once from `Handler._handle_open` on a picker
@@ -2558,11 +2874,13 @@ def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
 
     This is the whole answer to DAYDREAM.md § Multi-project's "a second
     project would need a second everything here": it does not get one.
-    `--root` lets a process defer *which* project these four belong to, but
-    only ever binds one — a second project open at once still means a
-    second process. The render and the proxy hold *separate* slots for the
-    reason they always have: different work on different files, and sharing
-    one would make an export refuse while a preview transcoded.
+    `--root` lets a process defer *which* project these belong to, but only
+    ever binds one — a second project open at once still means a second
+    process. Every job here holds its *own* slot for the reason render and
+    proxy always have: different work on different files, and sharing a slot
+    would make one job refuse while an unrelated one ran — an import of a
+    fresh clip must not 409 because someone is mid-transcription of a clip
+    already on the timeline, and a render must not wait behind either.
     """
     server.bus = EventBus()  # type: ignore[attr-defined]
     server.agent = AgentSession(project_root, server.bus)  # type: ignore[attr-defined]
@@ -2570,6 +2888,8 @@ def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
     server.proxy_job = ProxyJob(project_root, server.bus)  # type: ignore[attr-defined]
     server.reframe_sheet_job = ReframeSheetJob(project_root, server.bus)  # type: ignore[attr-defined]
     server.reframe_detect_job = ReframeDetectJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.import_job = ImportJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.transcribe_job = TranscribeJob(project_root, server.bus)  # type: ignore[attr-defined]
 
 
 def make_server(
