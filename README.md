@@ -6,7 +6,8 @@ the same agent-driven editing workflow, but open, unmetered, and running
 entirely on your own hardware.
 
 ![The lucid workspace: transcript, preview with burnt-style captions, the
-agent panel, and the layered timeline](docs/img/edit-mode.png)
+agent panel working through a request against the timeline, and the layered
+timeline below](docs/img/edit-mode.png)
 
 ## The idea
 
@@ -114,6 +115,10 @@ with the reasoning behind each behaviour.
   it against what the timeline should play, which catches the one defect
   nothing else can: a retake still in the picture. `frames`, `film-check`,
   `black` and `spots` cover the picture side.
+
+  ![Finish mode: the per-stage report — export, caption burn, frame count
+  agrees, audio verify at 0.967 similarity — above the finished file playing
+  in the page with its burnt captions](docs/img/finish-mode.png)
 - **B-roll by description** — `describe` writes what is visible in each
   ~10-second window of footage; reading it back *is* the search, and a cue
   table addressed by word index lays clips and cards over the voiceover.
@@ -123,8 +128,9 @@ with the reasoning behind each behaviour.
   face-aware proposals (`reframe-detect`), a review sheet that draws every
   window on its own frames, and stacked splits for two-handers.
 
-  ![Frame mode: every crop window drawn on the source's own frames, with
-  coverage chips for stale framing and unexplained steps](docs/img/frame-mode.png)
+  ![Frame mode: every crop window drawn on the source's own frames, a stacked
+  split with its pane overlap measured, and coverage chips for stale framing
+  and unexplained steps](docs/img/frame-mode.png)
 - **Derived reels** — `reel` cuts a span of the film into a new project for a
   vertical teaser, reporting every picture it dropped and pinning every one
   it kept, so the reel shows what the film showed.
@@ -152,7 +158,7 @@ uv run pytest
 ```
 
 The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
-so expect it to be a little slower than a pure unit suite. The four tests
+so expect it to be a little slower than a pure unit suite. The five tests
 that render through `melt` need a desktop session; on a headless box they
 fail with "no display for MLT's Qt module to open", which is the environment,
 not a regression.
