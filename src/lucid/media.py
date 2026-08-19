@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -426,6 +427,67 @@ def derive_single_audio(
         "stream": pick,
         "codec": codec,
     }
+
+
+def decode_stream_wav(
+    source: Path | str, dest: Path | str, *, stream: int, rate: int = 16000
+) -> float:
+    """Decode one audio stream of `source` to a 16-bit mono WAV, in seconds.
+
+    `stream` is **ffmpeg's own audio ordinal** — `-map 0:a:1` is the second
+    *audio* stream — the same numbering `derive_single_audio`'s `pick` takes
+    and deliberately not MLT's `audio_index`, which is an absolute stream
+    index where the second mic of a video container is 2. The two agree
+    exactly on an audio-only file, which is every fixture anyone writes first
+    (PLAN.md § The co-hosted recording, *The render trap*).
+
+    This is the one place lucid reaches past the mixdown to an individual
+    mic, and it exists for `ops.attribute_speakers`. It writes a scratch file
+    for something to measure and never enters the manifest, so nothing it
+    produces can reach a render — `media_path()` gains no branch, exactly as
+    the preview proxy does not get one.
+    """
+    src, out = Path(source), Path(dest)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(src),
+        "-map", f"0:a:{stream}", "-vn", "-ac", "1", "-ar", str(rate),
+        "-c:a", "pcm_s16le", str(out),
+    ]  # fmt: skip
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    if completed.returncode != 0 or not out.exists():
+        raise MediaError(
+            f"ffmpeg could not decode audio stream {stream} of {src.name}: "
+            f"{completed.stderr.strip()[-800:]}"
+        )
+
+    with wave.open(str(out), "rb") as handle:
+        frames, sample_rate = handle.getnframes(), handle.getframerate()
+    if not frames:
+        raise MediaError(f"audio stream {stream} of {src.name} decoded to no audio at all")
+    return frames / sample_rate
+
+
+def container_path(project: Project, clip: dict[str, Any]) -> Path:
+    """The registered container itself — before any mixdown was derived from it.
+
+    Every other resolver here answers "what should be edited or played", and
+    for a two-mic clip that is the mixdown: `media_path()` prefers `mixed`,
+    and so does `original_media_path`, because the untouched original of a
+    two-mic container *is* the mixdown. This one answers the only question
+    where that is wrong — "where are the individual mics" — and it has
+    exactly one caller, `ops.attribute_speakers`.
+
+    It reads keys already in the preference chain (`media`, then `source`)
+    rather than adding one, so it cannot hand a derived project a path with
+    nothing at it the way a new key would (CLAUDE.md § `_reel_media`'s key
+    tuple).
+    """
+    local = clip.get("media")
+    return (project.root / local) if local else Path(clip["source"])
 
 
 def import_media(

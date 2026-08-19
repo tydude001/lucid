@@ -245,14 +245,19 @@ left. The conclusion survives because it was always the load-bearing one, but
     **not** a listing of `renders/`, not a path the client may name, and not
     a third caller of `media.preview_path()` — a render is not a preview.
     HISTORY.md § The window plays its own render.
-  - **Still open, and it is a design question rather than a defect:** whether
-    the workspace should reach *any* render — an earlier one, a reference, an
-    A/B against the file `film_check` compares against — or whether that stays
-    `lucid review serve`'s job, which is built for it and reachable off the
-    machine. The recommendation is that it stays split: a workspace shows the
-    project, a review tool shows the artifact, and the one exception now built
-    is the file the window itself just made, which is not a browsing surface
-    and cannot grow into one without a new decision.
+  - **Answered 2026-08-18: it stays split, and this question is closed.**
+    Whether the workspace should reach *any* render — an earlier one, a
+    reference, an A/B against the file `film_check` compares against — was
+    taken on the recommendation: it does not. A workspace shows the project,
+    a review tool shows the artifact, and `lucid review serve` is built for
+    the artifact and reachable off the machine, which the workspace
+    deliberately is not. The one exception is the file the window itself just
+    made, reached through `renderlog.last` rather than through a path the
+    client names — and the reason that exception cannot grow quietly is the
+    same reason it was drawn narrowly: lucid writing the log itself is the
+    whole argument for not letting one hand-edited line turn a loopback
+    server into a file server. Widening it is a new decision, taken here and
+    not by an increment.
 - **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host
@@ -4140,10 +4145,40 @@ survive import. Three things the build moved:
   turned out to be the thing spending the pane's height, at 194px against a
   129px list.
 
-What is still owed on this note is unchanged: **the format decision itself**
-(the OBS setting, before part 1 is recorded) and the five-minute two-mic test
-recording, and then steps 2, 3 and 5, which have nothing to be built against
-until one exists.
+**Step 3 shipped 2026-08-18** — `speakers.py`, `ops.attribute_speakers`,
+`lucid attribute-speakers` and the MCP tool. HISTORY.md § Speaker
+attribution, built. The line below used to say steps 2, 3 and 5 had nothing
+to be built against, and **step 3 was the exception this note's own build
+order already named**: its test is the fixture above, which exists. Three
+things the build moved:
+
+- **The signature takes spans, not a transcript.** `attribute(spans, mics,
+  margin_db=)` keeps `speakers.py` from importing `transcript`, so the rule
+  is pinnable with no `Word` in sight.
+- **The report separates two refusals the note treated as one.**
+  `ambiguous` (mics too close to call) against `unmeasurable` (the word is
+  past the end of a mic) — the second means the transcript and the mics are
+  not the same recording, and merging them hides that.
+- **Reaching the mics needed a resolver, because every existing one prefers
+  the mixdown** — `media_path()` and `original_media_path` both, correctly.
+  `media.container_path` is the one that does not, and it has exactly one
+  caller.
+
+What is still owed on this note is otherwise unchanged: **the format decision
+itself** (the OBS setting, before part 1 is recorded) and the five-minute
+two-mic test recording, and then steps 2 and 5, which have nothing to be
+built against until one exists. The recommendation was **taken 2026-08-18 —
+record two tracks** — and the OBS half of it is enabling tracks 1 and 2 for
+recording (Settings → Output → Recording, which writes the `RecTracks` mixer
+bitmask in `basic.ini`: `1` today, `3` for both, in `[SimpleOutput]` and
+`[AdvOut]`) plus the routing that cannot be done until the mics are
+physically there — this box's scene collection holds **no audio sources at
+all**, so a track bitmask on its own would write two copies of one mix.
+
+**And what the fixture cannot answer still gates the number.** `MARGIN_DB`
+ships as a reported default rather than a pinned threshold, because one
+voice with an injected bleed on a metronome is an upper bound on every
+accuracy figure here.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 

@@ -236,6 +236,49 @@ def _build_parser() -> argparse.ArgumentParser:
         "clip_id", nargs="?", help="one clip; omitted, every clip with a transcript"
     )
 
+    p_attribute = sub.add_parser(
+        "attribute-speakers",
+        help="label each word with the mic that was loudest while it was spoken",
+    )
+    p_attribute.add_argument("clip_id")
+    p_attribute.add_argument(
+        "--stream",
+        type=int,
+        action="append",
+        dest="streams",
+        metavar="K",
+        help="an audio stream to read, by ffmpeg's audio ordinal (-map 0:a:K), "
+        "repeatable. Omitted, every stream the container holds",
+    )
+    p_attribute.add_argument(
+        "--label",
+        action="append",
+        dest="labels",
+        help="the name for the preceding --stream, repeatable and in the same "
+        "order (default speaker1, speaker2, ...)",
+    )
+    p_attribute.add_argument(
+        "--margin-db",
+        type=float,
+        default=ops.spk.MARGIN_DB,
+        metavar="DB",
+        help=f"dB the loudest mic must lead by before the word is called "
+        f"(default {ops.spk.MARGIN_DB:g}; under it the word is reported, never guessed)",
+    )
+    p_attribute.add_argument(
+        "--limit",
+        type=int,
+        default=ops.AMBIGUOUS_SPANS,
+        help=f"ambiguous spans listed (default {ops.AMBIGUOUS_SPANS}; the total is "
+        "always reported)",
+    )
+    p_attribute.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the labels into the transcript, keeping any existing label "
+        "on a word this refuses to call",
+    )
+
     p_describe = sub.add_parser(
         "describe", help="describe a clip's footage in windows, for b-roll search"
     )
@@ -1360,6 +1403,20 @@ def _cmd_transcript_checks(args: argparse.Namespace) -> int:
     return _emit(ops.transcript_checks(args.project, args.clip_id))
 
 
+def _cmd_attribute_speakers(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.attribute_speakers(
+            args.project,
+            args.clip_id,
+            streams=args.streams,
+            labels=args.labels,
+            margin_db=args.margin_db,
+            apply=args.apply,
+            limit=args.limit,
+        )
+    )
+
+
 def _cmd_describe_ls(args: argparse.Namespace) -> int:
     return _emit(ops.describe_ls(args.project, args.clip_id, contains=args.contains))
 
@@ -1963,6 +2020,7 @@ _COMMANDS = {
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
     "transcript-checks": _cmd_transcript_checks,
+    "attribute-speakers": _cmd_attribute_speakers,
     "describe": _cmd_describe,
     "describe-ls": _cmd_describe_ls,
     "card": _cmd_card,

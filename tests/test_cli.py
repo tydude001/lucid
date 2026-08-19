@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from lucid import ops
 from lucid.cli import _parse_timecode, _slot_assignments, _time_span, main
 from lucid.project import ProjectError
 
@@ -983,3 +984,32 @@ def test_thumbnail_parses_at_and_interval_and_reaches_ops(
     with pytest.raises(SystemExit) as excinfo:
         main(["-C", str(project), "thumbnail", "c1", "not-a-number"])
     assert excinfo.value.code == 2
+
+
+def test_attribute_speakers_pairs_each_stream_with_its_label() -> None:
+    """The two lists are positional and the op checks them against each other,
+    so the parser's job is only to keep the order they were typed in."""
+    from lucid.cli import _build_parser
+
+    args = _build_parser().parse_args(
+        ["attribute-speakers", "vo", "--stream", "0", "--label", "ana",
+         "--stream", "1", "--label", "ben"]
+    )  # fmt: skip
+
+    assert args.command == "attribute-speakers"
+    assert args.clip_id == "vo"
+    assert args.streams == [0, 1]
+    assert args.labels == ["ana", "ben"]
+    assert args.apply is False
+
+
+def test_attribute_speakers_defaults_leave_every_choice_to_the_op() -> None:
+    """No streams and no labels means "every mic the container holds", which is
+    the op's default rather than a number the CLI picks."""
+    from lucid.cli import _build_parser
+
+    args = _build_parser().parse_args(["attribute-speakers", "vo"])
+
+    assert args.streams is None
+    assert args.labels is None
+    assert args.margin_db == ops.spk.MARGIN_DB

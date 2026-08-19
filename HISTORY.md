@@ -9507,3 +9507,95 @@ and scrolling 598px of content, status 60px, offer 27px. The page's own
 overflow is unchanged at 700px and 1400px (`body.scrollWidth == innerWidth`
 at both; the three nodes the probe names are pre-existing and inside their
 own scroll containers).
+
+## Speaker attribution, built — 2026-08-18
+
+PLAN.md § The co-hosted recording's build order, step 3. It is here rather
+than behind the format decision because **it has a fixture to be built
+against**: the note's own synthetic turns, which measured the rule that this
+implements. What it does *not* have is a real recording to be validated
+against, and that separation is the whole shape of what shipped — the rule is
+in the code, the number that would gate it is reported and not pinned.
+
+`speakers.py` is `speech.py`'s tier: pure arithmetic, stdlib only, one loader
+that reads a WAV. `ops.attribute_speakers` decodes each mic, attributes every
+word, and reports; `apply` is off by default, `reframe_detect`'s precedent
+rather than `cut --plan`'s. `lucid attribute-speakers` and the MCP tool are
+the same call, as ever.
+
+### The rule, and the two designs that lost
+
+Per word, compare each mic's RMS over that word's own span and take the
+loudest. 98.9% correct on clear speech, barely moving across 18 dB of mic
+isolation — and at **chance** on words spoken over each other, which is the
+half of a co-hosted recording that matters. The margin (how many dB the
+winner leads by) half-knows the difference: at 6 dB it flags 44% of the
+overlapped words for 1% of the clear ones.
+
+Both losers are recorded in `speakers.py`'s docstring rather than only in the
+note, because they are the two things anyone would build first:
+**transcribing each mic separately does not separate speakers** — half of
+each mic's own transcript is the other person at every isolation, and pushing
+further only trades that for hallucination on a track that is silent half the
+time — and **an envelope-only "both mics hot" detector does not find the
+overlaps**, at recall 0.86–0.90 for precision 0.21–0.32 even given
+`speech.merge_runs`/`intersect_runs`, this repo's own fair form of it.
+
+### What the build moved
+
+- **The note's signature took a transcript; the shipped one takes spans.**
+  `attribute(spans, mics, margin_db=)` keeps `speakers.py` from importing
+  `transcript`, so the rule is pinnable with no `Word` in sight and the
+  labels ride the `MicTrack` that earns them. `ops` does the one mapping.
+- **Two refusals, not one, and a report that merges them is wrong.**
+  `ambiguous` is a word whose mics were too close to call; `unmeasurable` is
+  a word past the end of at least one mic. The second means the transcript
+  and the mics are not the same recording — a thing to go and fix — and
+  collapsing it into "unattributed" hides that behind a plausible number.
+- **Applying keeps a label it cannot replace.** Where the floor refuses, an
+  existing `speaker` stays and is counted as `kept`. Attribution is a
+  derivation and re-running it at a different floor should move; a word
+  someone attributed by hand is not something this can recreate. The same
+  shape as a stale unspoken mark being kept rather than applied.
+- **A zero-width word still has a speaker.** whisper emits `start == end`
+  often, and a naive RMS over that span is a division by zero or a dropped
+  word. Anything under `MIN_SPAN` is measured over 20 ms centred where the
+  word is.
+- **A silent runner-up is a capped margin, never `inf`.** Every one of these
+  crosses a JSON boundary on its way to an agent.
+- **`container_path`, and why it is not a fourth caller of anything.**
+  Import derives a mixdown for a two-mic container, and *both* existing
+  resolvers prefer it — `media_path()` because that is what gets edited and
+  rendered, `original_media_path` because the untouched original of a
+  two-mic container **is** the mixdown. Attribution is the one op for which
+  that is wrong: the mics are only in the container. `media.container_path`
+  reads `media` then `source`, keys already in the preference chain, so it
+  adds nothing a derivation could hand a dead path — and it has exactly one
+  caller, the way `preview_path` has two.
+
+### Measured
+
+`tests/test_speakers.py` rebuilds the note's fixture in the stdlib — no
+ffmpeg, no model, alternating turns with a chosen bleed — and pins the rule
+from both sides: every word correct at −6 through −24 dB, both mics equally
+hot refused rather than guessed, and the same word called or refused by the
+floor alone with its measured margin unchanged either way.
+
+`tests/test_ops_attribute_speakers.py` runs it over a real imported project,
+and the test worth having is `test_it_reads_the_container_and_not_the_mixdown`:
+the clip is imported with `--mix`, so `media_path()` and `container_path()`
+resolve to different files, and reading the wrong one compares the mixdown
+against itself and cannot separate anybody. `test_server_stdio.py` does the
+whole chain over the wire — import with `mix=True`, attach, attribute, apply,
+read the labels back off the saved transcript — because a tool body proves
+nothing about whether it is registered.
+
+### What is still owed
+
+Unchanged, and the same two things: **the format decision** (the OBS setting,
+before part 1 is recorded) and the five-minute two-mic test of two people
+actually talking over each other. The fixture is one voice with an injected
+bleed on a metronome, so **every accuracy number above is an upper bound**,
+and `MARGIN_DB = 6.0` is carried as a default that reports rather than a
+threshold anything trusts. Steps 2 and 5 of the build order — per-stream ASR
+and captions per speaker — still have nothing to be built against.

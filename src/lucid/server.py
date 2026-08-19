@@ -364,6 +364,51 @@ def transcript_checks(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 
 @_tool()
+def attribute_speakers(
+    path: str,
+    clip_id: str,
+    streams: list[int] | None = None,
+    labels: list[str] | None = None,
+    margin_db: float = ops.spk.MARGIN_DB,
+    apply: bool = False,
+    limit: int = ops.AMBIGUOUS_SPANS,
+) -> dict[str, Any]:
+    """Label each word with the mic that was loudest while it was spoken.
+
+    For a co-hosted recording captured on one mic per speaker. It is one pass
+    over the transcript that is already attached — **never a second ASR
+    run**, and transcribing each mic separately is measured and dead: half of
+    each mic's own transcript is the other person, at every isolation tried.
+    Transcribe once, from the mix or either mic, then call this.
+
+    `streams` are ffmpeg audio ordinals into the registered container (`0`,
+    `1`), and `labels` names them in the same order — one label per stream,
+    defaulting to `speaker1`, `speaker2`. The speaker lands on the *word*: it
+    is a label and never an address, so every cue, description, mark, music
+    anchor and caption still resolves through `(clip_id, word_index)` and
+    nothing else moves.
+
+    **It reports; it does not decide below the floor.** `apply` is off by
+    default. The rule is ~99% correct per word on clear speech and at
+    **chance** on words spoken over each other, and `margin_db` is what
+    half-knows the difference — anything under it comes back in
+    `ambiguous_spans` to go and listen to, with the three words either side.
+    Read `unmeasurable` separately from `ambiguous`: it means the mics ran
+    out before the transcript did, which is a different recording problem.
+    Applying keeps any label already on a word this refuses to call.
+    """
+    return ops.attribute_speakers(
+        path,
+        clip_id,
+        streams=streams,
+        labels=labels,
+        margin_db=margin_db,
+        apply=apply,
+        limit=limit,
+    )
+
+
+@_tool()
 def describe(
     path: str,
     clip_id: str | None = None,

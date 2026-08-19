@@ -218,6 +218,25 @@ lucid unspoken ls                            # what is marked, and what went sta
 `detect` takes its candidates from a seam and from a word a cut left a sliver
 of, then asks the render's own transcription which of them nobody said.
 
+A co-hosted recording captured on one mic per speaker can have each word
+labelled with whoever said it. Import refuses a container holding two mics
+until you say what it is — `--mix` sums them, `--audio-stream k` keeps one —
+and attribution then reads the *container*, comparing each mic's level over
+each word:
+
+```sh
+lucid attribute-speakers ep1 --stream 0 --label ana --stream 1 --label ben
+lucid attribute-speakers ep1 --margin-db 9 --apply     # ...and write the labels
+```
+
+The speaker is a label on the word, never an address: every cue, caption and
+mark still resolves through `(clip_id, word_index)`. It reports rather than
+decides — the rule is ~99% right per word on clear speech and no better than
+chance on two people talking at once, so anything whose loudest mic does not
+lead by `--margin-db` comes back in `ambiguous_spans` to go and listen to,
+and `--apply` keeps any label it refuses to replace. On a single mixed track
+there is nothing to compare, and lucid says so rather than guessing.
+
 `verify` closes the loop the other way: it transcribes a finished render and
 diffs it against the words the timeline should play. That catches a class of
 defect nothing else does — a retake still in the picture. Whisper collapses an

@@ -48,6 +48,7 @@ from lucid import describe as dsc
 # or the function would shadow it at call time — the `describe`/`verify` fix.
 from lucid import fonts as lucid_fonts
 from lucid import pack as pk
+from lucid import speakers as spk
 from lucid import speech as sp
 from lucid import timeline as tl
 from lucid import transcript as tx
@@ -372,6 +373,181 @@ def transcript_checks(path: Path | str, clip_id: str | None = None) -> dict[str,
             }
         )
     return {"clips": clips}
+
+
+# -- speaker attribution ----------------------------------------------------
+#
+# Step 3 of PLAN.md § The co-hosted recording. **The speaker is an attribute
+# of a word, never a second address**: `(clip_id, word_index)` still resolves
+# every cue, description, unspoken mark, music anchor and caption, so a
+# two-mic recording adds a per-word fact and moves nothing. There is no second
+# transcript per clip and no new `Edit` primitive — the mics are one
+# performance, cut together.
+#
+# It reads the registered container rather than `media_path()`, which is the
+# one place in lucid that is right: import derives a mixdown and every other
+# resolver prefers it, because the untouched original of a two-mic container
+# *is* the mixdown. The mics themselves are only in the container.
+
+#: Consecutive ambiguous runs reported before the list is cut off. The count
+#: is always reported in full beside it — a truncated list that does not say
+#: it was truncated reads as the whole finding.
+AMBIGUOUS_SPANS = 20
+
+
+def _ambiguous_spans(
+    parsed: tx.Transcript, decisions: Sequence[spk.Decision], limit: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Runs of consecutive undecided words, in word order, worst margin named.
+
+    Runs rather than words because that is what a person goes and listens to:
+    a turn change is a stretch, and 30 separate word indices in a list is the
+    same finding with the shape taken off it. Each carries the three words
+    either side, the standing rule for anything that reports a word index.
+    """
+    runs: list[list[int]] = []
+    for index, decision in enumerate(decisions):
+        if decision.label is not None:
+            continue
+        if runs and runs[-1][-1] == index - 1:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+
+    out = []
+    for run in runs[:limit]:
+        first, last = run[0], run[-1]
+        margins = [decisions[i].margin_db for i in run if decisions[i].margin_db is not None]
+        out.append(
+            {
+                "first_word": first,
+                "last_word": last,
+                "text": " ".join(w.text for w in parsed.window(first, last)),
+                "words": len(run),
+                "start": parsed.words[first].start,
+                "end": parsed.words[last].end,
+                "worst_margin_db": round(min(margins), 2) if margins else None,
+                "why": decisions[first].why,
+                **_context(parsed, first, last),
+            }
+        )
+    return out, len(runs)
+
+
+def attribute_speakers(
+    path: Path | str,
+    clip_id: str,
+    *,
+    streams: Sequence[int] | None = None,
+    labels: Sequence[str] | None = None,
+    margin_db: float = spk.MARGIN_DB,
+    apply: bool = False,
+    limit: int = AMBIGUOUS_SPANS,
+) -> dict[str, Any]:
+    """Label each word with the mic that was loudest while it was spoken.
+
+    One pass over an existing transcript, never a second ASR run — transcribe
+    once, from the mix or either mic, and attribute afterwards. Transcribing
+    each mic separately is the obvious design and it is dead: half of each
+    mic's own transcript is the *other* person at every isolation measured
+    (`speakers.py` carries that finding and the one about envelope detectors).
+
+    **It reports; it does not decide below the floor.** `apply` is off by
+    default, `reframe_detect`'s precedent rather than `cut --plan`'s, and for
+    the same reason: the rule is 98.9% correct per word on clear speech and at
+    **chance** on words spoken over each other, which is the half of a
+    co-hosted recording that matters. `margin_db` is what half-knows the
+    difference — a word whose loudest mic does not lead by that much is left
+    unlabelled and reported as an ambiguous span to go and listen to.
+
+    Applying **keeps a label it cannot replace**: where this refuses to call a
+    word, whatever label the transcript already had stays. Attribution is a
+    derivation and re-running it with a different floor should move, but a
+    word someone attributed by hand is not information this can recreate, so
+    it is never cleared by a refusal — the same shape as a stale unspoken
+    mark being kept rather than applied.
+    """
+    project = Project.open(path)
+    clip = _clips_by_id(project).get(clip_id)
+    if clip is None:
+        raise ProjectError(f"no clip {clip_id!r} in this project")
+    parsed = _transcript(project, clip_id)
+
+    container = media.container_path(project, clip)
+    if not container.exists():
+        raise ProjectError(f"{clip_id}'s media is not where the project says it is: {container}")
+    # The recorded count when the clip has one, so an ordinary clip costs no
+    # probe; a record written before `audio_streams` existed gets asked.
+    available = int(clip.get("audio_streams") or media.probe(container).audio_streams)
+    if available < 2:
+        raise ProjectError(
+            f"{clip_id} was recorded on one audio stream, and attribution compares mics "
+            "against each other. There is no local route to speaker identity on a mixed "
+            "track — see PLAN.md § The co-hosted recording"
+        )
+
+    wanted = list(range(available)) if streams is None else [int(s) for s in streams]
+    if len(wanted) != len(set(wanted)):
+        raise ProjectError(f"the same audio stream is named twice: {wanted}")
+    for stream in wanted:
+        if not 0 <= stream < available:
+            raise ProjectError(
+                f"{clip_id} has {available} audio streams, numbered 0-{available - 1}; "
+                f"asked for {stream}"
+            )
+
+    named = [f"speaker{k + 1}" for k in range(len(wanted))] if labels is None else list(labels)
+    if len(named) != len(wanted):
+        raise ProjectError(
+            f"{len(named)} label(s) for {len(wanted)} mic(s) — every mic gets exactly one, "
+            "in the order the streams were named"
+        )
+    try:
+        named = spk.check_labels(named)
+        with tempfile.TemporaryDirectory(prefix="lucid-mics-") as scratch:
+            mics = []
+            for stream, label in zip(wanted, named, strict=True):
+                decoded = Path(scratch) / f"{clip_id}-a{stream}.wav"
+                media.decode_stream_wav(container, decoded, stream=stream)
+                mics.append(spk.load_mic(decoded, label))
+            decisions = spk.attribute(
+                [(w.start, w.end) for w in parsed.words], mics, margin_db=margin_db
+            )
+    except spk.SpeakerError as exc:
+        raise ProjectError(str(exc)) from exc
+
+    spans, total_spans = _ambiguous_spans(parsed, decisions, limit)
+    report: dict[str, Any] = {
+        "clip_id": clip_id,
+        "container": str(container),
+        "audio_streams": available,
+        "streams": wanted,
+        "labels": named,
+        "margin_db": margin_db,
+        **spk.summarise(decisions),
+        "ambiguous_spans": spans,
+        "ambiguous_spans_total": total_spans,
+        "applied": bool(apply),
+    }
+
+    if apply:
+        relabelled = [
+            replace(word, speaker=decision.label if decision.label is not None else word.speaker)
+            for word, decision in zip(parsed.words, decisions, strict=True)
+        ]
+        report["changed"] = sum(
+            1 for before, after in zip(parsed.words, relabelled, strict=True)
+            if before.speaker != after.speaker
+        )  # fmt: skip
+        report["kept"] = sum(
+            1
+            for word, decision in zip(parsed.words, decisions, strict=True)
+            if decision.label is None and word.speaker is not None
+        )
+        tx.save(replace(parsed, words=tuple(relabelled)), project.transcript_path(clip_id))
+        report["transcript"] = str(project.transcript_path(clip_id))
+
+    return report
 
 
 # -- footage descriptions ---------------------------------------------------

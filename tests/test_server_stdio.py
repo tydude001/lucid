@@ -44,6 +44,7 @@ EXPECTED_TOOLS = {
     "transcribe",
     "get_transcript",
     "transcript_checks",
+    "attribute_speakers",
     "describe",
     "describe_ls",
     "card_templates",
@@ -237,6 +238,7 @@ TOOL_TO_COMMAND = {
     "transcribe": "transcribe",
     "get_transcript": "transcript",
     "transcript_checks": "transcript-checks",
+    "attribute_speakers": "attribute-speakers",
     "describe": "describe",
     "describe_ls": "describe-ls",
     "card_templates": "card",
@@ -6655,3 +6657,92 @@ def test_a_mixed_import_puts_both_mics_in_the_film(tmp_path: Path) -> None:
     only_a = tmp_path / "first.mp4"
     assert _tone(only_a, 300.0) > 100.0
     assert _tone(only_a, 1200.0) < 10.0
+
+
+def _turn_taking_source(root: Path, *, turn: float = 2.0, turns: int = 6) -> Path:
+    """Two mics on one container, each hot for its own turns and bled into the
+    other's — the co-hosted shape, and what attribution has to separate."""
+    dest = root / "turns.mp4"
+    seconds = turn * turns
+    cycle, hot = turn * 2, turn
+    quiet = 0.25  # ~12 dB of isolation, the middle of the note's own column
+    # Commas inside a filter expression are filtergraph separators, so they
+    # are escaped rather than quoted — there is no shell here to do it.
+    graph = (
+        f"[0:a]volume='if(lt(mod(t\\,{cycle})\\,{hot})\\,1\\,{quiet})':eval=frame[a];"
+        f"[1:a]volume='if(lt(mod(t\\,{cycle})\\,{hot})\\,{quiet}\\,1)':eval=frame[b]"
+    )
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}:sample_rate=48000",
+         "-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}:sample_rate=48000",
+         "-filter_complex", graph,
+         "-map", "[a]", "-map", "[b]", "-c:a", "aac", str(dest)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    return dest
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_attribute_speakers_labels_the_words_over_the_wire(tmp_path: Path) -> None:
+    """Import → attach → attribute → apply, through the registered tools.
+
+    The clip is imported with `mix=True`, so everything downstream of import
+    reads the mixdown — which is the point: attribution is the one op that
+    reaches past it to the individual mics, and calling it through the server
+    is what proves the tool is registered and reachable rather than merely
+    written. PLAN.md § The co-hosted recording, build order step 3.
+    """
+    project = tmp_path / "proj"
+    turn, turns, per_turn = 2.0, 6, 4
+    source = _turn_taking_source(tmp_path, turn=turn, turns=turns)
+
+    words, truth = [], []
+    step = turn / (per_turn + 1)
+    for index in range(turns):
+        for k in range(per_turn):
+            start = index * turn + step * (k + 1)
+            words.append({"word": f"w{index}{k}", "start": start, "end": start + 0.2})
+            truth.append("ana" if index % 2 == 0 else "ben")
+    transcript = tmp_path / "turns.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call(
+            "import_media", path=str(project), source=str(source), mix=True
+        )
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        common = {"path": str(project), "clip_id": clip["clip_id"], "labels": ["ana", "ben"]}
+        return {
+            "clip": clip,
+            "report": await client.call("attribute_speakers", **common),
+            "applied": await client.call("attribute_speakers", **common, apply=True),
+            "read_back": await client.call(
+                "get_transcript", path=str(project), clip_id=clip["clip_id"]
+            ),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    report = out["report"]
+    assert report["words"] == len(truth)
+    assert report["attributed"] == len(truth), report["ambiguous_spans"]
+    assert report["by_label"] == {"ana": truth.count("ana"), "ben": truth.count("ben")}
+    assert report["applied"] is False
+    # It read the container, not the mixdown import derived from it.
+    assert report["container"] != out["clip"]["mixed"]
+    assert report["audio_streams"] == 2
+
+    assert out["applied"]["changed"] == len(truth)
+    cached = Path(out["applied"]["transcript"])
+    saved = json.loads(cached.read_text(encoding="utf-8"))
+    assert [w["speaker"] for w in saved["words"]] == truth

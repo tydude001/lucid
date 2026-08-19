@@ -485,13 +485,25 @@ unreachable, and a completion report a page reload was discarding. **So the
 reshape's definition of done is met: footage now goes in through the window,
 with the terminal never required.**
 
-## Open questions, deliberately left
+## Open questions — all three answered 2026-08-18
 
-- Whether Apply-from-agent-plan should also cover `reframe` proposals (step
-  03 keeps detect's apply off; the sheet is the judge — revisit only after
-  the Frame mode has been used in anger).
-- Clip filename labels on V1 blocks (held back in DAYDREAM.md § Timeline
-  because every other surface names blocks by `clip_id`) — decide when
-  drag-trim makes blocks something you look at longer.
-- Whether `lucid open` should eventually own a tray/launcher presence.
-  Nothing here depends on it.
+Taken together, on the recommendation, so that none of them sits open as a
+standing invitation to widen something by increment. Each keeps the shape it
+already had; what changed is that it is now a decision rather than a deferral.
+
+- **Apply-from-agent-plan does not cover `reframe` proposals. No.** Step 03
+  keeps `reframe_detect`'s apply off and the sheet stays the judge, because
+  the pass is 114px out on a 459px window and 2 of the 15 hand-framed windows
+  were wrong in a way *no watch showed* — an apply path in the agent panel
+  would be a second way to write those without looking. Frame mode has not
+  been used in anger yet, which is a reason to leave the guard on rather than
+  a reason to wait: the thing that would justify relaxing it is evidence from
+  using it, and that evidence is not in.
+- **No clip filename labels on V1 blocks.** Every other surface names a block
+  by `clip_id`, and a second name for the same thing is how two surfaces stop
+  agreeing. Revisit when drag-trim makes a block something you look at for
+  longer than a click — DAYDREAM.md § Timeline holds the reasoning.
+- **`lucid open` gets no tray or launcher presence.** Nothing here depends on
+  it, and PLAN.md § Not a desktop app, and the reasoning is on file already
+  carries the argument. `lucid open` stays a command that serves a page and
+  opens a browser at it.

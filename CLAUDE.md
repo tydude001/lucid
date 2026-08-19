@@ -83,6 +83,17 @@ installed package or the upstream repo, not your memory.
           The pane complies with the refusal rather than only printing it:
           `media.MultiAudioError` carries `streams`, so nothing there
           string-matches a sentence.
+        - **Both path resolvers prefer the mixdown, so the mics are
+          reachable only through `media.container_path`** — one caller,
+          `ops.attribute_speakers`, and that is the containment. Anything
+          else asking for "the original file" wants the mixdown; asking
+          `media_path()` for the mics compares it against itself and
+          separates nobody, at exit 0.
+          - **`attribute_speakers` is at chance on simultaneous speech**,
+            measured on one synthetic voice, so `speakers.MARGIN_DB` is a
+            reported default and never a threshold to trust — `apply` is
+            off by `reframe_detect`'s precedent and keeps a label it
+            refuses to replace. HISTORY.md § Speaker attribution, built.
       - **`transcript.Word` has a `speaker`, and it is a label, never an
         address** — `(clip_id, word_index)` still resolves every cue,
         description, mark, music anchor and caption. Additive and optional,
