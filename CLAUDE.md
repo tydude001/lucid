@@ -248,9 +248,12 @@ installed package or the upstream repo, not your memory.
     the exception and keeps `contain`, because that is what MLT does to one.
     Nothing in JS derives a crop. HISTORY.md § The viewer's frame.
   - **Verify the picture layer by canvas readback, never by screenshot** —
-    headless Chrome does not composite `<video>` into a capture (wiki
-    `tooling.md` § Headless browser). Compare against ffmpeg's frame at the
-    source timestamp the page claims. HISTORY.md § The preview picture layer.
+    whether headless Chrome composites a `<video>` into a capture is not
+    settled: it did not on 2026-08-09 and did on 2026-08-19, same binary
+    (wiki `tooling.md` § Headless browser). So a black capture proves nothing
+    and a good-looking one proves nothing. Compare against ffmpeg's frame at
+    the source timestamp the page claims. HISTORY.md § The preview picture
+    layer.
     - **A readback proves neither that the frame is current nor that anyone
       can see it** — `drawImage` obliges on a mid-seek and on a
       `visibility: hidden` element alike, and both cost this repo a day. What

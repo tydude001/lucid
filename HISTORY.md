@@ -9752,11 +9752,18 @@ All three images are **dark**, at 1400×900, captured through
 after it, because `theme.js` applies `data-theme` in `<head>` and the two
 canvases only repaint off its `lucid:theme` event — flipping it after load can
 be captured mid-repaint. Worth recording against CLAUDE.md's own note that a
-`<video>` never composites into a headless capture: **chrome-headless-shell
-1228 does**, and both the Edit preview and the Finish player carry real frames
-in these files. The rule still holds for *verification* — a composited frame
-is not evidence it is the current one — but it is no longer a reason to expect
-a black rectangle in a screenshot.
+`<video>` never composites into a headless capture: **this time it did.** Two
+elements of one page — the Edit preview layer and the `<video controls>`
+playing the render — both came back at mean luma 70, against a letterbox band
+measuring 0.0 in the same capture, so it is the video pixels specifically and
+not a bright screenshot. Same binary as the 2026-08-09 measurement that found
+black (149.0.7827.55), and what differs between the two runs was **not**
+measured — the source codec is the obvious suspect and is untested, so neither
+run generalises and the honest statement is that it is unsettled. Nothing about
+the *verification* rule moves: a composited frame is not evidence it is the
+current one, which is why the readback exists. What moves is that a black
+capture can no longer be waved off as "headless does that". wiki `tooling.md`
+§ Headless browser carries the correction.
 
 `frame-mode.png` is the **vertical** cut, rebuilt for it: `~/lucid-archive/vertical/`
 is two files, and a project is the two of them plus `media/` symlinks to the
