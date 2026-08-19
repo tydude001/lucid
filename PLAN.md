@@ -4168,12 +4168,13 @@ What is still owed on this note is otherwise unchanged: **the format decision
 itself** (the OBS setting, before part 1 is recorded) and the five-minute
 two-mic test recording, and then steps 2 and 5, which have nothing to be
 built against until one exists. The recommendation was **taken 2026-08-18 —
-record two tracks** — and the OBS half of it is enabling tracks 1 and 2 for
-recording (Settings → Output → Recording, which writes the `RecTracks` mixer
-bitmask in `basic.ini`: `1` today, `3` for both, in `[SimpleOutput]` and
-`[AdvOut]`) plus the routing that cannot be done until the mics are
-physically there — this box's scene collection holds **no audio sources at
-all**, so a track bitmask on its own would write two copies of one mix.
+record two tracks** — and the OBS half of it is set: `RecTracks=3` (the
+mixer bitmask, tracks 1+2) in both `[SimpleOutput]` and `[AdvOut]`. What
+that does **not** do is make the two tracks two mics. This box's scene
+collection holds **no audio sources at all**, so until one mic is routed to
+each track in Advanced Audio Properties, a two-track capture is two copies
+of the same mix — which is the failure this whole note exists to catch, in
+a new place.
 
 **And what the fixture cannot answer still gates the number.** `MARGIN_DB`
 ships as a reported default rather than a pinned threshold, because one
