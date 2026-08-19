@@ -882,6 +882,23 @@ textarea {
   border-color: var(--partial);
   background: var(--wash-partial);
   color: var(--partial);
+  /* A chip is a pill in both states, and only colour separates them — but
+     that took four declarations rather than the three above, because a chip
+     that warns matches the bare `.warn` block-callout rule further down this
+     file too (the message-box look: a 2px left accent, square left corners,
+     a 8px/10px box and 8px of vertical margin). `.chip.warn` outranks it on
+     the three properties it names and on NOTHING ELSE — equal specificity,
+     later in the file, so `.warn` took the geometry. Measured in a browser
+     on Frame mode's coverage row: the two flagged chips came out 34.5px tall
+     with `border-radius: 0 4px 4px 0`, beside a clean chip that was a 50.5px
+     pill, which reads as two different kinds of control rather than one
+     control in two states. Restated here rather than scoped out of `.warn`,
+     because `.warn`'s callout look is right everywhere it is used as a
+     block and this is the only place the two selectors collide. */
+  margin: 0;
+  padding: 3px 10px;
+  border-left-width: 1px;
+  border-radius: 999px;
 }
 
 /* -- workspace: transcript | preview | agent ----------------------------- */
@@ -2385,6 +2402,22 @@ textarea {
 .frame-row-approved {
   border-color: var(--kept);
   background: var(--wash-kept);
+}
+
+/* A shot the sheet had nothing to draw for — a card, which is authored at the
+   canvas and never cropped. It sits in the numbering where its shot number
+   would have been, so the run of `#0 #2 #3` stops reading as a row that
+   failed to render, and it is muted and one line tall because it is context
+   rather than something to review: it has no tiles, no Approve and no
+   Re-frame…, and giving it the full row treatment would put three dead
+   controls in the middle of the list. */
+.frame-row-skipped {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-style: dashed;
+  background: none;
+  color: var(--dim);
 }
 
 .frame-row-header {

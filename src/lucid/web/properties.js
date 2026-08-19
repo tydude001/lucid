@@ -44,18 +44,45 @@ let requestSeq = 0; // guards against an in-flight fetch from an earlier
 // different assets rows must not have the first response overwrite the
 // second's
 
-function fmtValue(key, value) {
+/** The leaf types a flat line can render without hiding structure. `null`
+ * counts: it has a rendering (`–`) that claims nothing about shape. */
+function isPrimitive(value) {
+  return value === null || value === undefined || ["boolean", "number", "string"].includes(typeof value);
+}
+
+/** One leaf, formatted — the rules `fmtValue` applies at the top level, so a
+ * boolean inside a list reads `yes` there too and not `true`. */
+function fmtPrimitive(value) {
   if (value === null || value === undefined) return "–";
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3);
-  if (key === "playable" && typeof value === "object") {
+  return String(value);
+}
+
+/** A field's value as one line.
+ *
+ * A list of primitives and a flat object of primitives each get a plain
+ * rendering, because `["vo","cold-open",…]` and `{"applied":false}` are the
+ * inspector printing its own transport rather than the fact. **Anything
+ * nested keeps `JSON.stringify`**: this pane is an inspector, and flattening
+ * a shape it cannot show would be lying about the data, which is worse than
+ * being ugly. */
+function fmtValue(key, value) {
+  if (key === "playable" && value && typeof value === "object") {
     return `${value.playable ? "yes" : "no"}${value.reason ? ` — ${value.reason}` : ""}`;
   }
+  if (isPrimitive(value)) return fmtPrimitive(value);
   if (Array.isArray(value)) {
-    if (!value.length) return "[]";
-    return JSON.stringify(value);
+    if (!value.length) return "none";
+    return value.every(isPrimitive) ? value.map(fmtPrimitive).join(", ") : JSON.stringify(value);
   }
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (!entries.length) return "none";
+    return entries.every(([, v]) => isPrimitive(v))
+      ? entries.map(([k, v]) => `${k}: ${fmtPrimitive(v)}`).join(" · ")
+      : JSON.stringify(value);
+  }
   return String(value);
 }
 

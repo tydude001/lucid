@@ -197,6 +197,42 @@ const LABEL_MIN_PX = 70; // minimum on-screen spacing before a ruler label repea
 const THUMB_TARGET_PX = 64; // desired on-screen width per filmstrip frame
 const THUMB_MIN_BLOCK_PX = 24; // below this a block is too narrow for even one legible frame
 
+/** Narrowest block that gets a text label at all.
+ *
+ * Measured, not picked — the sibling rule above, and the same method. Every
+ * block on every lane is clipped to its own width, so a label does not
+ * shrink, it *truncates*, and a truncation short enough stops being a word:
+ * the film's V2 lane at the zoom the page opens at drew `c`, `re`, `col`,
+ * `s199` and `rece`, and the CC lane drew one or two letters of a sentence
+ * in all 178 cues. None of it names anything.
+ *
+ * The boundary was read off the film's own 38 shots by measuring how many
+ * characters each block actually shows (Geist Sans 11px, against the label's
+ * real position inside the block rather than a padding model):
+ *
+ *     26.7px -> 3ch  "col"      (cold-open)
+ *     30.2px -> 4ch  "rece"     (receipt-scream-2022)
+ *     37.9px -> 4ch  "s199"     (s1996-billy-stu)
+ *     ----------------------------------------- 40
+ *     41.5px -> 6ch  "vi-bai"   (vi-bailey)
+ *     46.5px -> 6ch  "s4-ove"   (s4-overexposed)
+ *     50.4px -> 7ch  "cold-op"  (cold-open)
+ *
+ * Six characters is where a fragment starts telling two assets apart —
+ * `vi-bai` is not `vi-ric`, `s4-ove` is not `s4-rev` — and 37.9 -> 41.5 is
+ * where the sixth character arrives, so 40 is the gap it arrives across.
+ * Nothing is lost by dropping the rest: **every block already carries a full
+ * `title`** (this function, `buildPictureRow` and `buildCaptionRow` each set
+ * one), and zooming in brings the label back the way it brings back a trim
+ * handle — the film's narrowest shot is 14px at zoom 1 and 140px at zoom 10.
+ *
+ * It gates on the block, not on the text, so a label short enough to fit
+ * whole in 30px (`vo`, on a one-clip A1) goes too. That is deliberate: 63
+ * blocks all reading `vo` over a waveform is the same debris in a tidier
+ * font, and a rule that measures each string would make what the lane draws
+ * depend on how the clips happen to be named. */
+const LABEL_MIN_BLOCK_PX = 40;
+
 //: "Nice" ruler intervals, seconds — the smallest one that keeps labels this
 //: side of LABEL_MIN_PX apart at the current zoom is picked.
 const NICE_INTERVALS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
@@ -302,9 +338,14 @@ function buildCaptionRow(captions, pxPerSec, duration) {
 
   for (const cue of captions.cues) {
     const block = el("div", "clip-block");
+    const blockWidth = Math.max(1, (cue.end - cue.start) * pxPerSec);
     block.style.left = `${(cue.start * pxPerSec).toFixed(1)}px`;
-    block.style.width = `${Math.max(1, (cue.end - cue.start) * pxPerSec).toFixed(1)}px`;
-    block.textContent = cue.text;
+    block.style.width = `${blockWidth.toFixed(1)}px`;
+    // A cue is a *sentence* in a block a few pixels wide — this lane is where
+    // the truncation is worst (all 178 of the film's cues were 14-16px at
+    // zoom 1, one letter each). Same gate as the clip lanes, same tooltip
+    // holding the whole text.
+    if (blockWidth >= LABEL_MIN_BLOCK_PX) block.textContent = cue.text;
     block.title = `${fmt(cue.start)}–${fmt(cue.end)} · ${cue.words.length} words\n${cue.text}`;
     // A CueWord (captions.py) carries text/start/end only, no transcript word
     // index — grouping is a placed, styled derivation and does not keep one.
@@ -384,11 +425,14 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state, withFilmstrip) 
     block.style.left = `${(seg.timeline_start * pxPerSec).toFixed(1)}px`;
     block.style.width = `${blockWidth.toFixed(1)}px`;
     block.title = `${seg.clip_id} · source ${secs(seg.start)}–${secs(seg.end)} · timeline ${fmt(seg.timeline_start)}–${fmt(seg.timeline_end)}`;
+    // The label is drawn only where it can be read; `block.title` above is
+    // what a narrow block answers with instead (LABEL_MIN_BLOCK_PX).
+    const labelled = blockWidth >= LABEL_MIN_BLOCK_PX;
     if (withFilmstrip) {
       const strip = buildFilmstrip(seg.clip_id, seg.start, seg.end - seg.start, pxPerSec);
       if (strip) block.append(strip);
-      block.append(el("span", "clip-label", seg.clip_id));
-    } else {
+      if (labelled) block.append(el("span", "clip-label", seg.clip_id));
+    } else if (labelled) {
       block.textContent = seg.clip_id;
     }
     // Drag-trim handles on **both** lanes this function draws, because V1 and
@@ -512,9 +556,11 @@ function buildPictureRow(state, pxPerSec, duration) {
 
   shots.forEach((shot, index) => {
     const block = el("div", `clip-block shot-block${shot.is_image ? " shot-card" : ""}`);
+    const blockWidth = Math.max(1, shot.duration * pxPerSec);
     block.style.left = `${(shot.start * pxPerSec).toFixed(1)}px`;
-    block.style.width = `${Math.max(1, shot.duration * pxPerSec).toFixed(1)}px`;
+    block.style.width = `${blockWidth.toFixed(1)}px`;
     block.title = shotTitle(shot, state, index);
+    const labelled = blockWidth >= LABEL_MIN_BLOCK_PX;
     // A card is a still asset, not a clip's own footage — /api/thumb only
     // ever answers for a video-carrying clip_id (ops.thumbnail refuses one
     // with no video track), so there is nothing to sample for one.
@@ -530,8 +576,8 @@ function buildPictureRow(state, pxPerSec, duration) {
     if (!shot.is_image) {
       const strip = buildFilmstrip(shot.asset, shot.src_start, shot.duration, pxPerSec);
       if (strip) block.append(strip);
-      block.append(el("span", "clip-label", shotLabel(shot)));
-    } else {
+      if (labelled) block.append(el("span", "clip-label", shotLabel(shot)));
+    } else if (labelled) {
       block.textContent = shotLabel(shot);
     }
     // Target-phase listener: fires before the row's own bubble-phase

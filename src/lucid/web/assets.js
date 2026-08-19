@@ -213,8 +213,24 @@ function buildClipRow(clip) {
   const flags = el("div", "asset-flags");
   flags.append(flag(clip.has_video ? "video" : "no video", !!clip.has_video));
   flags.append(flag(clip.has_audio ? "audio" : "no audio", !!clip.has_audio));
-  flags.append(flag("transcript", clip.transcript, clip.transcript ? "transcribed" : "not transcribed"));
-  flags.append(flag("described", clip.described, clip.described ? "indexed by describe" : "not indexed"));
+  // The label carries the negative, the way the video/audio pair above
+  // already does. A red chip reading `described` reads as "described, and
+  // that is bad" — the colour and the word disagree, and the word is what a
+  // screenshot carries. The API fields are untouched: this is label text.
+  flags.append(
+    flag(
+      clip.transcript ? "transcript" : "no transcript",
+      clip.transcript,
+      clip.transcript ? "transcribed" : "not transcribed",
+    ),
+  );
+  flags.append(
+    flag(
+      clip.described ? "described" : "not described",
+      clip.described,
+      clip.described ? "indexed by describe" : "not indexed",
+    ),
+  );
   flags.append(flag(`${clip.cues} cue${clip.cues === 1 ? "" : "s"}`, clip.cues > 0 ? true : null));
   flags.append(playableFlag(clip));
   row.append(flags);

@@ -371,9 +371,11 @@
     <section id="timeline-pane">
       <div class="timeline-head">
         <span class="pane-head-inline">timeline</span>
-        <span class="hint">
+        <!-- The citation rides the tooltip, not the copy: agent.js's
+             placeholder makes the same call for the same reason. -->
+        <span class="hint" title="PLAN.md § The timeline">
           lanes are projections of one edit — no lane the render cannot
-          produce (PLAN.md § The timeline)
+          produce
         </span>
         <span class="spacer"></span>
         <label class="zoom-ctl">

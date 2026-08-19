@@ -678,15 +678,18 @@ function renderMentionPopover() {
 
 export function init(passedCtx) {
   ctx = passedCtx;
-  append(
-    el(
-      "p",
-      "pane-placeholder",
-      "Ask the agent to edit this project. It reaches the timeline only " +
-        "through lucid's own MCP tools, and nothing else (PLAN.md § The " +
-        "agent panel, and why it does not become a fourth implementation).",
-    ),
+  // The guarantee is the user-facing half and stays on the page; the
+  // citation behind it is for whoever maintains this and rides the tooltip.
+  // Someone reading a screenshot of this pane wants to know what the agent
+  // can reach, not which section of PLAN.md says so.
+  const placeholder = el(
+    "p",
+    "pane-placeholder",
+    "Ask the agent to edit this project. It reaches the timeline only " +
+      "through lucid's own MCP tools, and nothing else.",
   );
+  placeholder.title = "PLAN.md § The agent panel, and why it does not become a fourth implementation";
+  append(placeholder);
 
   const composer = $("agent-composer");
   const promptBox = $("agent-prompt");

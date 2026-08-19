@@ -370,20 +370,30 @@ for (const chip of document.querySelectorAll(".truth-chip")) {
   });
 }
 
-function setChip(node, text, warn) {
+function setChip(node, text, warn, title) {
   if (!node) return;
   node.textContent = text;
   node.classList.toggle("warn", warn);
+  // The chip text is short by necessity — `#bar` has overflowed at 700px
+  // once already — so anything that does not fit rides the tooltip. An
+  // absent `title` is removed rather than left stale from a prior bundle.
+  if (title) node.title = title;
+  else node.removeAttribute("title");
 }
 
-/** `"no style"` when captions were never configured, else the render log's
- * own burned/not-burned/unknown answer — a small local formatter with no
- * other module depending on its exact string. */
+/** `"no caption style"` when captions were never configured, else the render
+ * log's own burned/not-burned/unknown answer — a small local formatter with
+ * no other module depending on its exact string.
+ *
+ * Every branch names its subject. A bare `unknown` in the truth strip is the
+ * strip's most visible content saying nothing at all: it sits between a
+ * duration and a canvas, so the one thing a reader cannot recover from it is
+ * what is unknown. */
 function captionLabel(captions) {
-  if (!captions.configured) return "no style";
-  if (captions.burned === "yes") return "burned";
-  if (captions.burned === "no") return "not burned";
-  return "unknown";
+  if (!captions.configured) return "no caption style";
+  if (captions.burned === "yes") return "captions burned";
+  if (captions.burned === "no") return "captions not burned";
+  return "captions: unknown";
 }
 
 /** `"framing ok"` when `ops.finish_report`'s composed `framing` section
@@ -421,12 +431,31 @@ on("finish-report", (bundle) => {
   // chip on `burned !== "yes"`, which lit permanently on a project that has
   // no captions to burn. Both were this file deciding.
   const flagged = new Set(bundle.flags.items.map((f) => f.kind));
-  setChip($("truth-duration"), fmt(bundle.duration.total_seconds), false);
+  // `total` is the word that settles the strip's one apparent contradiction:
+  // this number is larger than the header's `timeline`, correctly, because a
+  // tail is after the film (CLAUDE.md § A bumper or end card is project
+  // state). The breakout rides the tooltip and is *listed*, never added —
+  // finish.js § the three duration numbers has the reason: `total_seconds`
+  // is `expected_duration`, quantised per segment edge, so `edit + tail`
+  // differs from it by up to a frame or two and writing "a + b = c" would
+  // assert arithmetic that is false. Display-only: every field here is
+  // already in `finish_report`'s bundle.
+  const d = bundle.duration;
+  setChip(
+    $("truth-duration"),
+    `total ${fmt(d.total_seconds)}`,
+    false,
+    `edit ${fmt(d.edit_seconds)} · tail ${fmt(d.tail_seconds)} (listed, not summed)`,
+  );
   setChip($("truth-canvas"), bundle.canvas.canvas, flagged.has("canvas"));
   setChip($("truth-captions"), captionLabel(bundle.captions), flagged.has("captions"));
   setChip($("truth-framing"), framingLabel(bundle.framing), flagged.has("framing"));
+  // "1 flag" says nothing about *what*; the kinds are the whole content, and
+  // they come off the op's own flag items rather than being re-derived from
+  // the numbers this file can see.
   const n = bundle.flags.count;
-  setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0);
+  const kinds = [...flagged].join(", ");
+  setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0, kinds ? `flagged: ${kinds}` : null);
 });
 
 /* -- session restore and save (STUDIO.md Step 04, contract § E) -----------

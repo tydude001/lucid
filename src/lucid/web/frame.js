@@ -108,10 +108,24 @@ function rectText(rect) {
   return [rect.x, rect.y, rect.w, rect.h].map((v) => String(Math.round(v))).join(",");
 }
 
-function setChip(node, text, warn) {
+function setChip(node, text, warn, title) {
   if (!node) return;
   node.textContent = text;
   node.classList.toggle("warn", warn);
+  if (title) node.title = title;
+  else node.removeAttribute("title");
+}
+
+/** One decimal for a chip or a header, the full value for the tooltip.
+ *
+ * `secs()` renders three (`11.719s`, `20.395s`), which is the right precision
+ * for an address someone might type back into `reframe --src-start` and the
+ * wrong one for a quantity someone is reading — a coverage chip saying
+ * `11.719s stale` spends three characters on a number nobody acts on at that
+ * resolution. Display only: nothing downstream parses these, and the frame-of-
+ * tolerance arithmetic in the coverage math never sees them. */
+function coarse(t) {
+  return t === null || t === undefined ? "–" : `${t.toFixed(1)}s`;
 }
 
 function setButtonBusy(btn, busyLabel, idleLabel) {
@@ -181,8 +195,11 @@ function renderCoverage(coverage) {
   const staleOn = coverage.stale_seconds > 0;
   setChip(
     $("frame-chip-stale"),
-    staleOn ? `${coverage.stale_seconds}s stale` : "no stale framing",
+    staleOn ? `${coarse(coverage.stale_seconds)} stale` : "no stale framing",
     staleOn,
+    staleOn
+      ? `${coverage.stale_seconds}s of framing held across a cut, over ${coverage.stale_stretches} stretch${coverage.stale_stretches === 1 ? "" : "es"}`
+      : null,
   );
   const steps = coverage.steps.length;
   setChip(
@@ -319,11 +336,36 @@ function renderRows() {
   // is a window, not a placement, and that is a correction" — the rows for
   // one placement are contiguous and in source order).
   const seenPerShot = new Map();
+  // **The gap in the shot numbers is answered, not left to be read as a
+  // rendering fault.** Rows ran #0, #2, #3 on the film, and #1 is a card:
+  // `ops._sheet_placements` puts stills in its own `skipped` list precisely
+  // so the difference between "nothing to check" and "not checked" survives,
+  // and each entry already carries the reason ("a still is never cropped").
+  // Drawing that list is all this needs — the copy is the op's, not this
+  // file's, so a new skip reason arrives here without an edit.
+  //
+  // Placed by index, so a skipped shot sits where its number would have been
+  // rather than in a footnote under the rows: `skipped[].index` and
+  // `row.shot` are both positions in the same shot list.
+  const skipped = Array.isArray(lastSheet.skipped) ? lastSheet.skipped : [];
+  const pending = [...skipped].sort((a, b) => a.index - b.index);
+  const flushSkippedBefore = (limit) => {
+    while (pending.length && pending[0].index < limit) {
+      const entry = pending.shift();
+      const note = el("div", "frame-row frame-row-skipped");
+      note.append(el("span", "frame-row-shot", `shot #${entry.index}`));
+      note.append(el("span", null, entry.asset));
+      note.append(el("span", "hint", entry.why));
+      box.append(note);
+    }
+  };
   for (const row of lastSheet.rows) {
+    flushSkippedBefore(row.shot);
     const n = (seenPerShot.get(row.shot) || 0) + 1;
     seenPerShot.set(row.shot, n);
     box.append(buildRow(row, n));
   }
+  flushSkippedBefore(Infinity);
 }
 
 function buildRow(row, windowIndex) {
@@ -336,10 +378,28 @@ function buildRow(row, windowIndex) {
   const header = el("div", "frame-row-header");
   header.append(el("span", "frame-row-shot", `shot #${row.shot}`));
   header.append(el("span", null, row.asset));
-  header.append(
-    el("span", "mono", `src ${secs(row.src_start)}–${secs(row.src_start + row.duration)}`),
+  const span = el(
+    "span",
+    "mono",
+    `src ${coarse(row.src_start)}–${coarse(row.src_start + row.duration)}`,
   );
+  // The full source seconds stay one hover away: this is the address
+  // `reframe --src-start` takes, and three decimals is how it is stored.
+  span.title = `src ${secs(row.src_start)}–${secs(row.src_start + row.duration)}`;
+  header.append(span);
   header.append(el("span", "hint", `window ${windowIndex} of ${row.windows}`));
+  // **The rect belongs to the row, not the tile** — a row is one window
+  // (ops.reframe_sheet: "a sheet row is a window shown, not a placement"), so
+  // its samples all read `crop_at` inside that one window and come back
+  // identical. Three tiles captioned with the same rect, under a rect already
+  // burnt into each tile by the sheet renderer, is the same number four
+  // times. The exception is a **sliding** window, where the rects are
+  // `_lerp_rect` interpolations and genuinely differ tile to tile — so this
+  // asks the data rather than assuming, and a row whose samples disagree
+  // keeps its per-tile captions.
+  const crops = (row.samples || []).map((sample) => sample.crop);
+  const sharedCrop = crops.length && crops.every((c) => c && c === crops[0]) ? crops[0] : null;
+  if (sharedCrop) header.append(el("span", "mono", sharedCrop));
   if (row.sliding) {
     header.append(el("span", "hint", `slides to ${secs(row.slides_to)}`));
   }
@@ -367,7 +427,7 @@ function buildRow(row, windowIndex) {
 
   const strip = el("div", "frame-tile-strip");
   for (const sample of row.samples || []) {
-    strip.append(buildTile(sample));
+    strip.append(buildTile(sample, sharedCrop));
   }
   wrapper.append(strip);
 
@@ -393,7 +453,13 @@ function buildRow(row, windowIndex) {
   return wrapper;
 }
 
-function buildTile(sample) {
+/** One tile. `sharedCrop` is the rect the row header already states, when
+ * every sample in the row agreed on one — the caption is then redundant and
+ * is dropped. The **pane** caption is never dropped: a split's lower rect is
+ * per-row too, but its presence is the finding (CLAUDE.md § The stacked
+ * split), and a row that silently stopped saying it was split would be
+ * indistinguishable from one that is not. */
+function buildTile(sample, sharedCrop) {
   const tile = el("div", "frame-tile");
   if (sample.png) {
     const img = document.createElement("img");
@@ -402,7 +468,9 @@ function buildTile(sample) {
     img.loading = "lazy";
     tile.append(img);
   }
-  if (sample.crop) tile.append(el("div", "frame-tile-caption", sample.crop));
+  if (sample.crop && sample.crop !== sharedCrop) {
+    tile.append(el("div", "frame-tile-caption", sample.crop));
+  }
   if (sample.pane) tile.append(el("div", "frame-tile-caption pane", sample.pane));
   return tile;
 }
