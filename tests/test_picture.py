@@ -13,7 +13,9 @@ render and 361 is the number this file is entitled to expect.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -404,3 +406,90 @@ def test_blackdetect_missing_target_raises() -> None:
 def test_extract_frame_missing_target_raises() -> None:
     with pytest.raises(picture.PictureError, match="no such file"):
         picture.extract_frame("/no/such/render.mp4", 1.0, "/tmp/whatever.png")
+
+
+# -- the staging sweep ----------------------------------------------------
+
+
+def _staged(root: Path, name: str, *, age_days: float) -> Path:
+    """A staging directory of a given age, with the document melt was given."""
+    made = root / name
+    made.mkdir(parents=True)
+    (made / "timeline.mlt").write_text("<mlt/>", encoding="utf-8")
+    when = time.time() - age_days * 86400
+    os.utime(made, (when, when))
+    return made
+
+
+def test_sweep_scratch_drops_only_what_is_old(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "lucid-render"
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
+    old = _staged(root, "timeline-abcd1234", age_days=30)
+    recent = _staged(root, "render-0zx9_qq1", age_days=1)
+
+    swept = picture.sweep_scratch()
+
+    assert swept == [old]
+    assert not old.exists()
+    assert recent.exists(), "a directory inside the retention is evidence, not litter"
+
+
+def test_sweep_scratch_never_touches_a_named_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The guard that matters: the sweep runs unattended inside someone's render.
+
+    `kf-manual` and `kf-mini` are real directories a person put in the scratch
+    root by hand (CLAUDE.md § The keyframed move). Age alone would take them.
+    """
+    root = tmp_path / "lucid-render"
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
+    kept = [
+        _staged(root, "kf-manual", age_days=400),
+        _staged(root, "kf-mini", age_days=400),
+        _staged(root, "timeline-notmkdtemp", age_days=400),
+        _staged(root, "render-ABCD1234", age_days=400),
+    ]
+
+    assert picture.sweep_scratch() == []
+    assert all(d.exists() for d in kept)
+
+
+def test_sweep_scratch_is_quiet_with_no_scratch_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "never-made")
+    assert picture.sweep_scratch() == []
+
+
+def test_scratch_sweeps_as_it_makes_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "lucid-render"
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
+    root.mkdir()
+    old = _staged(root, "timeline-abcd1234", age_days=30)
+
+    made = picture.scratch("timeline-")
+
+    assert made.is_dir()
+    assert not old.exists()
+
+
+def test_sweep_scratch_does_not_follow_a_symlink(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`Path.is_dir()` follows symlinks — the same trap the `--root` picker had."""
+    root = tmp_path / "lucid-render"
+    root.mkdir()
+    outside = _staged(tmp_path / "elsewhere", "real", age_days=400)
+    link = root / "timeline-abcd1234"
+    link.symlink_to(outside, target_is_directory=True)
+    os.utime(link, (time.time() - 400 * 86400, time.time() - 400 * 86400), follow_symlinks=False)
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
+
+    assert picture.sweep_scratch() == []
+    assert link.is_symlink()
+    assert (outside / "timeline.mlt").exists(), "the sweep read through the link"

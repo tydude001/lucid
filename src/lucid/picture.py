@@ -38,6 +38,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -299,14 +300,66 @@ RENDER_TIMEOUT = 4 * 3600
 RENDER_DURATION_TOLERANCE = 0.15
 
 
+#: How long a staging directory a render left behind is kept before the next
+#: render sweeps it. A failed render's directory survives on purpose — the
+#: document melt was given is the evidence for what it did with it — but that
+#: retention had no expiry, and 235 of them accumulated over ten days. Two
+#: weeks is well past any live investigation.
+SCRATCH_RETENTION_DAYS = 14
+
+#: What `scratch()` is allowed to sweep: exactly the names it makes itself, a
+#: known prefix followed by `mkdtemp`'s eight characters. Anything a person
+#: named — `kf-manual`, `kf-mini` — fails this and is never touched, which is
+#: the whole guard: the sweep runs unattended inside somebody else's render.
+_SCRATCH_NAME = re.compile(r"^(?:render|timeline)-[a-z0-9_]{8}$")
+
+
+def sweep_scratch(*, retention_days: int = SCRATCH_RETENTION_DAYS) -> list[Path]:
+    """Drop staging directories older than `retention_days`. Never raises.
+
+    A sweep is a side effect of doing something else, so a failure here must
+    not fail the render that triggered it — every step is guarded and the
+    return value is what actually went, not what was chosen.
+    """
+    if not RENDER_SCRATCH.is_dir():
+        return []
+    cutoff = time.time() - retention_days * 86400
+    swept: list[Path] = []
+    try:
+        entries = sorted(RENDER_SCRATCH.iterdir())
+    except OSError:
+        return []
+    for entry in entries:
+        if not _SCRATCH_NAME.match(entry.name):
+            continue
+        try:
+            #: `is_dir()` follows symlinks, and a link named like a staging
+            #: directory would be read through to whatever it points at.
+            #: `rmtree` refuses one anyway, but silently — say it here instead.
+            if entry.is_symlink() or not entry.is_dir():
+                continue
+            if entry.stat().st_mtime >= cutoff:
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(entry, ignore_errors=True)
+        if not entry.exists():
+            swept.append(entry)
+    return swept
+
+
 def scratch(prefix: str = "render-") -> Path:
     """A fresh working directory somewhere melt can actually read.
 
     Under `$HOME`, not `/tmp`: the flatpak cannot see the host's `/tmp` and
     exits 0 having read nothing (CLAUDE.md), so `tempfile.mkdtemp()`'s default
     would produce a project melt silently ignores.
+
+    Making one is also when old ones go: `sweep_scratch` bounds a retention
+    that otherwise had no expiry at all.
     """
     RENDER_SCRATCH.mkdir(parents=True, exist_ok=True)
+    sweep_scratch()
     return Path(tempfile.mkdtemp(prefix=prefix, dir=RENDER_SCRATCH))
 
 

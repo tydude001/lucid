@@ -568,6 +568,12 @@ installed package or the upstream repo, not your memory.
   output. Anything writing a project for melt to read puts it under `$HOME`,
   and that includes what it *writes*: `picture.render` stages into
   `~/lucid-render/` and copies out only after the file agrees with the timeline.
+  - **A *failed* render's staging directory survives on purpose, and
+    `sweep_scratch` drops it after `SCRATCH_RETENTION_DAYS`.** It sweeps by
+    name (`_SCRATCH_NAME`), never by age alone — a hand-placed directory in
+    that root would otherwise go — so **a new `scratch()` prefix that is not in
+    that pattern is never swept**, which is the unbounded growth this replaced.
+    HISTORY.md § The staging directories nobody swept.
   - **`WAYLAND_DISPLAY` alone is not a display.** It names a socket that Qt
     resolves under `XDG_RUNTIME_DIR`; with only the name, melt aborts printing
     nothing and the empty output reads as an unloadable project. Go through

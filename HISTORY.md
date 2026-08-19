@@ -9599,3 +9599,42 @@ bleed on a metronome, so **every accuracy number above is an upper bound**,
 and `MARGIN_DB = 6.0` is carried as a default that reports rather than a
 threshold anything trusts. Steps 2 and 5 of the build order — per-stream ASR
 and captions per speaker — still have nothing to be built against.
+
+## The staging directories nobody swept — 2026-08-18
+
+`~/lucid-render` held **235 abandoned `timeline-*` directories**, dated Aug 8
+through Aug 18, each containing one 4.6K `timeline.mlt` and nothing else.
+
+That is not a leak, and the first read of it was wrong: both success paths
+`rmtree` their work, and `ops.py`'s docstring says the survival is deliberate —
+*"The scratch directory survives a failure on purpose: the document melt was
+given is the evidence for what it did with it."* So 235 directories is 235
+refused-or-aborted renders, and the retention is exactly right. What it had was
+**no expiry**.
+
+`picture.sweep_scratch()` bounds it at `SCRATCH_RETENTION_DAYS = 14`, run from
+`picture.scratch()` itself — making a new staging directory is the one moment
+old ones are certainly not in use. Three properties, each a test:
+
+- **It sweeps by name, not by age alone.** `_SCRATCH_NAME` matches exactly what
+  `scratch()` makes — a known prefix and `mkdtemp`'s eight lowercase
+  characters. `~/lucid-render/kf-manual` and `kf-mini` are directories a person
+  put there by hand (§ The keyframed move), and they are 400 days from being
+  the oldest thing in that root one day. Age alone would take them. The sweep
+  runs unattended inside somebody else's render, so the name is the guard.
+- **It never raises.** A sweep is a side effect of doing something else; a
+  failure here must not fail the render that triggered it. Every step is
+  guarded and the return value is what actually went, not what was chosen.
+- **The retention is long enough to be uninteresting.** Two weeks is well past
+  any live investigation of a failed render, which is the only reason to keep
+  one.
+
+The clean-up alongside it was 2.4M — those 235 directories, an empty
+`~/lucid-mlt-repro`, a stray `~/lucid-melt-fnpfhcd3` (a 524K `vo.wav` from an
+interrupted melt run), and the repo's own `__pycache__`/ruff/pytest caches
+(85M → 76M). **Nothing else was touched**: the `~/lucid-*` tree is 8.7G against
+913G free, so there is no space argument for deleting evidence, and the large
+dirs are all measurements a HISTORY.md section rests on —
+`lucid-scale-spike/rss-matrix` at 3.0G is the largest single thing on disk and
+is the raw matrix behind § The melt RSS matrix, and the scale spike's last
+half.
