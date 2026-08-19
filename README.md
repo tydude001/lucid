@@ -33,7 +33,8 @@ and caption the rest" becomes a chat message instead of an afternoon.
    anyone already living in an agent CLI. This is the MVP.
 2. **Preview/timeline web UI** — see what the agent did before rendering.
    Cut and undo from the view too, through the same tools the CLI calls — on
-   localhost, out of the same package. **Built** (`lucid web`); because it
+   localhost, out of the same package (and on the tailnet, behind a token, with
+   `lucid web --tailscale`). **Built** (`lucid web`); because it
    plays the source through the edit rather than a render of it, seeing an
    edit costs no render. [HISTORY.md](HISTORY.md) § The preview/timeline web UI.
 3. **Full editor workspace** — **now the goal, decided 2026-08-08.** Tier 2

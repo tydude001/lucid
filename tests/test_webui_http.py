@@ -4241,3 +4241,295 @@ def test_finish_framing_is_opt_in_and_zero_is_not_none(server: str) -> None:
     _, asked = _json(f"{server}/api/finish?framing=1")
     assert asked["framing"] == {"stale_seconds": 0.0, "stale_stretches": 0, "steps": 0}
     assert [f for f in asked["flags"]["items"] if f["kind"] == "framing"] == []
+
+
+# ---------------------------------------------------------------------------
+# Off the machine: `--allow-remote`, and the token that replaces loopback+Host
+# ---------------------------------------------------------------------------
+#
+# The default is the thing most worth pinning here — every test above this
+# line is a test that the opt-in changed nothing — so these build a *second*
+# server through the real `remote_policy` rather than hand-setting the
+# handler's attributes, which would prove the guard runs and nothing about
+# whether the policy that configures it agrees.
+
+#: What `--tailscale` would have filled in: a 100.x bind address and the
+#: MagicDNS name a phone typing the short name actually presents.
+_TAILNET_HOST = "100.x.y.z"
+_TAILNET_NAME = "<host>.<tailnet>.ts.net"
+
+
+@pytest.fixture
+def remote(project: Path) -> Iterator[tuple[str, str]]:
+    """A token-guarded server, configured exactly as `--allow-remote` would.
+
+    Bound to loopback so the test can reach it, but carrying the allow-list
+    and token `remote_policy` produces for a tailnet bind — the socket's own
+    address is not what any of this guards on.
+    """
+    token, allowed = webui.remote_policy(
+        host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[_TAILNET_NAME + "."]
+    )
+    assert token is not None
+    httpd = webui.make_server(project, port=0, token=token, allowed_hosts=allowed)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}", token
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)
+
+
+def test_remote_policy_refuses_a_non_loopback_bind_by_default(tmp_path: Path) -> None:
+    """The rule that has always held, now stated as a refusal rather than a doc.
+
+    `webui.py` can rewrite a whole project, so binding it off loopback with
+    nothing in place of loopback is the one shape this must never do quietly.
+    """
+    with pytest.raises(ProjectError) as exc:
+        webui.remote_policy(host=_TAILNET_HOST)
+    assert "allow_remote" in str(exc.value)
+
+
+def test_remote_policy_leaves_the_default_untouched() -> None:
+    assert webui.remote_policy(host="127.0.0.1") == (None, webui._LOOPBACK_NAMES)
+
+
+def test_remote_policy_refuses_a_wildcard_bind_with_no_client_names() -> None:
+    """`0.0.0.0` is a bind instruction, never a client identity.
+
+    Adding it to the allow-list would admit an attacker echoing the startup
+    banner while still refusing every real client, which arrives naming the
+    address it dialed. `server.py` refuses the same shape for the same reason.
+    """
+    with pytest.raises(ProjectError) as exc:
+        webui.remote_policy(host="0.0.0.0", allow_remote=True)
+    assert "allow_remote_hosts" in str(exc.value)
+
+    token, allowed = webui.remote_policy(
+        host="0.0.0.0", allow_remote=True, allow_remote_hosts=[_TAILNET_HOST]
+    )
+    assert token
+    assert "0.0.0.0" not in allowed
+    assert _TAILNET_HOST in allowed
+
+
+def test_remote_policy_widens_the_host_guard_and_mints_a_token() -> None:
+    token, allowed = webui.remote_policy(
+        host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[_TAILNET_NAME + "."]
+    )
+    assert token and len(token) > 20
+    # Loopback still answers — serving to the tailnet does not stop the
+    # machine itself from being a client.
+    assert webui._LOOPBACK_NAMES <= allowed
+    assert _TAILNET_HOST in allowed
+    # The root dot `tailscale status` reports is not what a browser sends.
+    assert _TAILNET_NAME in allowed
+    assert _TAILNET_NAME + "." not in allowed
+
+
+def test_an_ipv6_client_name_is_stored_in_both_spellings() -> None:
+    """A browser brackets an IPv6 literal in `Host:` and nothing else does.
+
+    `tailscale status` reports `fd7a:…` bare, `--host` takes it bare, and the
+    header arrives as `[fd7a:…]:8710`. Storing one spelling refuses every real
+    v6 client while every test written against the bare form passes —
+    `_LOOPBACK_NAMES` has carried both `::1` and `[::1]` from the start for
+    this reason.
+    """
+    v6 = "fd7a:115c:a1e0::…"
+    _token, allowed = webui.remote_policy(
+        host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[v6, _TAILNET_NAME]
+    )
+    assert v6 in allowed
+    assert f"[{v6}]" in allowed
+    # A hostname gets exactly one spelling — brackets are a v6 literal thing.
+    assert f"[{_TAILNET_NAME}]" not in allowed
+
+
+def test_an_ipv6_host_header_is_answered(project: Path) -> None:
+    v6 = "fd7a:115c:a1e0::…"
+    token, allowed = webui.remote_policy(
+        host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[v6]
+    )
+    httpd = webui.make_server(project, port=0, token=token, allowed_hosts=allowed)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+        status, _payload = _json(
+            f"{base}/api/view?t={token}", headers={"Host": f"[{v6}]:{httpd.server_address[1]}"}
+        )
+        assert status == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)
+
+
+def test_remote_serving_refuses_a_request_with_no_token(remote: tuple[str, str]) -> None:
+    server, _ = remote
+    status, payload = _json(f"{server}/api/view")
+    assert status == 403
+    assert "token" in payload["error"]
+
+
+def test_remote_serving_refuses_a_wrong_token(remote: tuple[str, str]) -> None:
+    server, _ = remote
+    status, _payload = _json(f"{server}/api/view?t=not-the-token")
+    assert status == 403
+
+
+def test_the_token_url_answers_and_hands_back_a_cookie(remote: tuple[str, str]) -> None:
+    """The whole reason `web/` needed no change: `?t=` becomes a cookie.
+
+    The page's own fetches, media ranges and `EventSource` know nothing about
+    a token, so the credential has to travel the way the browser already
+    sends things — and `SameSite=Strict` is what keeps any other origin from
+    spending it.
+    """
+    server, token = remote
+    status, headers, _body = _get(f"{server}/?t={token}")
+    assert status == 200
+    cookie = headers["Set-Cookie"]
+    assert cookie.startswith(f"{webui.TOKEN_COOKIE}={token};")
+    assert "HttpOnly" in cookie
+    assert "SameSite=Strict" in cookie
+
+
+def test_the_cookie_alone_reaches_every_route(remote: tuple[str, str]) -> None:
+    server, token = remote
+    jar = {"Cookie": f"{webui.TOKEN_COOKIE}={token}"}
+    for path in ("/api/view", "/api/assets", "/api/finish", "/static/app.css"):
+        status, _headers, _body = _get(f"{server}{path}", headers=jar)
+        assert status == 200, path
+
+
+def test_a_mutation_needs_the_token_too(remote: tuple[str, str]) -> None:
+    """The `application/json` rule is unchanged; the token is on top of it."""
+    server, token = remote
+    body = json.dumps({"spans": [[3.5, 4.5]]}).encode()
+    headers = {"Content-Type": "application/json"}
+    status, _payload = _json(f"{server}/api/cut-at", data=body, headers=headers, method="POST")
+    assert status == 403
+
+    status, _payload = _json(
+        f"{server}/api/cut-at",
+        data=body,
+        headers={**headers, "Cookie": f"{webui.TOKEN_COOKIE}={token}"},
+        method="POST",
+    )
+    assert status == 200
+
+
+def test_a_disallowed_host_is_refused_even_with_a_good_token(remote: tuple[str, str]) -> None:
+    """Host first, token second — a valid token must not buy a rebinding page in.
+
+    The token is the credential a person copies to their phone; the Host
+    allow-list is what keeps a page at some other name from using it if it
+    ever leaks into one.
+    """
+    server, token = remote
+    status, payload = _json(f"{server}/api/view?t={token}", headers={"Host": "evil.example.com"})
+    assert status == 403
+    assert "token" not in payload["error"]
+    assert _TAILNET_NAME in payload["error"]
+
+
+def test_the_tailnet_name_is_answered(remote: tuple[str, str]) -> None:
+    """What a phone typing the MagicDNS name actually sends."""
+    server, token = remote
+    status, _payload = _json(f"{server}/api/view?t={token}", headers={"Host": _TAILNET_NAME})
+    assert status == 200
+
+
+def test_media_and_events_are_guarded_too(remote: tuple[str, str]) -> None:
+    """Neither is routed through the JSON handlers, so neither is guarded by them."""
+    server, _token = remote
+    for path in ("/api/media/vo", "/api/events"):
+        status, _headers, _body = _get(f"{server}{path}")
+        assert status == 403, path
+
+
+def test_the_default_server_still_asks_for_no_token(server: str) -> None:
+    """The opt-in changed nothing for every existing caller.
+
+    Stated as its own test rather than left to the rest of the file, because
+    "the guard is off by default" is the property that would break silently.
+    """
+    status, _payload = _json(f"{server}/api/view")
+    assert status == 200
+    _status, headers, _body = _get(f"{server}/")
+    assert "Set-Cookie" not in headers
+
+
+def test_tailscale_identity_refuses_rather_than_falling_back(tmp_path: Path) -> None:
+    """A `--tailscale` that quietly bound loopback would look like it worked."""
+    down = tmp_path / "tailscale-down"
+    down.write_text(
+        '#!/bin/sh\necho \'{"BackendState":"Stopped","TailscaleIPs":[]}\'\n', encoding="utf-8"
+    )
+    down.chmod(0o755)
+    with pytest.raises(ProjectError) as exc:
+        webui.tailscale_identity(str(down))
+    assert "not up" in str(exc.value)
+
+    with pytest.raises(ProjectError) as exc:
+        webui.tailscale_identity(str(tmp_path / "no-such-binary"))
+    assert "could not run" in str(exc.value)
+
+
+def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_path: Path) -> None:
+    """Two answers, not one: what to bind, and what a client may put in `Host:`."""
+    fake = tmp_path / "tailscale"
+    payload = json.dumps(
+        {
+            "BackendState": "Running",
+            "TailscaleIPs": [_TAILNET_HOST, "fd7a:115c:a1e0::…"],
+            "Self": {"HostName": "homebase", "DNSName": _TAILNET_NAME + "."},
+        }
+    )
+    fake.write_text(f"#!/bin/sh\ncat <<'EOF'\n{payload}\nEOF\n", encoding="utf-8")
+    fake.chmod(0o755)
+
+    bind, names = webui.tailscale_identity(str(fake))
+    # IPv4, because it is what a phone dials and what binds with no bracket
+    # rules attached — the v6 address is a client name, not the bind address.
+    assert bind == _TAILNET_HOST
+    # The root dot `tailscale status` reports is stripped here as well as in
+    # `remote_policy`: a browser never sends it, and a name that only matches
+    # with it would refuse every real client.
+    assert set(names) >= {_TAILNET_HOST, "fd7a:115c:a1e0::…", _TAILNET_NAME, "homebase"}
+
+
+def test_the_cookie_is_not_stamped_onto_a_later_request_on_the_same_connection(
+    remote: tuple[str, str],
+) -> None:
+    """`protocol_version = "HTTP/1.1"` means one handler instance, many requests.
+
+    A per-request flag living on the handler is per-*connection* unless it is
+    reset, and the shape that hides it is exactly the shape a browser makes:
+    the token URL first, everything else after, all down one socket.
+    """
+    server, token = remote
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port)
+    try:
+        conn.request("GET", f"/?t={token}")
+        first = conn.getresponse()
+        first.read()
+        assert first.status == 200
+        assert first.getheader("Set-Cookie") is not None
+
+        # Same socket, same handler instance, no credential of its own.
+        conn.request("GET", "/api/view")
+        second = conn.getresponse()
+        second.read()
+        assert second.status == 403
+        assert second.getheader("Set-Cookie") is None
+    finally:
+        conn.close()

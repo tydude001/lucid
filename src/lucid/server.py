@@ -77,17 +77,22 @@ DEFAULT_HTTP_PORT = webui.DEFAULT_PORT + 1
 #: real remote clients the wildcard bind exists to admit — they show up with
 #: whatever address they actually dialed, never `0.0.0.0`/`::`. See
 #: `_build_http_server`.
-_WILDCARD_HOSTS = frozenset({"0.0.0.0", "::", ""})
+#: One copy, in `webui.py` beside `_LOOPBACK_NAMES` — the same refusal is
+#: made by `webui.remote_policy` for `lucid web --allow-remote`, and two
+#: lists of what counts as a wildcard bind is one list that goes stale.
+_WILDCARD_HOSTS = webui._WILDCARD_HOSTS
 
 
 def _host_name(host_header: str) -> str:
     """Normalize a `Host:` header value to a bare, lowercased name.
 
-    The same parse `webui.Handler._host_is_loopback` does — strip a trailing
+    The same parse `webui.Handler._host_allowed` does — strip a trailing
     `:port`, unwrap a bracketed IPv6 literal — reimplemented rather than
     called, because this one runs against Starlette's `Headers` instead of
-    `BaseHTTPRequestHandler`'s, and is checked against a name set the HTTP
-    guard can widen (`--allow-remote`), which `webui.py`'s never does.
+    `BaseHTTPRequestHandler`'s. Both guards can now be widened by an explicit
+    `--allow-remote`; the difference that remains is that widening `webui`'s
+    also mints a token, because that server can rewrite a whole project while
+    this one is reached by a client that already had to be configured.
     """
     host = (host_header or "").strip()
     name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
@@ -99,7 +104,7 @@ def _host_name(host_header: str) -> str:
 class _LoopbackGuard:
     """ASGI middleware: refuses any HTTP request whose Host header isn't allowed.
 
-    `webui.py` solved exactly this problem (`Handler._host_is_loopback`,
+    `webui.py` solved exactly this problem (`Handler._host_allowed`,
     answered with `HTTPStatus.FORBIDDEN`), and CLAUDE.md is explicit that
     binding loopback is not enough by itself — a hostile page's cross-origin
     fetch, or a DNS-rebinding attempt, reaches a loopback-bound socket just

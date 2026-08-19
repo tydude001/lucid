@@ -693,11 +693,57 @@ def _build_parser() -> argparse.ArgumentParser:
     p_preview.add_argument("asset", help="a cue's asset key: card:<name>, or a clip_id")
 
     p_web = sub.add_parser("web", help="serve the preview/timeline UI on localhost")
-    p_web.add_argument("--host", default=webui.DEFAULT_HOST, help=f"bind address ({webui.DEFAULT_HOST})")
+    # `default=None`, not the loopback literal, so `--tailscale` can supply
+    # the bind address without having to guess whether a `127.0.0.1` on
+    # `args.host` was typed or defaulted (`p_mcp --host`'s own precedent).
+    p_web.add_argument(
+        "--host",
+        default=None,
+        help=f"bind address (default: {webui.DEFAULT_HOST}; --tailscale supplies this node's tailnet address)",
+    )
     p_web.add_argument(
         "--port", type=int, default=webui.DEFAULT_PORT, help=f"port ({webui.DEFAULT_PORT}); 0 picks a free one"
     )
     p_web.add_argument("--open", action="store_true", help="open a browser at it")
+    # Off-machine access, opt-in and never inferred. `--allow-remote` mirrors
+    # `lucid mcp --transport http`'s flag exactly rather than inventing a
+    # second name for the same decision; the difference is that this server
+    # can rewrite a project, so widening it also puts a token on every
+    # request (webui.remote_policy, and the module docstring above it).
+    p_web.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help=(
+            "allow --host to bind off loopback; the Host-header guard still runs, "
+            "widened to accept that host, and every request must then carry an "
+            "access token (printed as ?t=... in the startup URL)"
+        ),
+    )
+    p_web.add_argument(
+        "--allow-remote-host",
+        action="append",
+        default=None,
+        dest="allow_remote_hosts",
+        metavar="NAME",
+        help=(
+            "a Host value a remote client will actually present (repeatable); "
+            "required with --allow-remote when --host is a wildcard address "
+            "(0.0.0.0, ::) since that address is never what a real client sends"
+        ),
+    )
+    p_web.add_argument(
+        "--tailscale",
+        action="store_true",
+        help=(
+            "serve on this node's tailnet address: implies --allow-remote and "
+            "fills in --host and --allow-remote-host from `tailscale status` "
+            "(the 100.x address and the MagicDNS name)"
+        ),
+    )
+    p_web.add_argument(
+        "--token",
+        help="use this access token instead of minting one (remote serving only)",
+    )
     p_web.add_argument("--verbose", action="store_true", help="log every request, media ranges included")
     # Serves a picker over a scan instead of one fixed project (DAYDREAM.md §
     # Multi-project). Mutually exclusive with -C in practice, checked in
@@ -1648,6 +1694,21 @@ def _cmd_preview(args: argparse.Namespace) -> int:
 def _cmd_web(args: argparse.Namespace) -> int:
     # Blocks until Ctrl-C. Unlike every other subcommand this one prints no
     # JSON — its output is the page.
+    host = args.host
+    allow_remote = args.allow_remote
+    allow_remote_hosts = list(args.allow_remote_hosts or [])
+    if args.tailscale:
+        # Bind the tailnet address itself rather than a wildcard: the socket
+        # is then not on the LAN at all, so the Host guard and the token are
+        # the second and third lines of defence rather than the first and
+        # only. An explicit --host still wins — someone binding 0.0.0.0 on
+        # purpose gets the tailnet names in the allow-list and nothing else
+        # taken out of their hands.
+        bind, names = webui.tailscale_identity()
+        host = host or bind
+        allow_remote = True
+        allow_remote_hosts += [name for name in names if name not in allow_remote_hosts]
+    host = host if host is not None else webui.DEFAULT_HOST
     if args.root is not None:
         if args.project_given:
             raise ProjectError(
@@ -1658,18 +1719,24 @@ def _cmd_web(args: argparse.Namespace) -> int:
             )
         webui.serve_root(
             args.root,
-            host=args.host,
+            host=host,
             port=args.port,
             verbose=args.verbose,
             open_browser=args.open,
+            allow_remote=allow_remote,
+            allow_remote_hosts=allow_remote_hosts or None,
+            token=args.token,
         )
         return 0
     webui.serve(
         args.project,
-        host=args.host,
+        host=host,
         port=args.port,
         verbose=args.verbose,
         open_browser=args.open,
+        allow_remote=allow_remote,
+        allow_remote_hosts=allow_remote_hosts or None,
+        token=args.token,
     )
     return 0
 

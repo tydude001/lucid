@@ -163,6 +163,29 @@ installed package or the upstream repo, not your memory.
   `Host` header **and** requires `application/json` on mutations; loopback
   alone does not guard a server that can rewrite your edit. HISTORY.md § The
   preview/timeline web UI.
+  - **Off loopback it is opt-in, and `webui.remote_policy` is the only place
+    that decision is made** — `lucid web --allow-remote`, or `--tailscale`,
+    which fills its arguments in from this node. Loopback+Host is this
+    server's *whole* credential, so widening it **replaces** that credential
+    rather than dropping it: the Host allow-list grows to the names the
+    operator says clients will present and **never to "anything"**, and a
+    token rides every request. **Host is checked before the token**, or a
+    leaked token buys a rebinding page in.
+    - **The token travels as a cookie, and that is why `web/` has no idea it
+      exists.** `?t=` is answered with
+      `Set-Cookie: lucid_token=…; HttpOnly; SameSite=Strict` and the page's
+      own fetches, media ranges and `EventSource` carry it unchanged — so
+      **never thread a token through a JS request**, which is the obvious
+      build and puts the credential in as many places as there are calls.
+      `SameSite=Strict` is the CSRF half loopback was covering, which is why
+      the `application/json` rule on mutations is untouched.
+    - `--tailscale` binds the 100.x address itself, never a wildcard, so the
+      socket is not on the LAN at all; it **refuses rather than falling
+      back**, because one that quietly bound loopback looks like the feature
+      working until a phone tries it. A wildcard bind refuses unless told
+      what clients present — `server._serve_http`'s refusal, and
+      `_WILDCARD_HOSTS` is stated once, in `webui.py`. HISTORY.md § The
+      window, reachable from the tailnet.
   - **`_revision` watches the manifest as well as `project.otio`** — the cue
     table and the caption style live there and touch no timeline, so an otio-
     only revision leaves an open window drawing a stale lane.
@@ -286,7 +309,9 @@ installed package or the upstream repo, not your memory.
 - **`lucid review serve` (`reviewserver.py`) is a fourth client, on purpose
   not `webui.py`'s guard.** It exists to be reached off the machine (a phone
   on Tailscale), so loopback+Host is replaced by a token every request must
-  carry (`?t=`), never widened by binding `webui.py` itself off loopback.
+  carry (`?t=`). It is still the right tool for a review round rather than
+  `lucid web --tailscale`: no edit surface at all, and a page that needs no
+  JS, so the token rides the links rather than a cookie.
   `review add --kind control --baseline <name>` hashes both files and refuses
   the call on any mismatch — the byte-identical-control rule is enforced at
   registration, not left as a comment. Streaming reuses `webui._stream_file`

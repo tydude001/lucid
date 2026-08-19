@@ -20,32 +20,54 @@ Two constraints hold it in place, both from HISTORY.md § The preview/timeline w
   thing hand-rolled rather than inherited is HTTP Range, because a browser
   will not seek in a `<video>` without it.
 
-It binds loopback only. Two further guards matter because this server can
-mutate a project and read media, and any page you happen to be browsing can
-issue requests to `localhost`:
+It binds loopback, and by default nothing else. Two further guards matter
+because this server can mutate a project and read media, and any page you
+happen to be browsing can issue requests to `localhost`:
 
 * the `Host` header must name loopback, which is what stops a DNS-rebinding
   page from reaching it under its own name;
 * every mutating request must be `application/json`, which an HTML form
   cannot send — so a cross-origin attempt becomes a preflight, and no CORS
   headers are ever served to satisfy one.
+
+**Off the machine, that trade is made explicitly and never by default**
+(`remote_policy`). CLAUDE.md's rule was that this server is not widened off
+loopback the way `reviewserver.py` is reachable off it — and the reason was
+never "loopback is sacred", it was that loopback+Host is this server's whole
+credential and dropping it would leave a project-rewriting server behind no
+credential at all. So `--allow-remote` does not drop a guard, it *replaces*
+one: the Host allow-list widens from loopback to loopback plus the names the
+operator says clients will present (never to "anything"), and a **token**
+stands in for what loopback was buying, `reviewserver.py`'s model. Every
+request must carry it. The `application/json` rule on mutations is untouched,
+and so is the default: with no `--allow-remote`, nothing below changes at all.
+
+The token reaches the page's own JavaScript through a cookie rather than
+through a rewritten `fetch`: a request presenting `?t=` is handed
+`Set-Cookie: lucid_token=…; HttpOnly; SameSite=Strict`, so the fetches, media
+ranges and `EventSource` that `web/` already issues carry it with no line of
+`web/` changed — and `SameSite=Strict` means no other site can make the
+browser spend it, which is the CSRF half loopback+Host used to cover.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import mimetypes
 import os
 import queue
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -108,6 +130,159 @@ DEFAULT_PORT = 8710
 #: user typed, so an attacker-controlled name resolving to 127.0.0.1 arrives
 #: here looking local unless the header itself is checked.
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
+#: Addresses that are a *bind* instruction and never a client's identity. A
+#: real client sends the address it dialed; only someone who read the startup
+#: banner sends `Host: 0.0.0.0`. `server.py` imports this rather than keeping
+#: a second copy — it makes the same refusal for `lucid mcp --transport http`.
+_WILDCARD_HOSTS = frozenset({"0.0.0.0", "::", ""})
+
+#: Where a request that presented `?t=` gets the token parked, so that the
+#: page's own JS — which knows nothing about a token — carries it on every
+#: subsequent fetch/range/SSE request. `HttpOnly` keeps it out of `document`,
+#: `SameSite=Strict` keeps any other origin from spending it.
+TOKEN_COOKIE = "lucid_token"
+
+#: Names an exact `tailscale` binary, for the same reason `LUCID_WHISPER`
+#: does: the one on PATH is not always the one meant, and a silent fallback
+#: to loopback would look like `--tailscale` working right up until a phone
+#: tried it.
+LUCID_TAILSCALE_ENV = "LUCID_TAILSCALE"
+
+
+def _host_forms(name: str) -> set[str]:
+    """Every spelling of `name` a browser might put in `Host:`.
+
+    One entry per name is right for a hostname and wrong for an IPv6 literal,
+    which a browser always brackets — `Host: [fd7a:…]:8710`. The bare form is
+    what `tailscale status` and a `--host` flag carry, the bracketed form is
+    what actually arrives, and storing only one of them refuses every real
+    v6 client at exit 0. `_LOOPBACK_NAMES` has always carried both `::1` and
+    `[::1]` for exactly this reason; this is that fact applied to a name
+    nobody typed by hand.
+    """
+    lowered = name.strip().lower()
+    if not lowered:
+        return set()
+    if ":" in lowered and not lowered.startswith("["):
+        return {lowered, f"[{lowered}]"}
+    return {lowered}
+
+
+def remote_policy(
+    *,
+    host: str,
+    allow_remote: bool = False,
+    allow_remote_hosts: Sequence[str] | None = None,
+    token: str | None = None,
+) -> tuple[str | None, frozenset[str]]:
+    """Resolve `(token, allowed_hosts)` for a bind, or refuse the combination.
+
+    The default — `allow_remote=False`, loopback `host`, no token — returns
+    `(None, _LOOPBACK_NAMES)`, which is byte-for-byte the behaviour this
+    server has always had: no token guard, loopback Host only.
+
+    `allow_remote` is the opt-in, and it mirrors `server._serve_http`'s split
+    exactly rather than inventing a second vocabulary for the same decision:
+    the Host allow-list widens to include the bound host, a wildcard bind
+    contributes nothing to it (see `_WILDCARD_HOSTS`) and so must be told
+    what clients will present, and a token is minted if the caller did not
+    supply one. A token with no `allow_remote` is allowed and means what it
+    says — a loopback server that also wants a credential.
+    """
+    names = set(_LOOPBACK_NAMES)
+    if not allow_remote:
+        if host.lower() not in _LOOPBACK_NAMES:
+            raise ProjectError(
+                f"refusing to bind {host!r}: this server can rewrite the whole "
+                "project, and loopback + the Host header is the only credential "
+                "it has by default. Pass allow_remote=True (CLI: --allow-remote) "
+                "once you mean that — it widens the Host guard to accept this "
+                "host and requires an access token on every request, rather "
+                "than leaving the server open to anyone who can route to it."
+            )
+        return (token, frozenset(names))
+    if host.lower() in _WILDCARD_HOSTS and not allow_remote_hosts:
+        raise ProjectError(
+            f"refusing to bind {host!r} with allow_remote=True and no "
+            "allow_remote_hosts: a wildcard bind has no single client-facing "
+            "identity, so there is nothing honest to add to the Host guard's "
+            "allow-list — a real client sends whatever address it dialed, "
+            "never the wildcard itself. Pass allow_remote_hosts (CLI: "
+            "--allow-remote-host, repeatable) naming the address(es) clients "
+            "will actually present, or use --tailscale, which reads them off "
+            "this node."
+        )
+    if host.lower() not in _WILDCARD_HOSTS:
+        names.update(_host_forms(host))
+    # A MagicDNS name arrives from `tailscale status` fully qualified, with
+    # the root dot a browser never sends.
+    for name in allow_remote_hosts or ():
+        names.update(_host_forms(name.rstrip(".")))
+    return (token or secrets.token_urlsafe(24), frozenset(names))
+
+
+def tailscale_identity(binary: str | None = None) -> tuple[str, list[str]]:
+    """This node's tailnet address, and every Host value a client may present.
+
+    Two values because they are two different answers: the address to *bind*
+    (the 100.x one — binding it rather than a wildcard is what keeps the
+    socket off the LAN entirely, so the Host guard and the token are the
+    second and third lines rather than the first) and the set of names a
+    client may arrive under, which includes the MagicDNS name because a phone
+    typing `homebase` and a phone dialing `100.x` are one session to the
+    operator and two different `Host:` headers here.
+
+    Refuses rather than falling back: a `--tailscale` that quietly bound
+    loopback would look like the feature working until something off the
+    machine tried it.
+    """
+    resolved = binary or os.environ.get(LUCID_TAILSCALE_ENV) or shutil.which("tailscale")
+    if not resolved:
+        raise ProjectError(
+            "--tailscale: no `tailscale` binary found on PATH. Install it, or "
+            f"set {LUCID_TAILSCALE_ENV} to the one to use, or pass --host with "
+            "--allow-remote --allow-remote-host yourself."
+        )
+    try:
+        proc = subprocess.run(
+            [resolved, "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProjectError(f"--tailscale: could not run {resolved!r}: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        raise ProjectError(
+            f"--tailscale: `{resolved} status --json` failed"
+            + (f": {detail[0]}" if detail else "")
+        )
+    try:
+        status = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ProjectError(f"--tailscale: could not read `{resolved} status --json`: {exc}") from exc
+    state = status.get("BackendState")
+    if state and state != "Running":
+        raise ProjectError(
+            f"--tailscale: tailscale is not up (BackendState {state!r}). "
+            "Run `tailscale up` first."
+        )
+    ips = [str(ip) for ip in (status.get("TailscaleIPs") or []) if ip]
+    if not ips:
+        raise ProjectError("--tailscale: this node has no tailnet address yet.")
+    # IPv4 first: it is what a phone dials and what reads back as a bindable
+    # host with no bracket rules attached.
+    bind = next((ip for ip in ips if ":" not in ip), ips[0])
+    names = list(ips)
+    self_node = status.get("Self") or {}
+    for key in ("DNSName", "HostName"):
+        value = str(self_node.get(key) or "").strip().rstrip(".")
+        if value:
+            names.append(value)
+    return bind, names
 
 _STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -1617,6 +1792,20 @@ class Handler(BaseHTTPRequestHandler):
     project_root: Path
     root_dir: Path | None = None
     verbose: bool = False
+    #: `None` — the default, and what every server built without
+    #: `--allow-remote` gets — means no token guard at all: loopback + Host
+    #: is the whole credential, exactly as it has always been. A string means
+    #: every request must present it, as `?t=` or as the cookie a `?t=`
+    #: request is handed back. Set by `make_server`/`make_picker_server` out
+    #: of `remote_policy`.
+    token: str | None = None
+    #: Host values this server answers to. Widened past loopback only by
+    #: `remote_policy`, and never to "anything" — a guard that accepts any
+    #: Host header is not a guard.
+    allowed_hosts: frozenset[str] = _LOOPBACK_NAMES
+    #: Per-request: set by `_refusal` when the token arrived as `?t=`, read
+    #: by `_send`, which is what hands the cookie back.
+    _issue_cookie: bool = False
     server_version = "lucid"
     sys_version = ""
     #: Keep-alive, so seeking a video does not reopen a connection per range.
@@ -1630,12 +1819,54 @@ class Handler(BaseHTTPRequestHandler):
         if self.verbose:
             super().log_message(fmt, *args)
 
-    def _host_is_loopback(self) -> bool:
+    def _host_allowed(self) -> bool:
         host = (self.headers.get("Host") or "").strip()
         name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
         if name.startswith("[") and "]" in name:
             name = name[: name.index("]") + 1]
-        return name.lower() in _LOOPBACK_NAMES
+        return name.lower() in self.allowed_hosts
+
+    def _cookie_token(self) -> str:
+        raw = self.headers.get("Cookie") or ""
+        try:
+            morsel = SimpleCookie(raw).get(TOKEN_COOKIE)
+        except Exception:  # noqa: BLE001 — a malformed Cookie header is a 403, never a 500
+            return ""
+        return morsel.value if morsel is not None else ""
+
+    def _refusal(self, query: str = "") -> str | None:
+        """`None` if this request may proceed, else the message to 403 with.
+
+        Both guards in one place because they are one decision — "may this
+        request reach the project" — and because the token half must never
+        be reachable without the Host half having run first.
+        """
+        # Reset first, not only on the success path: this handler instance is
+        # reused for every request on a keep-alive connection, so a `?t=`
+        # request would otherwise leave the flag set and stamp the cookie
+        # onto the 403 of a later request that presented nothing.
+        self._issue_cookie = False
+        if not self._host_allowed():
+            if self.allowed_hosts == _LOOPBACK_NAMES:
+                return "this server answers loopback requests only"
+            return (
+                "this server answers requests naming "
+                + ", ".join(sorted(self.allowed_hosts))
+                + " only"
+            )
+        if self.token is None:
+            return None
+        from_query = (parse_qs(query).get("t") or [""])[0]
+        # Constant-time: this token is the only thing standing between the
+        # tailnet and a server that can rewrite the edit (`reviewserver.py`
+        # makes the same comparison for a smaller blast radius).
+        if not hmac.compare_digest(from_query or self._cookie_token(), self.token):
+            return (
+                "this server needs the access token it printed at startup — "
+                "open the ?t=... URL it gave you"
+            )
+        self._issue_cookie = bool(from_query)
+        return None
 
     def _send(
         self,
@@ -1653,6 +1884,18 @@ class Handler(BaseHTTPRequestHandler):
         # has nowhere to phone home to.
         self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self'")
         self.send_header("X-Content-Type-Options", "nosniff")
+        # No `?t=` token leaves this origin in a Referer header. Cheap, and
+        # the only way the credential could walk out of a page that embeds
+        # no third-party anything.
+        self.send_header("Referrer-Policy", "no-referrer")
+        if self._issue_cookie and self.token is not None:
+            # `Secure` is deliberately absent: this is plain HTTP over a
+            # WireGuard tunnel, and a `Secure` cookie would simply never be
+            # stored, which reads as "the token does not work".
+            self.send_header(
+                "Set-Cookie",
+                f"{TOKEN_COOKIE}={self.token}; Path=/; HttpOnly; SameSite=Strict",
+            )
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -1676,10 +1919,11 @@ class Handler(BaseHTTPRequestHandler):
         self._route(head_only=True)
 
     def do_POST(self) -> None:
-        if not self._host_is_loopback():
-            self._fail(HTTPStatus.FORBIDDEN, "this server answers loopback requests only")
-            return
         url = urlparse(self.path)
+        refusal = self._refusal(url.query)
+        if refusal is not None:
+            self._fail(HTTPStatus.FORBIDDEN, refusal)
+            return
         if self.root_dir is not None:
             # Picker mode. `/api/open` is reachable whether or not a project
             # is bound yet — `_handle_open` is what makes a second call on
@@ -1750,10 +1994,11 @@ class Handler(BaseHTTPRequestHandler):
         return getattr(self.server, "bound_root", None) is not None
 
     def _route(self, *, head_only: bool) -> None:
-        if not self._host_is_loopback():
-            self._fail(HTTPStatus.FORBIDDEN, "this server answers loopback requests only")
-            return
         url = urlparse(self.path)
+        refusal = self._refusal(url.query)
+        if refusal is not None:
+            self._fail(HTTPStatus.FORBIDDEN, refusal)
+            return
         path = url.path
         if self.root_dir is not None and not self._project_bound():
             self._route_picker(path, url.query, head_only=head_only)
@@ -2950,6 +3195,8 @@ def make_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     verbose: bool = False,
+    token: str | None = None,
+    allowed_hosts: frozenset[str] | Sequence[str] = _LOOPBACK_NAMES,
 ) -> ThreadingHTTPServer:
     """Build a server for one project. Opens it first, so a bad path fails now.
 
@@ -2963,7 +3210,12 @@ def make_server(
     handler = type(
         "BoundHandler",
         (Handler,),
-        {"project_root": project.root, "verbose": verbose},
+        {
+            "project_root": project.root,
+            "verbose": verbose,
+            "token": token,
+            "allowed_hosts": frozenset(allowed_hosts),
+        },
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -2977,6 +3229,8 @@ def make_picker_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     verbose: bool = False,
+    token: str | None = None,
+    allowed_hosts: frozenset[str] | Sequence[str] = _LOOPBACK_NAMES,
 ) -> ThreadingHTTPServer:
     """Build a server over a `--root` scan (DAYDREAM.md § Multi-project).
 
@@ -2995,7 +3249,12 @@ def make_picker_server(
     handler = type(
         "RootHandler",
         (Handler,),
-        {"root_dir": root_dir, "verbose": verbose},
+        {
+            "root_dir": root_dir,
+            "verbose": verbose,
+            "token": token,
+            "allowed_hosts": frozenset(allowed_hosts),
+        },
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -3009,6 +3268,33 @@ def make_picker_server(
     return server
 
 
+#: Printed under the URL whenever a token is in force. The URL *is* the
+#: credential, so say so once rather than let it read as a cache-buster.
+_TOKEN_NOTE = (
+    "  ^ that ?t= is the access token — the whole URL is the credential. "
+    "Anyone on the tailnet who has it can edit this project."
+)
+
+
+def _client_url(
+    host: str, port: int, allow_remote_hosts: Sequence[str] | None, token: str | None
+) -> str:
+    """The URL to hand a person, which is not always the bind address.
+
+    A wildcard bind has no client-facing identity of its own (see
+    `_WILDCARD_HOSTS`), so the first name the operator said clients would
+    present is the honest thing to print — printing `http://0.0.0.0:8710/`
+    hands out an address nothing can dial.
+    """
+    name = host
+    if name.lower() in _WILDCARD_HOSTS:
+        name = next(iter(allow_remote_hosts or ()), "localhost").rstrip(".")
+    if ":" in name and not name.startswith("["):
+        name = f"[{name}]"
+    url = f"http://{name}:{port}/"
+    return f"{url}?t={token}" if token else url
+
+
 def serve(
     path: Path | str,
     *,
@@ -3016,14 +3302,32 @@ def serve(
     port: int = DEFAULT_PORT,
     verbose: bool = False,
     open_browser: bool = False,
+    allow_remote: bool = False,
+    allow_remote_hosts: Sequence[str] | None = None,
+    token: str | None = None,
 ) -> None:
-    """Run the UI until interrupted. `port=0` picks a free one."""
-    server = make_server(path, host=host, port=port, verbose=verbose)
+    """Run the UI until interrupted. `port=0` picks a free one.
+
+    `allow_remote`/`allow_remote_hosts`/`token` go straight to
+    `remote_policy`, which refuses before a socket is bound — see this
+    module's docstring for what the opt-in trades away and what replaces it.
+    """
+    token, allowed = remote_policy(
+        host=host,
+        allow_remote=allow_remote,
+        allow_remote_hosts=allow_remote_hosts,
+        token=token,
+    )
+    server = make_server(
+        path, host=host, port=port, verbose=verbose, token=token, allowed_hosts=allowed
+    )
     bound = server.server_address[1]
-    url = f"http://{host}:{bound}/"
+    url = _client_url(host, bound, allow_remote_hosts, token)
     # Flushed: this is the one line the user needs, and a piped stdout would
     # otherwise hold it in the buffer until the server exits.
     print(f"lucid web: {url}  (project: {Project.open(path).root})", flush=True)
+    if token is not None:
+        print(_TOKEN_NOTE, flush=True)
     print("Ctrl-C to stop.", flush=True)
 
     if open_browser:
@@ -3048,6 +3352,9 @@ def serve_root(
     port: int = DEFAULT_PORT,
     verbose: bool = False,
     open_browser: bool = False,
+    allow_remote: bool = False,
+    allow_remote_hosts: Sequence[str] | None = None,
+    token: str | None = None,
 ) -> None:
     """Run the picker until interrupted. `port=0` picks a free one.
 
@@ -3056,11 +3363,21 @@ def serve_root(
     same shutdown. `open_browser` opens the picker, not a project: nothing
     is open yet at startup by construction.
     """
-    server = make_picker_server(root, host=host, port=port, verbose=verbose)
+    token, allowed = remote_policy(
+        host=host,
+        allow_remote=allow_remote,
+        allow_remote_hosts=allow_remote_hosts,
+        token=token,
+    )
+    server = make_picker_server(
+        root, host=host, port=port, verbose=verbose, token=token, allowed_hosts=allowed
+    )
     bound = server.server_address[1]
-    url = f"http://{host}:{bound}/"
+    url = _client_url(host, bound, allow_remote_hosts, token)
     root_dir = server.RequestHandlerClass.root_dir  # type: ignore[attr-defined]
     print(f"lucid web: {url}  (projects under: {root_dir})", flush=True)
+    if token is not None:
+        print(_TOKEN_NOTE, flush=True)
     print("Ctrl-C to stop.", flush=True)
 
     if open_browser:

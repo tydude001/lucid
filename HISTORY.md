@@ -9638,3 +9638,101 @@ dirs are all measurements a HISTORY.md section rests on —
 `lucid-scale-spike/rss-matrix` at 3.0G is the largest single thing on disk and
 is the raw matrix behind § The melt RSS matrix, and the scale spike's last
 half.
+
+## The window, reachable from the tailnet — 2026-08-19
+
+`lucid web` bound loopback and nothing else, and CLAUDE.md said it never gets
+widened — `reviewserver.py` is the thing you reach from a phone, `webui.py` is
+not. Asked for the window itself over Tailscale, the question worth asking
+first was what that rule was actually protecting. It was not loopback. It was
+that **loopback + the `Host` header is this server's entire credential**: a
+server that can rewrite the whole project, guarded by the fact that only
+processes on the machine can dial it. Binding it off loopback with nothing put
+in its place is what the rule forbids, and that is a different thing from
+serving it off the machine at all.
+
+So the widening is a *replacement*, not a removal, and it is opt-in:
+`webui.remote_policy` is the one place the decision is made, `lucid web
+--allow-remote` is the flag, and `--tailscale` fills the flag's arguments in
+from this node.
+
+- **The default is byte-for-byte unchanged**, and that is the property most
+  worth a test of its own — `remote_policy(host="127.0.0.1")` returns
+  `(None, _LOOPBACK_NAMES)`, no token guard at all. Every guard test above it
+  in `test_webui_http.py` is, read the other way, a test that the opt-in
+  changed nothing.
+- **The refusals are `server._serve_http`'s, restated rather than reinvented**
+  — a non-loopback bind without `allow_remote` refuses, and a wildcard bind
+  with `allow_remote` and no `allow_remote_hosts` refuses, because `0.0.0.0`
+  is a bind instruction and never a client's identity: adding it to the
+  allow-list admits whoever read the startup banner while still refusing every
+  real client, which arrives naming the address it dialed. `_WILDCARD_HOSTS`
+  now lives in `webui.py` and `server.py` imports it — two lists of what counts
+  as a wildcard is one list that goes stale.
+- **A token stands in for loopback, `reviewserver.py`'s model** — minted with
+  `secrets.token_urlsafe` unless supplied, compared with `hmac.compare_digest`,
+  required on every request. What is *not* borrowed from `reviewserver.py` is
+  how it reaches the page: that server renders its own HTML and can thread
+  `?t=` through every link, and this one ships a JS app whose `fetch`, media
+  `<video>` and `EventSource` calls know nothing about a token. Rewriting all
+  of them is the obvious build and the wrong one — it puts the credential in
+  `web/`, in as many places as there are requests.
+- **So the token travels as a cookie, and `web/` is untouched.** A request
+  presenting `?t=` is handed
+  `Set-Cookie: lucid_token=…; Path=/; HttpOnly; SameSite=Strict`, and every
+  same-origin request the browser makes after that carries it by itself.
+  `HttpOnly` keeps it out of `document.cookie`; **`SameSite=Strict` is the
+  CSRF half loopback+Host used to be covering** — no other origin can make the
+  browser spend it, which is the same job the `application/json` rule does for
+  mutations and which is why that rule is untouched. `Secure` is deliberately
+  absent: this is plain HTTP inside a WireGuard tunnel, and a `Secure` cookie
+  would simply never be stored, which reads as "the token does not work".
+- **Host is checked before the token, and a valid token does not buy past it.**
+  The token is the thing a person copies to a phone; the Host allow-list is
+  what keeps a page under some other name from using it if it ever leaks into
+  one. A test asserts the refusal for a good token under `evil.example.com`,
+  and asserts the message says nothing about tokens.
+- **`--tailscale` binds the 100.x address itself, not a wildcard.** The socket
+  is then not on the LAN at all, so the Host guard and the token are the second
+  and third lines rather than the first and only — confirmed with `ss -ltnp`,
+  which shows `LISTEN 100.x.y.z:8733` and nothing on `0.0.0.0`. It reads
+  `tailscale status --json` for two different answers: the address to bind, and
+  every name a client may present, which includes the MagicDNS name because a
+  phone typing `homebase` and a phone dialing `100.x.y.z` are one session
+  to the operator and two different `Host:` headers here. The root dot
+  `DNSName` reports is stripped in both places that see it — a browser never
+  sends it, and a name that only matches with it refuses every real client. It
+  **refuses rather than falling back**: no binary, backend not `Running`, or no
+  tailnet address are each a refusal, because a `--tailscale` that quietly
+  bound loopback would look like the feature working right up until something
+  off the machine tried it.
+
+- **An IPv6 client name is stored in two spellings, because a browser sends
+  the one nobody types.** `tailscale status` reports `fd7a:115c:a1e0::…`
+  bare, `--host`/`--allow-remote-host` take it bare, and the header arrives as
+  `Host: [fd7a:…]:8710` — so an allow-list holding only the bare form refuses
+  every real v6 client while every test written against the bare form passes.
+  `_LOOPBACK_NAMES` has carried both `::1` and `[::1]` since the beginning for
+  exactly this reason; `_host_forms` is that fact applied to a name nobody
+  typed by hand. Found by re-reading the parser against the address
+  `--tailscale` actually returns, not by a failure — the v4 address is what a
+  phone dials, so this would have sat unhit until the day one did not.
+
+Measured against the real server on this box (`lucid -C … web --tailscale
+--port 8733`, dialed at `http://100.x.y.z:8733`), not only against the
+tests: no token 403, wrong token 403, `?t=` 200 with the cookie in the
+response, cookie alone 200, `Host: <host>.<tailnet>.ts.net` 200,
+`Host: homebase` 200, `Host: evil.example.com` with a good token 403, a media
+Range 206 with the cookie and 403 without, `POST /api/cut-at` 200 with the
+cookie and 403 without, and a form-encoded body still refused for being
+form-encoded. Then the same URL in headless Chrome: the app boots, `console`
+is empty over 3s, `document.cookie` is `""`, and a page-issued `fetch
+/api/view` and `EventSource /api/events` both authenticate — which is the
+whole claim about the cookie, and the only way to check it is the browser,
+since curl proves the header and not the browser's own behaviour.
+
+`lucid mcp --transport http` keeps its own shape and gains nothing here: it is
+reached by a client that had to be configured to find it, and its guard is
+loopback+Host widened by `--allow-remote`. `reviewserver.py` is unchanged and
+still the right tool for a review round — a token, no edit surface, and a page
+that needs no JS at all.
