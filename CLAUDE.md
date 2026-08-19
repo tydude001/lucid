@@ -143,6 +143,19 @@ installed package or the upstream repo, not your memory.
 
 ## Conventions
 
+- **A new spike/probe/scratch directory goes under `~/lucid-work/<name>`, and a
+  finished one is archived to `~/lucid-archive/spikes/<name>`** — still `$HOME`,
+  so melt's flatpak can see both. 29 finished spikes were corralled into that
+  archive 2026-08-19 with their names unchanged, so a doc citation of
+  `~/lucid-<name>` that no longer resolves is found there. What stays flat at
+  `~/` is pinned and must not move: `lucid-render` (`picture.RENDER_SCRATCH` is
+  a code literal), `lucid-final-cut` (six manifests point into `proj/`
+  absolutely, and its own `reference` render is an absolute self-path),
+  `lucid-a2-probe` (a2-build's media), `lucid-archive`, `lucid-cards-reauthor`,
+  `lucid-scream-v2`, `lucid-kf-probe`, and the settle-against copies
+  `lucid-brief-check` / `lucid-framing-detect` / `lucid-threshold` /
+  `lucid-split-detect`. Manifests store absolute paths, so moving any project
+  directory means rewriting them — grep its `*.json`/`*.otio` first.
 - Every MCP tool gets a matching `lucid` CLI subcommand. The CLI is how the
   same operation gets scripted and debugged without an agent in the loop, so
   parity is a feature, not overhead.
