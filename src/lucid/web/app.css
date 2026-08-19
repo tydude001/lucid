@@ -538,6 +538,12 @@
   --rail-w: 46px;
   --pane-agent-track: minmax(var(--pane-agent-min), var(--pane-agent-w));
   --pane-inspector-track: minmax(var(--pane-inspector-min), var(--pane-inspector-w));
+  /* The other two tracks got the same treatment when F2's EXPANDED state was
+     finally measured (see § the expanded rail, below): ordinarily each is
+     just the expression it always was, and the two breakpoints down there
+     swap ONE of them to 0. */
+  --pane-transcript-track: minmax(var(--pane-transcript-min), var(--pane-transcript-w));
+  --pane-preview-track: minmax(var(--pane-preview-min), 1.7fr);
   --timeline-h: 22vh;
   --timeline-h-min: 180px;
   --track-header-w: 84px;
@@ -957,8 +963,8 @@ textarea {
   grid-row: 3;
   display: grid;
   grid-template-columns:
-    minmax(var(--pane-transcript-min), var(--pane-transcript-w))
-    minmax(var(--pane-preview-min), 1.7fr)
+    var(--pane-transcript-track)
+    var(--pane-preview-track)
     var(--pane-agent-track)
     var(--pane-inspector-track);
   min-height: 0;
@@ -1080,6 +1086,67 @@ textarea {
   }
 }
 
+/* -- the expanded rail ------------------------------------------------------
+ * F2's two rails have a state neither breakpoint above ever measured, and it
+ * is the state the rail exists for: EXPANDED. Collapsed, the workspace demands
+ * 160 + 320 + 46 + 46 = 572px and every width down to ~580 is clean, which is
+ * what the note above measured and fixed. Expanding a rail swaps its 46px back
+ * to a 15rem floor and nothing gives the 194px up, so the demand goes back
+ * over the window and `body`'s `overflow: hidden` takes the difference —
+ * meaning the pane you just clicked the tab to see is the pane that is gone.
+ * That is the same failure F2 was written to fix, one state further in.
+ *
+ * Measured on the film project in Edit mode (chrome-headless-shell 1228 over
+ * CDP) at a 700px window, and the arithmetic is exact in both directions:
+ * `body.scrollWidth` read 766 with the inspector expanded (160+320+46+240) and
+ * 960 with both (160+320+240+240). Nothing is off by a border — every track is
+ * `box-sizing: border-box`.
+ *
+ * Both widths below are that same arithmetic solved for the window, at
+ * whichever floors are in force above each one:
+ *
+ *   1136 = 240 + 416 + 46 + 240   one rail expanded, at the default floors
+ *    800 = 160 + 320 + 240 + 240  BOTH expanded, at the 860px floors
+ *
+ * Each fires at its own width rather than one under it, so the boundary width
+ * itself — where the demand equals the window exactly — spends a pane it did
+ * not strictly have to. A 1px margin, deliberately, rather than a 1px
+ * overflow that no scrollbar would report.
+ *
+ * What yields is the transcript first and the preview second: § Layout's own
+ * order, and the same one the 860px note above argues for at its own width.
+ * The track goes to 0 AND the pane is hidden, because a 0-width track still
+ * paints its 1px border and still lays its children out inside the neighbour.
+ */
+@media (max-width: 1136px) {
+  #workspace[data-expand~="inspector"],
+  #workspace[data-expand~="agent"] {
+    --pane-transcript-track: 0;
+  }
+
+  #workspace[data-expand~="inspector"] #transcript-pane,
+  #workspace[data-expand~="agent"] #transcript-pane {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  #workspace[data-expand~="inspector"][data-expand~="agent"] {
+    --pane-preview-track: 0;
+    /* The two `w` maxima are 320 and 288, so with both other tracks at 0 the
+       grid stops 92px short of a 700px window and leaves bare workspace
+       against the right edge — measured. `1fr` apiece is what spends it, and
+       it can only ever apply in this one state: everywhere else at least one
+       of the tracks either side is still asking for width. */
+    --pane-agent-track: minmax(var(--pane-agent-min), 1fr);
+    --pane-inspector-track: minmax(var(--pane-inspector-min), 1fr);
+  }
+
+  #workspace[data-expand~="inspector"][data-expand~="agent"] #preview-pane {
+    display: none;
+  }
+}
+
 /* -- collapsible pane rail (F2) --------------------------------------------
  * The 46px icon rail #agent-pane and #inspector-pane collapse to under the
  * two breakpoints above. Hidden outside them — every width down to 1200px
@@ -1135,15 +1202,31 @@ textarea {
   overflow: hidden;
 }
 
+/* The four panes are placed explicitly rather than by source order, and the
+   reason is the expanded-rail breakpoints above: `display: none` on a grid
+   ITEM removes it from the grid, and auto-placement then slides every pane
+   after it one track to the left. Measured — hiding the transcript that way
+   put the preview into the transcript's own 0-width track and left the
+   inspector track empty, so the pane that was asked for came back 46px wide
+   and the player vanished, at no overflow and no error. Named columns would
+   read better still; four integers match #workspace's four-token template
+   one-for-one, which is the thing that has to stay true. */
 #transcript-pane {
+  grid-column: 1;
   border-right: 1px solid var(--line);
 }
 
+#preview-pane {
+  grid-column: 2;
+}
+
 #agent-pane {
+  grid-column: 3;
   border-left: 1px solid var(--line);
 }
 
 #inspector-pane {
+  grid-column: 4;
   border-left: 1px solid var(--line);
 }
 
@@ -2331,7 +2414,13 @@ textarea {
   flex-direction: column;
   gap: 14px;
   min-height: 0;
-  padding: 16px 20px;
+  /* No top padding, unlike #finish-view's otherwise-identical shell: .frame-head
+     below is sticky, and Chrome constrains a sticky box to its scroll
+     container's CONTENT box rather than its padding box — so with 16px here
+     the header pins 16px down and rows scroll through the strip above it,
+     measured. The 16px is on .frame-head's own padding instead, which puts
+     the text in the same place and makes the strip part of the header. */
+  padding: 0 20px 16px;
   overflow-y: auto;
   background: var(--bg);
 }
@@ -2340,6 +2429,42 @@ textarea {
    rule above outranks the UA's own `[hidden] { display: none }`. */
 #frame-view[hidden] {
   display: none;
+}
+
+/* The sheet is 71 rows on the vertical cut, 12500px of scroll, and the three
+   coverage chips are the summary you review those rows AGAINST — 68.7s stale,
+   1 unexplained step, 33/56 cuts framed. They scrolled off after 140px, which
+   left every judgement after the first screenful being made against numbers
+   no longer on the page, and took the Build sheet / Detect gaps buttons with
+   them.
+
+   Sticky rather than moving the scroll down to #frame-rows: frame.js's
+   Re-frame popover positions itself with plain offsetLeft/offsetTop against
+   #frame-rows and says so in its own comment ("`#frame-rows` does not scroll
+   on its own — `#frame-view` is the one scrolling ancestor"), so making that
+   element the scrollport would silently put every popover one scrollTop out
+   of place. Which element scrolls stays exactly as it was.
+
+   The negative margins are horizontal ONLY, and they are not a style choice:
+   they widen the header over #frame-view's own 20px side padding, which rows
+   would otherwise scroll visibly through either side of it. The top edge is
+   handled the other way round — by taking the padding off #frame-view and
+   putting it here (see that rule) — because a negative margin-top does NOT
+   buy the same thing vertically: `top: 0` pins the margin box, so -16px there
+   lets the border box sit above the scrollport and a strip of the row above
+   shows through anyway. Measured both ways: 16px of a row's Approve/Re-frame
+   buttons floating over the chips, either time. */
+.frame-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 -20px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
 }
 
 .frame-coverage-row {
@@ -2948,6 +3073,23 @@ dialog#shortcuts-sheet::backdrop {
    the agent feed and the properties pane already use) — its own margin,
    since here it sits inside a padding:0 dialog rather than a padded pane
    body. */
+/* The inspector is the one place this table is narrower than its own
+   content: at 1400px #properties-body is a 272px scrollport holding a 327px
+   table, so `clips` — ten ids on one row — was clipped mid-word at the window
+   edge, and `expected_duration`'s nowrap label is half of why. Nothing
+   reported it: `overflow-y: auto` on the body computes overflow-x to `auto`
+   too, so the pane is technically scrollable and the `body *` overflow probe
+   skips anything inside a scroll container. It reads as a value that stops.
+
+   `anywhere` rather than `break-word`, and that is the whole fix: only
+   `anywhere` shrinks the column's own min-content contribution, so the table
+   can honour its `width: 100%` instead of being forced wide by the longest
+   unbreakable value. The label column keeps its nowrap — a wrapped key is
+   harder to scan than a wrapped value, and it is not what overflows. */
+#properties-body .rows td + td {
+  overflow-wrap: anywhere;
+}
+
 #shortcuts-sheet .rows {
   margin: 10px 14px 14px;
   width: calc(100% - 28px);

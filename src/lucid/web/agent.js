@@ -378,6 +378,16 @@ function handleAgentEvent(data) {
         reportMcpServers(data.mcp_servers);
       }
       return;
+    case "rate_limit_event":
+      // Quota bookkeeping the harness emits once per turn, `system`'s case
+      // exactly: not part of the progress story, and noisy every turn if
+      // shown. It is called out by name rather than left to the default
+      // below because the default is for shapes nobody has SEEN — this one
+      // arrives on every single prompt, and it landed a 300-character JSON
+      // blob of reset timestamps and overage flags at the head of the feed,
+      // above the agent's first sentence. Caught in the README retake, on
+      // the first prompt sent through the pane.
+      return;
     default: {
       // An event shape this pane does not recognise — degrade to a compact
       // raw entry rather than crash or stay silent (this file's contract).

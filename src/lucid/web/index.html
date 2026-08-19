@@ -351,19 +351,24 @@
          among the three hidden-by-default sections doesn't matter, since
          only one is ever visible. -->
     <section id="frame-view" hidden aria-label="frame">
-      <div class="pane-head">
-        frame
-        <span class="hint">per-shot crop windows — Approve writes nothing, Re-frame does</span>
-      </div>
-      <div id="frame-coverage" class="frame-coverage-row" aria-label="framing coverage">
-        <span id="frame-chip-stale" class="chip"></span>
-        <span id="frame-chip-steps" class="chip"></span>
-        <span id="frame-chip-cuts" class="chip"></span>
-      </div>
-      <div class="frame-actions-row">
-        <button id="frame-build-sheet" class="primary" type="button">Build sheet</button>
-        <button id="frame-detect-gaps" type="button">Detect gaps</button>
-        <span id="frame-detect-error"></span>
+      <!-- One wrapper so the head, the coverage chips and the two buttons
+           stick together at the top of the scrolling view — see app.css
+           § .frame-head for why they had to. -->
+      <div class="frame-head">
+        <div class="pane-head">
+          frame
+          <span class="hint">per-shot crop windows — Approve writes nothing, Re-frame does</span>
+        </div>
+        <div id="frame-coverage" class="frame-coverage-row" aria-label="framing coverage">
+          <span id="frame-chip-stale" class="chip"></span>
+          <span id="frame-chip-steps" class="chip"></span>
+          <span id="frame-chip-cuts" class="chip"></span>
+        </div>
+        <div class="frame-actions-row">
+          <button id="frame-build-sheet" class="primary" type="button">Build sheet</button>
+          <button id="frame-detect-gaps" type="button">Detect gaps</button>
+          <span id="frame-detect-error"></span>
+        </div>
       </div>
       <div id="frame-rows" class="frame-rows"></div>
     </section>

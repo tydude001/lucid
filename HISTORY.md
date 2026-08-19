@@ -9736,3 +9736,86 @@ reached by a client that had to be configured to find it, and its guard is
 loopback+Host widened by `--allow-remote`. `reviewserver.py` is unchanged and
 still the right tool for a review round — a token, no edit surface, and a page
 that needs no JS at all.
+
+## The README screenshots, and the five defects they found — 2026-08-19
+
+`docs/ui-polish-plan.md` was written off a review of the two screenshots the
+README shipped in 43fafc8, on the premise that a screenshot is a review of the
+UI that nobody asked for. Phases 1–3 (the chip nouns, the width-gated timeline
+labels, the Frame-sheet polish) landed in b60e286. This section is phase 4 —
+the retakes — plus the four defects that retaking them turned up, and the
+700px overflow the phase 1–3 verification pass had already found and left.
+
+All three images are **dark**, at 1400×900, captured through
+`.claude/skills/verify-live/`. The theme is seeded before the page loads
+(`localStorage["lucid.theme"] = "dark"`, then navigate) rather than toggled
+after it, because `theme.js` applies `data-theme` in `<head>` and the two
+canvases only repaint off its `lucid:theme` event — flipping it after load can
+be captured mid-repaint. Worth recording against CLAUDE.md's own note that a
+`<video>` never composites into a headless capture: **chrome-headless-shell
+1228 does**, and both the Edit preview and the Finish player carry real frames
+in these files. The rule still holds for *verification* — a composited frame
+is not evidence it is the current one — but it is no longer a reason to expect
+a black rectangle in a screenshot.
+
+`frame-mode.png` is the **vertical** cut, rebuilt for it: `~/lucid-archive/vertical/`
+is two files, and a project is the two of them plus `media/` symlinks to the
+sources they name, `cache/transcripts/` (the same VO as the film), and
+`card reauthor`, which redrew all twelve cards portrait at 1080×1920 from
+their records. 63 segments, 336.269s, 38 shots projecting, 55 stored windows.
+The old image undercut its own alt text — every window in it was `0,0,1920,816`,
+the full-frame default — and this one is 459-wide windows on 1920-wide frames
+with a stacked split and its 24% pane overlap.
+
+### What retaking them found
+
+- **A railed pane, expanded, walks off the page.** F2's rails and the 860px
+  floors below them were both measured collapsed; nobody measured `data-expand`.
+  At a 700px window the arithmetic is exact in both directions —
+  160+320+46+240 = 766 with the inspector expanded, 160+320+240+240 = 960 with
+  both, against 766 and 960 read off `body.scrollWidth` — and `body`'s
+  `overflow: hidden` means the pane you clicked the tab to *see* is the pane
+  that is gone. Fixed by two more track tokens and two breakpoints solved for
+  the window (1136 and 800), with the transcript yielding first and the preview
+  second. The four panes are also **placed explicitly now** (`grid-column: 1`
+  … `4`): `display: none` on a grid item removes it from the grid, and
+  auto-placement then slid every pane after it one track left — the first cut
+  of this fix put the preview in the transcript's own 0-width track and handed
+  back a 46px inspector, at no overflow and no error.
+- **`#frame-view`'s coverage chips scrolled away.** 71 rows and 12500px of
+  scroll on the vertical, and the three numbers you review those rows against
+  left the page after 140px, taking Build sheet and Detect gaps with them. The
+  head, the chips and the buttons are one sticky `.frame-head` now. Which
+  element scrolls is deliberately unchanged: `frame.js` positions its Re-frame
+  popover with plain `offsetLeft`/`offsetTop` against `#frame-rows` and says so
+  in its own comment, so moving the scroll down to that element would have put
+  every popover one `scrollTop` out of place. Two drafts of the top edge leaked
+  16px of the row above through the chips before the answer turned out to be
+  taking the padding off `#frame-view` — **Chrome constrains a sticky box to
+  its scroll container's content box, not its padding box**, and a negative
+  `margin-top` does not buy back what `top: 0` then pins.
+- **The agent pane printed a JSON blob on every prompt.** `handleAgentEvent`'s
+  `default` branch is a deliberate degrade-to-raw for shapes nobody has seen;
+  `rate_limit_event` is not one of those — the harness emits it once a turn, and
+  it landed 300 characters of reset timestamps and overage flags at the head of
+  the feed, above the agent's first sentence. Named alongside `system` now, for
+  the reason `system`'s own comment already gives.
+- **The properties pane clipped its values mid-word.** At 1400px
+  `#properties-body` is a 272px scrollport holding a 327px table, so `clips` —
+  ten ids on one row — ran off the window edge. `overflow-wrap: anywhere` on
+  the value column, and specifically not `break-word`: only `anywhere` shrinks
+  the column's min-content contribution, which is what lets the table honour
+  its own `width: 100%`.
+
+That last one is the one worth generalising, because **nothing reported it**.
+`overflow-y: auto` on the body computes `overflow-x` to `auto` as well, so the
+pane is technically a scroll container and the `body *` overflow probe — which
+skips anything inside one, correctly, or every timeline lane would be a finding
+— cannot see it. A probe scoped to the page still has a window, and this is
+where its edge is: walk the scroll containers separately and compare each
+one's `scrollWidth` against its `clientWidth`. Run against Edit mode that finds
+exactly one, `#track-lanes`, which is the timeline and is supposed to scroll.
+
+The README gains the third image under **Render verification**, and one
+correction: the melt-rendering tests are **five**, not four. `grep -c
+'@needs_melt'`, rather than a number carried in prose.

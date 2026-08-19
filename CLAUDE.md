@@ -288,6 +288,21 @@ installed package or the upstream repo, not your memory.
       The window a check looks through is a claim too, and it was wrong in the
       review *and* in the pass verifying its fix. Walk `body *` and compare
       `body.scrollWidth` against `innerWidth`. HISTORY.md § The web UI review.
+      - **And that probe is blind inside a scroll container, which is not a
+        bug in it** — it has to skip them or every timeline lane is a
+        finding. So the panes with `overflow-y: auto` are a second sweep, not
+        the same one: walk the scroll containers and compare each one's own
+        `scrollWidth` against its `clientWidth`. `overflow-y: auto` computes
+        `overflow-x` to `auto` too, so a pane is one of these without ever
+        saying so — `#properties-body` clipped `clips` mid-word at the window
+        edge and every page-level probe called it clean. In Edit mode the
+        sweep should find exactly one, `#track-lanes`. HISTORY.md § The
+        README screenshots, and the five defects they found.
+      - **A state the layout was never measured in is the same class of
+        blind spot**: F2's rails were measured collapsed at every width and
+        expanded at none, and expanding one at 700px put the pane itself off
+        a hidden edge. Enumerate the states a probe runs in the way widths
+        are already enumerated.
   - **An author `display:` rule outranks the UA's `[hidden] { display: none }`,
     so `el.hidden = true` does nothing on its own.** Anything this file set
     toggles by `hidden` needs a companion `[hidden]` rule or it is drawn
@@ -621,12 +636,13 @@ installed package or the upstream repo, not your memory.
     `picture.display_env()`, which exports both — and note the environment it
     is compensating for is the **MCP stdio transport's**, which passes HOME,
     PATH and little else. HISTORY.md § Rendering through `melt`.
-    - So **a session with no desktop behind it cannot run the four
+    - So **a session with no desktop behind it cannot run the five
       melt-rendering tests in `test_server_stdio.py`** — `export` refuses with
       "no display for MLT's Qt module to open", correctly, and they fail as a
-      `JSONDecodeError` on the refusal text. Four failures there and nowhere
+      `JSONDecodeError` on the refusal text. Five failures there and nowhere
       else is the environment, not a regression; confirm by stashing `src/`
-      and re-running, rather than by hunting.
+      and re-running, rather than by hunting. (Four when this was written; the
+      count is `grep -c '@needs_melt'`, not a number to trust from memory.)
 - **A caption's look is project state (`caption_style`), and ASS is never
   written by hand** — three of its fields mean the opposite of what they read
   as, `\k` is a left-to-right fill rather than a per-word step, and grouping
