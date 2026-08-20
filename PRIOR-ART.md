@@ -4,7 +4,7 @@ Survey conducted **2026-08-06**, in two sweeps the same day: the first missed
 the conversational-editor field entirely (see "Corrections"), and a second
 sweep prompted by the stop-or-continue question found OpenChatCut, video-use,
 and open-edit. A third pass on **2026-08-07** covered Daydream, the closed-source
-product the README pitches lucid against, which neither sweep had checked
+product closest to lucid's own shape, which neither sweep had checked
 because it has no GitHub repo. Star counts, versions, and wheel matrices are
 snapshots from those dates and go stale; the *conclusions* they support live
 in [PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
@@ -119,7 +119,7 @@ answerable by installing the AppImage and running the addressable-edit test
 over its MCP endpoint) on a real recording. That trial is the go/no-go gate in
 [PLAN.md](PLAN.md).
 
-## Daydream — the product lucid's README pitches against, and had never been checked
+## Daydream — the most prominent competitor, and had never been checked
 
 [daydreamvideo.com](https://www.daydreamvideo.com) · closed-source, no public repo (confirmed —
 searched GitHub for the org; the only `daydream*` orgs that exist belong to unrelated products,
@@ -175,7 +175,7 @@ unlike OpenChatCut there is no way to put it through the addressable-edit trial 
 Linux build exists.
 
 Not a substitute for the OpenChatCut go/no-go trial in [PLAN.md](PLAN.md) — it's the more prominent
-competitor by mindshare (it's who lucid's README quotes at readers) but the least inspectable one.
+competitor by mindshare but the least inspectable one.
 Whatever confidence the OpenChatCut trial buys by actually running the software, Daydream can't
 offer, because it can't be run here at all.
 
@@ -421,8 +421,8 @@ README.md pitched lucid against Daydream from the first commit, and both survey 
 because neither searched outside GitHub — Daydream has no repo. Fetching daydreamvideo.com and its
 docs directly (2026-08-07) shows a full NLE-style timeline editor with in-app watermark-free
 rendering; NLE export to Premiere/Resolve/Final Cut is an optional extra, not the finishing path.
-The README's "same as Daydream does" clause is false and needs correcting — see the Daydream
-section above.
+The README's "same as Daydream does" clause was false and was cut the same day (2c7d119); the
+README no longer pitches lucid against Daydream at all. See the Daydream section above.
 
 ## Convergent signals worth noting
 

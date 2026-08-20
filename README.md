@@ -1,9 +1,8 @@
 # lucid
 
 An open-source, local-first AI video editor. A lucid dream is a dream you
-control — lucid is the answer to [Daydream](https://www.daydreamvideo.com):
-the same agent-driven editing workflow, but open, unmetered, and running
-entirely on your own hardware.
+control — lucid puts an AI agent on your timeline and keeps the whole thing
+on hardware you own: no cloud, no accounts, no metering.
 
 ![The lucid workspace: transcript, preview with burnt-style captions, the
 agent panel working through a request against the timeline, and the layered
@@ -11,12 +10,15 @@ timeline below](docs/img/edit-mode.png)
 
 ## The idea
 
-Daydream's product is a desktop editor where AI agents (Claude Code, Codex)
-do the editing — trim by transcript, remove silences, add captions and motion
-graphics — via chat or an MCP server, with metered transcription hours,
-processing hours, and MCP calls.
+Most of editing is finding the parts worth keeping, and that work is turning
+into a conversation. Trim by transcript, drop the silences, caption the rest,
+lay pictures over the voiceover — an agent can do all of it, if something
+gives it real tools to do it with. The products built on that idea so far are
+desktop apps wrapped around a metered cloud service, billing transcription
+hours, processing hours and agent calls.
 
-Every hard primitive under that product already exists as mature open source:
+Every hard primitive under such a product already exists as mature open
+source:
 
 | Capability | Open-source primitive |
 |---|---|
@@ -27,14 +29,15 @@ Every hard primitive under that product already exists as mature open source:
 | Programmatic motion graphics | Motion Canvas |
 
 lucid is the orchestration layer on top: an MCP server that exposes those
-primitives as editing tools to any agent, so "cut the part where I stumble
-and caption the rest" becomes a chat message instead of an afternoon.
+primitives as editing tools to any agent that speaks MCP (Claude Code, Codex,
+your own), so "cut the part where I stumble and caption the rest" becomes a
+chat message instead of an afternoon.
 
 It ships as three clients of one engine, all driving the same operations: a
 CLI, an MCP server (every tool has a matching subcommand, enforced by the
 test suite), and a browser workspace — transcript, preview, a draggable
-timeline, framing review and export, with the agent in the window. The
-non-goals are permanent: no cloud, no accounts, no metering.
+timeline, framing review and export, with the agent in the window. Those
+three non-goals are permanent.
 
 ## Requirements
 
@@ -171,8 +174,9 @@ not a regression.
   and what lucid does that they don't.
 - [HISTORY.md](HISTORY.md) — the dated record of what shipped and what the
   evidence said, first real video included.
-- [DAYDREAM.md](DAYDREAM.md) — the Daydream parity plan; [STUDIO.md](STUDIO.md)
-  — the workspace design.
+- [DAYDREAM.md](DAYDREAM.md) — the feature map drawn from
+  [Daydream](https://www.daydreamvideo.com), the closest commercial product;
+  [STUDIO.md](STUDIO.md) — the workspace design.
 
 ## License
 

@@ -9826,3 +9826,30 @@ exactly one, `#track-lanes`, which is the timeline and is supposed to scroll.
 The README gains the third image under **Render verification**, and one
 correction: the melt-rendering tests are **five**, not four. `grep -c
 '@needs_melt'`, rather than a number carried in prose.
+
+## The README stopped explaining a product nobody knows — 2026-08-19
+
+The first paragraph had pitched lucid as "the answer to Daydream" since the
+first commit, and § The idea spent its opening paragraph describing Daydream's
+product before saying what lucid is. That asks the reader to know a closed
+macOS app by name before the pitch lands; most don't, and the paragraph reads
+as a comparison against nothing.
+
+The framing is now lucid's own — an agent on your timeline, on hardware you
+own — and § The idea opens on the work instead of the competitor: editing is
+finding the parts worth keeping, that work is turning into a conversation, and
+the products built on it so far are desktop apps around a metered cloud
+service. The primitive table and everything below it are untouched. One
+Daydream link survives, in the Documentation list, labelling DAYDREAM.md as
+"the feature map drawn from Daydream, the closest commercial product" — the
+file is named for it and an unexplained filename would be worse.
+
+Three docs asserted the old framing in the present tense and were fixed the
+same way HISTORY's own corrections work — PLAN.md § The third pass and
+PRIOR-ART.md's intro, its Daydream `##` (cited only as `§ Daydream`, so the
+prefix still resolves) and its mindshare note. And the Corrections entry
+"Daydream hands off finishing work, same as lucid would" still carried an open
+action — *the clause is false and needs correcting* — for a clause cut in
+2c7d119 on the day the entry was written. Twelve days of a doc naming a fix
+that had already shipped, invisible because nobody re-reads a correction they
+already believe.

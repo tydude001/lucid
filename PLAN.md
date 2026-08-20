@@ -61,8 +61,7 @@ handoff + thin Python stack** — and whether that justifies the project is
 decided by the trial gate in the milestones, not by argument.
 
 **The third pass, 2026-08-07, did not weaken it further.** Daydream is the
-product the README pitches lucid against and the most prominent competitor by
-mindshare, and neither sweep had checked it — it has no GitHub repo, so a
+most prominent competitor by mindshare, and neither sweep had checked it — it has no GitHub repo, so a
 GitHub-shaped search skipped it silently. Checked directly, it clears none of
 the narrowed thesis: a closed macOS GUI app fronting a local MCP server (not
 headless, no CLI), undocumented per-target XML/FCPXML export with no evidence
