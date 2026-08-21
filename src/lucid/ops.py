@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import statistics
 import subprocess
 import tempfile
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -38,6 +39,7 @@ from lucid import (
     mlt,
     picture,
     renderlog,
+    tts,
 )
 
 # `describe` is also the name of the op below — the same collision `verify`
@@ -7453,26 +7455,72 @@ def vo_extend(
         raise tl.TimelineError(f"seconds must be positive, not {seconds!r}")
 
     project = Project.open(path)
+    return _splice_after(
+        project,
+        clip_id,
+        word_index,
+        lambda: _tail_silence(project, seconds),
+        seconds,
+        plan=plan,
+        placeholder=f"hold-{round(seconds * 1000)}ms",
+    )
+
+
+def _splice_point(
+    project: Project, clip_id: str, word_index: int
+) -> tuple[dict[str, Any], float, float, tl.Edit]:
+    """Resolve where a splice after `word_index` lands: the word's echo, its
+    source end, its timeline time, and the loaded edit — refusing a word that
+    is not on the timeline. Separate from `_splice_after` so `vo_synth` can
+    refuse *before* it spends the GPU on a render it would then not place."""
     media.get_clip(project, clip_id)
     parsed = _transcript(project, clip_id)
     word_index = int(word_index)
     echo = _cue_echo(parsed, word_index)
     at = echo["end"]
-
     edit = _load_edit(project)
     timeline_at = edit.timeline_time(clip_id, at, closed_end=True)
     if timeline_at is None:
         raise tl.TimelineError(
             f"word {word_index} ({echo['text']!r}) of clip {clip_id!r} is not on "
-            "the timeline (already cut) — vo_extend opens a gap after material "
+            "the timeline (already cut) — a splice opens after material "
             "that currently plays, and this word does not"
         )
+    return echo, at, timeline_at, edit
 
-    silence_path = _tail_silence(project, seconds)
-    if plan:
-        hold_clip_id = f"hold-{round(seconds * 1000)}ms"
-    else:
-        hold_clip_id = media.import_media(project, silence_path)["clip_id"]
+
+def _splice_after(
+    project: Project,
+    clip_id: str,
+    word_index: int,
+    source: Callable[[], Path],
+    seconds: float,
+    *,
+    plan: bool,
+    placeholder: str,
+    register_as: str | None = None,
+) -> dict[str, Any]:
+    """Splice `seconds` of a real file into `clip_id`'s track right after `word_index`.
+
+    The mechanism `vo_extend` documents, factored so `vo_synth` can put a
+    *voiced* clip through exactly the same path as a silent one: echo the word,
+    refuse if it is not on the timeline, register the file (`import_media`,
+    deduplicating a re-import), `Edit.insert`, then `covered_by` over the
+    mutated edit before deciding whether to save it. `source` is a callable so
+    that nothing is rendered or registered for a call that is about to be
+    refused; `placeholder` is the `hold_clip_id` a plan reports, since a plan
+    registers nothing; `register_as` is the clip_id the file is registered
+    under (a synthesised line's `synth-<key>-s<seed>`, so the manifest reads
+    as what it holds rather than `s1`), or `import_media`'s own slug when None.
+    """
+    echo, at, timeline_at, edit = _splice_point(project, clip_id, word_index)
+
+    source_path = source()
+    hold_clip_id = (
+        placeholder
+        if plan
+        else media.import_media(project, source_path, clip_id=register_as)["clip_id"]
+    )
 
     before = edit.duration
     edit.insert(clip_id, at, hold_clip_id, 0.0, seconds)
@@ -7508,6 +7556,197 @@ def vo_extend(
         "plan": bool(plan),
         **echo,
     }
+
+
+#: `cache/synth/<key>/` — one directory per (voice, text, cap), holding one
+#: WAV per seed and the worker's `candidates.json`. A preview-class artifact
+#: like a thumbnail: never enters the manifest on its own, and is reached
+#: through `vo_synth`'s return value, never by a client-named path. What *does*
+#: enter the manifest is the winner, when a splice is asked for, through
+#: `media.import_media` — the same registration a silent hold gets.
+SYNTH_DIR = "cache/synth"
+
+#: How many seeds a call renders when not told. Three is where round 2's
+#: best-of was measured to matter and where a sentence still renders in well
+#: under a minute on the 5070 (model load ≈5 s, then ≈3 s a render).
+SYNTH_CANDIDATES = 3
+
+#: The longest render a single call will accept, in seconds. One 21 s reference
+#: once ran every render out to 655 s (local-llm's note, round 2); a sentence
+#: is under fifteen, so twenty is a cap a real line never reaches.
+SYNTH_MAX_SECONDS = 20.0
+
+#: The whisper model the readback uses. `small.en` rather than `asr.DEFAULT_MODEL`
+#: (turbo): a single sentence at 24 kHz transcribes in a couple of seconds on
+#: it, and the question being asked — did the clone say the words — is one it
+#: answered at 2–3% WER across 250 rendered lines in the spike.
+SYNTH_READBACK_MODEL = "small.en"
+
+
+def _norm_words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower().replace("-", " "))
+
+
+def _wer(reference: list[str], hypothesis: list[str]) -> float:
+    """Word error rate — Levenshtein over words, normalised by the reference length."""
+    prev = list(range(len(hypothesis) + 1))
+    for i in range(1, len(reference) + 1):
+        cur = [i] + [0] * len(hypothesis)
+        for j in range(1, len(hypothesis) + 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (reference[i - 1] != hypothesis[j - 1]))
+        prev = cur
+    return prev[-1] / max(1, len(reference))
+
+
+def vo_synth(
+    path: Path | str,
+    text: str,
+    *,
+    voice: str | None = None,
+    candidates: int = SYNTH_CANDIDATES,
+    seed: int = 0,
+    max_seconds: float = SYNTH_MAX_SECONDS,
+    clip_id: str | None = None,
+    word_index: int | None = None,
+    readback: bool = True,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Say `text` in a cloned voice: render `candidates` seeds, rank them by likeness, verify the winner by ear.
+
+    The backend and the measurement behind its shape are `tts.py`'s docstring
+    and local-llm's `notes/voice-clone-zero-shot.md`: zero-shot Qwen3-TTS with
+    a ≈19 s reference beat every fine-tune on the model's own speaker-encoder
+    likeness, and seed moved a render more than the reference did — so the op
+    renders several and picks, rather than rendering once and hoping.
+
+    **What is chosen and how.** Seeds `seed .. seed+candidates-1` render in one
+    worker process; each comes back with `sim` — cosine of its speaker embedding
+    against the reference's (real takes of the same speaker score ≈0.99, a
+    three-semitone pitch shift ≈0.96) — and the highest wins, a lower seed
+    breaking ties. A candidate that hit the length cap is `capped` and never
+    wins while an uncapped one exists: it did not end because the line did.
+    The winner is then **read back** through whisper (`SYNTH_READBACK_MODEL`)
+    and `heard`/`wer` are reported beside it, because a clone that sounds like
+    the speaker and says the wrong words is the failure nothing else here sees;
+    `readback=False` skips it for a caller that will listen.
+
+    **Nothing is decided from the transcript of a render** — the ranking is on
+    likeness and the readback is a report. A caller wanting a different take
+    re-runs with another `seed`, which is a different set of tickets.
+
+    **Cache.** Renders land under `cache/synth/<key>/`, keyed on the voice, the
+    text and the cap, one WAV per seed, so a repeat call (or a `plan` after a
+    real call) answers from disk without the GPU; a new `seed` range renders
+    only the seeds it does not have. Preview-class containment, `thumbnail`'s:
+    the directory never enters the manifest and no client names a path into it.
+
+    **Splice.** With `clip_id` and `word_index`, the winner is registered
+    (`media.import_media`) and spliced into that clip's track right after the
+    word, through the mechanism `vo_extend` documents (`_splice_after`) — so
+    every one-way consequence there (melt routing, `restore` refusing across
+    the seam, `covered_by` naming the picture that now runs over it) is this
+    op's too. Without them it only renders, and returns where.
+
+    `plan=True` resolves the voice and the interpreter, reports the cache, and
+    — if every seed is already rendered — the ranking and the splice preview,
+    without synthesising, registering or writing the timeline. A plan with
+    nothing cached says so (`rendered: False`) rather than spending the GPU.
+    """
+    text = " ".join(str(text).split())
+    if not text:
+        raise tl.TimelineError("text is empty — nothing to synthesise")
+    candidates = int(candidates)
+    if candidates < 1:
+        raise tl.TimelineError(f"candidates must be at least 1, not {candidates!r}")
+    if (clip_id is None) != (word_index is None):
+        raise tl.TimelineError("clip_id and word_index go together — both or neither")
+    max_seconds = float(max_seconds)
+    tts.max_new_tokens(max_seconds)  # refuses a non-positive cap by name
+
+    project = Project.open(path)
+    if clip_id is not None and word_index is not None:
+        _splice_point(project, clip_id, word_index)  # refuse before the render, not after it
+    voice_path = tts.voice_dir(voice)
+    ref_text = (voice_path / "ref.txt").read_text(encoding="utf-8").strip()
+    key = hashlib.sha256(
+        json.dumps(
+            {"voice": str(voice_path), "ref_text": ref_text, "text": text, "max_seconds": max_seconds},
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    out_dir = project.root / SYNTH_DIR / key
+    meta_path = out_dir / "candidates.json"
+    known: dict[int, dict[str, Any]] = {}
+    if meta_path.is_file():
+        known = {int(c["seed"]): c for c in json.loads(meta_path.read_text(encoding="utf-8"))}
+    seeds = list(range(int(seed), int(seed) + candidates))
+    missing = [s for s in seeds if s not in known or not Path(known[s].get("path", "")).is_file()]
+
+    if missing and plan:
+        return {
+            "text": text,
+            "voice": str(voice_path),
+            "seeds": seeds,
+            "cache_dir": str(out_dir),
+            "rendered": False,
+            "missing_seeds": missing,
+            "synth": tts.available(),
+            "plan": True,
+            "written": False,
+        }
+    if missing:
+        detector = tts.available()
+        if not detector["available"]:
+            raise tts.TTSError(str(detector["why"]))
+        for entry in tts.synth(text, voice_path, out_dir, missing, max_seconds=max_seconds):
+            known[int(entry["seed"])] = entry
+        out_dir.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(
+            json.dumps(sorted(known.values(), key=lambda c: c["seed"]), indent=1), encoding="utf-8"
+        )
+
+    rendered = [dict(known[s]) for s in seeds]
+    ok = [c for c in rendered if "error" not in c]
+    if not ok:
+        raise tts.TTSError(
+            "every candidate failed: " + "; ".join(f"seed {c['seed']}: {c['error']}" for c in rendered)
+        )
+    uncapped = [c for c in ok if not c.get("capped")]
+    pool = uncapped or ok
+    winner = min(pool, key=lambda c: (-float(c["sim"]), int(c["seed"])))
+
+    result: dict[str, Any] = {
+        "text": text,
+        "voice": str(voice_path),
+        "seeds": seeds,
+        "cache_dir": str(out_dir),
+        "rendered": True,
+        "cached": not missing,
+        "candidates": rendered,
+        "chosen": winner,
+        "capped": [c["seed"] for c in ok if c.get("capped")],
+        "plan": bool(plan),
+        "written": False,
+    }
+    if readback and not plan:
+        payload = asr.transcribe(winner["path"], model=SYNTH_READBACK_MODEL)
+        heard = " ".join(seg["text"] for seg in payload.get("segments", [])).strip()
+        result["heard"] = heard
+        result["wer"] = round(_wer(_norm_words(text), _norm_words(heard)), 3)
+    if clip_id is not None and word_index is not None:
+        splice = _splice_after(
+            project,
+            clip_id,
+            word_index,
+            lambda: Path(winner["path"]),
+            float(winner["duration"]),
+            plan=plan,
+            placeholder=f"synth-{key[:8]}-s{winner['seed']}",
+            register_as=f"synth-{key[:8]}-s{winner['seed']}",
+        )
+        result["splice"] = splice
+        result["written"] = splice["written"]
+    return result
 
 
 #: Where a project keeps its A2 music bed (PLAN.md § The A2 music lane — the

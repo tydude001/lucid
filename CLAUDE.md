@@ -496,6 +496,24 @@ installed package or the upstream repo, not your memory.
     whichever picture was already playing frozen across it by default, with
     `shots_error`/`verify`/`check_frames` all staying clean. HISTORY.md
     § `vo_extend`, built.
+    - **`vo_synth` is built on the same splice, and the voice is a reference
+      clip, never a checkpoint.** Zero-shot Qwen3-TTS with 19 s of VO scored
+      0.989 on the model's own speaker encoder (real takes 0.993, a 3-semitone
+      shift 0.96); a full fine-tune drifted *away* with every epoch, the
+      upstream-lr run collapsed to babble, and the 2026-only control drifted
+      the same — it is the recipe, not the data, and **do not reach for a
+      fine-tune to fix likeness** (local-llm `notes/voice-clone-zero-shot.md`
+      § Round 4). `tts.py` is the fourth interpreter-behind-an-env
+      (`LUCID_TTS`/`LUCID_TTS_MODEL`/`LUCID_TTS_VOICE`, defaulting into
+      `~/lucid-work/voice-clone/` — **which is therefore a runtime dependency
+      and stays where it is, never archived as a finished spike**). Seed moves
+      a render more than the reference does, so the op renders N and ranks by
+      `sim`; a render at the length cap is `capped` and never wins (a 21 s
+      reference once ran every render to 655 s); the winner is read back
+      through whisper and `heard`/`wer` are a **report, never a gate**. The
+      splice is `_splice_after`, shared with `vo_extend`, and `_splice_point`
+      refuses a cut word *before* the GPU is spent. HISTORY.md § `vo_synth`,
+      built.
   - **The A2 music bed is project state too (`MUSIC_KEY`), and no field in it
     is a timeline second or a frame count** — `(clip_id, word_index_start,
     word_index_end | None)`, duration derived live through

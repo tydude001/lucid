@@ -1482,6 +1482,58 @@ def vo_extend(
     return ops.vo_extend(path, clip_id, word_index, seconds, plan=plan)
 
 
+@_tool()
+def vo_synth(
+    path: str,
+    text: str,
+    voice: str | None = None,
+    candidates: int = 3,
+    seed: int = 0,
+    max_seconds: float = 20.0,
+    clip_id: str | None = None,
+    word_index: int | None = None,
+    readback: bool = True,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Say `text` in a cloned voice — render several seeds, rank by likeness, read the winner back.
+
+    The backend is zero-shot Qwen3-TTS with a ≈19 s reference clip (`tts.py`
+    — measured in local-llm's voice-clone note to beat every fine-tune on the
+    model's own speaker-encoder likeness). `voice` is a directory holding
+    `ref.wav` + `ref.txt`; unset, `$LUCID_TTS_VOICE`, then the default voice.
+
+    Seeds `seed .. seed+candidates-1` render in one process; each comes back
+    with `sim` (cosine of its speaker embedding against the reference — a real
+    take of the same speaker ≈0.99, a 3-semitone shift ≈0.96) and the highest
+    is `chosen`. A render that hit `max_seconds` is `capped` and never wins
+    while an uncapped one exists. The winner is read back through whisper and
+    `heard`/`wer` reported — a clone that sounds right and says the wrong
+    words is the failure nothing else sees; `readback=False` skips it.
+
+    Renders are cached under `cache/synth/` per (voice, text, cap), so a repeat
+    call is free and a new `seed` range renders only what it lacks. With
+    `clip_id` + `word_index` the winner is registered and spliced into that
+    clip's track right after the word, through `vo_extend`'s own mechanism —
+    same one-way consequences (melt routing, `restore` refusing across the
+    seam) and the same `covered_by` report. `plan=True` resolves everything
+    and, if the seeds are already rendered, reports the ranking and the splice
+    preview without writing; with nothing cached it says `rendered: False`
+    rather than spending the GPU.
+    """
+    return ops.vo_synth(
+        path,
+        text,
+        voice=voice,
+        candidates=candidates,
+        seed=seed,
+        max_seconds=max_seconds,
+        clip_id=clip_id,
+        word_index=word_index,
+        readback=readback,
+        plan=plan,
+    )
+
+
 @_tool("path", "dest")
 def reel(
     path: str,

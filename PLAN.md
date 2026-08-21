@@ -4180,6 +4180,49 @@ ships as a reported default rather than a pinned threshold, because one
 voice with an injected bleed on a metronome is an upper bound on every
 accuracy figure here.
 
+## `vo_synth` — the design note — 2026-08-21
+
+**What it is for.** The editor has two holes a recording cannot fill from
+itself: a word `unspoken` marks as never said cleanly (a retake seam, a
+fragment), and a line the script needs that was never recorded — the case
+`vo_extend` opens a *silent* hold for. Both want a sentence in the narrator's
+voice, spliced where the transcript says it goes. `vo_synth` is that: text in,
+a clip in the voice out, placed after a word.
+
+**Why the voice is a reference clip and not a model.** Decided by measurement
+rather than by the obvious plan (local-llm `notes/voice-clone-zero-shot.md`,
+rounds 1–4): on the model's own speaker encoder, zero-shot with 19 s of VO is
+the closest thing to Tyler anything rendered (0.989 against real takes' 0.993),
+every fine-tune is further and gets further with training, the upstream
+learning rate collapses outright, and the 2026-only control shows the drift is
+the recipe's, not the data's. So a voice is `ref.wav` + `ref.txt` in a
+directory, `LUCID_TTS_VOICE` names the default, and nothing in lucid loads a
+checkpoint that is not the stock model. A better clone, if one arrives, is a
+different worker behind the same `tts.synth` contract — seeds in, candidates
+with `sim` out.
+
+**Why it renders several.** Seed moved a render more than the reference did;
+the op renders `candidates` seeds in one worker process and ranks by `sim`, the
+one number measured to track "sounds like him". A capped render never wins. A
+readback through whisper rides every real call and is reported beside the
+winner rather than used to choose — the ranking is on likeness; "did it say
+the words" is a second question with its own answer.
+
+**Why the splice is `vo_extend`'s.** The hold and the voiced line are one
+mechanism — a real file registered and `Edit.insert`ed after a word, with
+`covered_by` computed over the mutated edit — so `_splice_after` is shared and
+`vo_extend` calls it with a silence file. What `vo_synth` adds is the order:
+`_splice_point` refuses a word that is not on the timeline before the GPU is
+spent, not after.
+
+**Open.** The listening verdict on the op's own output is Tyler's and is the
+wiki's Open items row. The fine-tune route is parked with its untried levers
+named in HISTORY.md § `vo_synth`, built; the `instruct` lever and
+reference-in-context were measured and made likeness worse. A best-of-N that
+also read back every candidate and preferred WER 0 among near-equal `sim` is
+the obvious next knob and is deliberately not built until a real line needs
+it.
+
 ## The completion queue — what the Scream video left — 2026-08-12
 
 Provenance: a full review of HISTORY.md, DAYDREAM.md, the design notes above,

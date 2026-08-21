@@ -1,0 +1,229 @@
+"""Synthesising a line in a cloned voice, as a subprocess — the `vo_synth` backend.
+
+The finding this rests on is in local-llm's `notes/voice-clone-zero-shot.md`
+(rounds 1–4, 2026-08-20/21), and the short version decides the shape here:
+
+**Zero-shot beat every fine-tune on likeness, so the voice is a reference clip,
+never a checkpoint.** Qwen3-TTS-12Hz-1.7B-Base given ~19 s of Tyler's VO and
+its transcript scored 0.989 on the model's own speaker encoder against his
+real takes' 0.993; a full fine-tune on 36 min scored 0.985 and *drifted away
+with every epoch*, the upstream-lr run collapsed outright, and reference-in-
+context / instruct / temperature moved intelligibility, not likeness. So a
+*voice* is a directory holding `ref.wav` + `ref.txt`, and nothing here loads
+a checkpoint that is not the stock model.
+
+**Every render is a lottery ticket, so the op buys several and ranks them.**
+Seed moved the result more than the reference did (round 2), so `synth` takes
+a list of seeds and returns one candidate per seed with the speaker-encoder
+cosine against the reference — the one number measured here that tracks
+"sounds like him". The worker computes it in the same process, because the
+encoder is inside the model it already loaded.
+
+**A reference can run away.** One 21 s reference made every render hit 655 s
+of audio (round 2); the codec runs at ~12.5 tokens/s, so `max_seconds` is
+turned into a hard `max_new_tokens` cap and a candidate at the cap is reported
+as `capped` rather than trusted.
+
+**The model is a subprocess, resolved the way whisper, the VLM and the face
+detector are.** `LUCID_TTS` names a Python interpreter with `qwen_tts` and a
+CUDA torch in it; failing that, the voice-clone spike's venv, which is the one
+this box actually has. lucid's own venv stays free of torch (`asr.py`'s
+argument). `LUCID_TTS_MODEL` and `LUCID_TTS_VOICE` override the model
+directory and the default voice the same way.
+
+This module has no lucid dependencies on purpose, the same as `asr`,
+`describe` and `faces`.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any
+
+#: The interpreter that actually exists here — the voice-clone spike's venv
+#: (`~/lucid-work/voice-clone/`, built inside the `bonsai` distrobox but its
+#: cu128 torch runs on the host directly). Cross-repo and recorded in the wiki
+#: (`tooling.md` § Voice clone); this is only the path.
+SIBLING_VENV = Path.home() / "lucid-work" / "voice-clone" / "venv-qwen" / "bin" / "python"
+
+#: Where the stock model was downloaded for the spike. Nothing here downloads
+#: it — a synth that silently reaches for 3.7 GB on first call is a synth that
+#: fails in a way nobody attributes to synthesis (`faces.MODEL`'s rule).
+SIBLING_MODEL = Path.home() / "lucid-work" / "voice-clone" / "models" / "Qwen3-TTS-12Hz-1.7B-Base"
+
+#: The default voice: the 18.9 s Scream-REVEAL reference Tyler picked in round 1.
+SIBLING_VOICE = Path.home() / "lucid-work" / "voice-clone" / "voice" / "tyler"
+
+#: Qwen3-TTS's 12 Hz codec, measured: `max_new_tokens=420` rendered 33.5 s.
+TOKENS_PER_SECOND = 12.5
+
+#: The language string the model takes. English is the only one with a voice here.
+LANGUAGE = "English"
+
+_WORKER = Path(__file__).with_name("_tts_worker.py")
+
+
+class TTSError(Exception):
+    """Raised when no interpreter can synthesise, a voice is incomplete, or the worker fails."""
+
+
+def tts_python() -> Path:
+    """Locate an interpreter that can run the synthesiser — `LUCID_TTS`, then the spike's venv.
+
+    No PATH step, for `describe.vlm_python`'s reason: `python` is always on PATH
+    and is almost never the one with a CUDA torch in it.
+    """
+    override = os.environ.get("LUCID_TTS")
+    if override and Path(override).expanduser().exists():
+        return Path(override).expanduser()
+    if SIBLING_VENV.exists():
+        return SIBLING_VENV
+    raise TTSError(
+        "no interpreter with a voice synthesiser. Looked at $LUCID_TTS "
+        f"({override or 'unset'}), then {SIBLING_VENV}. Set LUCID_TTS to the "
+        "python in a venv that has qwen-tts and a CUDA torch."
+    )
+
+
+def model_dir() -> Path:
+    """The stock Qwen3-TTS model directory — `LUCID_TTS_MODEL`, then the spike's download."""
+    override = os.environ.get("LUCID_TTS_MODEL")
+    if override and Path(override).expanduser().is_dir():
+        return Path(override).expanduser()
+    if SIBLING_MODEL.is_dir():
+        return SIBLING_MODEL
+    raise TTSError(
+        "no Qwen3-TTS model directory. Looked at $LUCID_TTS_MODEL "
+        f"({override or 'unset'}), then {SIBLING_MODEL}. Set LUCID_TTS_MODEL to a "
+        "local snapshot of Qwen/Qwen3-TTS-12Hz-1.7B-Base."
+    )
+
+
+def voice_dir(voice: str | Path | None = None) -> Path:
+    """Resolve a voice — a directory holding `ref.wav` and `ref.txt`.
+
+    An explicit `voice` wins; then `LUCID_TTS_VOICE`; then the spike's default.
+    A directory missing either file is refused here, by name, rather than
+    discovered as a worker traceback: the transcript is what makes the
+    reference usable (ICL mode needs the words), and a voice with the audio
+    alone would synthesise — with whatever the model guessed the words were.
+    """
+    if voice is not None:
+        candidate = Path(voice).expanduser()
+        source = "voice argument"
+    else:
+        override = os.environ.get("LUCID_TTS_VOICE")
+        if override:
+            candidate, source = Path(override).expanduser(), "$LUCID_TTS_VOICE"
+        else:
+            candidate, source = SIBLING_VOICE, "the default voice"
+    missing = [name for name in ("ref.wav", "ref.txt") if not (candidate / name).is_file()]
+    if missing:
+        raise TTSError(
+            f"voice {candidate} ({source}) is missing {', '.join(missing)} — a voice is a "
+            "directory holding ref.wav (≈10–20 s of one speaker, no music) and ref.txt (its words)."
+        )
+    return candidate
+
+
+def available() -> dict[str, Any]:
+    """Whether this box can synthesise, and what is missing if it cannot — a report, never a raise."""
+    report: dict[str, Any] = {"available": False, "python": None, "model": None, "voice": None, "why": None}
+    try:
+        report["python"] = str(tts_python())
+        report["model"] = str(model_dir())
+        report["voice"] = str(voice_dir())
+    except TTSError as exc:
+        report["why"] = str(exc)
+        return report
+    if not _WORKER.exists():  # pragma: no cover — only a broken install
+        report["why"] = f"lucid's own worker script is missing: {_WORKER}"
+        return report
+    report["available"] = True
+    return report
+
+
+def max_new_tokens(max_seconds: float) -> int:
+    """The token cap that bounds a render at `max_seconds` of audio."""
+    if max_seconds <= 0:
+        raise TTSError(f"max_seconds must be positive, not {max_seconds!r}")
+    return math.ceil(max_seconds * TOKENS_PER_SECOND)
+
+
+def synth(
+    text: str,
+    voice: Path,
+    out_dir: Path,
+    seeds: list[int],
+    *,
+    max_seconds: float,
+    language: str = LANGUAGE,
+) -> list[dict[str, Any]]:
+    """Render `text` once per seed in `voice`, into `out_dir`, in one worker process.
+
+    Returns one entry per seed, in seed order: `{"seed", "path", "duration",
+    "sim", "capped"}` or `{"seed", "error"}`. A *seed* failing is reported
+    against that seed — the other candidates are still the answer — while the
+    worker failing to start at all is an exception, because nothing was
+    rendered. One process for the whole list because the model loads in ~5 s
+    and renders a sentence in ~3, `faces.detect`'s reason.
+
+    Deliberately no timeout, for `asr.transcribe`'s reason.
+    """
+    if not seeds:
+        return []
+    python = tts_python()
+    model = model_dir()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="lucid-tts-") as tmp:
+        job_path = Path(tmp) / "job.json"
+        out_path = Path(tmp) / "out.json"
+        job_path.write_text(
+            json.dumps(
+                {
+                    "model": str(model),
+                    "text": text,
+                    "language": language,
+                    "ref_audio": str(voice / "ref.wav"),
+                    "ref_text": (voice / "ref.txt").read_text(encoding="utf-8").strip(),
+                    "seeds": [int(s) for s in seeds],
+                    "max_new_tokens": max_new_tokens(max_seconds),
+                    "out_dir": str(out_dir),
+                }
+            ),
+            encoding="utf-8",
+        )
+        cmd = [str(python), str(_WORKER), str(job_path), str(out_path)]
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not out_path.exists():
+            raise TTSError(_worker_failure(python, completed))
+        payload = json.loads(out_path.read_text(encoding="utf-8"))
+    results = {int(r["seed"]): r for r in payload.get("candidates", [])}
+    missing = [s for s in seeds if int(s) not in results]
+    if missing:
+        raise TTSError(
+            f"the synthesiser returned nothing for {len(missing)} of {len(seeds)} seeds (first: {missing[0]})"
+        )
+    cap = max_new_tokens(max_seconds) / TOKENS_PER_SECOND
+    out = []
+    for seed in seeds:
+        entry = dict(results[int(seed)])
+        if "error" not in entry:
+            # A render at the cap did not end because the line ended; it ended
+            # because the cap did, and is reported as such rather than ranked.
+            entry["capped"] = float(entry["duration"]) >= cap - 1.0
+        out.append(entry)
+    return out
+
+
+def _worker_failure(python: Path, completed: subprocess.CompletedProcess[str]) -> str:
+    tail = "\n".join(completed.stderr.strip().splitlines()[-12:])
+    return (
+        f"the voice synthesiser failed (exit {completed.returncode}) under {python}."
+        + (f"\n{tail}" if tail else " It wrote nothing to stderr.")
+    )

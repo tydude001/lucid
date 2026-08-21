@@ -9853,3 +9853,75 @@ action — *the clause is false and needs correcting* — for a clause cut in
 2c7d119 on the day the entry was written. Twelve days of a doc naming a fix
 that had already shipped, invisible because nobody re-reads a correction they
 already believe.
+
+## `vo_synth`, built — 2026-08-21
+
+The op that says a line in Tyler's voice, and the four rounds of measurement
+that decided its shape. The spike is `~/lucid-work/voice-clone/`; the record is
+local-llm's `notes/voice-clone-zero-shot.md` (rounds 1–4, 2026-08-20/21). What
+it found, in the order it overturned its own plan:
+
+- **Zero-shot beat every fine-tune on likeness.** Qwen3-TTS-12Hz-1.7B-Base,
+  given 18.9 s of the Scream-REVEAL VO and its words, scored **0.989** on the
+  model's own speaker encoder against Tyler's real held-out takes' 0.993 (the
+  same takes pitch-shifted ±3 semitones score 0.954–0.967 — that is the scale).
+  A full fine-tune on 36.5 min of his VO (278 utterances, paged 8-bit AdamW,
+  frozen text embedding, 8.0 GB on the 5070) scored 0.988 at epoch 1 and
+  **drifted away with every epoch** to 0.985; Tyler's verdict on it was "still
+  off". The upstream-default learning rate (2e-5, 16 epochs) **collapsed** —
+  memorised the clips, every render ran to the token cap as babble, WER ~100%.
+- **It was not the data.** Three quarters of the training minutes were the
+  2024 VOs (different mics), so the obvious read was "it learned 2024-Tyler" —
+  but the fine-tune's renders sat *further* from the 2024 average than
+  zero-shot's did (0.961 against 0.974), and the control — the same recipe on
+  the 2026 VO alone — drifted the same way (0.9865 → 0.9816 over 27 epochs).
+  The drift is the recipe's, and the one fact every training run shared is
+  upstream's one-fixed-reference speaker embedding stamped on every clip.
+- **Seed moved a render more than the reference did** (round 2), and the
+  inference-side levers (reference in context on the fine-tuned talker,
+  `instruct`, temperature) moved intelligibility and not likeness — the
+  reference-in-context variant was the most intelligible thing measured
+  (WER 0.6%) and the least like him short of the collapsed run (0.975).
+
+So the voice is **a directory holding `ref.wav` + `ref.txt`, never a
+checkpoint**, and the op **buys several tickets and ranks them**:
+
+- `tts.py` is the fourth subprocess-behind-an-interpreter (`LUCID_TTS` → the
+  spike's `venv-qwen`, whose cu128 torch runs on the host without the
+  distrobox; `LUCID_TTS_MODEL`, `LUCID_TTS_VOICE` the same way), and
+  `_tts_worker.py` ships to be run by it. One process per call: the model
+  loads in ~5 s and renders a sentence in ~3.
+- `ops.vo_synth` renders seeds `seed..seed+candidates-1`, gets back each
+  candidate's `sim` — cosine of its speaker embedding against the reference,
+  computed in the worker with the encoder the model itself conditions on — and
+  the highest wins, lower seed on a tie. A render at the length cap
+  (`max_seconds` → `max_new_tokens` at the codec's measured 12.5 tokens/s; one
+  21 s reference once ran every render out to 655 s) is `capped` and never
+  wins while an uncapped one exists. The winner is **read back** through
+  whisper (`small.en`) and `heard`/`wer` reported beside it — a report, never
+  a gate. Renders cache under `cache/synth/<key>/` (voice, text, cap), so a
+  repeat is free and a wider seed range renders only what it lacks;
+  preview-class containment, `thumbnail`'s.
+- **The splice is `vo_extend`'s own mechanism**, factored into
+  `_splice_after` (`_splice_point` resolves the word and refuses one that is
+  not on the timeline *before* the GPU is spent) with a `register_as` so the
+  manifest reads `synth-<key>-s<seed>` rather than `s1`. Every one-way
+  consequence there is this op's: melt routing on the second `clip_id`,
+  `restore` refusing across the seam, `covered_by` naming the picture that now
+  runs over it.
+
+Verified live, not only by the stubbed tests: on a scratch project holding 40 s
+of VO2, `lucid vo-synth "Scream 1996 is the only movie…"` rendered three
+candidates and read the winner back at WER 0 in 21 s wall; `--after vo 11`
+spliced a 2.0 s line after "2," (timeline 34.5 → 36.5 s, `covered_by: []`);
+`export --render` went through melt at 36.501 s, `agrees: true`; and whisper
+over the *render* found "And that is the whole trick." at 6.38–7.28 s between
+"Scream 2." and "Billy's mother." Which is the only verification that counts —
+`caption_style` taught that a status line can describe a burn that never
+happened.
+
+What is still open is the listening verdict on the op's own output, which is
+Tyler's; what is parked is the fine-tune route — the levers not tried are a
+lower learning rate, a per-clip speaker embedding in place of upstream's fixed
+one, LoRA, and F5-TTS's own recipe — and the wiki's Open items row holds that.
+

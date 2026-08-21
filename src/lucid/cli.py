@@ -11,7 +11,17 @@ import argparse
 import json
 import sys
 
-from lucid import __version__, asr, captions, describe, energy, ops, reviewserver, webui
+from lucid import (
+    __version__,
+    asr,
+    captions,
+    describe,
+    energy,
+    ops,
+    reviewserver,
+    tts,
+    webui,
+)
 from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.describe import DescribeError
@@ -942,6 +952,34 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and report covered_by without writing"
     )
 
+    p_vo_synth = sub.add_parser(
+        "vo-synth",
+        help="say a line in a cloned voice: render several seeds, rank by likeness, read back",
+    )
+    p_vo_synth.add_argument("text", help="the words to say")
+    p_vo_synth.add_argument(
+        "--voice", help="a directory holding ref.wav + ref.txt (default: $LUCID_TTS_VOICE, then the default voice)"
+    )
+    p_vo_synth.add_argument(
+        "--candidates", type=int, default=ops.SYNTH_CANDIDATES, help="how many seeds to render and rank"
+    )
+    p_vo_synth.add_argument("--seed", type=int, default=0, help="the first seed of the range")
+    p_vo_synth.add_argument(
+        "--max-seconds", type=float, default=ops.SYNTH_MAX_SECONDS, help="the hard length cap on a render"
+    )
+    p_vo_synth.add_argument(
+        "--after",
+        nargs=2,
+        metavar=("CLIP_ID", "WORD_INDEX"),
+        help="splice the winner into this clip's track right after this word",
+    )
+    p_vo_synth.add_argument(
+        "--no-readback", action="store_true", help="skip the whisper readback of the winner"
+    )
+    p_vo_synth.add_argument(
+        "--plan", action="store_true", help="resolve and report (and rank, if cached) without rendering or writing"
+    )
+
     p_reel = sub.add_parser(
         "reel", help="derive a new project holding one span of this one's timeline"
     )
@@ -1864,6 +1902,24 @@ def _cmd_vo_extend(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_vo_synth(args: argparse.Namespace) -> int:
+    clip_id, word_index = (None, None) if args.after is None else (args.after[0], int(args.after[1]))
+    return _emit(
+        ops.vo_synth(
+            args.project,
+            args.text,
+            voice=args.voice,
+            candidates=args.candidates,
+            seed=args.seed,
+            max_seconds=args.max_seconds,
+            clip_id=clip_id,
+            word_index=word_index,
+            readback=not args.no_readback,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_reel(args: argparse.Namespace) -> int:
     start, end = args.keep
     return _emit(
@@ -2119,6 +2175,7 @@ _COMMANDS = {
     "tail": _cmd_tail,
     "music": _cmd_music,
     "vo-extend": _cmd_vo_extend,
+    "vo-synth": _cmd_vo_synth,
     "reel": _cmd_reel,
     "review": _cmd_review,
     "reframe": _cmd_reframe,
@@ -2154,6 +2211,9 @@ _EXPECTED = (
     # The vision model is missing, or failed on a clip — a message naming
     # which interpreter was looked for, not a traceback.
     DescribeError,
+    # Same shape for the voice synthesiser: no interpreter, an incomplete
+    # voice, or a worker that died.
+    tts.TTSError,
     VerifyError,
     PictureError,
     EnergyError,

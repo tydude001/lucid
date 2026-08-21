@@ -343,6 +343,39 @@ It is project state, so a derivation knows it existed rather than dropping it
 without a word — `reel` reports `tail_dropped`. `Edit` does not grow to
 describe one, so `timeline_duration` still answers for the cut itself.
 
+## Saying a line in a cloned voice
+
+`vo-synth` renders a sentence in a cloned voice — zero-shot Qwen3-TTS given a
+reference clip and its words — several times, ranks the renders by how close
+each one's voice is to the reference, reads the winner back through whisper,
+and optionally splices it into the VO track the way `vo-extend` splices a hold:
+
+```sh
+lucid -C myproject vo-synth "And that is the whole trick."            # 3 seeds, ranked, read back
+lucid -C myproject vo-synth "…" --candidates 5 --seed 10              # a different set of tickets
+lucid -C myproject vo-synth "…" --after vo 11                         # splice after word 11 of clip vo
+lucid -C myproject vo-synth "…" --after vo 11 --plan                  # rank (if cached) and preview, write nothing
+lucid -C myproject vo-synth "…" --voice ~/voices/tyler                # a directory holding ref.wav + ref.txt
+```
+
+The reply names every candidate with its `sim` (the model's own speaker-encoder
+cosine against the reference — a real take of the same speaker ≈0.99, a
+three-semitone pitch shift ≈0.96), the `chosen` one, anything `capped` by the
+length limit (`--max-seconds`, default 20 — a capped render did not end because
+the line did, and never wins while an uncapped one exists), and `heard`/`wer`
+from the readback. Renders cache under `cache/synth/` per (voice, text, cap), so
+repeating a line is free and widening `--candidates` renders only the seeds it
+lacks. A splice registers the winner as `synth-<key>-s<seed>` and goes through
+`vo-extend`'s mechanism, with the same consequences: export switches to melt,
+`restore` refuses across the seam, and `covered_by` names any picture now
+running over the new seconds.
+
+The synthesiser is a subprocess in another interpreter (`LUCID_TTS`, then the
+voice-clone venv under `~/lucid-work/voice-clone/`; `LUCID_TTS_MODEL` and
+`LUCID_TTS_VOICE` likewise), and `lucid vo-synth … --plan` reports what it
+resolved. Why a reference clip and not a fine-tuned model: HISTORY.md
+§ `vo_synth`, built.
+
 ## Reframing
 
 The footage does follow on its own, by cropping to fill rather than
