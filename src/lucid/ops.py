@@ -7690,12 +7690,12 @@ def vo_synth(
             "cache_dir": str(out_dir),
             "rendered": False,
             "missing_seeds": missing,
-            "synth": tts.available(),
+            "synth": tts.available(voice_path),
             "plan": True,
             "written": False,
         }
     if missing:
-        detector = tts.available()
+        detector = tts.available(voice_path)
         if not detector["available"]:
             raise tts.TTSError(str(detector["why"]))
         for entry in tts.synth(text, voice_path, out_dir, missing, max_seconds=max_seconds):

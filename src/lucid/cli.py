@@ -958,7 +958,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_vo_synth.add_argument("text", help="the words to say")
     p_vo_synth.add_argument(
-        "--voice", help="a directory holding ref.wav + ref.txt (default: $LUCID_TTS_VOICE, then the default voice)"
+        "--voice", help="a directory holding ref.wav + ref.txt (default: $LUCID_TTS_VOICE; there is no built-in voice)"
     )
     p_vo_synth.add_argument(
         "--candidates", type=int, default=ops.SYNTH_CANDIDATES, help="how many seeds to render and rank"

@@ -504,9 +504,11 @@ installed package or the upstream repo, not your memory.
       the same — it is the recipe, not the data, and **do not reach for a
       fine-tune to fix likeness** (local-llm `notes/voice-clone-zero-shot.md`
       § Round 4). `tts.py` is the fourth interpreter-behind-an-env
-      (`LUCID_TTS`/`LUCID_TTS_MODEL`/`LUCID_TTS_VOICE`, defaulting into
-      `~/lucid-work/voice-clone/` — **which is therefore a runtime dependency
-      and stays where it is, never archived as a finished spike**). Seed moves
+      (`LUCID_TTS`/`LUCID_TTS_MODEL` default into `~/lucid-work/voice-clone/`
+      — **which is therefore a runtime dependency and stays where it is, never
+      archived as a finished spike** — but **the voice has no default on
+      purpose**: `--voice`/`LUCID_TTS_VOICE` or it refuses, so a public
+      checkout holds neither a reference clip nor a path to one). Seed moves
       a render more than the reference does, so the op renders N and ranks by
       `sim`; a render at the length cap is `capped` and never wins (a 21 s
       reference once ran every render to 655 s); the winner is read back

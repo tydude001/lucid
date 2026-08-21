@@ -28,8 +28,13 @@ as `capped` rather than trusted.
 detector are.** `LUCID_TTS` names a Python interpreter with `qwen_tts` and a
 CUDA torch in it; failing that, the voice-clone spike's venv, which is the one
 this box actually has. lucid's own venv stays free of torch (`asr.py`'s
-argument). `LUCID_TTS_MODEL` and `LUCID_TTS_VOICE` override the model
-directory and the default voice the same way.
+argument). `LUCID_TTS_MODEL` overrides the model directory the same way.
+
+**The voice is configuration, never a default in this file.** A voice is one
+person's identity, so unlike the interpreter and the stock model there is no
+sibling fallback for it: `vo_synth` takes `voice=` or reads `LUCID_TTS_VOICE`,
+and with neither it refuses by name. A checkout of this repo holds no
+reference clip and no path to one.
 
 This module has no lucid dependencies on purpose, the same as `asr`,
 `describe` and `faces`.
@@ -55,9 +60,6 @@ SIBLING_VENV = Path.home() / "lucid-work" / "voice-clone" / "venv-qwen" / "bin" 
 #: it — a synth that silently reaches for 3.7 GB on first call is a synth that
 #: fails in a way nobody attributes to synthesis (`faces.MODEL`'s rule).
 SIBLING_MODEL = Path.home() / "lucid-work" / "voice-clone" / "models" / "Qwen3-TTS-12Hz-1.7B-Base"
-
-#: The default voice: the 18.9 s Scream-REVEAL reference Tyler picked in round 1.
-SIBLING_VOICE = Path.home() / "lucid-work" / "voice-clone" / "voice" / "tyler"
 
 #: Qwen3-TTS's 12 Hz codec, measured: `max_new_tokens=420` rendered 33.5 s.
 TOKENS_PER_SECOND = 12.5
@@ -107,7 +109,8 @@ def model_dir() -> Path:
 def voice_dir(voice: str | Path | None = None) -> Path:
     """Resolve a voice — a directory holding `ref.wav` and `ref.txt`.
 
-    An explicit `voice` wins; then `LUCID_TTS_VOICE`; then the spike's default.
+    An explicit `voice` wins; then `LUCID_TTS_VOICE`; there is deliberately no
+    third step (this module's docstring — a voice is a person, not tooling).
     A directory missing either file is refused here, by name, rather than
     discovered as a worker traceback: the transcript is what makes the
     reference usable (ICL mode needs the words), and a voice with the audio
@@ -118,10 +121,13 @@ def voice_dir(voice: str | Path | None = None) -> Path:
         source = "voice argument"
     else:
         override = os.environ.get("LUCID_TTS_VOICE")
-        if override:
-            candidate, source = Path(override).expanduser(), "$LUCID_TTS_VOICE"
-        else:
-            candidate, source = SIBLING_VOICE, "the default voice"
+        if not override:
+            raise TTSError(
+                "no voice: pass voice=<dir> (CLI --voice) or set LUCID_TTS_VOICE to a directory "
+                "holding ref.wav (≈10–20 s of one speaker, no music) and ref.txt (its words). "
+                "There is no default voice on purpose."
+            )
+        candidate, source = Path(override).expanduser(), "$LUCID_TTS_VOICE"
     missing = [name for name in ("ref.wav", "ref.txt") if not (candidate / name).is_file()]
     if missing:
         raise TTSError(
@@ -131,13 +137,17 @@ def voice_dir(voice: str | Path | None = None) -> Path:
     return candidate
 
 
-def available() -> dict[str, Any]:
-    """Whether this box can synthesise, and what is missing if it cannot — a report, never a raise."""
+def available(voice: str | Path | None = None) -> dict[str, Any]:
+    """Whether this box can synthesise, and what is missing if it cannot — a report, never a raise.
+
+    `voice` is checked too (the argument, else `LUCID_TTS_VOICE`), because a
+    box with the model and no voice cannot synthesise either.
+    """
     report: dict[str, Any] = {"available": False, "python": None, "model": None, "voice": None, "why": None}
     try:
         report["python"] = str(tts_python())
         report["model"] = str(model_dir())
-        report["voice"] = str(voice_dir())
+        report["voice"] = str(voice_dir(voice))
     except TTSError as exc:
         report["why"] = str(exc)
         return report

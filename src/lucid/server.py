@@ -1500,7 +1500,7 @@ def vo_synth(
     The backend is zero-shot Qwen3-TTS with a ≈19 s reference clip (`tts.py`
     — measured in local-llm's voice-clone note to beat every fine-tune on the
     model's own speaker-encoder likeness). `voice` is a directory holding
-    `ref.wav` + `ref.txt`; unset, `$LUCID_TTS_VOICE`, then the default voice.
+    `ref.wav` + `ref.txt`; unset, `$LUCID_TTS_VOICE`. There is no built-in voice.
 
     Seeds `seed .. seed+candidates-1` render in one process; each comes back
     with `sim` (cosine of its speaker embedding against the reference — a real

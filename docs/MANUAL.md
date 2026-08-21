@@ -355,7 +355,7 @@ lucid -C myproject vo-synth "And that is the whole trick."            # 3 seeds,
 lucid -C myproject vo-synth "…" --candidates 5 --seed 10              # a different set of tickets
 lucid -C myproject vo-synth "…" --after vo 11                         # splice after word 11 of clip vo
 lucid -C myproject vo-synth "…" --after vo 11 --plan                  # rank (if cached) and preview, write nothing
-lucid -C myproject vo-synth "…" --voice ~/voices/tyler                # a directory holding ref.wav + ref.txt
+lucid -C myproject vo-synth "…" --voice ~/voices/me                   # a directory holding ref.wav + ref.txt
 ```
 
 The reply names every candidate with its `sim` (the model's own speaker-encoder
@@ -371,9 +371,10 @@ lacks. A splice registers the winner as `synth-<key>-s<seed>` and goes through
 running over the new seconds.
 
 The synthesiser is a subprocess in another interpreter (`LUCID_TTS`, then the
-voice-clone venv under `~/lucid-work/voice-clone/`; `LUCID_TTS_MODEL` and
-`LUCID_TTS_VOICE` likewise), and `lucid vo-synth … --plan` reports what it
-resolved. Why a reference clip and not a fine-tuned model: HISTORY.md
+voice-clone venv under `~/lucid-work/voice-clone/`; `LUCID_TTS_MODEL` likewise).
+**The voice is yours to supply** — `--voice` or `LUCID_TTS_VOICE`; lucid ships
+no reference clip and has no default voice. `lucid vo-synth … --plan` reports
+what it resolved. Why a reference clip and not a fine-tuned model: HISTORY.md
 § `vo_synth`, built.
 
 ## Reframing

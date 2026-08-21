@@ -9925,3 +9925,11 @@ Tyler's; what is parked is the fine-tune route — the levers not tried are a
 lower learning rate, a per-clip speaker embedding in place of upstream's fixed
 one, LoRA, and F5-TTS's own recipe — and the wiki's Open items row holds that.
 
+Same day, one deliberate asymmetry: the interpreter and the stock model have a
+sibling-path fallback (they are tooling, `faces.SIBLING_VENV`'s precedent); the
+**voice does not**. It is one person's identity, so `vo_synth` takes `voice=` or
+`LUCID_TTS_VOICE` and refuses by name with neither — a checkout of this repo
+holds no reference clip and no path to one, and the GitHub mirror is private
+besides. The listening verdict is pinned, not answered; the preview pages are
+down and `make-listen.py` rebuilds them.
+
