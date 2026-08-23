@@ -176,6 +176,22 @@ def display_env() -> dict[str, str]:
     return env
 
 
+#: Qt platform plugins that draw with no display server behind them. A render
+#: under one of these needs no socket at all: measured 2026-08-23 on this box
+#: (seat at the greeter, no wayland-* socket, no Xvfb anywhere), one frame of a
+#: red PNG through a `qimage` producer came back (229, 0, 1) under both — the
+#: same measurement `goodsometimes/scripts/render.py::qt_draws` makes. It is
+#: the route for a background job with no session, which is every unattended
+#: render; a host-socket check alone refused renders that would have worked.
+HEADLESS_QT_PLATFORMS = frozenset({"offscreen", "minimal"})
+
+
+def qt_is_headless(env: dict[str, str] | None = None) -> bool:
+    """Is Qt told to draw without a display? (`QT_QPA_PLATFORM=offscreen`)."""
+    value = (env if env is not None else os.environ).get("QT_QPA_PLATFORM", "")
+    return value.split(":", 1)[0].strip().lower() in HEADLESS_QT_PLATFORMS
+
+
 def parse_melt_xml(document: str) -> int:
     """The frame count melt says it will render, out of `-consumer xml` output.
 
@@ -466,12 +482,14 @@ def render(
     destination = Path(output).expanduser()
 
     env = display_env()
-    if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY")):
+    if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY") or qt_is_headless(env)):
         raise PictureError(
             "no display for MLT's Qt module to open, so this render would drop "
             "every `qimage` producer and the `qtblend` transition — the picture "
             "lane would be missing and melt would still exit 0 (HISTORY.md § 4). "
-            "Set WAYLAND_DISPLAY or DISPLAY, or run this where a session exists."
+            "Set WAYLAND_DISPLAY or DISPLAY, run this where a session exists, or "
+            "set QT_QPA_PLATFORM=offscreen — measured 2026-08-23 to draw a "
+            "`qimage` producer with no session at all."
         )
 
     work = scratch("render-")

@@ -369,6 +369,27 @@ def test_a_render_that_disagrees_is_not_copied_into_place(
     assert Path(staged).is_file()
 
 
+def test_a_headless_qt_platform_counts_as_a_display(
+    melt: _FakeMelt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`QT_QPA_PLATFORM=offscreen` draws a `qimage` producer with no socket at
+    all (measured 2026-08-23, red in → red out), so a background job with no
+    session renders under it rather than being refused for the socket it
+    does not need."""
+    monkeypatch.setattr(picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    try:
+        picture.render(project, tmp_path / "out.mp4")
+    except picture.PictureError as exc:
+        assert "no display" not in str(exc)
+    assert picture.qt_is_headless({"QT_QPA_PLATFORM": "offscreen"})
+    assert picture.qt_is_headless({"QT_QPA_PLATFORM": "minimal:tty"})
+    assert not picture.qt_is_headless({"QT_QPA_PLATFORM": "wayland"})
+    assert not picture.qt_is_headless({})
+
+
 def test_a_render_with_no_display_refuses_rather_than_dropping_the_picture_lane(
     melt: _FakeMelt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

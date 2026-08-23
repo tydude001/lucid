@@ -659,8 +659,17 @@ installed package or the upstream repo, not your memory.
     `picture.display_env()`, which exports both — and note the environment it
     is compensating for is the **MCP stdio transport's**, which passes HOME,
     PATH and little else. HISTORY.md § Rendering through `melt`.
+    - **And a session with no desktop at all renders under
+      `QT_QPA_PLATFORM=offscreen`** — measured 2026-08-23 with the seat at the
+      greeter and no `wayland-*` socket anywhere: a red PNG through a `qimage`
+      producer came back red, so `picture.render` accepts a headless Qt
+      platform (`qt_is_headless`) where it used to refuse for a socket it did
+      not need. The Kdenlive flatpak ships **no** `xvfb-run` — a goodsometimes
+      note claiming its `melt` wrapped one was wrong about the mechanism — so
+      this is the route for every unattended render. Set it alongside
+      `DISPLAY`/`WAYLAND_DISPLAY` only if you want; it is sufficient alone.
     - So **a session with no desktop behind it cannot run the five
-      melt-rendering tests in `test_server_stdio.py`** — `export` refuses with
+      melt-rendering tests in `test_server_stdio.py`** without that variable — `export` refuses with
       "no display for MLT's Qt module to open", correctly, and they fail as a
       `JSONDecodeError` on the refusal text. Five failures there and nowhere
       else is the environment, not a regression; confirm by stashing `src/`
