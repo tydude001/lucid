@@ -4254,9 +4254,11 @@ def test_finish_framing_is_opt_in_and_zero_is_not_none(server: str) -> None:
 # whether the policy that configures it agrees.
 
 #: What `--tailscale` would have filled in: a 100.x bind address and the
-#: MagicDNS name a phone typing the short name actually presents.
-_TAILNET_HOST = "100.x.y.z"
-_TAILNET_NAME = "<host>.<tailnet>.ts.net"
+#: MagicDNS name a phone typing the short name actually presents. Synthetic
+#: values — no real node is named here, and nothing in `remote_policy` or
+#: `tailscale_identity` reads these as anything but opaque host strings.
+_TAILNET_HOST = "100.101.102.103"
+_TAILNET_NAME = "lucid-box.tailnet-example.ts.net"
 
 
 @pytest.fixture
@@ -4340,7 +4342,7 @@ def test_an_ipv6_client_name_is_stored_in_both_spellings() -> None:
     `_LOOPBACK_NAMES` has carried both `::1` and `[::1]` from the start for
     this reason.
     """
-    v6 = "fd7a:115c:a1e0::…"
+    v6 = "fd7a:115c:a1e0::1"
     _token, allowed = webui.remote_policy(
         host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[v6, _TAILNET_NAME]
     )
@@ -4351,7 +4353,7 @@ def test_an_ipv6_client_name_is_stored_in_both_spellings() -> None:
 
 
 def test_an_ipv6_host_header_is_answered(project: Path) -> None:
-    v6 = "fd7a:115c:a1e0::…"
+    v6 = "fd7a:115c:a1e0::1"
     token, allowed = webui.remote_policy(
         host=_TAILNET_HOST, allow_remote=True, allow_remote_hosts=[v6]
     )
@@ -4489,8 +4491,8 @@ def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_pat
     payload = json.dumps(
         {
             "BackendState": "Running",
-            "TailscaleIPs": [_TAILNET_HOST, "fd7a:115c:a1e0::…"],
-            "Self": {"HostName": "homebase", "DNSName": _TAILNET_NAME + "."},
+            "TailscaleIPs": [_TAILNET_HOST, "fd7a:115c:a1e0::1"],
+            "Self": {"HostName": "lucid-box", "DNSName": _TAILNET_NAME + "."},
         }
     )
     fake.write_text(f"#!/bin/sh\ncat <<'EOF'\n{payload}\nEOF\n", encoding="utf-8")
@@ -4503,7 +4505,7 @@ def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_pat
     # The root dot `tailscale status` reports is stripped here as well as in
     # `remote_policy`: a browser never sends it, and a name that only matches
     # with it would refuse every real client.
-    assert set(names) >= {_TAILNET_HOST, "fd7a:115c:a1e0::…", _TAILNET_NAME, "homebase"}
+    assert set(names) >= {_TAILNET_HOST, "fd7a:115c:a1e0::1", _TAILNET_NAME, "lucid-box"}
 
 
 def test_the_cookie_is_not_stamped_onto_a_later_request_on_the_same_connection(

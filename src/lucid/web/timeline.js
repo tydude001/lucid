@@ -967,9 +967,10 @@ function drawRangeBand(lanes, g, pxPerSec) {
  * mouseup arrives, and Chrome suppresses the trailing native 'click' exactly
  * as it did before the timer existed — click-to-seek stayed broken for every
  * real click on a transcript lane, just no longer for a script-driven one.
- * Measured with a dwell-time probe:
- * `/home/<user>/.claude/jobs/c23505b8/tmp/dwell/dwell_probe.py` — seeks at
- * 0ms and 5ms dwell, silently fails at 10ms and every dwell above it.
+ * Measured with a dwell-time probe: seeks at 0ms and 5ms dwell, silently
+ * fails at 10ms and every dwell above it. The full table, and why this is
+ * the most transferable finding of that session, is HISTORY.md § The
+ * dwell-timing lesson.
  *
  * A cue drag's `.drag-box`, a trim drag's `.trim-preview`, and a razor drag's
  * `.range-band` are the ONLY three things this function ever draws or
