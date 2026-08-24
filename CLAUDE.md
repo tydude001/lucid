@@ -517,9 +517,12 @@ installed package or the upstream repo, not your memory.
       purpose**: `--voice`/`LUCID_TTS_VOICE` or it refuses, so a public
       checkout holds neither a reference clip nor a path to one). Seed moves
       a render more than the reference does, so the op renders N and ranks by
-      `sim`; a render at the length cap is `capped` and never wins (a 21 s
-      reference once ran every render to 655 s); the winner is read back
-      through whisper and `heard`/`wer` are a **report, never a gate**. The
+      `sim` less a flatness penalty — likeness alone keeps the flattest read
+      (HISTORY.md § The synth ranks flatness); a render at the length cap is
+      `capped` and never wins (a 21 s reference once ran every render to
+      655 s); the winner is read back through whisper — through the project's
+      `lexicon.json` folds, if one exists — and `heard`/`wer` are a
+      **report, never a gate**. The
       splice is `_splice_after`, shared with `vo_extend`, and `_splice_point`
       refuses a cut word *before* the GPU is spent. HISTORY.md § `vo_synth`,
       built.
