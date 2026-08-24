@@ -11,6 +11,7 @@ the wrong one, at all.
 from __future__ import annotations
 
 import http.client
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -207,3 +208,103 @@ def test_a_finish_check_keyed_to_a_different_sha256_does_not_match(
     assert status == 200
     assert b"no finish_check yet" in body
     assert b"5 fault" not in body
+
+
+# -- A/B grouping ------------------------------------------------------------
+
+
+def _add_ab_pair(project: Path, suffix: str = "mp4") -> None:
+    (project / "renders" / f"a.{suffix}").write_bytes(b"A" * 500)
+    (project / "renders" / f"b.{suffix}").write_bytes(b"B" * 500)
+    ops.review_add(project, "a", f"renders/a.{suffix}", kind="ab")
+    ops.review_add(project, "b", f"renders/b.{suffix}", kind="ab")
+
+
+def _extract_section(body: bytes, name: str) -> bytes:
+    """The `<section>...</section>` whose `<h2>` names `name` — non-greedy so
+    it stops at the first close, and DOTALL because the block spans lines."""
+    pattern = re.compile(
+        rb"<section>\s*<h2>" + re.escape(name.encode()) + rb".*?</section>", re.DOTALL
+    )
+    match = pattern.search(body)
+    assert match, f"no <section> found for {name!r} in:\n{body!r}"
+    return match.group(0)
+
+
+def test_two_ab_items_render_one_shared_player_and_both_pick_buttons(
+    project: Path, server: str
+) -> None:
+    _add_ab_pair(project)
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+
+    # One shared player, not one <video> per A/B item — the "teaser" render
+    # fixture item still gets its own ordinary <video>, so two total.
+    assert body.count(b"<video") == 2
+    ab_players = re.findall(rb'<video id="(ab-[0-9a-f]+)-player"', body)
+    assert len(ab_players) == 1
+
+    assert f'data-src="/media/a?t={TOKEN}"'.encode() in body
+    assert f'data-src="/media/b?t={TOKEN}"'.encode() in body
+
+
+def test_a_lone_ab_item_renders_as_an_ordinary_section(project: Path, server: str) -> None:
+    (project / "renders" / "solo.mp4").write_bytes(b"S" * 500)
+    ops.review_add(project, "solo", "renders/solo.mp4", kind="ab")
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+
+    assert b"<script" not in body
+    assert b'class="ab-group"' not in body
+    solo_section = _extract_section(body, "solo")
+    assert f'src="/media/solo?t={TOKEN}"'.encode() in solo_section
+
+
+def test_ab_items_of_mixed_media_kind_fall_back_to_independent_sections(
+    project: Path, server: str
+) -> None:
+    (project / "renders" / "vid.mp4").write_bytes(b"V" * 500)
+    (project / "renders" / "aud.wav").write_bytes(b"W" * 500)
+    ops.review_add(project, "vid", "renders/vid.mp4", kind="ab")
+    ops.review_add(project, "aud", "renders/aud.wav", kind="ab")
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+
+    assert b"<script" not in body
+    assert b'class="ab-group"' not in body
+    vid_section = _extract_section(body, "vid")
+    aud_section = _extract_section(body, "aud")
+    assert f'src="/media/vid?t={TOKEN}"'.encode() in vid_section
+    assert f'src="/media/aud?t={TOKEN}"'.encode() in aud_section
+
+
+def test_non_ab_items_are_unaffected_by_an_ab_group_on_the_same_page(
+    project: Path, server: str
+) -> None:
+    """Regression guard against the partition logic leaking: the "render"
+    item's own section must come out byte-for-byte identical whether or not
+    an "ab" group shares the page with it."""
+    status, _, before = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+    before_section = _extract_section(before, "teaser")
+
+    _add_ab_pair(project)
+
+    status, _, after = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+    after_section = _extract_section(after, "teaser")
+
+    assert after_section == before_section
+
+
+def test_an_ab_group_member_with_no_token_is_forbidden(project: Path, server: str) -> None:
+    """The fold must not create a new unauthenticated path: every data-src,
+    src and form-action on the page still needs the token, including a
+    grouped item's own /media/ route."""
+    _add_ab_pair(project)
+
+    status, _, _ = _get(f"{server}/media/a")
+    assert status == 403

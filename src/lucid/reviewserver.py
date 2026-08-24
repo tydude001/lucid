@@ -34,10 +34,35 @@ be re-registered under something new. `" — no finish_check yet"` or
 badge — a **report**, never a refusal: nothing here blocks a page from
 serving, the same stance `finish_report`'s `burned: "unknown"` and a
 `control_ok: False` item (displayed, never refused at *serve* time) take.
+
+**`kind="ab"` items of the same media kind get one shared player, carrying
+the playhead across a pick** — two or more renders that want to be A/B'd at
+the same moment (with/without a music bed is the goodsometimes case this was
+built for; `pipeline.md`'s Edit section points there). This is the one place
+this module emits JS, and it is scoped deliberately narrowly: every
+`data-src`/`src`/form-`action` it touches is already server-rendered with
+`?t=<token>` baked in, exactly like every other URL on this page — the
+inline script reads `data-src` as an opaque string and assigns it to
+`.src`, and never reads, stores, or constructs the token itself. That is
+what keeps this page's no-JS-for-anything-token-bearing stance intact
+(`webui.py`'s "never thread a token through a JS request" reasoning,
+applied here even though this page has no cookie to protect): the script
+exists to carry a `currentTime`/`paused` state across a `src` swap, nothing
+the token needs to be involved in.
+
+Because an inline script now exists, `Content-Security-Policy`'s
+`default-src 'self'` (which has no `'unsafe-inline'` carve-out) needs a
+`script-src` that allows it — a fresh **per-response nonce**
+(`secrets.token_urlsafe`, generated in `_send_page`, echoed into both the
+header and the one `<script nonce="...">` tag), never the review token
+reused as a nonce: they are different secrets with different lifetimes,
+and reusing one would tie the CSP nonce's exposure (in every page's HTML
+source) to the credential that guards every request.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 from html import escape
@@ -101,18 +126,27 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing ------------------------------------------------------------
 
-    def _send(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
+    def _send(
+        self, status: HTTPStatus, body: bytes, content_type: str, *, nonce: str | None = None
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self'")
+        csp = "default-src 'self'; media-src 'self'"
+        if nonce is not None:
+            # Only the A/B group's one inline script needs this, and only a
+            # page that actually emitted one gets a script-src at all — a
+            # page with no script stays covered by default-src's implicit
+            # script-src 'none' equivalent (no 'unsafe-inline', no nonce).
+            csp += f"; script-src 'nonce-{nonce}'"
+        self.send_header("Content-Security-Policy", csp)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _send_html(self, status: HTTPStatus, html: str) -> None:
-        self._send(status, html.encode("utf-8"), "text/html; charset=utf-8")
+    def _send_html(self, status: HTTPStatus, html: str, *, nonce: str | None = None) -> None:
+        self._send(status, html.encode("utf-8"), "text/html; charset=utf-8", nonce=nonce)
 
     def _fail(self, status: HTTPStatus, message: str) -> None:
         self._send_html(status, f"<!doctype html><p>{escape(message)}</p>")
@@ -182,69 +216,192 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_page(self, *, head_only: bool) -> None:
         listing = ops.review_list(str(self.project_root))
-        html = _render_page(listing, self.token, Project.open(self.project_root))
+        # Fresh every response — never reused across requests, and never the
+        # review token: see the module docstring's "never the review token
+        # reused as a nonce".
+        nonce = secrets.token_urlsafe(16)
+        html = _render_page(listing, self.token, Project.open(self.project_root), nonce=nonce)
         if head_only:
-            self._send(HTTPStatus.OK, b"", "text/html; charset=utf-8")
+            self._send(HTTPStatus.OK, b"", "text/html; charset=utf-8", nonce=nonce)
             return
-        self._send_html(HTTPStatus.OK, html)
+        self._send_html(HTTPStatus.OK, html, nonce=nonce)
 
 
-def _render_page(listing: dict[str, Any], token: str, project: Project) -> str:
-    items = sorted(listing["items"], key=lambda it: it["added_at"])
-    verdicts = listing["verdicts"]
-    sections = []
-    for item in items:
-        name = item["name"]
-        suffix = Path(item["path"]).suffix.lower()
-        media_kind = _MEDIA_KIND.get(suffix)
-        src = f"/media/{quote(name)}?t={quote(token)}"
-        if media_kind == "video":
-            media_html = f'<video controls preload="metadata" src="{src}"></video>'
-        elif media_kind == "audio":
-            media_html = f'<audio controls preload="metadata" src="{src}"></audio>'
-        elif media_kind == "image":
-            media_html = f'<img src="{src}" alt="{escape(name)}">'
-        else:
-            media_html = f'<a href="{src}">{escape(item["path"])}</a>'
+def _media_kind(item: dict[str, Any]) -> str | None:
+    return _MEDIA_KIND.get(Path(item["path"]).suffix.lower())
 
-        badge = ""
-        if item["kind"] == "control":
-            badge = " — byte-identical" if item.get("control_ok") else " — MISMATCH"
 
-        # `finish_check`'s own WARN, joined on sha256 rather than name or
-        # path — a review item can be re-registered under a new name, or the
-        # same delivered bytes registered twice, and the finish_check
-        # result should follow the *bytes*. **Report, never refuse**: this
-        # is a badge beside an item that already serves, the same stance
-        # `finish_report`'s `burned: "unknown"` and a `control_ok: False`
-        # item (displayed, never refused at *serve* time) both take.
-        fc = finishlog.for_sha256(project, item["sha256"])
-        if fc is None:
-            badge += " — no finish_check yet"
-        elif not fc["ok"]:
-            badge += f" — ⚠ finish_check: {fc['faults']} fault(s)"
+def _finish_badge(item: dict[str, Any], project: Project) -> str:
+    badge = ""
+    if item["kind"] == "control":
+        badge = " — byte-identical" if item.get("control_ok") else " — MISMATCH"
 
-        existing = verdicts.get(name)
-        current = ""
-        if existing:
-            note = f" — {escape(existing['note'])}" if existing.get("note") else ""
-            current = f'<p>current verdict: <strong>{escape(existing["verdict"])}</strong>{note}</p>'
+    # `finish_check`'s own WARN, joined on sha256 rather than name or path —
+    # a review item can be re-registered under a new name, or the same
+    # delivered bytes registered twice, and the finish_check result should
+    # follow the *bytes*. **Report, never refuse**: this is a badge beside
+    # an item that already serves, the same stance `finish_report`'s
+    # `burned: "unknown"` and a `control_ok: False` item (displayed, never
+    # refused at *serve* time) both take.
+    fc = finishlog.for_sha256(project, item["sha256"])
+    if fc is None:
+        badge += " — no finish_check yet"
+    elif not fc["ok"]:
+        badge += f" — ⚠ finish_check: {fc['faults']} fault(s)"
+    return badge
 
-        sections.append(
-            f"""
-        <section>
-          <h2>{escape(name)} <small>({escape(item["kind"])}{badge})</small></h2>
-          {media_html}
-          {current}
-          <form method="post" action="/verdict?t={quote(token)}">
+
+def _current_verdict_html(existing: dict[str, Any] | None) -> str:
+    if not existing:
+        return ""
+    note = f" — {escape(existing['note'])}" if existing.get("note") else ""
+    return f'<p>current verdict: <strong>{escape(existing["verdict"])}</strong>{note}</p>'
+
+
+def _verdict_form(name: str, token: str) -> str:
+    return f"""<form method="post" action="/verdict?t={quote(token)}">
             <input type="hidden" name="name" value="{escape(name)}">
             <input type="text" name="verdict" placeholder="verdict" required>
             <input type="text" name="note" placeholder="note (optional)">
             <button type="submit">Save</button>
-          </form>
+          </form>"""
+
+
+def _item_section(
+    item: dict[str, Any], token: str, project: Project, verdicts: dict[str, Any]
+) -> str:
+    """One item, independent player and verdict form — every kind but a
+    grouped `"ab"` renders this way, unchanged from before A/B grouping
+    existed."""
+    name = item["name"]
+    media_kind = _media_kind(item)
+    src = f"/media/{quote(name)}?t={quote(token)}"
+    if media_kind == "video":
+        media_html = f'<video controls preload="metadata" src="{src}"></video>'
+    elif media_kind == "audio":
+        media_html = f'<audio controls preload="metadata" src="{src}"></audio>'
+    elif media_kind == "image":
+        media_html = f'<img src="{src}" alt="{escape(name)}">'
+    else:
+        media_html = f'<a href="{src}">{escape(item["path"])}</a>'
+
+    badge = _finish_badge(item, project)
+    current = _current_verdict_html(verdicts.get(name))
+
+    return f"""
+        <section>
+          <h2>{escape(name)} <small>({escape(item["kind"])}{badge})</small></h2>
+          {media_html}
+          {current}
+          {_verdict_form(name, token)}
         </section>
         """
-        )
+
+
+def _ab_group_id(ab_items: list[dict[str, Any]]) -> str:
+    """A stable id keyed off the group's own item names, not a fixed string —
+    there is normally exactly one `"ab"` group per round, but two independent
+    pairs in one round must not collide on the same DOM ids."""
+    key = ",".join(sorted(it["name"] for it in ab_items))
+    return "ab-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def _render_ab_group(
+    ab_items: list[dict[str, Any]],
+    token: str,
+    project: Project,
+    verdicts: dict[str, Any],
+    nonce: str,
+) -> str:
+    """Two or more `"ab"` items of one media kind: one shared player carrying
+    the playhead across a pick, plus every item's own unchanged verdict form
+    stacked below it.
+
+    The inline script never sees the token: `data-src` is server-rendered
+    with `?t=` already in it, exactly like every other `src=` on this page,
+    and the script only ever reads that attribute and assigns it to
+    `.src` — copied from goodsometimes' `serve_review.py` swap logic, minus
+    any token handling, because there was none to copy.
+    """
+    group_id = _ab_group_id(ab_items)
+    player_id = f"{group_id}-player"
+    tag = "video" if _media_kind(ab_items[0]) == "video" else "audio"
+    first_src = f"/media/{quote(ab_items[0]['name'])}?t={quote(token)}"
+
+    buttons = "\n            ".join(
+        f'<button type="button" data-src="/media/{quote(it["name"])}?t={quote(token)}" '
+        f'data-name="{escape(it["name"])}">{escape(it["name"])}</button>'
+        for it in ab_items
+    )
+
+    picks = "\n".join(
+        f"""
+        <div class="ab-pick">
+          <h3>{escape(it["name"])} <small>({escape(it["kind"])}{_finish_badge(it, project)})</small></h3>
+          {_current_verdict_html(verdicts.get(it["name"]))}
+          {_verdict_form(it["name"], token)}
+        </div>
+        """
+        for it in ab_items
+    )
+
+    script = f"""<script nonce="{nonce}">
+(function () {{
+  var player = document.getElementById("{player_id}");
+  var picks = document.querySelectorAll("#{group_id} [data-src]");
+  picks.forEach(function (btn) {{
+    btn.addEventListener("click", function () {{
+      var wasAt = player.currentTime;
+      var wasPlaying = !player.paused;
+      player.src = btn.getAttribute("data-src");
+      player.addEventListener("loadedmetadata", function onReady() {{
+        player.removeEventListener("loadedmetadata", onReady);
+        player.currentTime = Math.min(wasAt, player.duration || wasAt);
+        if (wasPlaying) {{ player.play(); }}
+      }});
+    }});
+  }});
+}})();
+</script>"""
+
+    return f"""
+        <section id="{group_id}" class="ab-group">
+          <h2>A/B</h2>
+          <{tag} id="{player_id}" controls preload="metadata" src="{first_src}"></{tag}>
+          <div class="ab-picks">
+            {buttons}
+          </div>
+          {picks}
+        </section>
+        {script}
+        """
+
+
+def _render_page(
+    listing: dict[str, Any], token: str, project: Project, *, nonce: str
+) -> str:
+    items = sorted(listing["items"], key=lambda it: it["added_at"])
+    verdicts = listing["verdicts"]
+
+    # Group only when there is something to switch between and every member
+    # can share one <video>/<audio> element — a lone "ab" item has nothing
+    # to pick against (falls back below, same path as any other item), and
+    # mixed video/audio can't share a player at all (defensive: don't build
+    # a broken one).
+    ab_items = [it for it in items if it["kind"] == "ab"]
+    kinds = {_media_kind(it) for it in ab_items}
+    group_ok = len(ab_items) >= 2 and len(kinds) == 1 and None not in kinds
+    ab_names = {it["name"] for it in ab_items} if group_ok else set()
+
+    sections = []
+    group_emitted = False
+    for item in items:
+        if item["name"] in ab_names:
+            if not group_emitted:
+                sections.append(_render_ab_group(ab_items, token, project, verdicts, nonce))
+                group_emitted = True
+            continue
+        sections.append(_item_section(item, token, project, verdicts))
 
     body = "\n".join(sections) if sections else "<p>Nothing registered yet — `lucid review add`.</p>"
     return f"""<!doctype html>
@@ -259,6 +416,8 @@ def _render_page(listing: dict[str, Any], token: str, project: Project) -> str:
   section {{ margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; }}
   form {{ display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }}
   input[type=text] {{ flex: 1; min-width: 8rem; }}
+  .ab-picks {{ display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }}
+  .ab-pick {{ border-top: 1px solid #eee; padding-top: 0.75rem; margin-top: 0.75rem; }}
 </style>
 </head>
 <body>
