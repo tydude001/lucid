@@ -119,15 +119,17 @@ uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --plan
 
 ```json
 "text": "Every cut you make names a... Um, no, let me try that again.",
-"context_before": [{"index": 10, "text": "editor."}],
-"context_after":  [{"index": 24, "text": "Every"}],
-"removed": 4.8
+"context_before": [{"index": 8, "text": "first"}, {"index": 9, "text": "video"},
+                   {"index": 10, "text": "editor."}],
+"context_after":  [{"index": 24, "text": "Every"}, {"index": 25, "text": "cut"},
+                   {"index": 26, "text": "you"}],
+"removed": 4.7
 ```
 
-The neighbours either side are the point: an index one past the phrase you
-meant reads perfectly well on its own, and the echo is what makes that
-visible. Word 10 is the end of the good line before and word 24 is the start
-of the good line after, so this is the right range. Now do it:
+The three neighbours either side are the point: an index one past the phrase
+you meant reads perfectly well on its own, and the echo is what makes that
+visible. Word 10 ends the good line before, word 24 starts the good line
+after, so this is the right range. Now do it:
 
 ```sh
 uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --pad 0.1
@@ -140,7 +142,8 @@ uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --pad 0.1
 ```
 
 `--pad 0.1` takes a tenth of a second either side, so the cut lands in silence
-rather than on a consonant. If you cut the wrong range, `lucid -C … undo`
+rather than on a consonant — which is the 4.7 → 4.8 difference between the
+plan above and this. If you cut the wrong range, `lucid -C … undo`
 puts it back.
 
 ## 5. Hang a picture on it
@@ -235,11 +238,13 @@ and skip to step 3.
 - `lucid -C ~/lucid-demo/proj caption-style --size 64` then
   `lucid -C ~/lucid-demo/proj captions ~/lucid-demo/demo.ass --burn ~/lucid-demo/demo.mp4`
   — captions come out of the *timeline*, not the transcript, so they land where
-  the words actually play. Note that `export --render` does **not** burn them:
-  the burn is its own opt-in step, and `finish-report` is where a project that
-  is styled-but-unburnt says so.
+  the words actually play. Note that `export --render` does **not** burn them
+  — the burn is its own opt-in step against a finished file.
 - `lucid -C ~/lucid-demo/proj finish-report` — everything the truth strip
-  draws, including whether the last render actually burned the captions it is
-  configured for.
+  draws. Its `captions.burned` reads `"unknown"` after the hand-run burn
+  above, and correctly: it reports what the last *render pipeline run* did,
+  and a `captions --burn` on an existing file is not one. A manifest can say
+  captions are configured while nothing on disk was ever burned, and this is
+  the field that stops that reading as clean.
 - Point step 1 at your own voiceover instead. Nothing in the walkthrough after
   step 2 knows the footage was generated.

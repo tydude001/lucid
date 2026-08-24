@@ -10645,3 +10645,62 @@ The standing rule the note ends on: a reading is an **opinion, not a check**.
 `reframe_sheet`'s precedent — the sheet is how an agent forms a hypothesis it
 must then confirm with an op that measures, and nothing in lucid should ever
 gate on what a model said it saw.
+
+## The demo project — footage generated, nothing vendored — 2026-08-24
+
+POLISH.md § Step 02. The README quickstart opened with "import VO.wav", which
+assumes a voiceover with retakes lying around. Most people do not have one,
+and that assumption is the whole distance between reading about lucid and
+using it.
+
+**The media choice, which the plan said to bring to Tyler, resolved itself.**
+The constraints were freely redistributable, small, speech real enough for
+whisper, a deliberate retake, and two visually distinct b-roll clips. A
+generator satisfies all five and vendors nothing: `scripts/make_demo.py`
+synthesises the voiceover with espeak-ng from a script written a few lines up
+in the same file, and cuts the b-roll from flat colours with a burnt-in
+source-second counter. No licence review, no repo growth, and — the part that
+turned out to matter — the demo is **inspectable**: you read the retake before
+you cut it, and every b-roll frame says which clip it is and how far in, so
+one glance at the render tells you whether the right footage is at the right
+moment. That is the repo's own "every moment names itself" rule, applied to
+the thing a newcomer is trying to learn to trust.
+
+The retake is built the way a retake actually sits in a recording: each line
+synthesised separately and joined with real silence between them. A
+text-to-speech pause is a comma's worth of breath; a retake seam is the
+speaker stopping, and the difference is what lets the cut land in quiet
+instead of on a consonant.
+
+`docs/DEMO.md` is the walkthrough — import, transcribe, seed, find the retake,
+`cut --plan`, cut, two phrase-addressed cues, render, `verify`, `frames`, then
+the window — with every output sketch taken from a real run rather than
+written from memory. `--build` runs step 2's own commands, so the script and
+the doc cannot drift.
+
+**Verified the only way that counts: a fresh clone into a temp directory,
+`uv sync`, and DEMO.md top to bottom verbatim.** 47 words transcribed with
+zero hallucinations, four segments after the silence pass, the retake found at
+words 11–23, `--plan` reporting 4.7 s and the padded cut removing 4.8, two
+cues resolving by phrase to a 9.66 s and a 2.21 s shot, an MLT render of 286
+frames — and then `verify` at 0.971 similarity with 34 expected words and 34
+heard, and `frames` agreeing exactly. Three corrections came out of that run
+and are in the doc: the plan's `removed` is the unpadded number, the echo is
+three words either side rather than one, and `finish-report`'s
+`captions.burned` reads `unknown` after a hand-run `captions --burn` because
+it reports what the last *render pipeline run* did.
+
+The window's half was checked by **canvas readback, never a screenshot**: at
+timeline 3.0 s the visible layer is `blue` reading its own source second 2.994
+at pixel (27, 58, 92) — `#1b3a5c` exactly — and at 10.5 s it is `rust` at
+source 0.829, (121, 50, 25) against `#7a3218`. So the preview shows the shot
+table's own answer, from the right place inside the right asset.
+
+**Left for Tyler, and named rather than done:** the three README screenshots.
+Drafts of all three modes against the demo project are at
+`~/lucid-work/demo-shots-{edit,frame,finish}.png` — the Edit one is a good
+shop window (the retake struck through, labelled b-roll on V2, the caption
+lane, the truth strip) and none of it is anybody's copyrighted footage. They
+are **not** committed over `docs/img/`: the current images are recognisably
+his video and the swap is his call, which is half of the wiki's "publish
+decisions before the repo goes public" row.

@@ -136,6 +136,13 @@ probe fails is the single highest-value item for anyone else running lucid.
 
 ## Step 02 — the demo project
 
+Shipped — see HISTORY.md § The demo project — footage generated, nothing
+vendored. **One half is left and it is Tyler's**: the README screenshot swap.
+Drafts against the demo project are at `~/lucid-work/demo-shots-*.png`,
+deliberately not committed over `docs/img/`. The *media* choice this step said
+to bring to him resolved itself — generating everything vendors nothing and
+needs no licence review at all.
+
 **Why.** The README quickstart assumes the user has a voiceover with retakes
 lying around. A demo a stranger can run in two minutes — cut by transcript,
 watch a cue land, export, verify — is the difference between reading about
