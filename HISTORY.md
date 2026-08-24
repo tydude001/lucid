@@ -10301,3 +10301,42 @@ smaller, goodsometimes' own commit, not this repo's) — `serve_review.py`
 stays untouched and still covers a bare `Exports/` directory that is not a
 lucid project.
 
+
+## The synth ranks flatness and reads through a lexicon — 2026-08-24
+
+`vo_synth` chose by likeness alone, and goodsometimes measured what that
+keeps: on the Lambs/Longlegs essay, every one of the six flattest chunk
+winners had a livelier take among its losing seeds — sims inside one seed
+pool differ by thousandths while pitch spread differs by semitones, so the
+flattest read wins on noise, and one won a dead tie on the lower seed.
+The worker now measures `spread` (pyin, std of voiced f0 in semitones
+around the median) beside `sim`, and the ranking docks `flat_weight`
+(0.002 sim — the measured clone-vs-real likeness gap) per semitone under
+`flat_floor` (4.5 st, just under the one measured voice's own reference
+band). Both are per-voice numbers wearing defaults; 0 disables. A cached
+candidate without `spread` pays nothing, so old caches rank as they did.
+
+The same op takes a lexicon — explicit, or the project's own
+`lexicon.json` unasked: `say` respells what the model is given ("Clarice"
+→ "Clariss" is how a mispronunciation is actually fixed; instruct prompts
+made renders worse), `hear` folds whisper's spelling variants ("long legs"
+→ "longlegs") out of both sides of the readback WER so the error budget
+catches misreads instead of orthography. The cache keys on the respelt
+text — it is different audio — and the splice still carries the script's
+own words. What no metric does is rank *where* emphasis lands; that stays
+a human ear on an audition page, and the third of goodsometimes' three
+fixes deliberately not ported.
+
+## A chapter card — the bumper register with a title box — 2026-08-24
+
+The Lambs/Longlegs section bumpers were drawn with `bumper`, and the first
+real chapter name — "her second monster" — was three characters too wide
+for its mark box. A wordmark size is not a phrase size. `chapter` is that
+register as its own template: kicker (small, amber, optional), title
+(150 over the same 1640-unit box; 160 at portrait, where the phrase this
+card was built for measures 1602 of them), the family's fixed amber rule,
+and a footnote for the title's own aside ("[em]*[/em] it isn't"). Only the
+title is required, nothing defaults to a word, and the test file holds the
+motivation as a measurement: the phrase that fits `chapter` still refuses
+`bumper`, so if the bumper's box ever grows, the card's reason to exist
+changes visibly.
