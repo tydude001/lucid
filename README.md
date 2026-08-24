@@ -66,7 +66,17 @@ works without them.
 
 ## Try it
 
-Trimming the retakes out of a voiceover, end to end:
+**No footage handy?** [docs/DEMO.md](docs/DEMO.md) is the whole loop in two
+minutes on media the repo generates rather than ships — cut a retake by naming
+the words, hang b-roll off a phrase, render, and have lucid check the render
+against the timeline:
+
+```sh
+uv sync
+uv run python scripts/make_demo.py ~/lucid-demo   # a voiceover with a real retake
+```
+
+With your own voiceover, end to end:
 
 ```sh
 uv sync
