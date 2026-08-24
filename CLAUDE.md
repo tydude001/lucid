@@ -16,12 +16,25 @@ manifest-aware undo, and the rest of the works-for-anyone gap — is
 list. The full command walkthrough that was README.md's body is
 [docs/MANUAL.md](docs/MANUAL.md) — moved verbatim 2026-08-19 when README.md
 became a short newcomer-facing front door; nothing was deleted in the move.
+The two-minute demo a stranger runs first is [docs/DEMO.md](docs/DEMO.md), on
+media `scripts/make_demo.py` **generates** — the repo vendors none, so there
+is no licence question and nothing to keep in step with an upstream.
 Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
 Each is a case where the training prior is confidently wrong. Check the
 installed package or the upstream repo, not your memory.
+
+**`lucid doctor` probes every one of the binaries below and prints the fix
+under each ✗** — it is the fastest way to find out which half of a failure is
+this box. Two rules it holds to and anything added to it must: **melt is
+judged by its `-version` banner and never its exit code**, and whisper is
+actually *run* (`--help`, ~1 s), because the failure that catches is a venv
+that has lost torch — it resolves fine and dies minutes into a job. Optional
+capabilities are reported as "unavailable", never as failures, and never move
+`ok`; **the TTS voice path is never printed**, because a voice is somebody's
+recorded speech. HISTORY.md § `lucid doctor`.
 
 - **The MCP SDK is v2. `FastMCP` no longer exists** — it is `MCPServer`, from
   `mcp.server` (and there is no `mcp.server.fastmcp` module). Training priors
@@ -131,6 +144,17 @@ installed package or the upstream repo, not your memory.
     torch either** — `LUCID_VLM` names an *interpreter*, and `_vlm_worker.py`
     ships in the package to be run by it, never imported. HISTORY.md
     § `describe`.
+- **An MCP tool result can carry an image, and `claude -p` puts it in front
+  of the model.** `mcp` 2.0.0 has `ImageContent` in its `ContentBlock` union
+  and `mcp.server.mcpserver.utilities.types.Image` as the helper a tool
+  returns; round-tripped over real stdio. The half the SDK cannot answer was
+  measured separately and holds: under the agent panel's own
+  `--strict-mcp-config --tools ""`, a model asked what an MCP-returned image
+  said read the burnt-in text back. That is the channel the contact sheet
+  needs and the reason PLAN.md § The agent contact sheet is a design note
+  rather than an open question. **A reading is an opinion, not a check** —
+  `reframe_sheet`'s precedent; nothing in lucid gates on what a model said it
+  saw.
 - **`claude -p` stream-json output requires `--verbose`, and the
   allow/disallow-tools flags do not gate built-in tools.** Without
   `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in
@@ -345,6 +369,14 @@ installed package or the upstream repo, not your memory.
         answers about whatever is painted there instead. Measure what a new
         control leaves the pane; fold away anything used once per asset.
         HISTORY.md § Import and transcribe became window operations.
+  - **The `?` shortcut sheet is hand-typed HTML, grouped by which pane owns
+    each binding**, and that grouping is the content: the transport bindings
+    are window-level and stop dead the moment focus enters a field, while
+    everything else is reachable only from inside its own pane. It is not
+    generated, deliberately — the map has to read whether or not the bindings
+    it documents are wired. Its body is a height-capped scrollport, which is
+    `clampFloating`'s lesson applied where `clampFloating` does not reach.
+    HISTORY.md § The shortcut sheet grew the three panes it never listed.
   - **A `<video>` that cannot decode fires one contentless `error` and shows
     black**, which is exactly what a black frame the edit meant looks like.
     Never infer the reason in JS — `media.playability()` behind
@@ -412,6 +444,28 @@ installed package or the upstream repo, not your memory.
   when something new becomes callable, `uv sync` behind it, tag, and name the
   HISTORY.md `##` section in the annotation. There is no `CHANGELOG.md` on
   purpose. HISTORY.md § The version caught up.
+- **A snapshot is a *pair* — `N.otio` + `N.manifest.json` — and
+  `Project.write_manifest` takes one by default.** Most authoring state is
+  manifest state (the cue table, framing rects, the music bed, the caption
+  style, head/tail/holds, marks, card records), so the safe direction is
+  opt-out rather than opt-in: a manifest write that skipped history would not
+  merely be un-undoable, it would be **erased by the next undo**, because a
+  restore puts the whole file back. `snapshot=False` has exactly two callers
+  and both are named at the call site (`migrate`, which has
+  `_backup_manifest`; `reel`'s seeding of a project it is still building).
+  - **`snapshot()` fires at most once per `Project` instance**, which is what
+    keeps an op writing both files (`seed_timeline`, `import_edit`) to one
+    undo press. Per instance is per op because every op opens its own at the
+    top, and `reel` holds two for two projects. A mutable field on a frozen
+    dataclass, excluded from equality.
+  - The two absences are **not symmetrical**, and `undo`'s return names which
+    happened: no manifest is an older lucid's snapshot and the manifest is
+    left alone, never guessed at; no *timeline* is a state that had none, so
+    `project.otio` is removed — that is what undoing a seed means. Undoing an
+    import un-registers the clip and leaves its media on disk; a manifest is a
+    registry. **A freshly seeded project's undo depth is 2**, not 0, so a test
+    counting steps measures a delta from a named baseline. HISTORY.md
+    § Manifest-aware undo.
 - **`Project.open` refuses an old manifest and must never migrate one** — it
   backs `info` and `status`, so a read would rewrite a project someone only
   looked at. Migration is explicit (`lucid migrate`), and a schema bump adds a
@@ -665,6 +719,17 @@ installed package or the upstream repo, not your memory.
         means the transcript was replaced under it, and a word wrongly drawn is
         visible to anyone watching while a real word dropped is invisible to
         every check lucid has. HISTORY.md § The teaser, re-cut.
+- **`vfr` is recorded at import and reported, never acted on.** The signal is
+  `r_frame_rate` vs `avg_frame_rate` at a 1% tolerance, and it was measured
+  rather than assumed: it fires at 42% on a frames-dropped file (a screen
+  recorder's own shape) and produced **zero false positives over twelve real
+  files on this box**, including the film's 23.976 footage at 1e-6. The
+  tightest true-CFR margin measured is 0.33%, so the tolerance clears real
+  material by ~3× and not 100×. It surfaces on `import`'s return, on
+  `assets`/`properties`, and as `finish_report`'s `sources` — **informational,
+  never a flag**, because the lean is not to transcode and a permanent flag is
+  a count that can never reach zero. Normalising at NLE export is still open.
+  HISTORY.md § The VFR probe.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the

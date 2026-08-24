@@ -12,7 +12,8 @@ PLAN.md (an agent still cannot look at the film it edited).
 
 This is the one document for that work. Status lives **only** in the wiki's
 Open items table (`~/projects/wiki/README.md`); this file never carries a
-status header. When a step ships: HISTORY.md gets a named section, the step
+status header. Every step below carries a "Shipped" pointer as of 2026-08-24;
+what is left of the plan is the two calls the wiki row names, both Tyler's. When a step ships: HISTORY.md gets a named section, the step
 here gains a one-line "Shipped — see HISTORY.md § <name>" pointer, and the
 wiki row updates.
 

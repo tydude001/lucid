@@ -10704,3 +10704,19 @@ lane, the truth strip) and none of it is anybody's copyrighted footage. They
 are **not** committed over `docs/img/`: the current images are recognisably
 his video and the swap is his call, which is half of the wiki's "publish
 decisions before the repo goes public" row.
+
+## The version caught up — 0.15.0 — 2026-08-24
+
+POLISH.md's seven steps, all in one day. What became callable: `lucid doctor`
+and its MCP tool (the first op that takes no project), `POST /api/create` and
+`POST /api/seed` on the web UI, and `finish_report`'s `sources` section. What
+changed underneath without being new: a snapshot is a pair now, so
+`Project.write_manifest` takes one by default and every manifest-only
+mutation is undoable — a behaviour change large enough that fourteen
+assertions had to start counting from a named baseline instead of zero.
+
+No schema bump. Everything added is additive-optional (`vfr` on a clip,
+`seeded` on a scan entry) or cache-class (`N.manifest.json` beside
+`N.otio` in `cache/history/`), which is the rule the `caption_style`
+precedent set: a bump is for a key that makes the version number true, not
+for one every older manifest already means the absence of.
