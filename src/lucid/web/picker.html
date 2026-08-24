@@ -20,6 +20,18 @@
         <button id="theme" type="button" title="theme">◐</button>
       </div>
       <p class="picker-root">under <span id="root">…</span></p>
+      <!-- The first-run card (POLISH.md § Step 06). Empty and `hidden`
+           until picker.js decides this root needs one — which it does when
+           the scan comes back with nothing, or when someone asks for a new
+           project, or when a listed project turns out to have no timeline
+           yet. It is built in JS like every card below it, so there is one
+           place that knows what a step looks like.
+
+           `[hidden]` is honoured here because nothing in app.css gives
+           #setup a `display:` of its own — the trap that cost both toolbars
+           and the pad popover at once (CLAUDE.md). Its children are what
+           carry layout rules. -->
+      <div id="setup" class="setup" hidden></div>
       <div id="list" class="picker-list">
         <p class="picker-empty">scanning…</p>
       </div>

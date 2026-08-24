@@ -348,6 +348,9 @@ may share a session with step 04.
 
 ## Step 06 — Home's empty state, the guided first run
 
+Shipped — see HISTORY.md § Home's first run — create, import, transcribe,
+seed, on the page.
+
 **Why.** Import and transcribe are window operations now (HISTORY.md
 § Import and transcribe became window operations), so a first-run guided flow
 is mostly wiring — but today a fresh Home with zero projects is a dead end

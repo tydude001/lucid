@@ -3103,6 +3103,10 @@ def test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone(
     entries = {entry["path"]: entry for entry in payload["projects"]}
     assert entries[str(unseeded)]["status"] == "error"
     assert "seed" in entries[str(unseeded)]["error"]
+    # Which kind of `error` this is, as data rather than as a sentence to
+    # match: the picker offers to finish an un-seeded project and must never
+    # offer that for a genuinely broken one (POLISH.md § Step 06).
+    assert entries[str(unseeded)]["seeded"] is False
     # And the healthy project alongside it still lists normally.
     assert entries[str(project)]["status"] == "ok"
 
@@ -3194,6 +3198,195 @@ def test_open_refuses_a_second_different_project(
     status, view = _json(f"{picker_server}/api/view")
     assert status == 200
     assert view["clip_id"] == "vo"
+
+
+# -- the first run: create, then seed (POLISH.md § Step 06) ----------------
+
+
+def test_create_makes_a_project_under_the_root_and_open_binds_it(
+    picker_server: str, tmp_path: Path
+) -> None:
+    """The dead end this removes: an empty `--root` had no way in from the
+    page at all, and a project created on the CLI still could not be opened
+    from the picker because it has no timeline to draw."""
+    status, payload = _post(f"{picker_server}/api/create", {"name": "fresh"})
+    assert status == 200
+    assert payload["created"] is True
+    assert Path(payload["path"]) == (tmp_path / "fresh").resolve()
+    assert (tmp_path / "fresh" / "lucid.json").is_file()
+
+    # Creating does not open — there is exactly one place that binds.
+    status, payload = _post(f"{picker_server}/api/open", {"path": payload["path"]})
+    assert status == 200
+    assert payload["opened"] is True
+
+
+def test_create_refuses_a_name_that_is_a_path(picker_server: str, tmp_path: Path) -> None:
+    """A name, never a path: there is no traversal left to resolve away."""
+    for bad in ("../escape", "a/b", "/absolute", ".."):
+        status, payload = _post(f"{picker_server}/api/create", {"name": bad})
+        assert status == 400, bad
+        assert "name" in payload["error"], bad
+    assert not (tmp_path.parent / "escape").exists()
+
+
+def test_create_refuses_a_dotfile_name(picker_server: str, tmp_path: Path) -> None:
+    """The scan skips anything beginning with a dot, so a project named that
+    way would be created and then be invisible in the listing that made it."""
+    status, _ = _post(f"{picker_server}/api/create", {"name": ".hidden"})
+    assert status == 400
+    assert not (tmp_path / ".hidden").exists()
+
+
+def test_create_refuses_a_symlink_before_writing_anything(
+    picker_server: str, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """`Path.is_dir()` follows symlinks (CLAUDE.md), so a pre-existing link
+    at the target name would pass a directory test and have a manifest
+    written *through* it, outside the root."""
+    outside = tmp_path_factory.mktemp("outside-create")
+    link = tmp_path / "linked"
+    link.symlink_to(outside)
+
+    status, payload = _post(f"{picker_server}/api/create", {"name": "linked"})
+    assert status == 403
+    assert "symlink" in payload["error"]
+    assert not (outside / "lucid.json").exists()
+
+
+def test_create_refuses_an_existing_project(picker_server: str, project: Path) -> None:
+    """`Project.create` refuses rather than overwriting, and that refusal is
+    what the page shows."""
+    status, payload = _post(f"{picker_server}/api/create", {"name": project.name})
+    assert status == 400
+    assert "already exists" in payload["error"]
+
+
+def test_create_is_absent_on_a_single_project_server(server: str) -> None:
+    """Under `-C` the project already exists, so there is nothing to create —
+    the route is not reachable rather than refused, `/api/open`'s own shape."""
+    status, payload = _post(f"{server}/api/create", {"name": "fresh"})
+    assert status == 404
+    assert "no such endpoint" in payload["error"]
+
+
+def test_create_needs_json_like_every_other_mutation(picker_server: str) -> None:
+    status, payload = _post(
+        f"{picker_server}/api/create", {"name": "fresh"}, content_type="text/plain"
+    )
+    assert status == 400
+    assert "application/json" in payload["error"]
+
+
+def test_create_refuses_a_non_loopback_host(picker_server: str) -> None:
+    request = urllib.request.Request(
+        f"{picker_server}/api/create",
+        data=json.dumps({"name": "fresh"}).encode(),
+        headers={"Content-Type": "application/json", "Host": "evil.example.com"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            code = response.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    assert code == 403
+
+
+def test_the_picker_still_lists_a_broken_sibling_after_a_create(
+    picker_server: str, tmp_path: Path
+) -> None:
+    """One bad project must never take the listing down, and creating a new
+    one alongside it must not change that."""
+    _write_manifest(tmp_path / "bad-manifest", "{not json")
+
+    status, _ = _post(f"{picker_server}/api/create", {"name": "fresh"})
+    assert status == 200
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entries = {entry["path"]: entry for entry in payload["projects"]}
+    assert entries[str(tmp_path / "bad-manifest")]["status"] == "unreadable"
+    assert entries[str(tmp_path / "fresh")]["status"] == "error"
+    assert entries[str(tmp_path / "fresh")]["seeded"] is False
+
+
+@needs_ffprobe
+def test_seed_is_a_job_and_reports_on_the_stream(tmp_path: Path) -> None:
+    """`ops.seed_timeline` was the one op with no window route at all, which
+    is what made a freshly created project unreachable from the page. It is a
+    job rather than a plain mutation because the silence pass runs
+    auto-editor over the whole recording."""
+    root = tmp_path / "proj"
+    audio = tmp_path / "vo.wav"
+    _make_wav(audio)
+    words = [{"word": f"w{n}", "start": float(n), "end": n + 0.9} for n in range(8)]
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+    ops.init(root)
+    ops.import_media(root, audio, clip_id="vo")
+    ops.attach_transcript(root, "vo", transcript)
+
+    httpd = webui.make_server(root, port=0)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    host, port = _host_and_port(base)
+    conn = http.client.HTTPConnection(host, port, timeout=30)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)  # the opening revision record
+
+        status, payload = _post(f"{base}/api/seed", {"clip_id": "vo", "remove_silences": False})
+        assert status == 202
+        assert payload["job_id"]
+
+        seen = []
+        for name, data in events:
+            if name != "seed":
+                continue
+            seen.append(data["status"])
+            if data["status"] in ("done", "error"):
+                assert data["status"] == "done", data.get("error")
+                # The op's own return, which is the whole reason a client
+                # reads the event instead of reloading the page.
+                assert data["segments"] == 1
+                assert data["timeline_duration"] == pytest.approx(12.0, abs=0.05)
+                assert data["silences_removed"] is False
+                break
+        assert seen[0] == "running"
+
+        status, view = _json(f"{base}/api/view")
+        assert status == 200
+        assert view["clip_id"] == "vo"
+    finally:
+        conn.close()
+        httpd.shutdown()
+        httpd.server_close()
+        httpd.agent.close()
+        thread.join(timeout=5)
+
+
+@needs_ffprobe
+def test_seed_refuses_an_unknown_clip_as_a_400_not_an_event(server: str) -> None:
+    """Resolved before the slot is claimed, `TranscribeJob.start`'s precedent
+    — a bad clip_id is a bad request, not a job that starts and dies."""
+    status, payload = _post(f"{server}/api/seed", {"clip_id": "nope"})
+    assert status == 400
+    assert "nope" in payload["error"]
+
+
+def test_seed_requires_a_clip_id(server: str) -> None:
+    status, payload = _post(f"{server}/api/seed", {})
+    assert status == 400
+    assert "clip_id" in payload["error"]
+
+
+def test_seed_requires_json(server: str) -> None:
+    status, payload = _post(f"{server}/api/seed", {"clip_id": "vo"}, content_type="text/plain")
+    assert status == 400
+    assert "application/json" in payload["error"]
 
 
 def test_open_refuses_a_path_outside_the_scanned_root(tmp_path: Path) -> None:

@@ -10539,3 +10539,68 @@ its `viewport` probe now runs the two sweeps CLAUDE.md describes rather than
 one: the page walk skips scroll containers (the flat version reported 240
 findings on a normal Edit view, every one a ruler tick doing its job) and each
 scroll container is measured against its own `clientWidth`.
+
+## Home's first run — create, import, transcribe, seed, on the page — 2026-08-24
+
+POLISH.md § Step 06. A fresh `lucid web --root` over an empty directory said
+"no lucid projects found under this root" and stopped. That is only actionable
+if you already know the CLI, which is the exact gap this plan exists to close.
+
+The dead end is deeper than the sentence. A project with no timeline cannot be
+drawn in the workspace at all — `ops.status` refuses one, which is why the
+picker's scan classifies it `error` — so even after `lucid init` on the command
+line, the picker showed a red card with no button on it. Every step up to the
+first seed therefore has to happen *on the picker page*, and that is where the
+flow lives.
+
+**Two new routes.** `POST /api/create` takes a **name, never a path**, which is
+the whole containment: the directory is `root_dir / name`, a separator or a
+`..` is refused outright, and there is no traversal left to resolve away. The
+resolve-and-compare check `/api/open` uses runs anyway, and `is_symlink()` is
+checked first and on its own — `Path.is_dir()` follows symlinks, so a link
+already sitting at the target name would pass a directory test and have a
+manifest written through it, outside the root. Creating does not open: exactly
+one place binds this process to a project, and it stays `/api/open`. Under `-C`
+the route is simply absent, `/api/open`'s own shape.
+
+`POST /api/seed` is the second, and `ops.seed_timeline` turns out to have been
+**the one op with no window route at all**. A job rather than a plain mutation,
+on `TranscribeJob`'s exact shape, because the silence pass runs auto-editor
+over the whole recording. Its name had to go into `api.js`'s `SSE_EVENTS` or
+the card would sit on "seeding…" forever with a finished timeline on disk —
+the trap that file already documents twice, in a third shape.
+
+**The flow.** create → open → import → transcribe → seed → the workspace, one
+live control at a time with each finished step folded to a single line
+carrying the op's own return: the clip id and duration import reported, the
+word count transcription reported, the segment count seeding reported. The
+folding is a layout rule and not a flourish — four expanded controls is a card
+taller than the list under it, which is how the assets pane once left the
+second clip's own button outside the scroll window. Nothing here reloads the
+page to pick up a finished job; the `done` event carries the whole report and a
+reload throws it away. The single navigation is deliberate and last.
+
+Transcription can be **skipped**, and that is not a convenience: whisper is the
+dependency most likely to be missing on a first run (`lucid doctor` exists
+because of exactly that), and a flow that dead-ends there teaches a newcomer
+that lucid does not work. A timeline seeds and cuts by time without a
+transcript.
+
+The scan gained one field, not a fifth outcome: `seeded`. An un-seeded project
+is an `error` to `ops.status` and a *state* to a person, and the picker now
+offers to finish it — read off that boolean, never by matching the refusal
+sentence, and drawn as a `no timeline yet` warning chip rather than a red
+error. Taking that offer binds the process and jumps the flow to the footage
+step.
+
+**Verified in a real browser**, whole flow at both dwells: a create→import→
+skip→seed run at ~120ms and a create→import→**real whisper**→**real
+auto-editor** run at 0ms, each landing in the workspace with the project
+correct on disk (23 words transcribed, one segment, 7.1s). "+ New project" on
+a populated root, "Finish setup" on an un-seeded one — which correctly disables
+every other card's button, since the process is bound now and a second Open
+would 409. Page never scrolls horizontally at 700/900/1200 in either theme, the
+live control stays on screen and hit-testable at every width, console clean.
+One defect found and fixed in the pass: a resumed flow drew a bare "✓ Name it"
+with nothing after it, because the folded report for a step this session never
+ran was never filled in.

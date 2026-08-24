@@ -85,6 +85,7 @@ from lucid.project import (
     CACHE_DIR,
     MANIFEST_NAME,
     SCHEMA_VERSION,
+    TIMELINE_NAME,
     Project,
     ProjectError,
 )
@@ -378,6 +379,14 @@ class TranscribeBusyError(WebUIError):
     """A second transcription was requested while one was already running."""
 
 
+class SeedBusyError(WebUIError):
+    """A second seed was requested while one was already running.
+
+    Its own type, the `ImportBusyError` reasoning: every job here holds its
+    own slot, and a busy seed must not be reported as a busy transcription.
+    """
+
+
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     """Read and parse a JSON request body, enforcing the content type.
 
@@ -448,7 +457,10 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
       `lucid seed` yet) is the ordinary way to hit this, not a corrupt
       project. Listed with `error` carrying the message, same as
       `unreadable` — one bad project must never take the whole `/api/projects`
-      listing down with it.
+      listing down with it. `seeded` says which kind of `error` this is
+      without anyone matching a sentence: false means there is no
+      `project.otio`, which is the ordinary un-seeded case and the one the
+      picker can offer to finish.
 
     A directory with no `lucid.json` at all is not a project and is not in
     the returned list — that is the "skip a non-project directory" case, and
@@ -521,6 +533,17 @@ def _scan_one(path: Path) -> dict[str, Any]:
         # everyone under `--root`, not just the broken one).
         entry["status"] = "error"
         entry["error"] = str(exc)
+        # Which `error` this is, without reading the message. An un-seeded
+        # project — `lucid init` (or `POST /api/create`) with no `lucid seed`
+        # behind it — is the *ordinary* way to land here and is the one
+        # version of it a person can act on from this page, so the picker
+        # offers to finish setting it up instead of showing a dead card. A
+        # file check rather than a string match on `ops.status`'s refusal:
+        # matching a sentence is how a message reword becomes a silent
+        # behaviour change (CLAUDE.md, `media.MultiAudioError`'s own reason
+        # for carrying `streams`). No fifth status — the four outcomes this
+        # scan reports are unchanged (POLISH.md § Step 06).
+        entry["seeded"] = (path / TIMELINE_NAME).is_file()
         return entry
     entry["status"] = "ok"
     entry["timeline_duration"] = info["timeline_duration"]
@@ -1776,6 +1799,74 @@ class TranscribeJob:
             self._finish()
 
 
+class SeedJob:
+    """Laying a clip down as the timeline — one at a time per server.
+
+    `TranscribeJob`'s exact shape, and a job for the same reason: seeding
+    runs auto-editor's silence pass over the whole recording, which is real
+    seconds of work on a real voiceover, and a request that long is a dead
+    window (`RenderJob`'s reasoning).
+
+    **This is the one existing op that had no window route at all**, which
+    made a freshly created project a dead end in the picker: `ops.status`
+    refuses a project with no timeline, so the scan classifies it `error`
+    and nothing in the page could take it forward (POLISH.md § Step 06).
+
+    Unlike transcribe, this one *does* move `project.otio` and the manifest,
+    so `_revision()` sees it and `project-changed` fires on its own. The
+    `done` event is still what carries the op's own return value — segment
+    count, source and timeline duration, whether silences were removed — and
+    a client that reloads the page instead of reading that event throws the
+    completion report away (CLAUDE.md § Import and transcribe became window
+    operations).
+    """
+
+    def __init__(self, project_root: Path, bus: EventBus) -> None:
+        self.project_root = project_root
+        self.bus = bus
+        self._lock = threading.Lock()
+        self._running = False
+
+    def start(self, clip_id: str, *, remove_silences: bool = True) -> str:
+        job_id = uuid.uuid4().hex
+        # Resolve before claiming the slot, `TranscribeJob.start`'s
+        # precedent: an unknown clip_id becomes a 400 on the request thread
+        # rather than a job that starts only to fail immediately.
+        project = Project.open(self.project_root)
+        media.get_clip(project, clip_id)
+        with self._lock:
+            if self._running:
+                raise SeedBusyError("a seed is already running")
+            self._running = True
+        threading.Thread(target=self._run, args=(job_id, clip_id, remove_silences), daemon=True).start()
+        return job_id
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._running = False
+
+    def _run(self, job_id: str, clip_id: str, remove_silences: bool) -> None:
+        self.bus.publish("seed", {"job_id": job_id, "status": "running", "clip_id": clip_id})
+        try:
+            try:
+                result = ops.seed_timeline(
+                    str(self.project_root), clip_id, remove_silences=remove_silences
+                )
+            except EXPECTED as exc:
+                # `AutoEditorError` is in `EXPECTED` for `ImportJob`'s own
+                # reason: a missing or stale auto-editor binary must arrive
+                # as an event, or this slot latches busy with nothing ever
+                # published and the window's setup card waits forever.
+                self.bus.publish(
+                    "seed",
+                    {"job_id": job_id, "status": "error", "clip_id": clip_id, "error": str(exc)},
+                )
+                return
+            self.bus.publish("seed", {"job_id": job_id, "status": "done", **result})
+        finally:
+            self._finish()
+
+
 class Handler(BaseHTTPRequestHandler):
     """One request. `project_root` and `verbose` are set by `make_server`.
 
@@ -1935,6 +2026,13 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/open":
                 self._handle_open()
                 return
+            # Create is picker-only for the same reason open is: under `-C`
+            # the project already exists. Reachable before a bind, because
+            # making the first project is exactly what someone with an empty
+            # root has to do before there is anything to open.
+            if url.path == "/api/create":
+                self._handle_create()
+                return
             if not self._project_bound():
                 self._fail(HTTPStatus.NOT_FOUND, "no project open yet — pick one at /")
                 return
@@ -1967,6 +2065,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/transcribe":
             self._handle_transcribe_start()
+            return
+        if url.path == "/api/seed":
+            self._handle_seed_start()
             return
         route = _POST_ROUTES.get(url.path)
         if route is None:
@@ -2742,6 +2843,125 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
 
+    def _handle_seed_start(self) -> None:
+        """`POST /api/seed {"clip_id": str, "remove_silences": bool | null}`
+        — 202, work happens on the stream.
+
+        `/api/transcribe`'s exact shape, and a job for the same reason: the
+        silence pass runs auto-editor over the whole recording. Shape only
+        here; an unknown `clip_id` is `SeedJob.start`'s judgement (resolved
+        before the slot is claimed, so it is a 400 rather than an event) and
+        auto-editor's own refusals arrive as `seed` error events.
+
+        `remove_silences` defaults to **true**, matching `ops.seed_timeline`
+        and `lucid seed` rather than picking a second default here — one
+        place spells it out or the two drift.
+        """
+        try:
+            payload = _json_body(self)
+            clip_id = payload.get("clip_id")
+            if not isinstance(clip_id, str) or not clip_id:
+                raise WebUIError("'clip_id' is required")
+            remove_silences = payload.get("remove_silences")
+            if remove_silences is None:
+                remove_silences = True
+            elif not isinstance(remove_silences, bool):
+                raise WebUIError("'remove_silences' must be a boolean")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        job: SeedJob = self.server.seed_job  # type: ignore[attr-defined]
+        try:
+            job_id = job.start(clip_id, remove_silences=remove_silences)
+        except SeedBusyError as exc:
+            self._fail(HTTPStatus.CONFLICT, str(exc))
+            return
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except EXPECTED as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({"job_id": job_id}, HTTPStatus.ACCEPTED)
+
+    def _handle_create(self) -> None:
+        """`POST /api/create {"name": "..."}` — make a project under `--root`.
+
+        **Picker mode only.** Under `-C` the project already exists and there
+        is nothing to create, so this route is simply not reachable there
+        (`do_POST` dispatches it inside the `root_dir is not None` branch) —
+        absent rather than refused, the same way `/api/open` is absent on a
+        `-C` server.
+
+        A *name*, never a path. That is the whole containment: the new
+        directory is `root_dir / name` and `name` may not contain a
+        separator, a `..`, a leading dot, or a NUL, so there is no traversal
+        to resolve away. The resolve-and-compare check `_handle_open` uses
+        runs anyway, belt-and-braces, because a name check and a path check
+        answer different questions and this repo has been caught by exactly
+        one of the two before.
+
+        **A symlink is refused before anything is written.** `Path.is_dir()`
+        follows symlinks (CLAUDE.md § The multi-project picker), so a
+        pre-existing symlink at the target name would pass an `is_dir()`
+        test and `Project.create` would write a manifest through it, outside
+        the root. `is_symlink()` is checked first and on its own.
+
+        Creating does not open: the reply carries the new project's path and
+        the client posts `/api/open` with it, so there is exactly one place
+        that binds this process to a project.
+        """
+        try:
+            payload = _json_body(self)
+            raw = payload.get("name")
+            if not isinstance(raw, str) or not raw.strip():
+                raise WebUIError("'name' is required")
+            name = raw.strip()
+            if name != Path(name).name or name in (".", ".."):
+                raise WebUIError(
+                    f"{name!r} must be a plain directory name, not a path — "
+                    "a project is created directly under the scanned root"
+                )
+            if name.startswith(".") or "\x00" in name:
+                raise WebUIError(f"{name!r} is not a usable directory name")
+        except WebUIError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        assert self.root_dir is not None  # only dispatched in picker mode
+        root_dir = self.root_dir
+        target = root_dir / name
+        if target.is_symlink():
+            self._fail(
+                HTTPStatus.FORBIDDEN,
+                f"{target} is a symlink; a project is created as a real directory "
+                "under the scanned root, never through a link out of it",
+            )
+            return
+        # The name check above already makes traversal impossible; this is the
+        # second, independent answer — `_handle_open`'s own comparison, run
+        # against a path nobody has written to yet.
+        resolved = target.resolve()
+        if root_dir not in resolved.parents:
+            self._fail(
+                HTTPStatus.FORBIDDEN,
+                f"this server was started with --root {root_dir} and {name!r} resolves "
+                f"outside it ({resolved}); pass a plain name",
+            )
+            return
+        try:
+            created = ops.init(resolved, name=name)
+        except EXPECTED as exc:
+            # An existing project at that name is the ordinary mistake —
+            # `Project.create` refuses rather than overwriting, and that
+            # refusal is the message to show.
+            self._fail(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except OSError as exc:
+            self._fail(HTTPStatus.BAD_REQUEST, f"could not create {resolved}: {exc}")
+            return
+        self._send_json({"created": True, "path": created["project"], "name": name})
+
     def _handle_open(self) -> None:
         """`POST /api/open {"path": "..."}` — the picker's one mutation.
 
@@ -3158,8 +3378,8 @@ _POST_ROUTES: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
 
 def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
     """One bus, one agent session, and one job slot each for render, proxy,
-    reframe-sheet, reframe-detect, import and transcribe — the per-project
-    state a `Handler` reaches through `self.server`.
+    reframe-sheet, reframe-detect, import, transcribe and seed — the
+    per-project state a `Handler` reaches through `self.server`.
 
     Called exactly once per server: at construction for a plain `-C` server
     (`make_server`), or once from `Handler._handle_open` on a picker
@@ -3187,6 +3407,7 @@ def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
     server.reframe_detect_job = ReframeDetectJob(project_root, server.bus)  # type: ignore[attr-defined]
     server.import_job = ImportJob(project_root, server.bus)  # type: ignore[attr-defined]
     server.transcribe_job = TranscribeJob(project_root, server.bus)  # type: ignore[attr-defined]
+    server.seed_job = SeedJob(project_root, server.bus)  # type: ignore[attr-defined]
 
 
 def make_server(

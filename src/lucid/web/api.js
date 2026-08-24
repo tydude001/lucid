@@ -44,6 +44,11 @@ export async function api(path, body) {
 // that started the job stays disabled and the status line stays on
 // "running…" forever, with no console error and no failed request to
 // notice, because the SSE connection itself is fine.
+//
+// "seed" is the same trap once more, and the one whose absence would be
+// hardest to see: the picker's first-run card starts a seed and then waits
+// for its `done` record to move on to the last step. Leave the name out and
+// the card sits on "seeding…" forever with a finished timeline on disk.
 const SSE_EVENTS = [
   "project-changed",
   "agent",
@@ -52,6 +57,7 @@ const SSE_EVENTS = [
   "reframe-detect",
   "import",
   "transcribe",
+  "seed",
 ];
 
 /**
