@@ -886,6 +886,63 @@ def test_finish_check_with_no_hold_flags_passes_none_through(
     assert captured["prepend_seconds"] is None
 
 
+def test_hold_rm_cli_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lucid hold rm <clip> <idx>` parses into `ops.hold_rm`'s own three
+    positionals, and the CLI's `_emit` prints exactly what it returns —
+    `test_finish_check_flags_parse_and_reach_ops`'s own wiring-only
+    discipline, the real op covered at the ops and stdio layers."""
+    project = tmp_path / "proj"
+    captured: dict[str, object] = {}
+
+    def _stub(path: object, clip_id: object, gap_word_index: object) -> dict[str, object]:
+        captured["path"] = path
+        captured["clip_id"] = clip_id
+        captured["gap_word_index"] = gap_word_index
+        return {
+            "clip_id": clip_id,
+            "gap_word_index": gap_word_index,
+            "removed": {"asset": "film", "cue_word_index": 2},
+        }
+
+    monkeypatch.setattr(ops, "hold_rm", _stub)
+
+    assert main(["-C", str(project), "hold", "rm", "vo", "3"]) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert captured["path"] == str(project)
+    assert captured["clip_id"] == "vo"
+    assert captured["gap_word_index"] == 3
+    assert result["removed"] == {"asset": "film", "cue_word_index": 2}
+
+
+def test_hold_check_cli_reaches_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`lucid hold check <render>` parses into `ops.hold_check`'s own two
+    positionals — the real transcription/seam machinery is covered at the
+    ops and stdio layers; this only guards the CLI's own parsing and
+    dispatch."""
+    project = tmp_path / "proj"
+    render = tmp_path / "out.mp4"
+    captured: dict[str, object] = {}
+
+    def _stub(path: object, render_arg: object) -> dict[str, object]:
+        captured["path"] = path
+        captured["render"] = render_arg
+        return {"holds": [], "count": 0, "faults": 0}
+
+    monkeypatch.setattr(ops, "hold_check", _stub)
+
+    assert main(["-C", str(project), "hold", "check", str(render)]) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert captured["path"] == str(project)
+    assert captured["render"] == str(render)
+    assert result == {"holds": [], "count": 0, "faults": 0}
+
+
 @pytest.mark.skipif(
     shutil.which("magick") is None or shutil.which("ffmpeg") is None,
     reason="the render half of the font report needs ImageMagick and ffmpeg with libass",
