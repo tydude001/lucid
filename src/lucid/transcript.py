@@ -13,6 +13,7 @@ timeline rather than silently shifting what it points at.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from collections.abc import Sequence
@@ -23,6 +24,30 @@ from typing import Any
 
 class TranscriptError(Exception):
     """Raised when a transcript cannot be read or a range makes no sense."""
+
+
+class AmbiguousPhraseError(TranscriptError):
+    """`Transcript.resolve()` found more than one match and was given no way
+    to choose.
+
+    Carries `.phrase` and `.candidates` (each a dict shaped like a `resolve()`
+    success payload) so a caller — human or agent — can read every option and
+    either narrow the phrase or pass `occurrence=`. The message enumerates
+    them, the same convention `cue_rm`'s "no cue" error lists every existing
+    cue (`ops.py`).
+    """
+
+    def __init__(self, phrase: str, candidates: list[dict[str, Any]]) -> None:
+        self.phrase = phrase
+        self.candidates = candidates
+        listing = "; ".join(
+            f"words {c['first_word']}-{c['last_word']} ({c['text']!r})" for c in candidates
+        )
+        super().__init__(
+            f"phrase {phrase!r} matches {len(candidates)} times: {listing} — "
+            "pass occurrence= to pick one (1-based, in transcript order), or "
+            "narrow the phrase, or pass after= to skip earlier occurrences"
+        )
 
 
 #: Below this, an "overlap" is arithmetic rather than timing: two words sharing
@@ -140,6 +165,142 @@ class Transcript:
         hi = min(len(self.words), last + context + 1)
         return list(self.words[lo:hi])
 
+    def resolve(
+        self,
+        phrase: str,
+        *,
+        after: int = -1,
+        occurrence: int | None = None,
+        fuzzy: bool = True,
+        fuzzy_floor: float = 0.75,
+    ) -> dict[str, Any]:
+        """Find `phrase`, forward of word `after`, and return exactly one match.
+
+        `find()` lists every occurrence and leaves the choosing to the
+        caller; this is the resolver — it always hands back one word range,
+        or explains exactly why it can't. Ported from goodsometimes
+        `scripts/assemble_longlegs.py`'s `resolve()`, which ran this
+        contraction-aware/fuzzy-fallback match by hand against a real
+        re-record (v3 -> v4) before this existed inside lucid.
+
+        Matching is contraction-aware and punctuation-insensitive
+        (`_phrase_tokens`, deliberately separate from `find()`'s `_normalise`
+        — see that function's docstring) and tokenizes the whole transcript
+        into a flat `(token, owning_word_index)` array, because contraction
+        expansion can split one whisper word into two tokens ("there's" ->
+        "there is"), so a multi-token match still has to resolve back to real
+        word indices.
+
+        Ambiguity policy — the point of this over `find()`:
+        - 0 exact matches after `after`: try fuzzy (if `fuzzy`), else raise
+          `TranscriptError`.
+        - 1 exact match: return it, `match: "exact"`.
+        - >1 exact matches:
+            - `occurrence` is None: raise `AmbiguousPhraseError` listing
+              every candidate's word range and text. Never picks for you.
+            - `occurrence` given (1-based, in transcript order among the
+              matches after `after`): return that one. Out-of-range
+              `occurrence` raises `TranscriptError` naming how many exist.
+        - A fuzzy match (only reachable on 0 exact matches) returns the
+          single best-scoring token window >= `fuzzy_floor`, `match:
+          "fuzzy"`, `ratio: <float>` — stamped, never disguised as exact.
+          **This floor is validated on exactly one project** (the
+          goodsometimes v3->v4 reproduction) — it is not a broadly-measured
+          threshold the way `SCENE_THRESHOLD` is (CLAUDE.md).
+
+        Returns `{"first_word", "last_word", "text", "start", "end", "match",
+        "ratio", "matches_after_cursor"}`. `ratio` is `None` on an exact
+        match — a fuzzy hit is the only kind that carries a similarity score.
+        Does NOT include `context_before`/`context_after` — that is the
+        ops-layer echo's job, the same split as `_echo` vs this method.
+        """
+        want = _phrase_tokens(phrase)
+        if not want:
+            raise TranscriptError("phrase is empty")
+
+        flat: list[str] = []
+        owner: list[int] = []
+        for word in self.words:
+            for token in _phrase_tokens(word.text):
+                flat.append(token)
+                owner.append(word.index)
+
+        def _match(first: int, last: int, *, kind: str, ratio: float | None) -> dict[str, Any]:
+            start, end = self.span(first, last)
+            return {
+                "first_word": first,
+                "last_word": last,
+                "text": " ".join(w.text for w in self.words[first : last + 1]),
+                "start": start,
+                "end": end,
+                "match": kind,
+                "ratio": ratio,
+            }
+
+        n = len(want)
+        exact: list[tuple[int, int]] = []
+        seen: set[tuple[int, int]] = set()
+        for s in range(len(flat) - n + 1):
+            if owner[s] <= after:
+                continue
+            if flat[s : s + n] == want:
+                key = (owner[s], owner[s + n - 1])
+                if key not in seen:
+                    seen.add(key)
+                    exact.append(key)
+
+        if len(exact) == 1:
+            first, last = exact[0]
+            result = _match(first, last, kind="exact", ratio=None)
+            result["matches_after_cursor"] = 1
+            return result
+
+        if len(exact) > 1:
+            if occurrence is None:
+                candidates = [_match(f, last, kind="exact", ratio=None) for f, last in exact]
+                raise AmbiguousPhraseError(phrase, candidates)
+            if occurrence < 1 or occurrence > len(exact):
+                raise TranscriptError(
+                    f"occurrence {occurrence} is out of range — phrase {phrase!r} "
+                    f"matches {len(exact)} time(s) after word {after}"
+                )
+            first, last = exact[occurrence - 1]
+            result = _match(first, last, kind="exact", ratio=None)
+            result["matches_after_cursor"] = len(exact)
+            return result
+
+        # No exact matches — fuzzy fallback, verbatim the n-1/n/n+1-window
+        # difflib.SequenceMatcher + edge-snap algorithm the reference
+        # implementation validated, ported not redesigned.
+        if fuzzy:
+            best_ratio = 0.0
+            best_window: tuple[int, int] | None = None
+            for m in (n, n - 1, n + 1):
+                if m < 1:
+                    continue
+                for s in range(len(flat) - m + 1):
+                    if owner[s] <= after:
+                        continue
+                    ratio = difflib.SequenceMatcher(None, flat[s : s + m], want).ratio()
+                    if ratio > best_ratio:
+                        best_ratio, best_window = ratio, (s, s + m)
+            if best_window is not None and best_ratio >= fuzzy_floor:
+                s, e = best_window
+                window = flat[s:e]
+                if want[0] in window:
+                    s = s + window.index(want[0])
+                if want[-1] in window:
+                    e = best_window[0] + len(window) - 1 - window[::-1].index(want[-1]) + 1
+                first, last = owner[s], owner[e - 1]
+                result = _match(first, last, kind="fuzzy", ratio=round(best_ratio, 4))
+                result["matches_after_cursor"] = 0
+                return result
+
+        raise TranscriptError(
+            f"phrase {phrase!r} not found in {self.clip_id!r} after word {after}"
+            + ("" if fuzzy else " (fuzzy disabled)")
+        )
+
     # -- serialisation ---------------------------------------------------
 
     def as_dict(self) -> dict[str, Any]:
@@ -156,6 +317,40 @@ _PUNCT = re.compile(r"[^\w\s']+")
 
 def _normalise(text: str) -> str:
     return _PUNCT.sub("", text).lower().strip()
+
+
+# -- phrase resolution ------------------------------------------------------
+#
+# Kept fully separate from `_normalise`/`_PUNCT` above, on purpose: those are
+# shared by `find()` *and* `find_overlaps`/`find_repeats` (the retake-splice
+# and duplicate detectors), and folding contraction expansion into them would
+# silently change what those two consider identical text project-wide
+# (CLAUDE.md). `resolve()` below is the only caller of everything in this
+# section.
+
+_CONTRACTIONS = [
+    ("n't", " not"),
+    ("'re", " are"),
+    ("'ve", " have"),
+    ("'ll", " will"),
+    ("'d", " would"),
+    ("'m", " am"),
+    ("'s", " is"),
+]
+_PHRASE_PUNCT = re.compile(r"[^a-z0-9 ]+")
+
+
+def _phrase_tokens(text: str) -> list[str]:
+    """Lower-case, unify quotes/dashes, expand contractions both sides, tokenize.
+
+    Whisper writes "There's" or "There is" as it pleases, and a phrase typed
+    one way against a transcript written the other would otherwise miss —
+    ported verbatim from goodsometimes `assemble_longlegs.py`'s `_norm`.
+    """
+    s = text.lower().replace("’", "'").replace("—", " ").replace("–", " ")
+    for a, b in _CONTRACTIONS:
+        s = s.replace(a, b)
+    return _PHRASE_PUNCT.sub(" ", s).split()
 
 
 def _seam(words: Sequence[Word], run: Sequence[int]) -> dict[str, Any]:

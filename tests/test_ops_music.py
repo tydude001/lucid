@@ -166,6 +166,58 @@ def test_plan_resolves_without_writing(project: Project) -> None:
     assert ops.MUSIC_KEY not in project.read_manifest()
 
 
+# -- phrase addressing (feature: phrase-addressed cues) ----------------------
+#
+# The fixture transcript is "the first twelve minutes of scream" (indices
+# 0-5) — the same one `test_setting_stores_the_cue_and_echoes_both_words`
+# pins word_index_start=1 ("first")/word_index_end=4 ("of") against, which is
+# the control these compare to. Two-or-more-word phrases throughout, so a
+# wrong edge (start should bind first, end should bind last) is observable.
+
+
+def test_phrase_start_and_phrase_end_resolve_to_the_same_words_as_the_index_form(
+    project: Project,
+) -> None:
+    result = ops.music(
+        project.root,
+        asset="bed",
+        clip_id="vo",
+        phrase_start="first twelve",
+        phrase_end="minutes of",
+    )
+
+    assert result["music"]["word_index_start"] == 1
+    assert result["music"]["word_index_end"] == 4
+    assert result["music"]["phrase_start"] == "first twelve"
+    assert result["music"]["phrase_end"] == "minutes of"
+    assert result["start_word"]["text"] == "first"
+    assert result["end_word"]["text"] == "of"
+
+
+def test_a_raw_index_can_set_the_start_while_a_phrase_sets_the_end(project: Project) -> None:
+    result = ops.music(
+        project.root, asset="bed", clip_id="vo", word_index_start=1, phrase_end="minutes of"
+    )
+
+    assert result["music"]["word_index_start"] == 1
+    assert "phrase_start" not in result["music"]
+    assert result["music"]["word_index_end"] == 4
+    assert result["music"]["phrase_end"] == "minutes of"
+
+
+def test_setting_the_start_by_index_clears_a_previously_stored_phrase(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", phrase_start="first twelve")
+    result = ops.music(project.root, word_index_start=2)
+
+    assert result["music"]["word_index_start"] == 2
+    assert "phrase_start" not in result["music"]
+
+
+def test_phrase_start_needs_a_clip_id_the_first_time(project: Project) -> None:
+    with pytest.raises(ProjectError, match="clip_id"):
+        ops.music(project.root, asset="bed", phrase_start="first twelve")
+
+
 # -- what it refuses --------------------------------------------------------
 
 

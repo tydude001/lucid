@@ -44,6 +44,7 @@ EXPECTED_TOOLS = {
     "transcribe",
     "get_transcript",
     "transcript_checks",
+    "resolve_phrase",
     "attribute_speakers",
     "describe",
     "describe_ls",
@@ -60,6 +61,7 @@ EXPECTED_TOOLS = {
     "cue_add",
     "cue_rm",
     "cue_ls",
+    "cue_reresolve",
     "unspoken_add",
     "unspoken_rm",
     "unspoken_ls",
@@ -239,6 +241,7 @@ TOOL_TO_COMMAND = {
     "transcribe": "transcribe",
     "get_transcript": "transcript",
     "transcript_checks": "transcript-checks",
+    "resolve_phrase": "resolve",
     "attribute_speakers": "attribute-speakers",
     "describe": "describe",
     "describe_ls": "describe-ls",
@@ -255,6 +258,7 @@ TOOL_TO_COMMAND = {
     "cue_add": "cue",
     "cue_rm": "cue",
     "cue_ls": "cue",
+    "cue_reresolve": "cue",
     "unspoken_add": "unspoken",
     "unspoken_rm": "unspoken",
     "unspoken_ls": "unspoken",
@@ -739,6 +743,156 @@ def test_cue_add_refuses_a_duplicate_word_over_the_wire(
     out = anyio.run(_with_server, body)
     assert out["is_error"]
     assert "already has a cue" in out["text"]
+
+
+# -- phrase addressing (feature: phrase-addressed cues) ---------------------
+#
+# `sources`' words are w00 w01 w10 w11 w20 w21 w30 w31 — "w10 w11" is the
+# same word_index=2 pair `test_cue_table_add_ls_rm_end_to_end` above
+# exercises by index, so this is the control that reaching over the wire
+# resolves to the identical place.
+
+
+@needs_ffprobe
+def test_cue_add_by_phrase_over_the_wire(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        return await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            asset="cold-open",
+            phrase="w10 w11",
+        )
+
+    added = anyio.run(_with_server, body)
+    assert added["word_index"] == 2
+    assert added["text"] == "w10"
+    assert added["phrase"] == "w10 w11"
+
+
+@needs_ffprobe
+def test_cue_add_ambiguous_phrase_lists_candidates_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A repeated word with no `occurrence=` refuses and names every match —
+    the safety story this feature exists to guarantee."""
+    audio, _ = sources
+    project = tmp_path / "proj"
+    transcript = tmp_path / "repeated.json"
+    transcript.write_text(
+        json.dumps(
+            {
+                "language": "en",
+                "words": [
+                    {"word": "the", "start": 0.0, "end": 0.3},
+                    {"word": "cat", "start": 0.5, "end": 0.8},
+                    {"word": "and", "start": 0.9, "end": 1.1},
+                    {"word": "the", "start": 1.2, "end": 1.5},
+                    {"word": "dog", "start": 1.6, "end": 1.9},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        result = await session.call_tool(
+            "cue_add",
+            {
+                "path": str(project),
+                "clip_id": clip["clip_id"],
+                "asset": "cold-open",
+                "phrase": "the",
+            },
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+    assert out["is_error"]
+    assert "matches 2 times" in out["text"]
+    assert "words 0-0" in out["text"] and "words 3-3" in out["text"]
+    assert "occurrence=" in out["text"]
+
+
+@needs_ffprobe
+def test_resolve_phrase_reachable_over_stdio(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        return await client.call(
+            "resolve_phrase", path=str(project), clip_id=clip["clip_id"], phrase="w10 w11"
+        )
+
+    resolved = anyio.run(_with_server, body)
+    assert (resolved["first_word"], resolved["last_word"]) == (2, 3)
+    assert resolved["match"] == "exact"
+    # The read-only companion to cue_add's write — nothing was added.
+    assert resolved["phrase"] == "w10 w11"
+
+
+@needs_ffprobe
+def test_cue_reresolve_reachable_over_stdio(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(audio))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            asset="cold-open",
+            phrase="w10 w11",
+        )
+        return await client.call("cue_reresolve", path=str(project))
+
+    report = anyio.run(_with_server, body)
+    assert report["apply"] is False
+    assert report["cues"][0]["action"] == "resolved"
+    assert report["cues"][0]["word_index"] == 2
 
 
 @needs_ffprobe

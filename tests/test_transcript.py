@@ -75,6 +75,153 @@ def test_find_returns_every_occurrence() -> None:
     assert [(m["first_word"], m["last_word"]) for m in matches] == [(0, 1), (2, 3)]
 
 
+# -- resolve: the phrase resolver (feature: phrase-addressed cues) ---------
+#
+# `find()` above lists every match and leaves the choosing to a caller;
+# `resolve()` always hands back exactly one, or explains why it can't.
+
+
+def test_resolve_a_single_exact_match() -> None:
+    resolved = _parse().resolve("twelve minutes")
+
+    assert resolved["first_word"] == 2 and resolved["last_word"] == 3
+    assert resolved["text"] == "twelve minutes."
+    assert resolved["match"] == "exact"
+    assert resolved["ratio"] is None
+    assert resolved["matches_after_cursor"] == 1
+
+
+def test_resolve_is_contraction_aware_both_directions() -> None:
+    """Whisper writes "There's" or "There is" as it pleases — the query and
+    the transcript can disagree either way and still match."""
+    contracted = _parse({"words": [{"word": "There's", "start": 0.0, "end": 0.5}, {"word": "a", "start": 0.5, "end": 0.7}, {"word": "problem", "start": 0.8, "end": 1.2}]})
+    assert contracted.resolve("there is a")["first_word"] == 0
+
+    expanded = _parse({"words": [{"word": "There", "start": 0.0, "end": 0.4}, {"word": "is", "start": 0.4, "end": 0.6}, {"word": "a", "start": 0.7, "end": 0.9}]})
+    # "there's" expands to the same two tokens ("there", "is") the transcript
+    # already holds as two separate words, so the phrase's 3 tokens span all
+    # 3 words here — the contraction is absorbed, not collapsed away.
+    assert expanded.resolve("there's a")["last_word"] == 2
+
+
+def test_resolve_after_skips_an_earlier_occurrence() -> None:
+    doubled = {
+        "words": [
+            {"word": "test", "start": 0.0, "end": 0.5},
+            {"word": "it", "start": 0.5, "end": 0.8},
+            {"word": "test", "start": 1.0, "end": 1.5},
+            {"word": "it", "start": 1.5, "end": 1.8},
+        ]
+    }
+    parsed = _parse(doubled)
+    # With no cursor there are two matches — ambiguous. after= past the
+    # first occurrence's own words leaves exactly one.
+    resolved = parsed.resolve("test it", after=1)
+    assert (resolved["first_word"], resolved["last_word"]) == (2, 3)
+    assert resolved["matches_after_cursor"] == 1
+
+
+def test_resolve_occurrence_picks_the_nth_match() -> None:
+    doubled = {
+        "words": [
+            {"word": "test", "start": 0.0, "end": 0.5},
+            {"word": "it", "start": 0.5, "end": 0.8},
+            {"word": "test", "start": 1.0, "end": 1.5},
+            {"word": "it", "start": 1.5, "end": 1.8},
+        ]
+    }
+    parsed = _parse(doubled)
+    first = parsed.resolve("test it", occurrence=1)
+    second = parsed.resolve("test it", occurrence=2)
+    assert (first["first_word"], first["last_word"]) == (0, 1)
+    assert (second["first_word"], second["last_word"]) == (2, 3)
+    assert second["matches_after_cursor"] == 2
+
+
+def test_resolve_occurrence_out_of_range_names_how_many_exist() -> None:
+    doubled = {
+        "words": [
+            {"word": "test", "start": 0.0, "end": 0.5},
+            {"word": "it", "start": 0.5, "end": 0.8},
+            {"word": "test", "start": 1.0, "end": 1.5},
+            {"word": "it", "start": 1.5, "end": 1.8},
+        ]
+    }
+    with pytest.raises(tx.TranscriptError, match="matches 2 time"):
+        _parse(doubled).resolve("test it", occurrence=3)
+
+
+def test_resolve_ambiguous_with_no_occurrence_raises_and_lists_every_candidate() -> None:
+    doubled = {
+        "words": [
+            {"word": "test", "start": 0.0, "end": 0.5},
+            {"word": "it", "start": 0.5, "end": 0.8},
+            {"word": "test", "start": 1.0, "end": 1.5},
+            {"word": "it", "start": 1.5, "end": 1.8},
+        ]
+    }
+    with pytest.raises(tx.AmbiguousPhraseError) as excinfo:
+        _parse(doubled).resolve("test it")
+
+    err = excinfo.value
+    assert err.phrase == "test it"
+    assert [(c["first_word"], c["last_word"]) for c in err.candidates] == [(0, 1), (2, 3)]
+    assert "words 0-1" in str(err) and "words 2-3" in str(err)
+
+
+def test_resolve_falls_back_to_fuzzy_only_on_zero_exact_matches() -> None:
+    """A dropped possessive ("Harker's" -> "Harker") the exact pass cannot
+    reach, but a token-level fuzzy window does."""
+    parsed = _parse(
+        {
+            "words": [
+                {"word": "Harker", "start": 0.0, "end": 0.3},
+                {"word": "standing", "start": 0.4, "end": 0.6},
+                {"word": "there", "start": 0.7, "end": 0.9},
+            ]
+        }
+    )
+    resolved = parsed.resolve("Harker's standing")
+    assert resolved["match"] == "fuzzy"
+    assert resolved["ratio"] == pytest.approx(0.8)
+    assert (resolved["first_word"], resolved["last_word"]) == (0, 1)
+
+
+def test_resolve_fuzzy_floor_refuses_a_weak_match() -> None:
+    parsed = _parse(
+        {
+            "words": [
+                {"word": w, "start": i, "end": i + 0.5}
+                for i, w in enumerate(["apple", "banana", "cherry", "date", "elderberry"])
+            ]
+        }
+    )
+    # Below the 0.75 floor by default...
+    with pytest.raises(tx.TranscriptError, match="not found"):
+        parsed.resolve("banana grape")
+    # ...but a floor of 0 accepts the same weak candidate, proving the
+    # refusal above is the floor and not "nothing matched at all".
+    weak = parsed.resolve("banana grape", fuzzy_floor=0.0)
+    assert weak["match"] == "fuzzy"
+    assert weak["ratio"] < 0.75
+
+
+def test_resolve_raises_plain_transcript_error_when_nothing_matches_at_all() -> None:
+    with pytest.raises(tx.TranscriptError) as excinfo:
+        _parse().resolve("nothing like this exists here", fuzzy=False)
+    assert not isinstance(excinfo.value, tx.AmbiguousPhraseError)
+
+
+def test_resolve_no_fuzzy_refuses_rather_than_falling_back() -> None:
+    with pytest.raises(tx.TranscriptError, match="fuzzy disabled"):
+        _parse().resolve("twelv minuts", fuzzy=False)
+
+
+def test_resolve_empty_phrase_is_refused() -> None:
+    with pytest.raises(tx.TranscriptError, match="empty"):
+        _parse().resolve("   ")
+
+
 def test_roundtrips_through_the_cache(tmp_path) -> None:
     parsed = _parse()
     dest = tmp_path / "vo.json"

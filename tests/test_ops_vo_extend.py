@@ -216,3 +216,35 @@ def test_refuses_a_word_that_is_already_cut(project: Project) -> None:
 
     with pytest.raises(tl.TimelineError, match="not on the timeline"):
         ops.vo_extend(project.root, "vo", 2, 3.0)
+
+
+# -- phrase addressing (feature: phrase-addressed cues) ----------------------
+#
+# `word_index` names "the last word before the gap" — edge="last" — so a
+# phrase spanning two-or-more words is the only fixture that can catch an
+# accidental edge="first" (CLAUDE.md: a single-word phrase cannot).
+
+
+def test_phrase_binds_to_its_last_word(project: Project) -> None:
+    """"two three" must open the gap after "three" (word 2), matching
+    `test_extend_inserts_a_hold_right_after_the_named_word`'s word_index=2."""
+    result = ops.vo_extend(project.root, "vo", phrase="two three", seconds=3.0)
+
+    assert result["text"] == "three"
+    assert result["timeline_start"] == pytest.approx(2.5)
+    assert result["timeline_end"] == pytest.approx(5.5)
+
+
+def test_word_index_and_phrase_together_are_refused(project: Project) -> None:
+    with pytest.raises(tx.TranscriptError, match="not both"):
+        ops.vo_extend(project.root, "vo", 2, 3.0, phrase="two three")
+
+
+def test_neither_word_index_nor_phrase_is_refused(project: Project) -> None:
+    with pytest.raises(tx.TranscriptError, match="not neither"):
+        ops.vo_extend(project.root, "vo", seconds=3.0)
+
+
+def test_seconds_is_required_even_when_addressed_by_phrase(project: Project) -> None:
+    with pytest.raises(tl.TimelineError, match="seconds"):
+        ops.vo_extend(project.root, "vo", phrase="two three")

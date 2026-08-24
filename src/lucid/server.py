@@ -45,8 +45,12 @@ mcp: MCPServer = MCPServer(
         "Word indices in cut_by_transcript address the ORIGINAL recording and "
         "never renumber, so a range stays valid across accumulated cuts. Use "
         "get_transcript with search= to locate a phrase rather than reading "
-        "the whole transcript. Every mutation is snapshotted; undo rolls one "
-        "back."
+        "the whole transcript. cue_add, cue_rm, unspoken_add, unspoken_rm, "
+        "vo_extend, music and locate all accept phrase= directly instead of a "
+        "hand-typed word_index — prefer it over reading indices out of "
+        "get_transcript by hand; resolve_phrase inspects a resolution "
+        "(including ambiguity) without writing anything. Every mutation is "
+        "snapshotted; undo rolls one back."
     ),
 )
 
@@ -346,6 +350,36 @@ def get_transcript(
     `first`/`last`, returns that window of words. Indices are inclusive.
     """
     return ops.get_transcript(path, clip_id, first=first, last=last, search=search)
+
+
+@_tool()
+def resolve_phrase(
+    path: str,
+    clip_id: str,
+    phrase: str,
+    after: int = -1,
+    occurrence: int | None = None,
+    fuzzy: bool = True,
+) -> dict[str, Any]:
+    """Resolve a phrase to a word range against `clip_id`'s transcript.
+
+    What `phrase=` on cue_add/cue_rm/unspoken_add/unspoken_rm/vo_extend/music/
+    locate calls internally, exposed on its own so a resolution — including
+    its full ambiguity list — can be inspected without attempting a write.
+    Companion to `get_transcript` with `search=`, which lists every match
+    with no cursor/occurrence/fuzzy; this picks exactly one, or explains why
+    it can't.
+
+    `after` skips matches at or before that word index (forward cursor, -1
+    means from the start). More than one exact match with no `occurrence`
+    given fails with every candidate's word range and text — pass
+    `occurrence` (1-based) to pick one, or narrow the phrase. Zero exact
+    matches falls back to a fuzzy match (`fuzzy=False` to refuse instead) —
+    `ratio` is set only on a fuzzy hit, never disguised as exact. Read-only.
+    """
+    return ops.resolve_phrase(
+        path, clip_id, phrase, after=after, occurrence=occurrence, fuzzy=fuzzy
+    )
 
 
 @_tool()
@@ -705,7 +739,14 @@ def pack_status(path: str) -> dict[str, Any]:
 
 @_tool()
 def cue_add(
-    path: str, clip_id: str, word_index: int, asset: str, src_start: float | None = None
+    path: str,
+    clip_id: str,
+    word_index: int | None = None,
+    asset: str | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+    src_start: float | None = None,
 ) -> dict[str, Any]:
     """Add a picture cue: from `word_index` of `clip_id` onward, show `asset`.
 
@@ -715,6 +756,12 @@ def cue_add(
     sits at that exact word; cue_rm it first to replace it. Echoes the
     resolved word plus three either side, the same convention every
     word-indexed tool follows.
+
+    Addressed by `word_index` **or** `phrase` (exactly one) — a phrase binds
+    to its **first** word ("from this word onward"). `after`/`occurrence`
+    disambiguate a phrase matching more than once; a resolved phrase is
+    stored alongside the word index, additive metadata `cue_reresolve` can
+    re-derive after a re-record.
 
     `src_start` pins **where inside `asset` the shot reads from**: seconds in
     that asset's own source time, which is exactly the number `describe_ls`
@@ -731,13 +778,30 @@ def cue_add(
     opening seconds instead. Shorten the shot with another cue, or pin
     earlier. A card takes no `src_start`; a held frame has no playhead.
     """
-    return ops.cue_add(path, clip_id, word_index, asset, src_start=src_start)
+    return ops.cue_add(
+        path,
+        clip_id,
+        word_index,
+        asset,
+        phrase=phrase,
+        after=after,
+        occurrence=occurrence,
+        src_start=src_start,
+    )
 
 
 @_tool()
-def cue_rm(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
-    """Remove the cue at `clip_id` word `word_index`."""
-    return ops.cue_rm(path, clip_id, word_index)
+def cue_rm(
+    path: str,
+    clip_id: str,
+    word_index: int | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
+    """Remove the cue at `clip_id` word `word_index` — or wherever `phrase`
+    resolves to (its first word, `cue_add`'s own binding)."""
+    return ops.cue_rm(path, clip_id, word_index, phrase=phrase, after=after, occurrence=occurrence)
 
 
 @_tool()
@@ -749,6 +813,30 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
     the edit's surviving ranges, which is `build_shots`'s job.
     """
     return ops.cue_ls(path, clip_id=clip_id)
+
+
+@_tool()
+def cue_reresolve(
+    path: str, clip_id: str | None = None, apply: bool = False
+) -> dict[str, Any]:
+    """Re-resolve every phrase-addressed cue, unspoken mark and music-bed
+    boundary against the current transcript, and report what moved.
+
+    A re-record replaces a clip's transcript wholesale, and every stored
+    `word_index` on that clip potentially now addresses the wrong word —
+    already true today of a plain word-index entry, and this does not close
+    that gap for one. What it closes it for is an entry that also carries the
+    `phrase` it was placed with: re-resolving says where that same wording
+    landed now, without hand re-indexing a whole cue table.
+
+    `apply=False` (default): report only, nothing is written — the same
+    posture as `reframe_detect`/`unspoken_detect`. `apply=True` rewrites
+    `word_index` in place for every entry whose phrase still resolves to
+    exactly one match; anything ambiguous or unresolved is reported and left
+    untouched, never guessed. An entry with no stored phrase is reported as
+    `"action": "unchanged (no phrase to re-resolve)"`, not silently skipped.
+    """
+    return ops.cue_reresolve(path, clip_id=clip_id, apply=apply)
 
 
 @_tool()
@@ -766,7 +854,14 @@ def assets(path: str) -> dict[str, Any]:
 
 
 @_tool()
-def unspoken_add(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
+def unspoken_add(
+    path: str,
+    clip_id: str,
+    word_index: int | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
     """Mark a word the transcript holds and the recording never said.
 
     Whisper transcribes straight *across* a retake splice and emits words from
@@ -780,16 +875,33 @@ def unspoken_add(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
     no audio, timing or shot changes, because the seconds around it are the
     take that was kept. Echoes the word it resolved to, plus three either side.
 
+    Addressed by `word_index` **or** `phrase` — but unlike cue_add, a phrase
+    resolving to more than one word is refused rather than bound to an edge:
+    unspoken addresses exactly one word, and picking a side of a wider match
+    would silently mark the wrong one half the time. Narrow the phrase, or
+    pass `occurrence=` if it is disambiguation rather than width.
+
     Prefer `unspoken_detect` to find them: it is evidence rather than reading,
     and reading for sense provably misses the grammatical ones.
     """
-    return ops.unspoken_add(path, clip_id, word_index)
+    return ops.unspoken_add(
+        path, clip_id, word_index, phrase=phrase, after=after, occurrence=occurrence
+    )
 
 
 @_tool()
-def unspoken_rm(path: str, clip_id: str, word_index: int) -> dict[str, Any]:
+def unspoken_rm(
+    path: str,
+    clip_id: str,
+    word_index: int | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
     """Unmark a word, putting it back into captions and into `verify`."""
-    return ops.unspoken_rm(path, clip_id, word_index)
+    return ops.unspoken_rm(
+        path, clip_id, word_index, phrase=phrase, after=after, occurrence=occurrence
+    )
 
 
 @_tool()
@@ -1022,6 +1134,9 @@ def locate(
     last: int | None = None,
     source_start: float | None = None,
     source_end: float | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
 ) -> dict[str, Any]:
     """Where does a SOURCE word or SOURCE time play in the current render?
 
@@ -1032,17 +1147,20 @@ def locate(
 
     Address it one way per call — `first`/`last` are inclusive word indices
     (`last` defaults to `first`), `source_start`/`source_end` are seconds into
-    the recording (omit `source_end` to locate an instant).
+    the recording (omit `source_end` to locate an instant), or `phrase` — a
+    phrase naturally *is* a range, so it resolves straight to `first`/`last`
+    with no edge to pick (`after`/`occurrence` disambiguate a phrase matching
+    more than once).
 
     Read `present` first. False means the material is not in the render, and
     `beyond_source` distinguishes "you cut it" from "the recording never went
     that far". A partially-cut range is normal: `placements` lists each
     surviving piece in playback order with the source coordinates saying which
     part of the phrase it is, `covered` how much survives, and `contiguous`
-    whether the survivors still play back-to-back. Word mode echoes the
-    resolved words plus three either side; time mode echoes the words the
-    interval overlaps, or its nearest neighbours if it landed in silence.
-    Read-only: nothing is written.
+    whether the survivors still play back-to-back. Word mode (and phrase
+    mode, which resolves into it) echoes the resolved words plus three either
+    side; time mode echoes the words the interval overlaps, or its nearest
+    neighbours if it landed in silence. Read-only: nothing is written.
     """
     return ops.locate(
         path,
@@ -1051,6 +1169,9 @@ def locate(
         last=last,
         source_start=source_start,
         source_end=source_end,
+        phrase=phrase,
+        after=after,
+        occurrence=occurrence,
     )
 
 
@@ -1391,6 +1512,10 @@ def music(
     clip_id: str | None = None,
     word_index_start: int | None = None,
     word_index_end: int | None = None,
+    phrase_start: str | None = None,
+    phrase_end: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
     fade_in: float | None = None,
     fade_out: float | None = None,
     clear_end: bool = False,
@@ -1407,17 +1532,24 @@ def music(
     automatically; a stored length was measured drifting onto live material
     (PLAN.md § The A2 music lane — the design note).
 
+    `phrase_start`/`phrase_end` resolve against `clip_id`'s transcript
+    instead of a raw index — the start binds a phrase's first word, the end
+    its last, each independent (a call can set one by phrase and the other by
+    index). The resolved phrase is stored beside the word index it resolved
+    to, so `cue_reresolve` can re-derive it after a re-record; setting a
+    field by plain index instead clears whatever phrase was stored for it.
+
     `asset` is a registered clip_id, never `card:name` — a held frame has no
     sound to mix. It plays from its own head; shorter than its span pads out
     with real silence, longer is trimmed. Call with no arguments to read what
-    is in force; first set needs `asset`, `clip_id` and `word_index_start`
-    together, either alone after that updates its own field. `clear_end`
-    drops the end word back to "to the end"; `reset` drops the bed entirely.
-    `fade_in`/`fade_out` are seconds of fade drawn over the bed's audible
-    span — a fade-out ends where the music actually ends, and a pair that
-    outgrows the bed refuses at build time. `plan` resolves and validates
-    without writing. Both word indices are echoed with their resolved words
-    and neighbours — check them.
+    is in force; first set needs `asset`, `clip_id` and `word_index_start` (or
+    `phrase_start`) together, either alone after that updates its own field.
+    `clear_end` drops the end word back to "to the end"; `reset` drops the
+    bed entirely. `fade_in`/`fade_out` are seconds of fade drawn over the
+    bed's audible span — a fade-out ends where the music actually ends, and a
+    pair that outgrows the bed refuses at build time. `plan` resolves and
+    validates without writing. Both word indices are echoed with their
+    resolved words and neighbours — check them.
     """
     return ops.music(
         path,
@@ -1425,6 +1557,10 @@ def music(
         clip_id=clip_id,
         word_index_start=word_index_start,
         word_index_end=word_index_end,
+        phrase_start=phrase_start,
+        phrase_end=phrase_end,
+        after=after,
+        occurrence=occurrence,
         fade_in=fade_in,
         fade_out=fade_out,
         clear_end=clear_end,
@@ -1437,9 +1573,12 @@ def music(
 def vo_extend(
     path: str,
     clip_id: str,
-    word_index: int,
-    seconds: float,
+    word_index: int | None = None,
+    seconds: float | None = None,
     plan: bool = False,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
 ) -> dict[str, Any]:
     """Open a gap in `clip_id`'s track for material the recording never had.
 
@@ -1454,6 +1593,10 @@ def vo_extend(
     timeline — an index naming cut material is refused rather than guessed
     at. `seconds` is the hold's length, an editorial call this makes no
     attempt to derive.
+
+    Addressed by `word_index` **or** `phrase` — a phrase binds to its
+    **last** word, this tool's own meaning ("the last word before the gap").
+    `after`/`occurrence` disambiguate a phrase matching more than once.
 
     The manufactured stretch is a real silent WAV, imported and registered
     like any other clip (never a clip_id widened past its registered
@@ -1479,7 +1622,9 @@ def vo_extend(
     manifest or the timeline; its `hold_clip_id` is a placeholder, since
     nothing was actually registered.
     """
-    return ops.vo_extend(path, clip_id, word_index, seconds, plan=plan)
+    return ops.vo_extend(
+        path, clip_id, word_index, seconds, plan=plan, phrase=phrase, after=after, occurrence=occurrence
+    )
 
 
 @_tool()

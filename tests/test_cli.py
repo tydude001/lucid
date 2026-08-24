@@ -288,6 +288,123 @@ def test_transcript_checks_clip_id_is_optional(
     assert named == every
 
 
+# -- phrase addressing (feature: phrase-addressed cues) ---------------------
+#
+# The resolver and the ops-layer wiring are proven in test_transcript.py,
+# test_ops_cues.py and test_ops_resolve_phrase.py; over the wire in
+# test_server_stdio.py. What only a real CLI invocation can prove is
+# argparse's own plumbing: `word_index` becoming an optional positional
+# (`nargs="?"`) that still leaves room for `asset` right after it, and the
+# brand-new `resolve` subcommand's dispatch.
+
+
+@needs_ffprobe
+def test_cue_add_phrase_flag_reaches_ops_as_the_first_word(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+
+    # word_index omitted (the CLI-only nargs="?" hop) — resolved by --phrase
+    # instead, and asset still lands right after it positionally.
+    assert (
+        main(["-C", str(project), "cue", "add", clip_id, "cold-open", "--phrase", "w10 w11"])
+        == 0
+    )
+    added = json.loads(capsys.readouterr().out)
+    assert added["word_index"] == 2
+    assert added["asset"] == "cold-open"
+    assert added["phrase"] == "w10 w11"
+
+
+@needs_ffprobe
+def test_cue_add_word_index_and_phrase_together_are_refused_by_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "-C", str(project), "cue", "add", clip_id, "2", "cold-open",
+                "--phrase", "w10 w11",
+            ]
+        )
+        == 1
+    )
+    assert "not both" in capsys.readouterr().err
+
+
+@needs_ffprobe
+def test_resolve_command_reaches_ops_resolve_phrase(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "resolve", clip_id, "w10 w11"]) == 0
+    resolved = json.loads(capsys.readouterr().out)
+    assert (resolved["first_word"], resolved["last_word"]) == (2, 3)
+    assert resolved["match"] == "exact"
+
+    # --after reaches ops as the forward cursor: skipping past the phrase's
+    # own words leaves nothing left to match.
+    assert main(["-C", str(project), "resolve", clip_id, "w10 w11", "--after", "3"]) == 1
+    assert "not found" in capsys.readouterr().err
+
+
+@needs_ffprobe
+def test_locate_phrase_is_a_fourth_mutually_exclusive_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--phrase` joins `--words`/`--at`/`--span` in the same required
+    mutually-exclusive group — the CLI-only hop this argparse extension adds."""
+    project = tmp_path / "proj"
+    audio, transcript = _make_sources(project.parent)
+
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "import", str(audio)]) == 0
+    clip_id = json.loads(capsys.readouterr().out)["clip_id"]
+    assert main(["-C", str(project), "attach-transcript", clip_id, str(transcript)]) == 0
+    capsys.readouterr()
+    assert main(["-C", str(project), "seed", clip_id, "--keep-silences"]) == 0
+    capsys.readouterr()
+
+    assert main(["-C", str(project), "locate", clip_id, "--phrase", "w10 w11"]) == 0
+    located = json.loads(capsys.readouterr().out)
+    assert located["mode"] == "phrase"
+    assert (located["first_word"], located["last_word"]) == (2, 3)
+
+    # --phrase alongside --words is refused the same way --words+--at is —
+    # argparse's own mutually-exclusive-group usage error, exit 2.
+    with pytest.raises(SystemExit) as excinfo:
+        main(["-C", str(project), "locate", clip_id, "--words", "0", "--phrase", "w10 w11"])
+    assert excinfo.value.code == 2
+
+
 # -- `restore` --------------------------------------------------------------
 #
 # The op itself is proven end-to-end over the wire in test_server_stdio.py;

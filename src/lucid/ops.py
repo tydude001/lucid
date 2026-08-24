@@ -307,6 +307,99 @@ def _transcript(project: Project, clip_id: str) -> tx.Transcript:
     return tx.load(cached, clip_id=clip_id)
 
 
+# -- phrase addressing -------------------------------------------------------
+#
+# Every word-indexed mutator below (cue_add, cue_rm, unspoken_add/rm,
+# vo_extend, music, locate) accepts `phrase=` as an alternative to a plain
+# `word_index` — this is the one place that translates "a phrase" into "a
+# word index (or two)", so the xor-validation and the ambiguity policy are
+# written once. `edge` is a property of what the *tool* means, never
+# something a caller chooses (CLAUDE.md-shaped: hardcoded per call site).
+
+
+def _resolve_word_or_phrase(
+    parsed: tx.Transcript | None,
+    *,
+    word_index: int | None,
+    phrase: str | None,
+    after: int = -1,
+    occurrence: int | None = None,
+    edge: str,
+    single: bool = False,
+) -> tuple[int, int]:
+    """Resolve a tool's word address from a plain index or a phrase.
+
+    Exactly one of `word_index`/`phrase` must be given — raises
+    `TranscriptError` otherwise, `locate`'s own "two ways of naming one
+    thing, pick one" idiom, generalized.
+
+    `edge` picks which word of a *phrase* match becomes the returned
+    address: `"first"`/`"last"` collapse a (possibly multi-word) match down
+    to one word, returned as `(word, word)` — a plain `word_index` passes
+    through unchanged either way, since a caller who named an index meant
+    exactly that word. `"range"` returns the phrase match's own span
+    untouched, for a tool (`locate`) whose address *is* a range already.
+
+    `single=True` additionally refuses a phrase match wider than one word —
+    `unspoken_add`/`unspoken_rm` address exactly one word, and picking an
+    edge of a wider match would silently mark the wrong word half the time.
+    """
+    if (word_index is None) == (phrase is None):
+        raise tx.TranscriptError(
+            "pass word_index or phrase, not both and not neither — they are "
+            "two ways of naming the same word, and a call giving both cannot "
+            "say which one it meant"
+        )
+    if word_index is not None:
+        idx = int(word_index)
+        return idx, idx
+
+    assert parsed is not None and phrase is not None
+    resolved = parsed.resolve(phrase, after=after, occurrence=occurrence)
+    first, last = resolved["first_word"], resolved["last_word"]
+    if single and first != last:
+        raise tx.TranscriptError(
+            f"phrase {phrase!r} resolved to words {first}-{last} "
+            f"({resolved['text']!r}) — this needs exactly one word, narrow "
+            "the phrase"
+        )
+    if edge == "first":
+        return first, first
+    if edge == "last":
+        return last, last
+    return first, last
+
+
+def resolve_phrase(
+    path: Path | str,
+    clip_id: str,
+    phrase: str,
+    *,
+    after: int = -1,
+    occurrence: int | None = None,
+    fuzzy: bool = True,
+) -> dict[str, Any]:
+    """Resolve a phrase to a word range against `clip_id`'s transcript.
+
+    Read-only, echoed like every word-indexed tool here — what `phrase=` on
+    `cue_add`/`cue_rm`/`unspoken_add`/`unspoken_rm`/`vo_extend`/`music`/
+    `locate` calls internally, exposed on its own so a script or an agent can
+    inspect a resolution — including its full ambiguity list — without
+    attempting a write. Companion to `get_transcript --search`, which lists
+    every match with no cursor/occurrence/fuzzy; this picks exactly one, or
+    explains why it can't (`Transcript.resolve`).
+    """
+    project = Project.open(path)
+    parsed = _transcript(project, clip_id)
+    resolved = parsed.resolve(phrase, after=after, occurrence=occurrence, fuzzy=fuzzy)
+    return {
+        "clip_id": clip_id,
+        "phrase": phrase,
+        **resolved,
+        **_context(parsed, resolved["first_word"], resolved["last_word"]),
+    }
+
+
 def get_transcript(
     path: Path | str,
     clip_id: str,
@@ -1779,9 +1872,12 @@ def _cue_echo(parsed: tx.Transcript, word_index: int) -> dict[str, Any]:
 def cue_add(
     path: Path | str,
     clip_id: str,
-    word_index: int,
-    asset: str,
+    word_index: int | None = None,
+    asset: str | None = None,
     *,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
     src_start: float | None = None,
 ) -> dict[str, Any]:
     """Add a cue: from `word_index` of `clip_id` onward, show `asset`.
@@ -1792,6 +1888,16 @@ def cue_add(
     Refused if a cue already sits at this exact word; remove it first with
     `cue_rm` to replace it, so a call can never silently pick a winner
     between two assets at the same word.
+
+    Addressed by `word_index` **or** `phrase`, never both — a phrase binds to
+    its **first** word ("from this word onward" is what a cue means), the
+    same edge goodsometimes' own `cue` binding used. `after`/`occurrence`
+    disambiguate a phrase that matches more than once (`Transcript.resolve`);
+    a phrase that resolved to more than one word is stored beside the
+    resolved `word_index` as additive-optional `phrase` metadata — never the
+    address itself (CLAUDE.md), so re-attaching a transcript invalidates
+    nothing that was not already true of a plain word-index cue. See
+    `cue_reresolve` for re-deriving a phrase-addressed cue after a re-record.
 
     `src_start` **pins the in-point**: seconds into `asset`, in that asset's
     own source time, which is exactly what a `describe_ls` window reports
@@ -1814,13 +1920,21 @@ def cue_add(
     a negative in-point, or one on a `card:`, where a held frame has no
     playhead to move.
     """
+    if asset is None:
+        raise tx.TranscriptError(
+            "cue_add needs asset — a cue says what to show, not only where"
+        )
     project = Project.open(path)
     media.get_clip(project, clip_id)
     parsed = _transcript(project, clip_id)
-    word_index = int(word_index)
+    word_index, _ = _resolve_word_or_phrase(
+        parsed, word_index=word_index, phrase=phrase, after=after, occurrence=occurrence, edge="first"
+    )
     echo = _cue_echo(parsed, word_index)
 
     cue: dict[str, Any] = {"clip_id": clip_id, "word_index": word_index, "asset": asset}
+    if phrase is not None:
+        cue["phrase"] = phrase
     if src_start is not None:
         src_start = float(src_start)
         if src_start < 0:
@@ -1849,17 +1963,31 @@ def cue_add(
         "clip_id": clip_id,
         "asset": asset,
         "src_start": src_start,
+        "phrase": phrase,
         "cues": len(cues),
         **echo,
     }
 
 
-def cue_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
-    """Remove the cue at `clip_id` word `word_index`."""
+def cue_rm(
+    path: Path | str,
+    clip_id: str,
+    word_index: int | None = None,
+    *,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
+    """Remove the cue at `clip_id` word `word_index` — or wherever `phrase`
+    resolves to (its first word, `cue_add`'s own binding — the same address
+    space, for symmetry)."""
     project = Project.open(path)
+    parsed = _transcript(project, clip_id)
+    word_index, _ = _resolve_word_or_phrase(
+        parsed, word_index=word_index, phrase=phrase, after=after, occurrence=occurrence, edge="first"
+    )
     manifest = project.read_manifest()
     cues = manifest.get("cues", [])
-    word_index = int(word_index)
     match = next(
         (c for c in cues if c["clip_id"] == clip_id and c["word_index"] == word_index), None
     )
@@ -1870,7 +1998,6 @@ def cue_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
         )
     manifest["cues"] = [c for c in cues if c is not match]
     project.write_manifest(manifest)
-    parsed = _transcript(project, clip_id)
     return {
         "clip_id": clip_id,
         "asset": match["asset"],
@@ -1905,10 +2032,162 @@ def cue_ls(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
                 "clip_id": cid,
                 "asset": cue["asset"],
                 "src_start": cue.get("src_start"),
+                "phrase": cue.get("phrase"),
                 **_cue_echo(transcripts[cid], cue["word_index"]),
             }
         )
     return {"cues": entries, "count": len(entries)}
+
+
+def _reresolve_phrase(
+    parsed: tx.Transcript | None, phrase: str | None, *, edge: str
+) -> dict[str, Any]:
+    """One phrase-addressed entry's re-resolution outcome, for `cue_reresolve`.
+
+    Never raises: an ambiguous or unresolved phrase is reported, not thrown,
+    because a re-record can legitimately make an old phrase stop meaning one
+    thing — that is exactly the case `cue_reresolve` exists to surface.
+    """
+    if phrase is None:
+        return {"phrase": None, "action": "unchanged (no phrase to re-resolve)"}
+    if parsed is None:
+        return {"phrase": phrase, "action": "no transcript for this clip"}
+    try:
+        resolved = parsed.resolve(phrase)
+    except tx.AmbiguousPhraseError as exc:
+        return {"phrase": phrase, "action": "ambiguous", "candidates": exc.candidates}
+    except tx.TranscriptError as exc:
+        return {"phrase": phrase, "action": "not found", "error": str(exc)}
+    word_index = resolved["first_word"] if edge == "first" else resolved["last_word"]
+    return {
+        "phrase": phrase,
+        "action": "resolved",
+        "word_index": word_index,
+        "match": resolved["match"],
+        "ratio": resolved["ratio"],
+    }
+
+
+def cue_reresolve(
+    path: Path | str, clip_id: str | None = None, *, apply: bool = False
+) -> dict[str, Any]:
+    """Re-resolve every phrase-addressed cue, unspoken mark and music-bed
+    boundary against `clip_id`'s *current* transcript (every clip that has
+    one, if `clip_id` is omitted) and report what moved.
+
+    A re-record replaces a clip's transcript wholesale (`attach_transcript`,
+    `transcribe`) and every stored `word_index` on that clip potentially now
+    addresses the wrong word — already true today of a plain word-index cue,
+    and this does not close that gap for one. What it closes it for is an
+    entry that also carries the `phrase` (or `phrase_start`/`phrase_end`) it
+    was placed with: re-running `Transcript.resolve()` against the transcript
+    now attached says where that same wording landed, without hand
+    re-indexing a whole cue table — the goodsometimes v3->v4 workflow
+    (`assemble_longlegs.py --plan`/`--apply`), now inside lucid.
+
+    `apply=False` (default): report only, nothing is written —
+    `reframe_detect`'s and `unspoken_detect`'s own posture, because a phrase
+    that now resolves ambiguously or not at all needs a human decision, not a
+    guess. `apply=True` rewrites `word_index` in place for every entry whose
+    phrase still resolves to exactly one match (`report["applied"] = True`
+    marks which); anything ambiguous or unresolved is reported and left
+    untouched, never guessed.
+
+    An entry with no stored phrase (hand-index-addressed, or written before
+    this feature existed) is reported as `"phrase": None, "action":
+    "unchanged (no phrase to re-resolve)"` — not silently skipped, so a
+    caller can tell "checked, still fine" from "cannot check this one".
+    """
+    project = Project.open(path)
+    manifest = project.read_manifest()
+
+    cues = manifest.get("cues", [])
+    marks = manifest.get(UNSPOKEN_KEY, [])
+    bed = manifest.get(MUSIC_KEY)
+
+    relevant_ids: set[str] = set()
+    for cue in cues:
+        relevant_ids.add(cue["clip_id"])
+    for mark in marks:
+        relevant_ids.add(mark["clip_id"])
+    if bed is not None:
+        relevant_ids.add(bed["clip_id"])
+    if clip_id is not None:
+        relevant_ids &= {clip_id}
+
+    transcripts: dict[str, tx.Transcript | None] = {}
+    for cid in relevant_ids:
+        try:
+            transcripts[cid] = _transcript(project, cid)
+        except tx.TranscriptError:
+            transcripts[cid] = None
+
+    changed = False
+
+    cue_reports = []
+    for cue in cues:
+        if clip_id is not None and cue["clip_id"] != clip_id:
+            continue
+        outcome = _reresolve_phrase(transcripts.get(cue["clip_id"]), cue.get("phrase"), edge="first")
+        report = {
+            "clip_id": cue["clip_id"],
+            "asset": cue["asset"],
+            "word_index": cue["word_index"],
+            **outcome,
+        }
+        if apply and outcome["action"] == "resolved" and outcome["word_index"] != cue["word_index"]:
+            cue["word_index"] = outcome["word_index"]
+            report["applied"] = True
+            changed = True
+        cue_reports.append(report)
+
+    mark_reports = []
+    for mark in marks:
+        if clip_id is not None and mark["clip_id"] != clip_id:
+            continue
+        outcome = _reresolve_phrase(transcripts.get(mark["clip_id"]), mark.get("phrase"), edge="first")
+        report = {"clip_id": mark["clip_id"], "word_index": mark["word_index"], **outcome}
+        if apply and outcome["action"] == "resolved" and outcome["word_index"] != mark["word_index"]:
+            mark["word_index"] = outcome["word_index"]
+            report["applied"] = True
+            changed = True
+        mark_reports.append(report)
+
+    music_report = None
+    if bed is not None and (clip_id is None or bed["clip_id"] == clip_id):
+        parsed = transcripts.get(bed["clip_id"])
+        start_outcome = _reresolve_phrase(parsed, bed.get("phrase_start"), edge="first")
+        end_outcome = _reresolve_phrase(parsed, bed.get("phrase_end"), edge="last")
+        music_report = {"clip_id": bed["clip_id"], "start": start_outcome, "end": end_outcome}
+        if apply:
+            if (
+                start_outcome["action"] == "resolved"
+                and start_outcome["word_index"] != bed["word_index_start"]
+            ):
+                bed["word_index_start"] = start_outcome["word_index"]
+                music_report["start"] = {**start_outcome, "applied": True}
+                changed = True
+            if (
+                end_outcome["action"] == "resolved"
+                and end_outcome["word_index"] != bed.get("word_index_end")
+            ):
+                bed["word_index_end"] = end_outcome["word_index"]
+                music_report["end"] = {**end_outcome, "applied": True}
+                changed = True
+
+    if changed:
+        cues.sort(key=lambda c: (c["clip_id"], c["word_index"]))
+        marks.sort(key=lambda m: (m["clip_id"], int(m["word_index"])))
+        project.write_manifest(manifest)
+
+    return {
+        "clip_id": clip_id,
+        "apply": bool(apply),
+        "applied": changed,
+        "cues": cue_reports,
+        "unspoken": mark_reports,
+        "music": music_report,
+    }
 
 
 #: Daydream's own split (DAYDREAM.md § Import roles + assets pane):
@@ -4328,6 +4607,9 @@ def locate(
     last: int | None = None,
     source_start: float | None = None,
     source_end: float | None = None,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
 ) -> dict[str, Any]:
     """Where does this source word or source time play in the current render?
 
@@ -4336,11 +4618,14 @@ def locate(
     Answering it by hand meant reading `project.otio` and adding up segment
     durations, which is exactly the arithmetic every cut invalidates.
 
-    Address it either way, but only one way per call: `first`/`last` are
-    inclusive word indices into the clip's transcript (`last` defaults to
-    `first`, so one index locates one word), and `source_start`/`source_end`
-    are seconds in the original recording (`source_end` omitted locates an
-    instant rather than an interval).
+    Address it one way per call: `first`/`last` are inclusive word indices
+    into the clip's transcript (`last` defaults to `first`, so one index
+    locates one word), `source_start`/`source_end` are seconds in the
+    original recording (`source_end` omitted locates an instant rather than
+    an interval), or `phrase` — a phrase naturally *is* a range, so it
+    resolves straight to `first`/`last` with no edge to pick
+    (`Transcript.resolve`; `after`/`occurrence` disambiguate a phrase that
+    matches more than once).
 
     The distinction the payload exists to keep straight is **cut** versus
     **never there**. An interval that has been edited out returns
@@ -4352,26 +4637,28 @@ def locate(
     say which part of the phrase it is, `covered` how much of it is left, and
     `contiguous` whether the survivors still play back-to-back.
 
-    Word mode echoes the words it resolved to plus the three either side, the
-    same convention `cut --plan` uses (CLAUDE.md); time mode echoes the words
-    the interval overlaps — an overlap test, never containment — or its
-    nearest flanking words when it landed in silence. A clip with no
-    transcript still locates by time; `words` is null and `transcript_missing`
-    is set, rather than refusing a valid question about a picture-only clip.
-    Read-only: nothing is written, and there is no `plan=`.
+    Word mode (and phrase mode, which resolves into it) echoes the words it
+    resolved to plus the three either side, the same convention `cut --plan`
+    uses (CLAUDE.md); time mode echoes the words the interval overlaps — an
+    overlap test, never containment — or its nearest flanking words when it
+    landed in silence. A clip with no transcript still locates by time;
+    `words` is null and `transcript_missing` is set, rather than refusing a
+    valid question about a picture-only clip. Read-only: nothing is written,
+    and there is no `plan=`.
     """
     by_words = first is not None or last is not None
     by_time = source_start is not None or source_end is not None
-    if by_words and by_time:
+    by_phrase = phrase is not None
+    if sum([by_words, by_time, by_phrase]) > 1:
         raise tl.TimelineError(
-            "pass either first/last or source_start/source_end, not both — "
-            "they are two ways of naming the same thing, and a call giving "
-            "both cannot say which one it meant"
+            "pass first/last, source_start/source_end, or phrase — not both "
+            "(or all three) — they are different ways of naming the same "
+            "thing, and a call giving more than one cannot say which it meant"
         )
-    if not by_words and not by_time:
+    if not by_words and not by_time and not by_phrase:
         raise tl.TimelineError(
-            "locate needs something to locate: first= (a word index) or "
-            "source_start= (seconds into the recording)"
+            "locate needs something to locate: first= (a word index), "
+            "source_start= (seconds into the recording), or phrase="
         )
     if by_words and first is None:
         raise tl.TimelineError("last= needs first= — a range has to start somewhere")
@@ -4383,13 +4670,19 @@ def locate(
     edit = _load_edit(project)
 
     parsed: tx.Transcript | None
-    if by_words:
+    if by_words or by_phrase:
         parsed = _transcript(project, clip_id)
     else:
         try:
             parsed = _transcript(project, clip_id)
         except tx.TranscriptError:
             parsed = None
+
+    if by_phrase:
+        first, last = _resolve_word_or_phrase(
+            parsed, word_index=None, phrase=phrase, after=after, occurrence=occurrence, edge="range"
+        )
+        by_words = True
 
     # An instant is a zero-width interval everywhere below; only the reported
     # mode and the echo differ, so resolve both shapes to one pair here.
@@ -4425,9 +4718,10 @@ def locate(
     requested = hi - lo
     contiguous = all(a.contiguous_with(b) for a, b in pairwise(placements))
 
+    mode = "phrase" if by_phrase else ("words" if by_words else ("instant" if instant else "time"))
     result: dict[str, Any] = {
         "clip_id": clip_id,
-        "mode": "words" if by_words else ("instant" if instant else "time"),
+        "mode": mode,
         "source_start": lo,
         "source_end": hi,
         "present": bool(placements),
@@ -7388,10 +7682,13 @@ def tail(
 def vo_extend(
     path: Path | str,
     clip_id: str,
-    word_index: int,
-    seconds: float,
+    word_index: int | None = None,
+    seconds: float | None = None,
     *,
     plan: bool = False,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
 ) -> dict[str, Any]:
     """Open a gap in `clip_id`'s track for material the recording never had.
 
@@ -7409,6 +7706,15 @@ def vo_extend(
     has nothing for "after" to mean, and is refused rather than guessed at,
     the same refusal `Edit.insert` raises for the case with no echo to give it
     a face.
+
+    Addressed by `word_index` **or** `phrase` — a phrase binds to its
+    **last** word, matching this tool's own meaning ("the last word before
+    the gap"), the same edge goodsometimes' own `gap` binding used.
+    `after`/`occurrence` disambiguate a phrase that matches more than once.
+    There is no persistent gap-record to re-resolve later (`vo_extend` splices
+    real source in, it does not store an address the way a cue does), so
+    `cue_reresolve` does not cover this — resolve the phrase again by hand
+    against a re-attached transcript if a hold needs to move.
 
     The manufactured stretch is real source, never a `clip_id` widened past
     its registered duration (the design note's shape A, disallowed as
@@ -7450,11 +7756,17 @@ def vo_extend(
     plan therefore reports a placeholder `hold_clip_id` rather than the one
     that will exist.
     """
+    if seconds is None:
+        raise tl.TimelineError("vo_extend needs seconds — how long the hold should be")
     seconds = float(seconds)
     if seconds <= 0:
         raise tl.TimelineError(f"seconds must be positive, not {seconds!r}")
 
     project = Project.open(path)
+    parsed = _transcript(project, clip_id) if phrase is not None else None
+    word_index, _ = _resolve_word_or_phrase(
+        parsed, word_index=word_index, phrase=phrase, after=after, occurrence=occurrence, edge="last"
+    )
     return _splice_after(
         project,
         clip_id,
@@ -7809,6 +8121,10 @@ def music(
     clip_id: str | None = None,
     word_index_start: int | None = None,
     word_index_end: int | None = None,
+    phrase_start: str | None = None,
+    phrase_end: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
     fade_in: float | None = None,
     fade_out: float | None = None,
     clear_end: bool = False,
@@ -7820,9 +8136,9 @@ def music(
     PLAN.md § The A2 music lane — the design note, and the one op step 05 of
     the Studio reshape stopped for review over. Called with no arguments it
     changes nothing and reports what is in force, `tail`'s shape throughout:
-    first set needs `asset`, `clip_id` and `word_index_start` together;
-    either alone after that updates its own field; `reset` drops the bed
-    entirely.
+    first set needs `asset`, `clip_id` and `word_index_start` (or
+    `phrase_start`) together; either alone after that updates its own field;
+    `reset` drops the bed entirely.
 
     **The cue stores word indices and an asset — never a length.** The bed
     starts where `word_index_start` of `clip_id` lands on the timeline and
@@ -7834,6 +8150,18 @@ def music(
     live material, HISTORY.md § The music bed, measured against a dumb
     control). `word_index_end` is cleared back to "to the end" with
     `clear_end`, since None already means "don't change this field".
+
+    `phrase_start`/`phrase_end` resolve against `clip_id`'s transcript the
+    same way as every other word-indexed tool here — the start binds a
+    phrase's **first** word ("the bed starts where the phrase starts"), the
+    end binds its **last** ("the bed ends where the phrase ends"). Each is
+    independent: a call can set the start by phrase and the end by index, or
+    vice versa, and the existing "either alone updates its own field" merge
+    logic composes with this for free. The resolved phrase (if any) is stored
+    alongside the word index it resolved to, additive-optional, so
+    `cue_reresolve` can re-derive it after a re-record; setting the field by
+    plain index instead clears whatever phrase was stored for it, since a
+    raw index says the caller is no longer trusting the phrase to find it.
 
     `asset` is a registered clip_id — checked here, because a music cue with
     a typo'd asset would otherwise surface three calls later inside
@@ -7856,49 +8184,118 @@ def music(
     """
     if reset and any(
         value is not None
-        for value in (asset, clip_id, word_index_start, word_index_end, fade_in, fade_out)
+        for value in (
+            asset,
+            clip_id,
+            word_index_start,
+            word_index_end,
+            phrase_start,
+            phrase_end,
+            fade_in,
+            fade_out,
+        )
     ):
         raise ProjectError("pass fields to change, or `reset`, not both")
-    if clear_end and word_index_end is not None:
-        raise ProjectError("pass `word_index_end` or `clear_end`, not both")
+    if clear_end and (word_index_end is not None or phrase_end is not None):
+        raise ProjectError(
+            "pass `word_index_end`/`phrase_end` or `clear_end`, not both"
+        )
 
     project = Project.open(path)
     stored = _stored_music(project)
     changing = clear_end or any(
         value is not None
-        for value in (asset, clip_id, word_index_start, word_index_end, fade_in, fade_out)
+        for value in (
+            asset,
+            clip_id,
+            word_index_start,
+            word_index_end,
+            phrase_start,
+            phrase_end,
+            fade_in,
+            fade_out,
+        )
     )
 
     if reset:
-        after: dict[str, Any] | None = None
+        state: dict[str, Any] | None = None
     elif not changing:
-        after = stored
+        state = stored
     else:
         base = stored or {}
+        resolved_clip_id = clip_id if clip_id is not None else base.get("clip_id")
+
+        resolved_start = word_index_start
+        if phrase_start is not None:
+            if resolved_clip_id is None:
+                raise ProjectError(
+                    "phrase_start needs a clip_id to resolve against — pass "
+                    "clip_id together with phrase_start the first time a bed "
+                    "is set"
+                )
+            resolved_start, _ = _resolve_word_or_phrase(
+                _transcript(project, resolved_clip_id),
+                word_index=None,
+                phrase=phrase_start,
+                after=after,
+                occurrence=occurrence,
+                edge="first",
+            )
+
+        resolved_end = word_index_end
+        if phrase_end is not None:
+            if resolved_clip_id is None:
+                raise ProjectError(
+                    "phrase_end needs a clip_id to resolve against — pass "
+                    "clip_id together with phrase_end"
+                )
+            _, resolved_end = _resolve_word_or_phrase(
+                _transcript(project, resolved_clip_id),
+                word_index=None,
+                phrase=phrase_end,
+                after=after,
+                occurrence=occurrence,
+                edge="last",
+            )
+
         merged: dict[str, Any] = {
             "asset": asset if asset is not None else base.get("asset"),
-            "clip_id": clip_id if clip_id is not None else base.get("clip_id"),
+            "clip_id": resolved_clip_id,
             "word_index_start": (
-                int(word_index_start)
-                if word_index_start is not None
-                else base.get("word_index_start")
+                int(resolved_start) if resolved_start is not None else base.get("word_index_start")
             ),
             "word_index_end": (
                 None
                 if clear_end
-                else int(word_index_end)
-                if word_index_end is not None
+                else int(resolved_end)
+                if resolved_end is not None
                 else base.get("word_index_end")
             ),
             "fade_in": float(fade_in) if fade_in is not None else base.get("fade_in", 0.0),
             "fade_out": float(fade_out) if fade_out is not None else base.get("fade_out", 0.0),
         }
+        # A raw index invalidates a previously-stored phrase for that same
+        # field — the caller is no longer trusting the phrase to find it.
+        stored_phrase_start = (
+            phrase_start if phrase_start is not None
+            else (None if word_index_start is not None else base.get("phrase_start"))
+        )
+        stored_phrase_end = (
+            phrase_end if phrase_end is not None
+            else (None if (clear_end or word_index_end is not None) else base.get("phrase_end"))
+        )
+        if stored_phrase_start is not None:
+            merged["phrase_start"] = stored_phrase_start
+        if stored_phrase_end is not None:
+            merged["phrase_end"] = stored_phrase_end
+
         if merged["asset"] is None or merged["clip_id"] is None or merged["word_index_start"] is None:
             raise ProjectError(
-                "a music bed needs `asset`, `clip_id` and `word_index_start` set "
-                "together the first time — there is no bed without music to play, "
-                "a transcript to address, and a word to start on. Either alone "
-                "after that updates its own field."
+                "a music bed needs `asset`, `clip_id` and `word_index_start` "
+                "(or `phrase_start`) set together the first time — there is "
+                "no bed without music to play, a transcript to address, and "
+                "a word to start on. Either alone after that updates its own "
+                "field."
             )
         if str(merged["asset"]).startswith("card:"):
             raise ProjectError(
@@ -7919,30 +8316,30 @@ def music(
         # A typo'd asset or clip_id fails here, with the known-ids message,
         # rather than three calls later inside `_build_mlt`.
         media.get_clip(project, str(merged["asset"]))
-        after = merged
+        state = merged
 
     write = (reset or changing) and not plan
     if write:
         manifest = project.read_manifest()
-        if after is None:
+        if state is None:
             manifest.pop(MUSIC_KEY, None)
         else:
-            manifest[MUSIC_KEY] = after
+            manifest[MUSIC_KEY] = state
         project.write_manifest(manifest)
 
     # Anything taking a word index echoes the words it resolved to (CLAUDE.md)
     # — an index one past the intended phrase reads correctly on its own.
     start_word: dict[str, Any] | None = None
     end_word: dict[str, Any] | None = None
-    if after is not None:
-        parsed = _transcript(project, after["clip_id"])
-        start_word = _cue_echo(parsed, after["word_index_start"])
-        if after["word_index_end"] is not None:
-            end_word = _cue_echo(parsed, after["word_index_end"])
+    if state is not None:
+        parsed = _transcript(project, state["clip_id"])
+        start_word = _cue_echo(parsed, state["word_index_start"])
+        if state["word_index_end"] is not None:
+            end_word = _cue_echo(parsed, state["word_index_end"])
 
     return {
         "project": str(project.root),
-        "music": after,
+        "music": state,
         "start_word": start_word,
         "end_word": end_word,
         "written": write,
@@ -8877,7 +9274,15 @@ def _caption_cues(
     return cues, placed, cut, {"clips": sorted(transcripts), **unspoken}
 
 
-def unspoken_add(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
+def unspoken_add(
+    path: Path | str,
+    clip_id: str,
+    word_index: int | None = None,
+    *,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
     """Mark a word the transcript holds and the recording never said.
 
     The subject is one failure and not a general edit: whisper transcribes
@@ -8900,6 +9305,13 @@ def unspoken_add(path: Path | str, clip_id: str, word_index: int) -> dict[str, A
     seconds still belong to the words either side of it, because the sound in
     them is the take that was kept.
 
+    Addressed by `word_index` **or** `phrase` — but unlike `cue_add`, a
+    phrase that resolves to more than one word is refused rather than
+    silently bound to an edge: unspoken addresses exactly one word (the word
+    the recording never said), and picking a side of a wider match would
+    silently mark the wrong one half the time. Narrow the phrase, or pass
+    `occurrence=` if it is a disambiguation problem rather than a width one.
+
     Echoes the word it resolved to plus the three either side, for the reason
     every word-indexed tool here does: an index one past the intended word
     reads correctly on its own.
@@ -8907,7 +9319,15 @@ def unspoken_add(path: Path | str, clip_id: str, word_index: int) -> dict[str, A
     project = Project.open(path)
     media.get_clip(project, clip_id)
     parsed = _transcript(project, clip_id)
-    word_index = int(word_index)
+    word_index, _ = _resolve_word_or_phrase(
+        parsed,
+        word_index=word_index,
+        phrase=phrase,
+        after=after,
+        occurrence=occurrence,
+        edge="first",
+        single=True,
+    )
     echo = _cue_echo(parsed, word_index)
 
     manifest = project.read_manifest()
@@ -8917,18 +9337,40 @@ def unspoken_add(path: Path | str, clip_id: str, word_index: int) -> dict[str, A
             f"word {word_index} of {clip_id!r} is already marked unspoken — "
             "remove it with unspoken_rm first (CLI: `lucid unspoken rm`)"
         )
-    marks.append(
-        {"clip_id": clip_id, "word_index": word_index, "text": parsed.words[word_index].text}
-    )
+    mark: dict[str, Any] = {
+        "clip_id": clip_id,
+        "word_index": word_index,
+        "text": parsed.words[word_index].text,
+    }
+    if phrase is not None:
+        mark["phrase"] = phrase
+    marks.append(mark)
     marks.sort(key=lambda m: (m["clip_id"], int(m["word_index"])))
     project.write_manifest(manifest)
     return {"clip_id": clip_id, "marked": len(marks), **echo}
 
 
-def unspoken_rm(path: Path | str, clip_id: str, word_index: int) -> dict[str, Any]:
+def unspoken_rm(
+    path: Path | str,
+    clip_id: str,
+    word_index: int | None = None,
+    *,
+    phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+) -> dict[str, Any]:
     """Unmark a word, putting it back into captions and into `verify`."""
     project = Project.open(path)
-    word_index = int(word_index)
+    parsed = _transcript(project, clip_id) if phrase is not None else None
+    word_index, _ = _resolve_word_or_phrase(
+        parsed,
+        word_index=word_index,
+        phrase=phrase,
+        after=after,
+        occurrence=occurrence,
+        edge="first",
+        single=True,
+    )
     manifest = project.read_manifest()
     marks = manifest.get(UNSPOKEN_KEY, [])
     kept = [

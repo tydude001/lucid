@@ -246,6 +246,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "clip_id", nargs="?", help="one clip; omitted, every clip with a transcript"
     )
 
+    p_resolve = sub.add_parser(
+        "resolve",
+        help="resolve a phrase to a word range against a clip's transcript — what every "
+        "--phrase flag calls internally, exposed on its own",
+    )
+    p_resolve.add_argument("clip_id")
+    p_resolve.add_argument("phrase")
+    p_resolve.add_argument(
+        "--after", type=int, default=-1, help="only match forward of this word index"
+    )
+    p_resolve.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
+    p_resolve.add_argument(
+        "--no-fuzzy", dest="fuzzy", action="store_false", default=True,
+        help="refuse rather than falling back to a fuzzy match when nothing matches exactly",
+    )
+
     p_attribute = sub.add_parser(
         "attribute-speakers",
         help="label each word with the mic that was loudest while it was spoken",
@@ -442,9 +460,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_cue_add = cue_sub.add_parser("add", help="add a cue: from this word onward, show asset")
     p_cue_add.add_argument("clip_id")
-    p_cue_add.add_argument("word_index", type=int)
+    p_cue_add.add_argument(
+        "word_index", type=int, nargs="?", help="inclusive word index (omit and use --phrase instead)"
+    )
     p_cue_add.add_argument(
         "asset", help="card:name, or a registered video clip_id — `lucid shots` resolves it"
+    )
+    p_cue_add.add_argument(
+        "--phrase", help="resolve against clip_id's transcript instead of a word index"
+    )
+    p_cue_add.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_cue_add.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
     )
     p_cue_add.add_argument(
         "--src-start",
@@ -456,10 +485,34 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_cue_rm = cue_sub.add_parser("rm", help="remove a cue")
     p_cue_rm.add_argument("clip_id")
-    p_cue_rm.add_argument("word_index", type=int)
+    p_cue_rm.add_argument(
+        "word_index", type=int, nargs="?", help="inclusive word index (omit and use --phrase instead)"
+    )
+    p_cue_rm.add_argument(
+        "--phrase", help="resolve against clip_id's transcript instead of a word index"
+    )
+    p_cue_rm.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_cue_rm.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
 
     p_cue_ls = cue_sub.add_parser("ls", help="list the cue table")
     p_cue_ls.add_argument("--clip-id", help="only this clip's cues (default: every clip)")
+
+    p_cue_reresolve = cue_sub.add_parser(
+        "reresolve",
+        help="re-resolve every phrase-addressed cue/mark/music-bed boundary against the "
+        "current transcript and report what moved",
+    )
+    p_cue_reresolve.add_argument("--clip-id", help="only this clip (default: every clip)")
+    p_cue_reresolve.add_argument(
+        "--apply",
+        action="store_true",
+        help="rewrite word_index for every entry whose phrase still resolves unambiguously. "
+        "Off by default: report only",
+    )
 
     p_unspoken = sub.add_parser(
         "unspoken",
@@ -471,11 +524,37 @@ def _build_parser() -> argparse.ArgumentParser:
         "add", help="mark a word as never spoken: captions and verify stop expecting it"
     )
     p_unspoken_add.add_argument("clip_id")
-    p_unspoken_add.add_argument("word_index", type=int)
+    p_unspoken_add.add_argument(
+        "word_index", type=int, nargs="?", help="inclusive word index (omit and use --phrase instead)"
+    )
+    p_unspoken_add.add_argument(
+        "--phrase",
+        help="resolve against clip_id's transcript instead of a word index — must resolve "
+        "to exactly one word",
+    )
+    p_unspoken_add.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_unspoken_add.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
 
     p_unspoken_rm = unspoken_sub.add_parser("rm", help="unmark a word")
     p_unspoken_rm.add_argument("clip_id")
-    p_unspoken_rm.add_argument("word_index", type=int)
+    p_unspoken_rm.add_argument(
+        "word_index", type=int, nargs="?", help="inclusive word index (omit and use --phrase instead)"
+    )
+    p_unspoken_rm.add_argument(
+        "--phrase",
+        help="resolve against clip_id's transcript instead of a word index — must resolve "
+        "to exactly one word",
+    )
+    p_unspoken_rm.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_unspoken_rm.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
 
     unspoken_sub.add_parser("ls", help="list every marked word, and which marks have gone stale")
 
@@ -644,6 +723,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_time_span,
         metavar="START-END|START+DURATION",
         help="a source interval, in the seconds of the original recording",
+    )
+    p_where.add_argument(
+        "--phrase", help="resolve against clip_id's transcript — a phrase naturally is a range"
+    )
+    p_locate.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_locate.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
     )
 
     sub.add_parser("status", help="show the current timeline")
@@ -924,6 +1012,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="word index the bed runs through — omit for a single pass to the end of the timeline",
     )
     p_music.add_argument(
+        "--phrase-start",
+        help="resolve --clip-id's transcript for the start word instead of --start-word",
+    )
+    p_music.add_argument(
+        "--phrase-end",
+        help="resolve --clip-id's transcript for the end word instead of --end-word",
+    )
+    p_music.add_argument(
+        "--after", type=int, default=-1, help="only match a --phrase-* forward of this word index"
+    )
+    p_music.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
+    p_music.add_argument(
         "--fade-in", type=float, help="seconds of fade drawn over the bed's audible start"
     )
     p_music.add_argument(
@@ -945,9 +1047,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_vo_extend.add_argument("clip_id")
     p_vo_extend.add_argument(
-        "word_index", type=int, help="the last word before the gap — the hold opens right after it"
+        "word_index",
+        type=int,
+        nargs="?",
+        help="the last word before the gap — the hold opens right after it "
+        "(omit and use --phrase instead)",
     )
     p_vo_extend.add_argument("seconds", type=float, help="the hold's length")
+    p_vo_extend.add_argument(
+        "--phrase",
+        help="resolve against clip_id's transcript instead of a word index — binds to the "
+        "phrase's last word, the same meaning as word_index",
+    )
+    p_vo_extend.add_argument(
+        "--after", type=int, default=-1, help="only match --phrase forward of this word index"
+    )
+    p_vo_extend.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
     p_vo_extend.add_argument(
         "--plan", action="store_true", help="resolve and report covered_by without writing"
     )
@@ -1594,19 +1711,53 @@ def _cmd_cue(args: argparse.Namespace) -> int:
                 args.clip_id,
                 args.word_index,
                 args.asset,
+                phrase=args.phrase,
+                after=args.after,
+                occurrence=args.occurrence,
                 src_start=args.src_start,
             )
         )
     if args.cue_command == "rm":
-        return _emit(ops.cue_rm(args.project, args.clip_id, args.word_index))
+        return _emit(
+            ops.cue_rm(
+                args.project,
+                args.clip_id,
+                args.word_index,
+                phrase=args.phrase,
+                after=args.after,
+                occurrence=args.occurrence,
+            )
+        )
+    if args.cue_command == "reresolve":
+        return _emit(
+            ops.cue_reresolve(args.project, clip_id=args.clip_id, apply=args.apply)
+        )
     return _emit(ops.cue_ls(args.project, clip_id=args.clip_id))
 
 
 def _cmd_unspoken(args: argparse.Namespace) -> int:
     if args.unspoken_command == "add":
-        return _emit(ops.unspoken_add(args.project, args.clip_id, args.word_index))
+        return _emit(
+            ops.unspoken_add(
+                args.project,
+                args.clip_id,
+                args.word_index,
+                phrase=args.phrase,
+                after=args.after,
+                occurrence=args.occurrence,
+            )
+        )
     if args.unspoken_command == "rm":
-        return _emit(ops.unspoken_rm(args.project, args.clip_id, args.word_index))
+        return _emit(
+            ops.unspoken_rm(
+                args.project,
+                args.clip_id,
+                args.word_index,
+                phrase=args.phrase,
+                after=args.after,
+                occurrence=args.occurrence,
+            )
+        )
     if args.unspoken_command == "detect":
         return _emit(
             ops.unspoken_detect(
@@ -1677,10 +1828,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 def _cmd_locate(args: argparse.Namespace) -> int:
     first = last = None
     source_start = source_end = None
+    phrase = None
     if args.words is not None:
         first, last = args.words
     elif args.span is not None:
         source_start, source_end = args.span
+    elif args.phrase is not None:
+        phrase = args.phrase
     else:
         source_start = args.at
     return _emit(
@@ -1691,6 +1845,22 @@ def _cmd_locate(args: argparse.Namespace) -> int:
             last=last,
             source_start=source_start,
             source_end=source_end,
+            phrase=phrase,
+            after=args.after,
+            occurrence=args.occurrence,
+        )
+    )
+
+
+def _cmd_resolve(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.resolve_phrase(
+            args.project,
+            args.clip_id,
+            args.phrase,
+            after=args.after,
+            occurrence=args.occurrence,
+            fuzzy=args.fuzzy,
         )
     )
 
@@ -1885,6 +2055,10 @@ def _cmd_music(args: argparse.Namespace) -> int:
             clip_id=args.clip_id,
             word_index_start=args.start_word,
             word_index_end=args.end_word,
+            phrase_start=args.phrase_start,
+            phrase_end=args.phrase_end,
+            after=args.after,
+            occurrence=args.occurrence,
             fade_in=args.fade_in,
             fade_out=args.fade_out,
             clear_end=args.clear_end,
@@ -1897,7 +2071,14 @@ def _cmd_music(args: argparse.Namespace) -> int:
 def _cmd_vo_extend(args: argparse.Namespace) -> int:
     return _emit(
         ops.vo_extend(
-            args.project, args.clip_id, args.word_index, args.seconds, plan=args.plan
+            args.project,
+            args.clip_id,
+            args.word_index,
+            args.seconds,
+            plan=args.plan,
+            phrase=args.phrase,
+            after=args.after,
+            occurrence=args.occurrence,
         )
     )
 
@@ -2143,6 +2324,7 @@ _COMMANDS = {
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,
     "transcript-checks": _cmd_transcript_checks,
+    "resolve": _cmd_resolve,
     "attribute-speakers": _cmd_attribute_speakers,
     "describe": _cmd_describe,
     "describe-ls": _cmd_describe_ls,
