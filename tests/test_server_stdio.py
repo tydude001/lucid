@@ -7732,6 +7732,73 @@ def test_hold_add_refuses_asset_too_short(tmp_path: Path) -> None:
 
 @needs_ffprobe
 @needs_ffmpeg
+def test_hold_rm_over_the_wire(tmp_path: Path) -> None:
+    """`hold_rm` drops the record and its owned cue — the spliced silence
+    stays — and a second call at the same address is refused, naming the
+    address rather than silently no-oping."""
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        duration_before_rm = (await client.call("timeline_status", path=str(project)))[
+            "timeline_duration"
+        ]
+        removed = await client.call(
+            "hold_rm", path=str(project), clip_id=clips["vo"], gap_word_index=3
+        )
+        after = await client.call("hold_ls", path=str(project))
+        duration_after_rm = (await client.call("timeline_status", path=str(project)))[
+            "timeline_duration"
+        ]
+        refused = await session.call_tool(
+            "hold_rm", {"path": str(project), "clip_id": clips["vo"], "gap_word_index": 3}
+        )
+        return {
+            "removed": removed,
+            "after": after,
+            "duration_before_rm": duration_before_rm,
+            "duration_after_rm": duration_after_rm,
+            "refused_is_error": refused.is_error,
+            "refused_text": refused.content[0].text,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["removed"]["clip_id"] == out["removed"]["removed"]["clip_id"]
+    assert out["removed"]["gap_word_index"] == 3
+    assert out["removed"]["removed"]["asset"] is not None
+
+    assert out["after"]["count"] == 0
+
+    # The gap does not close — dropping the hold's meaning is not undoing
+    # its splice.
+    assert out["duration_after_rm"] == pytest.approx(out["duration_before_rm"])
+
+    manifest = Project.open(project).read_manifest()
+    assert manifest[ops.HOLDS_KEY] == []
+    assert manifest["cues"] == []
+
+    assert out["refused_is_error"]
+    assert "no hold at" in out["refused_text"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
 def test_hold_ls_reports_per_item_error(tmp_path: Path) -> None:
     """One good hold, one orphaned by a subsequent cut of its gap word —
     `hold_ls` returns both, the bad one carrying `hold_error`, never raising
@@ -7765,6 +7832,81 @@ def test_hold_ls_reports_per_item_error(tmp_path: Path) -> None:
     assert out["count"] == 1
     assert out["holds"][0].get("hold_error") is None
     assert out["holds"][0]["cue_drift"] is None
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_check_over_the_wire(tmp_path: Path) -> None:
+    """`hold_check` reachable over stdio, transcribing a real hold's own
+    span off a real render (the project's own `vo.wav` stands in — long
+    enough to cover the hold's resolved span, and `hold_check` only needs a
+    real audio file to cut from, `finish.hold_seams`'s own real ffmpeg
+    decode running unmocked) and checking its seams. A fake whisper
+    (`_fake_whisper`) stands in for the transcription half only.
+
+    Also proves `cue_drift` folds into `faults` end to end — the release-
+    facing half of the guard `hold_ls` already had — by hand-drifting the
+    owned cue's `src_start` between two calls.
+    """
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "lucid.cli", "mcp"],
+        env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        clean = await client.call("hold_check", path=str(project), render=str(vo))
+
+        # An unrelated hand cue_rm/cue_add on the exact word the hold owns —
+        # the retro's own "two lists drift apart in one edit" shape.
+        manifest = Project.open(project).read_manifest()
+        for cue in manifest["cues"]:
+            if cue["clip_id"] == clips["vo"] and cue["word_index"] == 2:
+                cue["src_start"] = 0.0
+        Project.open(project).write_manifest(manifest)
+        drifted = await client.call("hold_check", path=str(project), render=str(vo))
+
+        refused = await session.call_tool(
+            "hold_check", {"path": str(project), "render": str(tmp_path / "nope.mp4")}
+        )
+        return {
+            "clean": clean,
+            "drifted": drifted,
+            "refused_is_error": refused.is_error,
+            "refused_text": refused.content[0].text,
+        }
+
+    out = anyio.run(lambda: _with_server(body, server))
+
+    assert out["clean"]["count"] == 1
+    assert out["clean"]["holds"][0]["cue_drift"] is None
+    assert out["clean"]["holds"][0]["heard"] == "hello from the stub"
+    assert out["clean"]["holds"][0]["phrase"] == "i know what you did"
+    assert out["clean"]["faults"] == 0
+
+    assert out["drifted"]["holds"][0]["cue_drift"] is not None
+    assert out["drifted"]["faults"] == 1
+
+    assert out["refused_is_error"]
+    assert "no such render" in out["refused_text"]
 
 
 @needs_ffprobe
