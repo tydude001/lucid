@@ -1539,6 +1539,81 @@ TEMPLATES: dict[str, dict[str, Any]] = {
             }
         },
     },
+    "chapter": {
+        "description": (
+            "A chapter card: the section's own title on ink, sized for a "
+            "phrase rather than a wordmark, with a kicker above and a "
+            "footnote below."
+        ),
+        "slots": {
+            "kicker": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 44,
+                "weight_role": "footnote_weight",
+                "font": "body_font",
+                "default": "",
+                "description": (
+                    "a small amber line above the title — a numeral, 'part "
+                    "two', an act name. Optional; a chapter often needs only "
+                    "its title."
+                ),
+            },
+            "title": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 150,
+                "weight": 700,
+                "font": "title_font",
+                "description": (
+                    "the chapter's title, centred — a phrase, so it is set at "
+                    "a text size the box can actually hold, not a wordmark "
+                    "size. Takes [em]…[/em] for the amber accent, e.g. a "
+                    "raised asterisk the footnote answers."
+                ),
+            },
+            "footnote": {
+                "kind": "line",
+                "x": 960,
+                "anchor": "middle",
+                "width": 1640,
+                "size": 56,
+                "weight_role": "footnote_weight",
+                "font": "title_font",
+                "default": "",
+                "description": (
+                    "a smaller line under the rule — the title's own aside "
+                    "spelled out ('[em]*[/em] it isn't'). Optional."
+                ),
+            },
+        },
+        "derived": {},
+        # The register the Lambs/Longlegs section bumpers reached for `bumper`
+        # to draw (2026-08-24), where a chapter named "her second monster" was
+        # three characters too wide for a mark box: `bumper`'s 220 is a
+        # *wordmark* size, and a chapter's name is a phrase. 150 over the same
+        # 1640-unit box holds the phrases an essay actually turns on, and the
+        # rule keeps the bumper family's one fixed gesture — under the title
+        # here, because what this card ends with is its footnote, not a CTA.
+        "variants": {
+            "portrait": {
+                "geometry": {"mid_ratio": 0.34, "note_gap": 160},
+                # The title stops at 160, not `reveal.portrait`'s 240: the box
+                # stays 1640 template units at every aspect, and the phrase
+                # this card was built for measures 1602 units there — a film
+                # title has slack a chapter phrase does not.
+                "slots": {
+                    "kicker": {"size": 64},
+                    "title": {"size": 160},
+                    "footnote": {"size": 80},
+                },
+            }
+        },
+    },
 }
 
 #: Slots every template gets: the palette, the font stacks, and the geometry
@@ -1590,6 +1665,7 @@ TEMPLATE_BACKGROUND: dict[str, str] = {
     "rerate": "paper",
     "endcard": "ink",
     "bumper": "ink",
+    "chapter": "ink",
 }
 
 #: Reserved-band platform safe zones, at 1080x1920 (the vertical canvas every

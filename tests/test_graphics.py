@@ -1450,7 +1450,13 @@ def test_a_marked_line_measures_its_emphasis_at_the_emphasis_weight() -> None:
     ]
 
 
-@pytest.mark.parametrize("name", sorted(graphics.TEMPLATES))
+@pytest.mark.parametrize(
+    "name",
+    # Every template that has a wordmark. `chapter` is the one that doesn't:
+    # its title is the essay's own words, and its receipts-precedent is the
+    # 2026-08-23 decision that took the corner mark *off* content cards.
+    sorted(n for n in graphics.TEMPLATES if "mark" in graphics.TEMPLATES[n]["slots"]),
+)
 def test_the_wordmark_is_drawn_in_title_type(name: str) -> None:
     """It is a logo, not body copy, and branding names a display face for it.
 
@@ -1566,7 +1572,7 @@ def test_the_end_card_has_no_rule_and_no_third_line() -> None:
         assert source.count("<rect") == 1
 
 
-@pytest.mark.parametrize(("name", "expected"), [("endcard", 2), ("bumper", 4)])
+@pytest.mark.parametrize(("name", "expected"), [("endcard", 2), ("bumper", 4), ("chapter", 3)])
 def test_the_new_cards_declare_exactly_the_slots_their_design_settled(
     name: str, expected: int
 ) -> None:
@@ -1576,3 +1582,49 @@ def test_the_new_cards_declare_exactly_the_slots_their_design_settled(
     be that regression with every existing check still green."""
     content_slots = set(graphics.template_slots(name)) - set(graphics.STYLE_SLOTS)
     assert len(content_slots) == expected
+
+
+# -- the chapter card ---------------------------------------------------------
+#
+# The register the Lambs/Longlegs section bumpers (2026-08-24) reached for
+# `bumper` to draw, where a chapter named "her second monster" was three
+# characters too wide for the mark box — a wordmark size, and a chapter's
+# name is a phrase. `chapter` is that register with a text-sized title box.
+
+
+@needs_magick
+@pytest.mark.parametrize("canvas", _CANVASES)
+def test_the_chapter_title_holds_the_phrase_the_bumper_refused(canvas: tuple[int, int]) -> None:
+    """The card's whole reason to exist: the phrase that would not fit a mark
+    box fits a title box, kicker and footnote included, at both canvases."""
+    filled = graphics.fill_template(
+        "chapter",
+        {"kicker": "part two", "title": "her second monster", "footnote": "[em]*[/em] it isn't"},
+        width=canvas[0],
+        height=canvas[1],
+    )
+    assert "{{" not in filled
+    graphics.declared_fonts(filled)
+
+
+@needs_magick
+def test_the_same_phrase_still_refuses_the_bumpers_mark_box() -> None:
+    """The counter-half, so the motivation stays measured rather than folklore:
+    if the bumper's box ever grows to hold this phrase, the chapter card's
+    reason to exist has changed and this file should say so."""
+    with pytest.raises(GraphicsError, match="too many"):
+        graphics.fill_template("bumper", {"mark": "her second monster"})
+
+
+def test_the_chapter_ships_no_project_words_and_its_rule_is_fixed_markup() -> None:
+    """`bumper`'s two rules, held here too: every slot a project fills is the
+    project's own text (only `title` is required, and nothing defaults to a
+    word), and the amber rule is lucid markup a fill cannot turn off."""
+    slots = graphics.template_slots("chapter")
+    assert slots["title"]["required"]
+    for slot in ("kicker", "footnote"):
+        assert slots[slot]["default"] == ""
+        assert not slots[slot]["required"]
+    drawn = graphics.fill_template("chapter", {"title": "one"}, flow=False)
+    assert f'fill="{graphics.PALETTE["amber"]}"' in drawn
+    assert drawn.count("<rect") == 2  # the ink background and the rule

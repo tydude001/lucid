@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="{{width}}" height="{{height}}" viewBox="0 0 1920 {{view_height}}">
+  <rect x="0" y="0" width="1920" height="{{view_height}}" fill="{{ink}}"/>
+  <g transform="translate(0, {{mid_y}})">
+    <text x="960" y="-260" text-anchor="middle" font-family="{{body_font}}" font-size="64" font-weight="{{footnote_weight}}" fill="{{amber}}">{{kicker}}</text>
+    <text x="960" y="0" text-anchor="middle" font-family="{{title_font}}" font-size="160" font-weight="700" fill="{{paper}}">{{title}}</text>
+  </g>
+  <g transform="translate(0, {{note_y}})">
+    <rect x="870" y="0" width="180" height="4" fill="{{amber}}" opacity="0.85"/>
+    <text x="960" y="128" text-anchor="middle" font-family="{{title_font}}" font-size="80" font-weight="{{footnote_weight}}" fill="{{paper}}">{{footnote}}</text>
+  </g>
+</svg>

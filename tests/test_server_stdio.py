@@ -25,10 +25,9 @@ from typing import Any
 
 import anyio
 import pytest
-from mcp import ClientSession, StdioServerParameters, stdio_client
-
 from lucid import energy, finishlog, graphics, media, ops, picture
 from lucid.project import Project
+from mcp import ClientSession, StdioServerParameters, stdio_client
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
 
@@ -481,13 +480,15 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
     # is invisible to an agent, and one that reaches it without being meant to
     # is worse. Adding a template means adding it here — that is the check
     # working, not a test in the way. `endcard` and `bumper` arrived with the
-    # completion queue's channel-preset item.
+    # completion queue's channel-preset item; `chapter` with the section-card
+    # register the Lambs/Longlegs bumpers outgrew.
     assert {t["template"] for t in out["listed"]["templates"]} == {
         "receipt",
         "reveal",
         "rerate",
         "endcard",
         "bumper",
+        "chapter",
     }
     assert out["made"]["asset"] == "card:receipt-scream-1996"
     # No video clip in this project, so the canvas falls back to 1080p.
