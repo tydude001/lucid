@@ -1145,6 +1145,13 @@ def locate(
     original recording, so they are NOT render times and every accumulated cut
     moves them further apart.
 
+    **Two clocks, and this reports the Edit's.** `timeline_start`/
+    `timeline_end` are 0 = the Edit's own first frame, unchanged whether or
+    not a `head` (a cold open) is configured. `head_seconds` rides along
+    (0.0 with none) so a caller that needs the *actual* render time — this
+    tool's own stated purpose — can add it: render time = Edit time +
+    `head_seconds`.
+
     Address it one way per call — `first`/`last` are inclusive word indices
     (`last` defaults to `first`), `source_start`/`source_end` are seconds into
     the recording (omit `source_end` to locate an instant), or `phrase` — a
@@ -1179,10 +1186,11 @@ def locate(
 def timeline_status(path: str) -> dict[str, Any]:
     """Report the current timeline: duration, segment count, undo depth.
 
-    `tail` echoes the finishing pass set with the `tail` tool, or null for
-    none. `expected_frames`/`expected_duration` are what `export` would lay
-    down — `timeline_duration` alone stays the `Edit`'s own length even with a
-    tail configured, since the `Edit` never grows to describe one.
+    `head`/`tail` echo the cold open / finishing pass set with the `head`/
+    `tail` tools, or null for either with none. `expected_frames`/
+    `expected_duration` are what `export` would lay down — `timeline_duration`
+    alone stays the `Edit`'s own length even with a head or a tail configured,
+    since the `Edit` never grows to describe either bookend.
     """
     return ops.status(path)
 
@@ -1210,6 +1218,11 @@ def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
     reported here rather than raised, because this is the view a person uses to
     find the cue to fix. `shots_rate` is the frame grid it was quantised on,
     which is export's rate and not `timebase`.
+
+    `segments`/`shots`/`seams` stay Edit-relative even with a `head`
+    configured — see `head`'s own docstring for the two-clock rule.
+    `head_seconds` is the offset a render-time reader needs (0.0 with none);
+    `head` is the stored config plus its resolved frame count.
     """
     return ops.timeline_view(path, clip_id=clip_id)
 
@@ -1466,6 +1479,56 @@ def canvas(
     use `reframe` to see or change which part of each one is kept.
     """
     return ops.canvas(path, size=size, reset=reset, plan=plan)
+
+
+@_tool()
+def head(
+    path: str,
+    asset: str | None = None,
+    src_start: float | None = None,
+    seconds: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    gain_db: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the cold open this project plays before its first frame.
+
+    `tail`'s mirror at the other end of the film — the same read/partial-
+    update/reset/plan shape — but its asset rule runs the other way:
+    `asset` must be a registered clip_id, never `card:name`. A cold open is
+    real footage with real dialogue by definition; `tail` forbids that
+    because `verify` would gain a permanent disagreement it can never
+    resolve, and a head is taught to account for its own words instead
+    (`verify`'s `head_words_trimmed`) rather than being restricted to
+    silence. Call it with no arguments to read what is in force.
+
+    Setting `asset` or `seconds` for the first time needs both together;
+    either alone after that updates just that field, `tail`'s partial-update
+    shape. `src_start` defaults to 0.0 on a first set. `fade_in`/`fade_out`
+    default to 0.0 and — unlike `tail`'s `fade` — are drawn from day one,
+    the whole reason this feature exists (a hard butt-join between room tone
+    and digital silence is exactly the seam a missing fade produces).
+    `gain_db` defaults to 0.0, a flat non-fading level shift distinct from
+    the fades.
+
+    **Needs an existing picture cue lane covering the whole film**, `tail`'s
+    own requirement — add cues first (`cue_add`) if the project does not
+    have one. `reset` drops the head entirely. `plan` resolves and validates
+    without writing.
+    """
+    return ops.head(
+        path,
+        asset=asset,
+        src_start=src_start,
+        seconds=seconds,
+        fade_in=fade_in,
+        fade_out=fade_out,
+        gain_db=gain_db,
+        reset=reset,
+        plan=plan,
+    )
 
 
 @_tool()

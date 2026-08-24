@@ -112,6 +112,13 @@ class Entry:
     #: the music lane sets these today; the mechanism is generic.
     fade_in_frames: int = 0
     fade_out_frames: int = 0
+    #: A flat, non-fading level shift in dB — the plateau `_fade_level`
+    #: ramps to and holds at, distinct from a fade (which only shapes the
+    #: edges). Zero is exactly unity gain (measured, `FADE_FLOOR_DB`'s own
+    #: note), so a document with every entry at the default renders
+    #: byte-identically to before this field existed. The head's cold-open
+    #: audio is the first caller to set it to something else.
+    gain_db: float = 0.0
 
     @property
     def src_out(self) -> int:
@@ -720,18 +727,30 @@ def _fade_level(entry: Entry) -> str:
     Every edge is stated explicitly — the head key when only fading out, the
     tail key when only fading in — so nothing relies on how MLT extrapolates
     past a final keyframe, which the probe did not measure.
+
+    The plateau a fade ramps to and holds at is `entry.gain_db`, not a
+    hardcoded 0 — a flat, non-fading level shift (the cold-open head's own
+    reason for existing) reuses this exact mechanism rather than a second
+    filter type. `gain_db=0.0` is unity, so every caller before this field
+    existed still gets exactly the plateau it always got.
     """
     last = entry.frames - 1
-    keys: list[tuple[int, int]] = []
+    plateau = entry.gain_db
+    keys: list[tuple[int, float]] = []
     if entry.fade_in_frames:
-        keys += [(0, FADE_FLOOR_DB), (entry.fade_in_frames, 0)]
+        keys += [(0, FADE_FLOOR_DB), (entry.fade_in_frames, plateau)]
     else:
-        keys += [(0, 0)]
+        keys += [(0, plateau)]
     if entry.fade_out_frames:
-        keys += [(last - entry.fade_out_frames, 0), (last, FADE_FLOOR_DB)]
+        keys += [(last - entry.fade_out_frames, plateau), (last, FADE_FLOOR_DB)]
     else:
-        keys += [(last, 0)]
-    return ";".join(f"{frame}={level}" for frame, level in keys)
+        keys += [(last, plateau)]
+    # `:g` rather than a bare f-string: `plateau` is a float now (`gain_db`
+    # defaults to 0.0), and a bare `{0.0}` prints "0.0" where the old
+    # hardcoded-int plateau printed "0" — `:g` keeps every existing document
+    # byte-identical (0.0 -> "0", -60 -> "-60") while still spelling a real
+    # gain like 15.1 in full.
+    return ";".join(f"{frame}={level:g}" for frame, level in keys)
 
 
 def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> ET.Element:
@@ -758,7 +777,7 @@ def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> 
                 "out": str(entry.src_out),
             },
         )
-        if entry.fade_in_frames or entry.fade_out_frames:
+        if entry.fade_in_frames or entry.fade_out_frames or entry.gain_db:
             filt = ET.SubElement(node, "filter", {"id": f"{playlist_id}fade{index}"})
             _property(filt, "mlt_service", "volume")
             _property(filt, "level", _fade_level(entry))

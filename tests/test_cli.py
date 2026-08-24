@@ -643,6 +643,70 @@ def test_reel_span_parses_and_reaches_ops_as_two_arguments(
     assert not (tmp_path / "teaser").exists()
 
 
+def test_head_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--asset/--src-start/--seconds/--fade-in/--fade-out/--gain-db/--reset/
+    --plan all reach `ops.head` under the right keywords — `tail`'s own test,
+    mirrored, with a registered clip written straight into the manifest
+    since `head` needs no ffprobe of its own."""
+    from lucid.project import Project
+
+    project = tmp_path / "proj"
+    assert main(["-C", str(project), "init"]) == 0
+    capsys.readouterr()
+
+    opened = Project.open(project)
+    manifest = opened.read_manifest()
+    manifest["clips"] = [
+        {
+            "clip_id": "cold-open",
+            "source": "/tmp/cold-open.mp4",
+            "duration": 12.0,
+            "has_video": True,
+            "has_audio": True,
+        }
+    ]
+    opened.write_manifest(manifest)
+
+    assert (
+        main(
+            [
+                "-C", str(project), "head",
+                "--asset", "cold-open", "--src-start", "4.2", "--seconds", "6",
+                "--fade-in", "0.15", "--fade-out", "0.5", "--gain-db", "15.1", "--plan",
+            ]
+        )
+        == 0
+    )  # fmt: skip
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["written"] is False
+    assert planned["head"] == {
+        "asset": "cold-open",
+        "src_start": 4.2,
+        "seconds": 6.0,
+        "fade_in": 0.15,
+        "fade_out": 0.5,
+        "gain_db": 15.1,
+    }
+
+    assert main(["-C", str(project), "head", "--asset", "cold-open", "--seconds", "6"]) == 0
+    set_result = json.loads(capsys.readouterr().out)
+    assert set_result["written"] is True
+    assert set_result["head"]["src_start"] == 0.0, "defaults, and --plan left nothing behind"
+    assert set_result["head"]["gain_db"] == 0.0
+
+    assert main(["-C", str(project), "head"]) == 0
+    read = json.loads(capsys.readouterr().out)
+    assert read["head"]["asset"] == "cold-open"
+    assert read["written"] is False
+
+    assert main(["-C", str(project), "head", "--reset"]) == 0
+    reset_result = json.loads(capsys.readouterr().out)
+    assert reset_result["head"] is None
+    assert "head" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+
+
 def test_tail_flags_parse_and_reach_ops(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

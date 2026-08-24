@@ -79,6 +79,7 @@ EXPECTED_TOOLS = {
     "caption_view",
     "caption_style",
     "canvas",
+    "head",
     "tail",
     "music",
     "vo_extend",
@@ -276,6 +277,7 @@ TOOL_TO_COMMAND = {
     "caption_view": "caption-view",
     "caption_style": "caption-style",
     "canvas": "canvas",
+    "head": "head",
     "tail": "tail",
     "music": "music",
     "vo_extend": "vo-extend",
@@ -2244,6 +2246,90 @@ def test_canvas_refusal_travels_as_an_error(tmp_path: Path) -> None:
 
     assert out["is_error"]
     assert "even" in out["text"]
+
+
+def test_head_over_the_wire(tmp_path: Path) -> None:
+    """Registration and the `-C` binding, `tail`'s own partial-update shape:
+    `seconds` alone after the first set changes only that field, and every
+    other field defaults in (`src_start` to 0.0, the fades and `gain_db` to
+    0.0)."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        opened = Project.open(project)
+        manifest = opened.read_manifest()
+        manifest["clips"] = [
+            {
+                "clip_id": "cold-open",
+                "source": "/tmp/cold-open.mp4",
+                "duration": 12.0,
+                "has_video": True,
+                "has_audio": True,
+            }
+        ]
+        opened.write_manifest(manifest)
+
+        derived = await client.call("head", path=str(project))
+        planned = await client.call(
+            "head", path=str(project), asset="cold-open", seconds=6.0, plan=True
+        )
+        set_ = await client.call("head", path=str(project), asset="cold-open", seconds=6.0)
+        updated = await client.call(
+            "head", path=str(project), seconds=5.0, fade_in=0.15, fade_out=0.5, gain_db=15.1
+        )
+        reset = await client.call("head", path=str(project), reset=True)
+        return {
+            "derived": derived,
+            "planned": planned,
+            "set": set_,
+            "updated": updated,
+            "reset": reset,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["derived"]["head"] is None
+    assert out["planned"]["written"] is False
+    assert out["set"]["head"] == {
+        "asset": "cold-open",
+        "src_start": 0.0,
+        "seconds": 6.0,
+        "fade_in": 0.0,
+        "fade_out": 0.0,
+        "gain_db": 0.0,
+    }
+    assert out["set"]["asset_registered"] is True
+    assert out["updated"]["head"] == {
+        "asset": "cold-open",
+        "src_start": 0.0,
+        "seconds": 5.0,
+        "fade_in": 0.15,
+        "fade_out": 0.5,
+        "gain_db": 15.1,
+    }
+    assert out["reset"]["head"] is None
+    assert Project.open(project).read_manifest().get("head") is None
+
+
+def test_head_refuses_a_card_asset(tmp_path: Path) -> None:
+    """The exact inverse of `tail`'s own refusal: a cold open is real
+    footage, so `card:name` is refused rather than a media clip."""
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        result = await session.call_tool(
+            "head", {"path": str(project), "asset": "card:outro", "seconds": 6.0}
+        )
+        return {"is_error": result.is_error, "text": result.content[0].text}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"]
+    assert "registered clip_id" in out["text"]
 
 
 def test_tail_over_the_wire(tmp_path: Path) -> None:
@@ -5711,6 +5797,170 @@ def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
     # that defect is auto-editor's kdenlive export, and this document is lucid's.
     assert frames["delta"] == 0
     assert frames["agrees"] is True
+
+
+# -- a head's own lead-silence pad, against a real melt render --------------
+#
+# The trap named in CLAUDE.md: `mlt.document`'s validation only checks the
+# music lane's *total* frame count against the timeline total, never its
+# internal alignment against the edit track — so a bed placed `head_frames`
+# too early passes every check lucid has and is wrong only to a listener.
+# Two distinct tones, Goertzel-read from two windows of the actual render,
+# the same readback discipline CLAUDE.md documents for the co-hosted
+# recording's `audio_index` trap.
+
+
+def _tone_video(path: Path, hz: float, duration: float, *, fps: int = 30) -> None:
+    """Real picture (for the head/cue asset) plus a pure tone soundtrack."""
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"testsrc=size=320x240:rate={fps}:duration={duration}",
+         "-f", "lavfi", "-i", f"sine=frequency={hz}:duration={duration}:sample_rate=48000",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(path)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+
+def _tone_wav(path: Path, hz: float, duration: float) -> None:
+    """The music bed's own asset — audio only, a distinct pure tone."""
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"sine=frequency={hz}:duration={duration}:sample_rate=48000",
+         "-c:a", "pcm_s16le", str(path)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+
+def _silence_wav(path: Path, duration: float) -> None:
+    """The VO track — silent, so it cannot be mistaken for either tone."""
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", str(duration),
+         "-c:a", "pcm_s16le", str(path)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+
+def _tone_window(path: Path, hz: float, start: float, duration: float) -> float:
+    """Goertzel power at `hz` over one window of the render's own audio.
+
+    `-ss` **after** `-i`, not before: this is a short file and accuracy
+    matters more than seek speed — the whole point is telling apart a window
+    that starts a few centiseconds either side of `head_seconds`.
+    """
+    decoded = path.with_name(f"{path.stem}-{hz:g}-{start:g}.wav")
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(path),
+         "-ss", str(start), "-t", str(duration),
+         "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(decoded)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    with wave.open(str(decoded), "rb") as handle:
+        rate, count = handle.getframerate(), handle.getnframes()
+        raw = handle.readframes(count)
+    samples = array.array("h")
+    samples.frombytes(raw)
+    n = len(samples)
+    if n == 0:
+        return 0.0
+    k = int(0.5 + (n * hz) / rate)
+    w = 2 * math.pi * k / n
+    coeff = 2 * math.cos(w)
+    q1 = q2 = 0.0
+    for sample in samples:
+        q0 = coeff * q1 - q2 + sample
+        q2, q1 = q1, q0
+    return math.sqrt(abs(q1 * q1 + q2 * q2 - coeff * q1 * q2)) / n
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_a_head_delays_the_music_beds_own_lead_silence(visible_tmp: Path) -> None:
+    """The bed must not play over the cold open.
+
+    The head's own clip carries a 300 Hz tone, the bed carries 880 Hz, the VO
+    track is silent so neither tone can be mistaken for it. With the lead
+    pad wired correctly, the render is 300 Hz-only for the head's own two
+    seconds and 880 Hz-only once the bed's boundary word (word 0, at the
+    Edit's own start) actually plays — which, with a head, is `head_seconds`
+    into the render, not frame 0. Measured against a real render because
+    `mlt.document` only checks the music lane's *total* frame count, never
+    its alignment against the edit track — a bed placed `head_frames` too
+    early passes every check lucid has and is wrong only to a listener.
+    """
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    film = visible_tmp / "film.mp4"
+    bed = visible_tmp / "bed.wav"
+    _silence_wav(vo, 5.0)
+    _tone_video(film, 300.0, 6.0)
+    _tone_wav(bed, 880.0, 6.0)
+
+    transcript = visible_tmp / "vo.json"
+    transcript.write_text(
+        json.dumps({"language": "en", "words": [{"word": "w0", "start": 0.0, "end": 0.1}]}),
+        encoding="utf-8",
+    )
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+        film_clip = await client.call("import_media", path=str(project), source=str(film))
+        bed_clip = await client.call("import_media", path=str(project), source=str(bed))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo_clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=vo_clip["clip_id"],
+            word_index=0,
+            asset=film_clip["clip_id"],
+        )
+        await client.call("head", path=str(project), asset=film_clip["clip_id"], seconds=2.0)
+        await client.call(
+            "music",
+            path=str(project),
+            asset=bed_clip["clip_id"],
+            clip_id=vo_clip["clip_id"],
+            word_index_start=0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["writer"] == "melt"
+    assert result["head"]["frames"] > 0
+    render = Path(result["output"])
+
+    # Comfortably inside the head, well clear of its own fade-free edges.
+    during_head_300 = _tone_window(render, 300.0, 0.2, 1.5)
+    during_head_880 = _tone_window(render, 880.0, 0.2, 1.5)
+    # Comfortably after `head_seconds`, well clear of the boundary.
+    after_head_880 = _tone_window(render, 880.0, 2.2, 1.0)
+    after_head_300 = _tone_window(render, 300.0, 2.2, 1.0)
+
+    # Measured clean separation on this box: the present tone reads in the
+    # thousands, the absent one reads at noise floor (0.0-0.01) — the
+    # threshold has three orders of magnitude of headroom either way.
+    assert during_head_300 > 500.0, "the head's own tone must be audible during the head"
+    assert during_head_880 < 50.0, "the bed must not be audible yet — it would be, un-offset"
+    assert after_head_880 > 500.0, "the bed must be audible once the head has actually ended"
+    assert after_head_300 < 50.0, "the head's own clip does not extend past its own length"
 
 
 # -- export presets --------------------------------------------------------

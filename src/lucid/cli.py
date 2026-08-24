@@ -974,6 +974,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_head = sub.add_parser(
+        "head", help="read or change the cold open this project plays before its first frame"
+    )
+    p_head.add_argument(
+        "--asset", metavar="CLIP_ID", help="the clip to open on — a registered clip_id, never a card"
+    )
+    p_head.add_argument(
+        "--src-start", type=float, help="seconds into the asset where the head begins (default 0.0)"
+    )
+    p_head.add_argument("--seconds", type=float, help="the head's whole length")
+    p_head.add_argument(
+        "--fade-in", type=float, help="drawn from day one, unlike tail's fade (default 0.0)"
+    )
+    p_head.add_argument(
+        "--fade-out", type=float, help="drawn from day one, unlike tail's fade (default 0.0)"
+    )
+    p_head.add_argument(
+        "--gain-db", type=float, help="a flat, non-fading level shift for the head's own clip"
+    )
+    p_head.add_argument("--reset", action="store_true", help="drop the head entirely")
+    p_head.add_argument(
+        "--plan", action="store_true", help="resolve and check without writing the manifest"
+    )
+
     p_tail = sub.add_parser(
         "tail", help="read or change the finishing pass this project plays after its last frame"
     )
@@ -2034,6 +2058,22 @@ def _cmd_canvas(args: argparse.Namespace) -> int:
     return _emit(ops.canvas(args.project, size=args.size, reset=args.reset, plan=args.plan))
 
 
+def _cmd_head(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.head(
+            args.project,
+            asset=args.asset,
+            src_start=args.src_start,
+            seconds=args.seconds,
+            fade_in=args.fade_in,
+            fade_out=args.fade_out,
+            gain_db=args.gain_db,
+            reset=args.reset,
+            plan=args.plan,
+        )
+    )
+
+
 def _cmd_tail(args: argparse.Namespace) -> int:
     return _emit(
         ops.tail(
@@ -2354,6 +2394,7 @@ _COMMANDS = {
     "caption-style": _cmd_caption_style,
     "canvas": _cmd_canvas,
     "fonts": _cmd_fonts,
+    "head": _cmd_head,
     "tail": _cmd_tail,
     "music": _cmd_music,
     "vo-extend": _cmd_vo_extend,

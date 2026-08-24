@@ -2873,12 +2873,13 @@ def status(path: Path | str) -> dict[str, Any]:
     """The current timeline: duration, segment count, undo depth, and canvas.
 
     `timeline_duration` is the `Edit`'s own length in seconds and stays exactly
-    that whether or not a `tail` is set — `Edit` never grows to describe one
-    (PLAN.md § Tail time — the design note). `tail` echoes what is configured
-    (None for none, the `canvas`/`caption_style` shape), and `expected_frames`/
-    `expected_duration` are what `export` would actually lay down at its own
-    default frame rate — `_frame_total_with_tail`, so a caller asking "how long
-    is this" gets the same number `check_frames` and `_build_mlt` would.
+    that whether or not a `head`/`tail` is set — `Edit` never grows to describe
+    either bookend (PLAN.md § Tail time — the design note). `head`/`tail` echo
+    what is configured (None for none, the `canvas`/`caption_style` shape), and
+    `expected_frames`/`expected_duration` are what `export` would actually lay
+    down at its own default frame rate — `_frame_total_with_tail`, so a caller
+    asking "how long is this" gets the same number `check_frames` and
+    `_build_mlt` would.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -2912,6 +2913,7 @@ def status(path: Path | str) -> dict[str, Any]:
         "undo_depth": len(project.snapshots()),
         "clips": [c["clip_id"] for c in project.read_manifest().get("clips", [])],
         "canvas": "{}x{}".format(*_mlt_resolution(project)),
+        "head": _stored_head(project),
         "tail": _stored_tail(project),
         "expected_frames": expected,
         "expected_duration": expected / rate,
@@ -2996,7 +2998,8 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
 
     `duration` is `status`'s own numbers, split into the edit's bare length,
     the configured tail (0.0 with none), and their sum — `expected_duration`,
-    already `_frame_total_with_tail`'s answer, so this does not re-add them.
+    already `_frame_total_with_tail`'s answer (which now also folds in a
+    configured head — see `status`), so this does not re-add them.
 
     `canvas` is the project's current shape plus, for every preset that
     claims a geometry (`EXPORT_PRESETS`, minus `custom` — it names no fixed
@@ -3529,6 +3532,14 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
     step 5). Null with no bed; null with a `music_error` when the bed cannot
     resolve — an orphaned boundary word, `shots_error`'s policy exactly.
 
+    **`segments`/`shots`/`seams` stay Edit-relative even with a head
+    configured** — `locate`'s own two-clock rule (see its docstring): the web
+    player cannot play a cold open yet, and shifting this view's clock would
+    desync it from the timeline it draws. `head_seconds` is the offset a
+    render-time reader needs (0.0 with none — the sum this view has never
+    had to add before); `head` is the stored config plus its resolved frame
+    count, `_build_mlt`'s own `head`/`tail` reporting shape.
+
     `canvas` and `reframe` are the frame, and they are here so a preview can
     draw the shape the render declares instead of the shape its media happens
     to be — step 4 of PLAN.md § Aspect swap. `canvas` is `_mlt_resolution`,
@@ -3649,6 +3660,9 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         pane = found.pane_dest_at(at, resolution) if drawn else None
         shot["dest_pane"] = list(pane) if pane else None
 
+    head_cfg = _stored_head(project)
+    head_view = {**head_cfg, "frames": _head_frames(project, shots_rate)} if head_cfg else None
+
     result: dict[str, Any] = {
         "project": str(project.root),
         "name": project.read_manifest().get("name", project.root.name),
@@ -3672,6 +3686,16 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "shots": shots or None,
         "shots_rate": shots_rate,
         "music": music_view,
+        # Ruling: this view stays Edit-relative — `segments`/`shots`/`seams`
+        # below are unchanged by a configured head, because the web player
+        # cannot play one yet and shifting this view's clock would desync it
+        # from the timeline it draws. `head_seconds` is the offset a future
+        # render-time reader needs (0.0 with none); `head` is the stored
+        # config plus its resolved frame count, `_build_mlt`'s own
+        # `head`/`tail` reporting shape, so a front end can draw *that* a
+        # head exists without yet drawing where it plays.
+        "head_seconds": _head_seconds(project),
+        "head": head_view,
         "segments": _placed_segments(edit),
         "seams": _seams(edit, clip_id, placements),
     }
@@ -4645,6 +4669,18 @@ def locate(
     `words` is null and `transcript_missing` is set, rather than refusing a
     valid question about a picture-only clip. Read-only: nothing is written,
     and there is no `plan=`.
+
+    **Two clocks, and this reports the Edit's.** `timeline_start`/
+    `timeline_end` (and every `placements[].timeline_start`/`.timeline_end`)
+    are Edit-relative — 0 = the `Edit`'s own first frame — unchanged whether
+    or not a head is configured, because the web player cannot play a cold
+    open yet and shifting this call's clock would desync it. `head_seconds`
+    is reported alongside (0.0 with no head) so a caller that *does* need
+    render time — where this actually plays in the exported file, this
+    call's own stated purpose — can add it: render time = Edit time +
+    `head_seconds`. Render-facing paths do their own offsetting instead of
+    reading this field blind: `add_captions` shifts cues by `head_seconds`
+    at its own call site, and `verify` trims heard words before it.
     """
     by_words = first is not None or last is not None
     by_time = source_start is not None or source_end is not None
@@ -4733,6 +4769,9 @@ def locate(
         "fully_present": bool(placements) and (requested - covered) <= tl.MIN_SEGMENT,
         "contiguous": contiguous,
         "timeline_duration": edit.duration,
+        # Edit-relative, unlike the numbers above it never is — see the
+        # two-clock note above. 0.0 with no head configured.
+        "head_seconds": _head_seconds(project),
     }
 
     # "Cut" and "never recorded" look identical from the placements alone —
@@ -7524,19 +7563,24 @@ def _tail_frames(project: Project, rate: float) -> int:
 
 
 def _frame_total_with_tail(project: Project, edit: tl.Edit, rate: float) -> int:
-    """`autoeditor.frame_total`, plus whatever a configured tail adds.
+    """`autoeditor.frame_total`, plus whatever a configured head or tail adds.
 
-    The single answer to "how long is this" once a tail exists to answer for
-    (PLAN.md § Tail time — the design note): the `Edit` itself never grows to
-    describe the card and the silence after it, so every caller that used to
-    read `autoeditor.frame_total` straight moves to this instead of learning
-    about `tail` on its own — a duration answered two ways is exactly how a
+    The single answer to "how long is this" once a head or a tail exists to
+    answer for (PLAN.md § Tail time — the design note): the `Edit` itself
+    never grows to describe either bookend, so every caller that used to read
+    `autoeditor.frame_total` straight moves to this instead of learning about
+    `head`/`tail` on its own — a duration answered two ways is exactly how a
     render can disagree with its own timeline while both report clean, which
     is the failure `check_frames` exists to catch and would now be able to
-    cause. A project that has never touched `tail` renders through here
-    byte-identically to `autoeditor.frame_total` alone, `_tail_frames` being 0.
+    cause. Kept its original name rather than renamed for the head it also
+    now covers — the name is quoted across a dozen docstrings and CLAUDE.md
+    itself as "the single answer to how long is this," and a rename would
+    have to chase every one of them in lockstep or the prose starts lying
+    about which helper does what. A project that has never touched either
+    renders through here byte-identically to `autoeditor.frame_total` alone,
+    `_head_frames`/`_tail_frames` both being 0.
     """
-    return autoeditor.frame_total(edit, rate) + _tail_frames(project, rate)
+    return autoeditor.frame_total(edit, rate) + _head_frames(project, rate) + _tail_frames(project, rate)
 
 
 def _tail_silence(project: Project, seconds: float) -> Path:
@@ -7673,6 +7717,247 @@ def tail(
         "project": str(project.root),
         "tail": after,
         "asset_exists": asset_exists,
+        "written": write,
+        "reset": bool(reset),
+        "plan": bool(plan),
+    }
+
+
+#: A cold open, played before the `Edit`'s own first frame — `tail`'s sibling
+#: at the other end of the film, and the fix for `goodsometimes`'
+#: `cold_open()`: ffmpeg-concatenated onto the *already-rendered* body,
+#: entirely outside lucid, invisible to `status`, `verify`, `check_frames`,
+#: and to `shot_check.py --prepend`'s hand-rolled offset, which existed only
+#: because `lucid shots` could not see the prepend at all. Additive and
+#: optional — absent means exactly what every older manifest means, nothing
+#: plays before the `Edit`'s own frame 0 — so this is not a `SCHEMA_VERSION`
+#: bump, the `CANVAS_KEY`/`CAPTION_STYLE_KEY`/`TAIL_KEY` precedent.
+#:
+#: `{"asset": clip_id, "src_start": ..., "seconds": ..., "fade_in": ...,
+#: "fade_out": ..., "gain_db": ...}`.
+#:
+#: **`asset` is always a registered clip_id, never a card — the exact inverse
+#: of `tail`'s rule, deliberately.** A cold open is real footage with real
+#: dialogue by definition, so restricting it to silence would defeat the
+#: reason it exists; `verify` is taught to trim its own words instead
+#: (`head_words_trimmed`) rather than the asset being forced silent.
+HEAD_KEY = "head"
+
+
+def _stored_head(project: Project) -> dict[str, Any] | None:
+    """The project's head, resolved to its six fields, or None for no head.
+
+    Validated on every read, not only on write — `_stored_tail`'s own
+    discipline: a manifest edited by hand or carried over from a future
+    lucid gets a message naming the shape rather than a `KeyError` three
+    calls later inside `_build_mlt`.
+    """
+    stored = project.read_manifest().get(HEAD_KEY)
+    if stored is None:
+        return None
+    if not isinstance(stored, dict):
+        raise ProjectError(f"{project.manifest_path}'s {HEAD_KEY!r} must be a JSON object")
+    try:
+        asset = str(stored["asset"])
+        seconds = float(stored["seconds"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProjectError(
+            f"{project.manifest_path}'s {HEAD_KEY!r} must hold at least "
+            f"'asset' and a numeric 'seconds', not {stored!r}"
+        ) from exc
+    return {
+        "asset": asset,
+        "src_start": float(stored.get("src_start", 0.0)),
+        "seconds": seconds,
+        "fade_in": float(stored.get("fade_in", 0.0)),
+        "fade_out": float(stored.get("fade_out", 0.0)),
+        "gain_db": float(stored.get("gain_db", 0.0)),
+    }
+
+
+def _head_frames(project: Project, rate: float) -> int:
+    """How many frames the configured head adds at `rate`, 0 with none.
+
+    `_tail_frames`'s own rounding rule — `round()`, `max(1, ...)` — so a
+    head's frame count is quantised on the export's grid the same way every
+    other edge is, rather than by a second convention.
+    """
+    head = _stored_head(project)
+    if head is None:
+        return 0
+    return max(1, round(head["seconds"] * rate))
+
+
+def _head_seconds(project: Project) -> float:
+    """The stored head's own length in seconds, or 0.0 with none.
+
+    The single offset primitive every render-time reader adds. **Two clocks
+    exist once a head is set**: Edit time (0 = the `Edit`'s own first frame —
+    cue addressing, `Edit.timeline_span`/`timeline_spans`, `locate`'s and
+    `timeline_view`'s reported numbers, all unchanged) and render time
+    (0 = the actual exported file's first frame = Edit time + this). Nothing
+    that reads Edit time needs this; `add_captions`'s ASS write, `verify`'s
+    heard-word trim, and `_build_mlt`'s music lead pad all do, because they
+    describe or check the render rather than the `Edit`.
+    """
+    head = _stored_head(project)
+    return 0.0 if head is None else head["seconds"]
+
+
+def head(
+    path: Path | str,
+    *,
+    asset: str | None = None,
+    src_start: float | None = None,
+    seconds: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    gain_db: float | None = None,
+    reset: bool = False,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Read or change the cold open this project plays before its first frame.
+
+    `tail`'s mirror at the other end of the film — the same read/partial-
+    update/reset/plan shape — but its asset rule runs the other way:
+    **`asset` must be a registered clip_id, never `card:name`.** `tail`
+    forbids real audio because `verify` diffs a render's own transcription
+    against the timeline's words and would gain a permanent disagreement it
+    can never resolve; a head is *for* real audio — that is the entire point
+    of a cold open — so `verify` accounts for it instead
+    (`head_words_trimmed`) rather than the asset being restricted to silence.
+
+    Setting `asset` or `seconds` for the first time needs both together —
+    `tail`'s rule, there is no clip with an unstated length and no length
+    with nothing to hold; either alone after that updates just that field.
+    `src_start` defaults to `0.0` on a first set — unlike `tail`'s `asset`,
+    this is not project-private data with no sane default, so there is no
+    `LUCID_TTS_VOICE`-style refusal for omitting it. `seconds` is the head's
+    own *whole* length — `tail`'s "seconds is not the hold before a fade"
+    rule, restated: the fades are spent inside it, never added on top.
+
+    `fade_in`/`fade_out` default to `0.0` and, **unlike `tail`'s `fade`, are
+    drawn from day one** — `Entry.fade_in_frames`/`fade_out_frames` already
+    exist (built for the A2 lane), and this feature's whole reason for
+    existing is the seam a missing fade produces (room tone butt-joined to
+    digital silence in one frame), so there is no "recorded but not yet
+    drawn" stub state here. `gain_db` defaults to `0.0`, a flat non-fading
+    level shift (`mlt.Entry.gain_db`) distinct from the fades — a cold open's
+    own beat can need a different level from the body without ramping to
+    reach it.
+
+    Refused rather than clamped, every measured number named: `src_start`
+    negative; `seconds` non-positive; either fade negative; the two fades
+    summing past `seconds` (`tail`'s "spent inside the length" rule,
+    restated for two fades); and `src_start + seconds` running past the
+    asset's own duration (`plan_picture`'s "a shot longer than its asset"
+    refusal, restated for a head).
+
+    **This mechanism needs an existing picture cue lane covering the whole
+    film**, `tail`'s own requirement: `mlt.document` only accepts a picture
+    lane that covers the audio track exactly whenever one exists, and a
+    project whose picture comes straight off its own clip has no second lane
+    a head could join. Add cues first (`cue_add`), or `export` names why.
+
+    `reset` drops the head entirely — a project with no `head` key means
+    exactly what it meant before this existed, nothing plays before the
+    `Edit`'s own first frame. `plan` resolves and validates without writing.
+    """
+    fields = (asset, src_start, seconds, fade_in, fade_out, gain_db)
+    if reset and any(value is not None for value in fields):
+        raise ProjectError("pass fields to change, or `reset`, not both")
+
+    project = Project.open(path)
+    stored = _stored_head(project)
+    changing = any(value is not None for value in fields)
+
+    if reset:
+        after: dict[str, Any] | None = None
+    elif not changing:
+        after = stored
+    else:
+        base = stored or {}
+        merged_asset = asset if asset is not None else base.get("asset")
+        merged_seconds = seconds if seconds is not None else base.get("seconds")
+        merged_src_start = src_start if src_start is not None else base.get("src_start", 0.0)
+        merged_fade_in = fade_in if fade_in is not None else base.get("fade_in", 0.0)
+        merged_fade_out = fade_out if fade_out is not None else base.get("fade_out", 0.0)
+        merged_gain_db = gain_db if gain_db is not None else base.get("gain_db", 0.0)
+        if merged_asset is None or merged_seconds is None:
+            raise ProjectError(
+                "a head needs both `asset` and `seconds` set together the first "
+                "time — there is no clip with an unstated length, and no length "
+                "with nothing to hold. Either alone after that updates its own "
+                "field."
+            )
+        if str(merged_asset).startswith("card:"):
+            raise ProjectError(
+                f"head asset must be a registered clip_id, not a card "
+                f"({merged_asset!r}) — the exact inverse of tail's rule: a "
+                "cold open is real footage, and `tail` is the mechanism for a "
+                "card"
+            )
+        resolved_clip = media.get_clip(project, str(merged_asset))
+        if not resolved_clip.get("has_video"):
+            raise ProjectError(
+                f"head asset {merged_asset!r} has no video — a cold open "
+                "needs a picture, the same reason a picture cue does"
+            )
+        if float(merged_src_start) < 0:
+            raise ProjectError(f"head src_start must not be negative, not {merged_src_start!r}")
+        if float(merged_seconds) <= 0:
+            raise ProjectError(f"head seconds must be positive, not {merged_seconds!r}")
+        if float(merged_fade_in) < 0:
+            raise ProjectError(f"head fade_in must not be negative, not {merged_fade_in!r}")
+        if float(merged_fade_out) < 0:
+            raise ProjectError(f"head fade_out must not be negative, not {merged_fade_out!r}")
+        if float(merged_fade_in) + float(merged_fade_out) > float(merged_seconds):
+            raise ProjectError(
+                f"head fades ({merged_fade_in}+{merged_fade_out}) cannot exceed "
+                f"seconds ({merged_seconds}) — the fades are spent inside the "
+                "head's own length, never added to it (tail's own rule, "
+                "restated for two fades)"
+            )
+        asset_duration = resolved_clip.get("duration")
+        if asset_duration is not None and float(merged_src_start) + float(
+            merged_seconds
+        ) > float(asset_duration) + tl.MIN_SEGMENT:
+            raise ProjectError(
+                f"head asset {merged_asset!r} is {asset_duration}s long, so "
+                f"src_start {merged_src_start} + seconds {merged_seconds} = "
+                f"{float(merged_src_start) + float(merged_seconds)} runs past "
+                "its end — shorten seconds, move src_start back, or use a "
+                "longer clip"
+            )
+        after = {
+            "asset": str(merged_asset),
+            "src_start": float(merged_src_start),
+            "seconds": float(merged_seconds),
+            "fade_in": float(merged_fade_in),
+            "fade_out": float(merged_fade_out),
+            "gain_db": float(merged_gain_db),
+        }
+
+    write = (reset or changing) and not plan
+    if write:
+        manifest = project.read_manifest()
+        if after is None:
+            manifest.pop(HEAD_KEY, None)
+        else:
+            manifest[HEAD_KEY] = after
+        project.write_manifest(manifest)
+
+    asset_registered: bool | None = None
+    if after is not None:
+        asset_registered = any(
+            c.get("clip_id") == after["asset"]
+            for c in project.read_manifest().get("clips", [])
+        )
+
+    return {
+        "project": str(project.root),
+        "head": after,
+        "asset_registered": asset_registered,
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),
@@ -8464,20 +8749,22 @@ def _music_plan(
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
     """Does this timeline need the MLT writer?
 
-    Five ways to get there and they hit the same wall: a cue table lays
+    Six ways to get there and they hit the same wall: a cue table lays
     picture over the edit, an edit naming two clips already holds two `src`
     files, a canvas override names a shape auto-editor can only letterbox
     into, a tail names a second and third resource (the card, the silence)
-    auto-editor has no export for at all, and a music bed asks for a second
-    audio track auto-editor has no more concept of than it has of the tail.
-    auto-editor 31.x refuses to *export* a multi-source timeline (exit 2) and
-    *renders* one at 720x576 with exit 0 (CLAUDE.md); it would take a canvas
-    override and quietly ignore it, which is the same failure wearing a
-    different hat. All five route through the MLT writer — and the music
-    trigger must never lag the writer's music lane, or a project with a bed
-    recorded exports through auto-editor and the render comes back with no
-    music in it, at exit 0, invisible to every check but listening (PLAN.md
-    § The A2 music lane, the gate).
+    auto-editor has no export for at all, a music bed asks for a second audio
+    track auto-editor has no more concept of than it has of the tail, and a
+    head names a resource prepended before the `src` file itself — the same
+    wall from the other end of the film. auto-editor 31.x refuses to
+    *export* a multi-source timeline (exit 2) and *renders* one at 720x576
+    with exit 0 (CLAUDE.md); it would take a canvas override and quietly
+    ignore it, which is the same failure wearing a different hat. All six
+    route through the MLT writer — and the music/head triggers must never lag
+    the writer's own lanes, or a project with a bed or a cold open recorded
+    exports through auto-editor and the render comes back without it, at exit
+    0, invisible to every check but listening (PLAN.md § The A2 music lane,
+    the gate).
     """
     if len({segment.clip_id for segment in edit.segments}) > 1:
         return True
@@ -8487,6 +8774,7 @@ def _is_layered(project: Project, edit: tl.Edit) -> bool:
         or manifest.get(CANVAS_KEY)
         or manifest.get(TAIL_KEY)
         or manifest.get(MUSIC_KEY)
+        or manifest.get(HEAD_KEY)
     )
 
 
@@ -8551,6 +8839,63 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     # card holds over silence.
     edit_frames = sum(entry.frames for entry in audio)
 
+    # A head is the mirror of a tail at the other end: two ordinary entries
+    # *prepended* rather than appended, before the Edit's own segments are
+    # ever reached — a real clip on the audio track (with its own fades and
+    # a flat `gain_db`) and its matching picture on the lane, muted the
+    # ordinary way every picture-lane entry already is (`audio_index=-1`,
+    # the writer's own per-role node split — no new muting logic needed
+    # here). Prepending keeps the lane-covers-track invariant true by
+    # construction, `tail`'s own reasoning run in reverse: `lane` and
+    # `audio` grow by the same `head_frames` on the same end. `head_frames`
+    # is read below by the music lane's lead-silence pad, which has to move
+    # by exactly this much once `audio`'s own index 0 stops being the
+    # Edit's own start.
+    head_report: dict[str, Any] | None = None
+    head_frames = 0
+    head_cfg = _stored_head(project)
+    if head_cfg is not None:
+        if not lane:
+            raise ProjectError(
+                "this project has a head but no picture cue lane to hang the "
+                "clip on — a head needs an existing cue table (cue_add) "
+                "covering the whole film, because `mlt.document` requires the "
+                "picture lane to cover the audio track exactly whenever one "
+                "exists, and a project whose picture comes straight off its "
+                "own clip has no second lane a head could join without "
+                "duplicating the entire film onto one just to make room for "
+                "the first few seconds"
+            )
+        head_resolved = _resolve_asset(project, head_cfg["asset"])
+        if head_resolved["is_image"]:
+            raise ProjectError(
+                f"head asset {head_cfg['asset']!r} resolved to a card, not a "
+                "clip — `head()` itself already refuses this, so a manifest "
+                "edited by hand is the only way here"
+            )
+        head_frames = _head_frames(project, rate)
+        head_src_in = round(head_cfg["src_start"] * rate)
+        head_fade_in_frames = round(head_cfg["fade_in"] * rate)
+        head_fade_out_frames = round(head_cfg["fade_out"] * rate)
+        audio = [
+            mlt.Entry(
+                head_resolved["asset_path"],
+                head_src_in,
+                head_frames,
+                has_video=True,
+                fade_in_frames=head_fade_in_frames,
+                fade_out_frames=head_fade_out_frames,
+                gain_db=head_cfg["gain_db"],
+            ),
+            *audio,
+        ]
+        lane = [
+            mlt.Entry(head_resolved["asset_path"], head_src_in, head_frames, has_video=True),
+            *lane,
+        ]
+        clip_of[head_resolved["asset_path"]] = head_cfg["asset"]
+        head_report = {**head_cfg, "frames": head_frames}
+
     tail_report: dict[str, Any] | None = None
     tail = _stored_tail(project)
     if tail is not None:
@@ -8586,7 +8931,17 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     music_plan = _music_plan(project, edit, rate, edit_frames=edit_frames)
     if music_plan is not None:
         total_frames = sum(entry.frames for entry in audio)
-        lead = music_plan["start_frame"]
+        # `music_plan["start_frame"]` is resolved against the Edit's own
+        # frames (`edit_frames`, above) and knows nothing of a head — it
+        # cannot, a head is not part of the `Edit`. But `audio`'s own index 0
+        # is no longer the Edit's start once a head has been prepended to
+        # it, so the *lane's* lead pad has to grow by `head_frames` on top
+        # of the plan's own boundary, or the bed plays `head_frames` seconds
+        # too early — directly on top of the cold open, at exit 0, invisible
+        # to `mlt.document`'s own checks (which only verify the music lane's
+        # total frame count, never its internal alignment against the edit
+        # track).
+        lead = head_frames + music_plan["start_frame"]
         if lead:
             lead_silence = _tail_silence(project, lead / rate)
             music_lane.append(mlt.Entry(str(lead_silence), 0, lead, is_image=False, has_video=False))
@@ -8650,6 +9005,9 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
         "sources": len({entry.resource for entry in [*audio, *lane, *music_lane]}),
+        # None with no head, or the resolved config plus the frames it
+        # added — `tail`'s own echo shape, mirrored at the other end.
+        "head": head_report,
         "tail": tail_report,
         # None with no bed, or the resolved cue plus the frames its asset
         # actually plays — the rest of its lane is silence padding.
@@ -8677,6 +9035,9 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
         "shots": len(built["shots"]),
         "sources": built["sources"],
         "frames": built["frames"],
+        # None with no head, or the resolved config plus the frames it added
+        # — `tail`'s own echo, mirrored at the other end of the film.
+        "head": built["head"],
         # None with no tail, or the resolved config plus the frames it added
         # — `frames` above already includes them, this is what accounts for
         # the difference from `autoeditor.frame_total` alone.
@@ -9274,6 +9635,31 @@ def _caption_cues(
     return cues, placed, cut, {"clips": sorted(transcripts), **unspoken}
 
 
+def _offset_cues(cues: list[captions.Cue], offset: float) -> list[captions.Cue]:
+    """Shift every cue, and every word inside it, forward by `offset` seconds.
+
+    The render-time shift `add_captions` applies at its own call site — just
+    before `captions.to_ass` — never inside `_caption_cues` itself:
+    `caption_view` shares that derivation and stays Edit-relative on purpose
+    (`locate`'s two-clock rule), so the shift belongs where the burn target
+    is decided, not in the shared read. `offset=0.0` (no head) returns `cues`
+    unchanged rather than rebuilding an identical list.
+    """
+    if not offset:
+        return cues
+    return [
+        replace(
+            cue,
+            words=tuple(
+                replace(word, start=word.start + offset, end=word.end + offset)
+                for word in cue.words
+            ),
+            end=cue.end + offset,
+        )
+        for cue in cues
+    ]
+
+
 def unspoken_add(
     path: Path | str,
     clip_id: str,
@@ -9760,11 +10146,19 @@ def add_captions(
             "no transcribed word survives on the timeline — nothing to caption"
         )
 
+    # The one render-facing shift this op owns: the burn target is the real
+    # export, and a configured head means the export's own first frame is
+    # `head_seconds` before the Edit's — see `locate`'s two-clock note.
+    # `caption_view`/`_caption_cues` stay Edit-relative; only the ASS write
+    # moves.
+    head_seconds = _head_seconds(project)
+    ass_cues = _offset_cues(cues, head_seconds)
+
     destination = Path(output).expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
         captions.to_ass(
-            cues,
+            ass_cues,
             style=style.ass,
             resolution=_caption_canvas(project),
             title=project.read_manifest().get("name", "lucid"),
@@ -9783,6 +10177,7 @@ def add_captions(
         "words_cut": cut,
         "captioned_duration": cues[-1].end - cues[0].start,
         "timeline_duration": edit.duration,
+        "head_seconds": head_seconds,
     }
 
     if burn is not None:
@@ -10377,6 +10772,16 @@ def _shared_language(transcripts: dict[str, tx.Transcript]) -> str | None:
     return languages.pop() if len(languages) == 1 else None
 
 
+#: How far past a configured head's own length `verify` still counts a heard
+#: word as the head's own, not the render's first body word. Whisper's word
+#: timestamps are not frame-exact (CLAUDE.md: "trust a transcript's word
+#: order, never its word durations"), so a head word timed a beat late must
+#: not read as a spurious leading insertion in the body diff — the same
+#: order of magnitude as `picture.RENDER_DURATION_TOLERANCE`, the slop this
+#: codebase already allows between a claimed duration and a measured one.
+HEAD_TRIM_TOLERANCE = 0.15
+
+
 def verify(
     path: Path | str,
     render: Path | str,
@@ -10420,6 +10825,18 @@ def verify(
     `transcript_path` skips ASR and uses an existing transcript of the render —
     the re-run, debugging and test path, and how a transcript produced on a
     machine with a spare GPU gets used here.
+
+    **A configured head is accounted for, not ignored.** `render` is assumed
+    to be a full export of *this* project — head, body and tail together, the
+    same assumption `check_frames`/`film_check` make about their own
+    `target`/`reference` — so once a head carries real dialogue, its words
+    transcribe at the front of the heard sequence with nothing in `expected`
+    (Edit-only words) to match them against, which would otherwise read as a
+    spurious leading insertion on every run. Every heard word starting before
+    `head_seconds` is dropped before the diff and the count is reported as
+    `head_words_trimmed` — visible and auditable, the `unspoken`/
+    `hallucinated_words` convention: a real content problem inside the head's
+    own dialogue must stay visible, just not counted against the body.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -10503,7 +10920,22 @@ def verify(
         tx.save(heard_transcript, cached)
         result["heard_transcript"] = str(cached)
 
-    heard = vfy.tokens(word.text for word in heard_transcript.words)
+    # A head's own words trimmed from the *front* of the heard sequence
+    # before tokenizing — see the docstring's "A configured head" note.
+    # `HEAD_TRIM_TOLERANCE` past the nominal boundary, not the boundary
+    # itself: whisper's own word timestamps are not frame-exact, so a word
+    # that is really the head's own last word but timed a beat late must
+    # still count as the head's, not arrive as a spurious leading body word.
+    head_seconds = _head_seconds(project)
+    heard_words = list(heard_transcript.words)
+    head_words_trimmed = 0
+    if head_seconds:
+        cutoff = head_seconds + HEAD_TRIM_TOLERANCE
+        kept = [w for w in heard_words if w.start >= cutoff]
+        head_words_trimmed = len(heard_words) - len(kept)
+        heard_words = kept
+
+    heard = vfy.tokens(word.text for word in heard_words)
 
     result.update(
         {
@@ -10518,6 +10950,8 @@ def verify(
             # to make a real miss disappear.
             **unspoken,
             "timeline_duration": edit.duration,
+            "head_seconds": head_seconds,
+            "head_words_trimmed": head_words_trimmed,
             **vfy.compare(expected, heard),
         }
     )
@@ -10870,7 +11304,11 @@ def reel(
     not a fact a span of the film carries with it — a teaser derived from an
     essay should not silently end on the essay's own end card, and register
     is the reason it is worth naming rather than just dropping: the film's
-    register and a reel's are allowed to differ on purpose.
+    register and a reel's are allowed to differ on purpose. **A configured
+    `head` (a cold open) follows the identical rule at the other end** —
+    `head_dropped` reports what the film had, and the derived project gets
+    none, for the same reason: a reel derived from an essay should not
+    silently open on the essay's own cold open.
 
     `plan=True` resolves the whole thing — the spans, the clips that would be
     linked, what the cut would remove — and creates nothing.
@@ -10916,6 +11354,11 @@ def reel(
     # — a `tail` is never inherited (taken 2026-08-12), so this is what the
     # film had, reported rather than silently left behind.
     tail_dropped = _stored_tail(source)
+    # `tail_dropped`'s own rule, mirrored at the other end: a cold open is a
+    # decision about *this* cut's own opening beat, not a fact a span of the
+    # film carries forward into a teaser — a reel derived from an essay
+    # should not silently open on the essay's own cold open.
+    head_dropped = _stored_head(source)
     # The music bed follows the tail's rule, not the cue table's: it is
     # project state beside `Edit`, and a derivation inherits nothing — it
     # reports (PLAN.md § The A2 music lane, what the note does not settle,
@@ -10983,6 +11426,9 @@ def reel(
         # onto the derived project — a bumper is a decision about this cut,
         # not a fact the span carries with it.
         "tail_dropped": tail_dropped,
+        # `tail_dropped`'s own rule, mirrored: what the film's cold open was,
+        # never carried onto the derived project.
+        "head_dropped": head_dropped,
         # Same rule, same reason: what the film's bed was, never carried onto
         # the derived project.
         "music_dropped": music_dropped,
@@ -11016,6 +11462,8 @@ def reel(
         # makes "never" true rather than "true until the next key gets copied
         # here by accident".
         manifest.pop(TAIL_KEY, None)
+        # `tail_dropped`'s own "never" line, mirrored — see `head_dropped` above.
+        manifest.pop(HEAD_KEY, None)
         # `music_dropped`'s own "never" line, for the same reason.
         manifest.pop(MUSIC_KEY, None)
         # Provenance, and the answer to the question a hand-made scratch copy

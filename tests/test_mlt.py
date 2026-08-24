@@ -1177,3 +1177,55 @@ def test_a_fade_free_bed_is_byte_identical_to_before_fades_existed() -> None:
     cannot move, the same rule the no-music document already lives under."""
     document = mlt.document(audio=_audio(120), music=_music(120), rate=RATE)
     assert "<filter" not in mlt.to_string(document)
+
+
+# -- `gain_db`: one new `Entry` field, the fade plateau generalized ---------
+#
+# Feature: the cold open as project state. `gain_db` is the head's own
+# primitive — a flat, non-fading level shift — built by generalizing
+# `_fade_level`'s hardcoded `0` plateau to `entry.gain_db` rather than adding
+# a second filter type.
+
+
+def test_gain_db_zero_is_byte_identical_to_before_the_field_existed() -> None:
+    """The default (`gain_db=0.0`, unity) with no fades emits no filter at
+    all — the exact document every caller before this field existed would
+    have written, and the regression `gain_db`'s own default has to hold
+    now that every `Entry` in every prior document carries it. And a fade
+    that *does* fire still prints its plateau as `0`, never `0.0` — the
+    `:g` formatting fix `gain_db` becoming a float made necessary."""
+    plain = mlt.document(audio=_audio(120), music=_music(120), rate=RATE)
+    assert "<filter" not in mlt.to_string(plain)
+
+    faded = mlt.Entry("/media/bed.wav", 0, 120, fade_in_frames=30, fade_out_frames=30)
+    document = mlt.document(audio=_audio(120), music=[faded], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist8")
+    level = playlist.find("entry/filter/property[@name='level']")
+    assert level is not None and level.text == "0=-60;30=0;89=0;119=-60"
+
+
+def test_a_flat_gain_with_no_fades_still_emits_a_two_key_filter() -> None:
+    """`gain_db` alone (no fades) is a constant plateau, held at both ends —
+    `_playlist`'s condition has to catch this case too, or a flat gain with
+    no fades would silently do nothing."""
+    entry = mlt.Entry("/media/head.mp4", 0, 60, has_video=True, gain_db=15.1)
+    document = mlt.document(audio=[entry], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist0")
+    filters = playlist.findall("entry/filter")
+    assert len(filters) == 1
+    level = filters[0].find("property[@name='level']")
+    assert level is not None and level.text == "0=15.1;59=15.1"
+
+
+def test_gain_db_is_the_plateau_a_fade_ramps_to_and_holds_at() -> None:
+    """With fades *and* a nonzero gain: the floor is still -60 (unchanged),
+    but the plateau both fades ramp to is `gain_db`, not 0 — the
+    generalization `_fade_level` makes."""
+    entry = mlt.Entry(
+        "/media/head.mp4", 0, 120, has_video=True,
+        fade_in_frames=30, fade_out_frames=30, gain_db=-6.0,
+    )  # fmt: skip
+    document = mlt.document(audio=[entry], rate=RATE)
+    playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist0")
+    level = playlist.find("entry/filter/property[@name='level']")
+    assert level is not None and level.text == "0=-60;30=-6;89=-6;119=-60"

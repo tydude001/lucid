@@ -444,6 +444,49 @@ def test_tail_dropped_is_reported_under_plan_too(film: Project, tmp_path: Path) 
     assert not (tmp_path / "teaser").exists()
 
 
+# -- a head is never inherited either, `tail_dropped`'s rule mirrored -----
+
+
+def test_a_films_head_is_dropped_and_named(film: Project, tmp_path: Path) -> None:
+    """A cold open is a decision about *this* cut's own opening beat, not a
+    fact a span of the film carries forward into a teaser — a teaser derived
+    from an essay must not silently open on the essay's own cold open."""
+    ops.head(film.root, asset="vo", src_start=1.0, seconds=2.0, gain_db=15.1)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+
+    assert result["head_dropped"] == {
+        "asset": "vo",
+        "src_start": 1.0,
+        "seconds": 2.0,
+        "fade_in": 0.0,
+        "fade_out": 0.0,
+        "gain_db": 15.1,
+    }
+    assert ops.HEAD_KEY not in reel.read_manifest()
+    assert ops.head(reel.root)["head"] is None
+    # And the film itself is untouched — the same guarantee every other
+    # `reel` field already gets (test_the_film_is_left_alone).
+    assert ops.head(film.root)["head"]["seconds"] == 2.0
+
+
+def test_a_film_with_no_head_reports_none_dropped(film: Project, tmp_path: Path) -> None:
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+
+    assert result["head_dropped"] is None
+
+
+def test_head_dropped_is_reported_under_plan_too(film: Project, tmp_path: Path) -> None:
+    """Read early, before anything is created — the same as `cues_dropped`."""
+    ops.head(film.root, asset="vo", seconds=2.0)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0, plan=True)
+
+    assert result["head_dropped"]["asset"] == "vo"
+    assert not (tmp_path / "teaser").exists()
+
+
 def test_a_films_music_bed_is_dropped_and_named(film: Project, tmp_path: Path) -> None:
     """The tail's rule, not the cue table's: the bed is project state beside
     `Edit`, and unlike a picture cue it cannot simply be kept where its word
