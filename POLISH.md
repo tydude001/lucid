@@ -257,6 +257,9 @@ undo has to cover what a gesture can now do.
 
 ## Step 04 — the VFR probe
 
+Shipped — see HISTORY.md § The VFR probe — measured, and reported rather
+than flagged.
+
 **Why.** PLAN.md § Open questions (*Variable frame rate footage*) already
 holds the lean — do **not** transcode on import; probe, record `vfr: true`,
 normalize only where frame-exactness matters (NLE export) — and it is
@@ -299,6 +302,14 @@ condition.
 ---
 
 ## Step 05 — the shortcut overlay
+
+Shipped — see HISTORY.md § The shortcut sheet grew the three panes it never
+listed. **The overlay itself already existed** when this step was worked; what
+this plan's step description got wrong is worth keeping: the `?` dialog, its
+Escape/backdrop close and its typing suppression were all built, and the real
+gap was that it listed only player.js's bindings. Its recommendation of a
+JS-side shortcut table was also declined — the hand-typed HTML is deliberate,
+so the map reads whether or not the bindings it documents are wired.
 
 **Why.** The window has real shortcuts (player.js ~882 holds a window-level
 keydown; undo, `⌘K` for the composer) and nothing lists them. A `?` overlay

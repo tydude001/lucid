@@ -10442,3 +10442,100 @@ baseline it counts from, and it is named once per file rather than inlined.
 `_revision` already watched the manifest's mtime and the snapshot count, so a
 manifest restore fires `project-changed` for an open window for free; that is
 asserted over a real SSE connection rather than assumed.
+
+## The VFR probe — measured, and reported rather than flagged — 2026-08-24
+
+POLISH.md § Step 04. PLAN.md § Open questions has held a lean about variable
+frame rate since the beginning — probe it, record it, don't transcode — and it
+was unverified. Every dogfood recording here is controlled; a stranger's first
+clip is a phone or a screen recording, and VFR is where naive cut math breaks.
+
+Most of the build turned out to already exist: `media.MediaInfo` has carried a
+`vfr` field for some time, `import_media` writes it into the manifest through
+`info.as_dict()`, and `assets` (and so `properties`) echoes it. What was
+missing was the report and, more to the point, **the measurement** — the plan
+said "verify against real screen recordings" and nobody had.
+
+Measured 2026-08-24 on this box. The signal is `r_frame_rate` vs
+`avg_frame_rate` with a 1% tolerance:
+
+- A frames-dropped 30fps file — a screen recorder's own shape, since it
+  captures only when the screen changes — reads r=30, avg=17.4. Fires at 42%.
+- **Zero false positives across twelve real files**: the film's own source
+  footage at 23.976 (r=23.976023976…, avg=23.976, 1e-6 relative), the a2 fade
+  probes, the qt probes, the skew-check renders.
+- The tightest true-CFR margin is **0.33%** — a file whose container duration
+  makes `avg` disagree with `r` by about a frame's worth. So the tolerance
+  clears real material by roughly 3×, not 100×, which is the number to know
+  before anyone tightens it.
+- Packet timing settles what the rates only summarise, and agrees: a CFR file
+  has at most two distinct pts deltas one timebase tick apart (rounding), the
+  variable one had nine spanning 0.033–0.100. That is the bounded-sample
+  fallback the plan allowed for — measured, and not needed.
+
+What shipped is `finish_report`'s `sources` section: how many clips are
+registered, and which of them probed variable. **Informational, never a
+flag.** The lean is not to transcode, so no action in the window clears it,
+and a permanent flag is a count that can never reach zero — the same rule that
+already keeps a refusing preset and a seam count off the flag list. It reads
+the manifest's clip rows directly rather than composing `assets` the way every
+other field here does, because `assets` runs `media.playability` per clip and
+this report rides every `project-changed` event: composing it in would make
+every cut pay an ffprobe per clip for a field that cannot change without a
+re-import. `framing`'s opt-in reasoning, applied one level cheaper.
+
+Normalising at NLE export stays out of scope and stays open in PLAN.md. What
+this buys is that when a stranger's phone clip *does* misbehave, the condition
+has a name on the record instead of being a mystery.
+
+## The shortcut sheet grew the three panes it never listed — 2026-08-24
+
+POLISH.md § Step 05 planned a `?` overlay from scratch. Reading the code
+first — the plan's own rule, and its own line numbers say "a lead, never a
+fact" — found the overlay already shipped: a native `<dialog>` opened by `?`
+through the pane bus, closed by Escape, by its × and by a backdrop click,
+suppressed while focus is in a field, with a top-bar button as the one visible
+way in. What had *not* shipped is the half that makes it worth opening.
+
+The sheet listed player.js's window-level transport bindings and nothing else.
+Compiled from the four keydown handlers as they actually are —
+`handleTranscriptKeyDown`, timeline.js's two toolbar inputs, agent.js's
+composer — **eleven of the twenty-one rows existed nowhere a user could find
+them**: the transcript's arrow-key word walk and its Shift-arrow selection,
+Enter/Space to seek a focused word, Enter/Escape in the cue and music panels,
+and the whole composer set including the `@`-mention list's arrows, Tab and
+Escape.
+
+They are grouped by **where the focus has to be**, because that is what
+decides whether a key does anything at all: the transport bindings are
+window-level and stop dead the moment focus enters a field, while everything
+else is reachable only from inside the pane that owns it. A flat list would
+promise the transcript's Shift+Arrow selection to someone standing in the
+timeline. The table is still hand-typed rather than generated, which is the
+original build's own decision and the right one — the map has to be readable
+independent of whether the bindings it documents are wired.
+
+Twenty-one rows do not fit where eleven did, so `.shortcuts-body` is a
+height-capped scrollport (`min(70vh, 560px)`) with the head and its close
+button outside it. That is `clampFloating`'s lesson applied where
+`clampFloating` does not reach: a panel taller than the space it is in gets
+pinned with its own controls hanging off the bottom, somewhere
+`elementFromPoint` returns null.
+
+**Verified in a real browser**, at 0ms and ~120ms dwell throughout: `?` opens
+and Escape/×/backdrop each close, in all three modes; `?` typed into the agent
+composer types a `?` and does not open the sheet; the page never scrolls
+horizontally at 700/900/1200/1400 wide in either theme; the sheet fits and its
+last row stays hit-testable at 520px tall, which is what the cap is for; the
+computed palette flips (panel 245,244,240 → 29,29,27); console clean.
+
+One finding was the harness, not the page, and it is the kind that gets filed
+as a product bug. **A synthetic Escape closed nothing.** `Input.dispatchKeyEvent`
+without `windowsVirtualKeyCode: 27` reaches a JS keydown listener exactly as a
+real press does — so anything hand-written looks right — but Chrome's close
+watcher, which is what dismisses a native `<dialog>`, reads the virtual code
+and not `.key`. `cdp.mjs` gained a `key` command that sends both codes, and
+its `viewport` probe now runs the two sweeps CLAUDE.md describes rather than
+one: the page walk skips scroll containers (the flat version reported 240
+findings on a normal Edit view, every one a ruler tick doing its job) and each
+scroll container is measured against its own `clientWidth`.

@@ -1173,6 +1173,7 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
         "picture",
         "marks",
         "seams",
+        "sources",
         "framing",
         "holds",
         "continuity",

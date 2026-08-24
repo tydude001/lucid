@@ -296,12 +296,26 @@ left. The conclusion survives because it was always the load-bearing one, but
   missing from the transcript altogether — whisper had folded them into the
   duration of the following word — and no amount of edge-snapping finds a take
   the transcript never recorded. HISTORY.md § 2.
-- **Variable frame rate footage.** Phone/screen recordings are often VFR and
-  break naive cut math. Current lean: do *not* transcode on import — it is slow
-  and lossy, and cut-and-concat operates in the time domain where VFR is mostly
-  fine. Probe it, record `vfr: true` in the manifest, normalize only when
-  exporting to an NLE, where frame-exactness actually matters. Verify against
-  real screen recordings.
+- **Variable frame rate footage. The probe half is answered 2026-08-24; the
+  normalising half is still open.** Phone/screen recordings are often VFR and
+  break naive cut math. The lean held: do *not* transcode on import — it is
+  slow and lossy, and cut-and-concat operates in the time domain where VFR is
+  mostly fine. `media.probe` records `vfr` on the clip's manifest entry,
+  `import`'s own return carries it, `assets`/`properties` echo it, and
+  `finish_report`'s `sources` names the affected clips — **informational,
+  never a flag**, because nothing in the window clears it and a permanent flag
+  is a count that can never reach zero.
+  The signal (`r_frame_rate` vs `avg_frame_rate`, 1% tolerance) was measured
+  rather than trusted: it fires at 42% on a frames-dropped file — a screen
+  recorder's own shape — and produced **zero false positives over twelve real
+  files on this box**, including the film's 23.976 footage at 1e-6. The
+  tightest true-CFR margin measured is 0.33%, so the tolerance clears real
+  material by about 3× rather than 100×. Packet-timing deltas agree (a CFR
+  file has at most two, one tick apart; the variable one had nine), which is
+  the fallback that turned out not to be needed. HISTORY.md § The VFR probe.
+  **What is still open is normalising at NLE export**, where frame-exactness
+  actually matters and where a recorded `vfr` is what a future step would key
+  off; nothing has been built for it, deliberately.
 - **Preview delivery in tier 1.** The consumer here is an agent, and an agent
   cannot watch an MP4. Leading option: a contact sheet of frames at ±0.5s around
   each cut boundary, which a vision model can actually check. Cheap to render;

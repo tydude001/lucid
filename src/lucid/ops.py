@@ -3067,6 +3067,15 @@ def finish_report(
     a stale or orphaned cue must not raise here, because this report is one
     of the places a person finds out about it.
 
+    `sources` is how many clips are registered and which of them ffprobe read
+    as variable frame rate at import — informational, never a flag. The
+    recorded lean is not to transcode (PLAN.md § Open questions, *Variable
+    frame rate footage*), so nothing in the window clears it; what it buys is
+    that when a phone or screen recording *does* misbehave, the condition
+    already has a name on the record. Unlike everything else here it reads
+    the manifest's clip rows directly rather than `assets`, because `assets`
+    probes playability per clip and this report rides every edit.
+
     `marks` is `unspoken_ls`'s count split into applied vs stale (a stale
     mark's recorded text disagrees with the transcript now — see
     `unspoken_ls`). `seams` sums `transcript_checks`' own `overlaps` finding
@@ -3204,6 +3213,31 @@ def finish_report(
 
     checks = transcript_checks(path)
     seams_section = {"count": sum(len(c["overlaps"]) for c in checks["clips"])}
+
+    # Which registered clips were probed as variable-frame-rate at import
+    # (PLAN.md § Open questions, *Variable frame rate footage*). **Reported,
+    # never flagged**: the recorded lean is not to transcode — cut-and-concat
+    # works in the time domain, where VFR is mostly fine — so there is no
+    # action in the window that clears this, and a permanent flag is a count
+    # that can never reach zero (the flag list's own rule, below). What it
+    # buys is that when something *is* off on a phone or screen recording,
+    # the condition already has a name on the record instead of being a
+    # mystery. Normalising on NLE export is deliberately still open.
+    #
+    # Read off the manifest's own clip rows rather than composed from
+    # `assets`, which is the shape the rest of this function uses: `assets`
+    # runs `media.playability` per clip, and that is an ffprobe subprocess
+    # each — this report rides every `project-changed` event, so composing it
+    # in would make every cut pay a probe per clip for a field that cannot
+    # change without a re-import. Same reasoning as `framing` being opt-in,
+    # applied one level cheaper. `vfr` is absent on every clip imported
+    # before the field existed, and `.get` reads that as "not variable",
+    # which is what an older manifest meant.
+    clip_rows = project.read_manifest().get("clips", [])
+    sources_section = {
+        "clips": len(clip_rows),
+        "vfr": [c["clip_id"] for c in clip_rows if c.get("vfr")],
+    }
 
     # Cheap on purpose — `reframe_coverage` needs no face detector (ffmpeg
     # scene-cut scan only, bounded by placed footage), so this composed field
@@ -3412,6 +3446,7 @@ def finish_report(
         "picture": picture_section,
         "marks": marks_section,
         "seams": seams_section,
+        "sources": sources_section,
         "framing": framing_section,
         "holds": holds_section,
         "continuity": continuity_section,

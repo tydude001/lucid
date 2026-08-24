@@ -358,8 +358,10 @@
  *                            native <dialog> for its free focus-trap and
  *                            Escape-to-close, with a .shortcuts-head label
  *                            + close row and a static, hand-typed .rows
- *                            table for a body: reference text, never
- *                            generated. Its panel reuses .toolbar-popover's
+ *                            table inside a height-capped .shortcuts-body
+ *                            scrollport: reference text, never generated,
+ *                            grouped by which pane owns the binding
+ *                            (tr.group). Its panel reuses .toolbar-popover's
  *                            border/radius/background/box-shadow verbatim —
  *                            one floating-panel look in the app, not two.
  *
@@ -3093,6 +3095,47 @@ dialog#shortcuts-sheet::backdrop {
 #shortcuts-sheet .rows {
   margin: 10px 14px 14px;
   width: calc(100% - 28px);
+}
+
+/* The sheet scrolls its own body rather than growing past the viewport.
+   `clampFloating` is not involved here — a native <dialog> is centred by the
+   UA — but the lesson behind it is the same one and it is the one this file
+   keeps relearning: a panel taller than the space it is in gets pinned, and
+   its last rows end up somewhere `elementFromPoint` returns null (CLAUDE.md
+   § A floating panel is clamped). A `max-height` with an internal scrollport
+   avoids the whole class, and it is what lets the table grow: the sheet went
+   from eleven rows to twenty-plus when the transcript, timeline and composer
+   bindings were finally listed, and at 700px tall that is past the bottom of
+   a short window.
+
+   The head stays put while the body scrolls, so the close button is reachable
+   from any scroll position — the same reason every pane in this app has a
+   fixed head over an `overflow-y: auto` body. */
+.shortcuts-body {
+  overflow-y: auto;
+  max-height: min(70vh, 560px);
+  overscroll-behavior: contain;
+}
+
+/* A section heading inside the keymap. `th` rather than a styled `td` so the
+   grouping is real to a screen reader as well as visible, and `colspan=2`
+   because the heading names the whole pair of columns rather than sitting in
+   the key column. */
+#shortcuts-sheet .rows tr.group th {
+  padding: 14px 0 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+/* The first heading sits directly under the sheet's own head, which already
+   has a border under it — two lines a few pixels apart reads as a mistake. */
+#shortcuts-sheet .rows tr.group:first-child th {
+  padding-top: 2px;
 }
 
 #toast {

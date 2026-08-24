@@ -30,7 +30,9 @@ node cdp.mjs goto http://127.0.0.1:8793/
 node cdp.mjs eval '(() => document.querySelector("#truth-strip").textContent)()'
 node cdp.mjs click "#finish-render" 120      # dwell in ms; 0 and ~120 both
 node cdp.mjs dragxy 81 327 145 326 120       # press, move in steps, release
-node cdp.mjs viewport 700 900                # resizes and reports overflowing nodes
+node cdp.mjs viewport 700 900                # resize; two sweeps (see below)
+node cdp.mjs key "?" - 120                   # a real key press; `-` = no focus target
+node cdp.mjs key Escape "#agent-prompt" 0    # ...or press it with focus in a field
 node cdp.mjs console 3000                    # console errors for N ms, each with its url
 node cdp.mjs shot out.png
 ```
@@ -45,6 +47,18 @@ node cdp.mjs shot out.png
 - **A screenshot never contains `<video>`** — headless Chrome does not
   composite it. `drawImage` into a canvas and read the pixels, and only after
   `!seeking && readyState >= 2`.
+- **`viewport` reports two sweeps and you need both.** `overflowing` walks the
+  page and skips anything inside a scroll container — without that skip every
+  ruler tick and clip block is a finding, which is a probe that gets ignored.
+  `scrollers` is each scroll container against its *own* `clientWidth`, which
+  is the only way a pane that clips a value mid-word ever shows up. In Edit
+  mode expect exactly one, `#track-lanes`.
+- **`key` sends virtual key codes, and that is not cosmetic.** Escape without
+  `windowsVirtualKeyCode: 27` reaches a JS listener exactly like a real press,
+  so hand-written handlers look fine — but Chrome's close watcher, which
+  dismisses a native `<dialog>`, reads the virtual code and not `.key`.
+  Measured 2026-08-24: the shortcut sheet stayed open under a code-less
+  Escape, which would have been filed as a bug in the page.
 - **A lazy image is not a broken image.** Measure `naturalWidth` only after
   scrolling the element's *real* scroll parent; through the wrong one, 30
   perfectly good tiles read exactly like a route that 404s.

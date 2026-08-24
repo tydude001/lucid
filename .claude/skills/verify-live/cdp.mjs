@@ -87,6 +87,54 @@ async function main() {
         await sleep(120);
         console.log(JSON.stringify({ clicked: true, dwell, ...hit }));
       }
+    } else if (cmd === 'key') {
+      // key <key> [selector] [dwell] — a real key press through the browser,
+      // not a synthesised KeyboardEvent. The difference matters for anything
+      // reading `event.target`: `?` typed into the composer must NOT open the
+      // shortcut sheet, and only a genuine press with focus in the textarea
+      // proves it. `selector` focuses that element first; omit it for a
+      // window-level binding.
+      const key = rest[0];
+      const selector = rest[1] && rest[1] !== '-' ? rest[1] : null;
+      const dwell = Number(rest[2] ?? 120);
+      if (selector) {
+        const focused = await s.eval(`(() => { const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return null; el.focus(); return document.activeElement === el ? (el.id || el.tagName) : 'not-focused'; })()`);
+        if (!focused || focused === 'not-focused') {
+          console.log(JSON.stringify({ pressed: false, why: 'could not focus ' + selector }));
+          process.exitCode = 2;
+          return;
+        }
+      }
+      // `text` is what makes a printable key actually type; the modifier bit
+      // is what makes `?` reach a handler reading `event.key` on a US layout.
+      //
+      // **A named key needs its virtual key code or the browser's own
+      // machinery ignores it.** Escape without `windowsVirtualKeyCode: 27`
+      // reaches a JS keydown listener exactly as a real press does, so
+      // anything hand-written looks fine — but Chrome's close watcher, which
+      // is what dismisses a native <dialog>, reads the virtual code and not
+      // `.key`. Measured 2026-08-24: the same dialog stayed open under a
+      // code-less Escape and closed under this one, which would have been
+      // reported as a bug in the page.
+      const CODES = { Escape: 27, Enter: 13, Tab: 9, Backspace: 8, Delete: 46,
+                      ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
+                      Home: 36, End: 35, PageUp: 33, PageDown: 34, ' ': 32 };
+      const printable = key.length === 1;
+      const shifted = (printable && key !== key.toLowerCase()) || '?!@#$%^&*()_+{}|:"<>~'.includes(key);
+      const vk = CODES[key] ?? (printable ? key.toUpperCase().charCodeAt(0) : 0);
+      const base = {
+        key,
+        code: printable ? undefined : key,
+        modifiers: shifted ? 8 : 0,
+        windowsVirtualKeyCode: vk,
+        nativeVirtualKeyCode: vk,
+      };
+      await s.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: printable ? key : undefined });
+      await sleep(dwell);
+      await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+      await sleep(120);
+      console.log(JSON.stringify({ pressed: key, on: selector, dwell }));
     } else if (cmd === 'drag') {
       // drag <selector> <fromFrac> <toFrac> [dwell] — horizontal, inside the element
       const [selector, from, to] = rest;
@@ -124,11 +172,41 @@ async function main() {
       const [w, h] = rest.slice(0, 2).map(Number);
       await s.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
       await sleep(400);
+      // Two sweeps, because one is blind where the other is noisy
+      // (CLAUDE.md § The README screenshots, and the five defects they found).
+      //
+      // `overflowing` walks the page but **skips anything inside a scroll
+      // container** — without that skip every timeline lane is a finding:
+      // the flat version reported 240 nodes on a normal Edit view, all of
+      // them ruler ticks and clip blocks doing exactly what they are supposed
+      // to, which is a probe that has to be ignored and therefore is.
+      //
+      // `scrollers` is the second sweep the first one cannot make: each
+      // scroll container against its **own** clientWidth. `overflow-y: auto`
+      // computes `overflow-x` to `auto` too, so a pane is one of these without
+      // saying so, and that is how `#properties-body` clipped a value
+      // mid-word while every page-level probe called it clean. In Edit mode
+      // this should find exactly one, `#track-lanes`.
       const probe = await s.eval(`(() => {
+        const scrollParent = (el) => {
+          for (let p = el.parentElement; p; p = p.parentElement) {
+            const cs = getComputedStyle(p);
+            if (/(auto|scroll)/.test(cs.overflowX + cs.overflowY)) return p;
+          }
+          return null;
+        };
+        const name = (e) => (e.id || e.className || e.tagName);
         const over = [...document.querySelectorAll('body *')]
-          .filter((e) => e.getBoundingClientRect().right > innerWidth + 1)
-          .map((e) => (e.id || e.className || e.tagName) + '@' + Math.round(e.getBoundingClientRect().right));
-        return {innerWidth, scrollWidth: document.body.scrollWidth, overflowing: over.slice(0, 6)};
+          .filter((e) => !scrollParent(e) && e.getBoundingClientRect().right > innerWidth + 1)
+          .map((e) => name(e) + '@' + Math.round(e.getBoundingClientRect().right));
+        const scrollers = [...document.querySelectorAll('body *')]
+          .filter((e) => {
+            const cs = getComputedStyle(e);
+            return /(auto|scroll)/.test(cs.overflowX + cs.overflowY) && e.scrollWidth > e.clientWidth + 1;
+          })
+          .map((e) => name(e) + ' ' + e.scrollWidth + '>' + e.clientWidth);
+        return {innerWidth, scrollWidth: document.body.scrollWidth,
+                overflowing: over.slice(0, 8), scrollers: scrollers.slice(0, 8)};
       })()`);
       console.log(JSON.stringify(probe));
     } else if (cmd === 'shot') {

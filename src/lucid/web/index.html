@@ -431,33 +431,68 @@
          own. Fixed reference text, typed out by hand, not JS-generated: the
          map is what makes every other binding in player.js discoverable at
          all, so it has to be readable independent of whether the bindings
-         it documents are even wired yet. -->
+         it documents are even wired yet.
+
+         Grouped by where the focus has to be, because that is what decides
+         whether a key does anything: the transport bindings are window-level
+         and stop dead the moment focus enters a field (player.js's
+         isTypingTarget), while everything under the three headings below is
+         reachable *only* from inside the pane that owns it. Listing them
+         flat would promise the transcript's Shift+Arrow selection to someone
+         standing in the timeline.
+
+         Compiled 2026-08-24 by reading the four keydown handlers rather than
+         from memory (POLISH.md § Step 05): player.js's window listener,
+         transcript.js's handleTranscriptKeyDown, timeline.js's two toolbar
+         inputs, agent.js's composer. Before that pass the sheet listed
+         player.js's bindings and nothing else — eleven of the twenty rows
+         below existed nowhere a user could find them. -->
     <dialog id="shortcuts-sheet">
       <div class="shortcuts-head">
         <span class="pane-head-inline">keyboard shortcuts</span>
         <button id="shortcuts-close" type="button" aria-label="close">×</button>
       </div>
-      <table class="rows">
-        <tbody>
-          <tr><td>Space</td><td>play / pause</td></tr>
-          <tr>
-            <td>J</td>
-            <td>step back 1s — hold to shuttle (HTML5 video has no reliable reverse play)</td>
-          </tr>
-          <tr><td>K</td><td>pause</td></tr>
-          <tr><td>L</td><td>play</td></tr>
-          <tr><td>← / →</td><td>step one frame</td></tr>
-          <tr><td>Shift + ← / →</td><td>step one second</td></tr>
-          <tr><td>Home / End</td><td>start / end</td></tr>
-          <tr><td>[ / ]</td><td>previous / next cut</td></tr>
-          <tr><td>Ctrl/Cmd + Z</td><td>undo</td></tr>
-          <tr>
-            <td>Shift + Ctrl/Cmd + Z</td>
-            <td>undo — there is no redo op, so this binds the same as the plain chord</td>
-          </tr>
-          <tr><td>?</td><td>this sheet</td></tr>
-        </tbody>
-      </table>
+      <div class="shortcuts-body">
+        <table class="rows">
+          <tbody>
+            <tr class="group"><th colspan="2">Transport — anywhere, unless you are typing</th></tr>
+            <tr><td>Space</td><td>play / pause</td></tr>
+            <tr>
+              <td>J</td>
+              <td>step back 1s — hold to shuttle (HTML5 video has no reliable reverse play)</td>
+            </tr>
+            <tr><td>K</td><td>pause</td></tr>
+            <tr><td>L</td><td>play</td></tr>
+            <tr><td>← / →</td><td>step one frame</td></tr>
+            <tr><td>Shift + ← / →</td><td>step one second</td></tr>
+            <tr><td>Home / End</td><td>start / end</td></tr>
+            <tr><td>[ / ]</td><td>previous / next cut</td></tr>
+            <tr><td>Ctrl/Cmd + Z</td><td>undo</td></tr>
+            <tr>
+              <td>Shift + Ctrl/Cmd + Z</td>
+              <td>undo — there is no redo op, so this binds the same as the plain chord</td>
+            </tr>
+            <tr><td>?</td><td>this sheet</td></tr>
+
+            <tr class="group"><th colspan="2">Transcript — with a word focused</th></tr>
+            <tr><td>← / →</td><td>move to the previous / next word</td></tr>
+            <tr><td>Shift + ← / →</td><td>extend the selection to that word</td></tr>
+            <tr><td>Enter / Space</td><td>seek the player to the focused word</td></tr>
+
+            <tr class="group"><th colspan="2">Timeline — in the cue or music panel</th></tr>
+            <tr><td>Enter</td><td>place the cue / apply the music bed</td></tr>
+            <tr><td>Esc</td><td>cancel the selection and close the panel</td></tr>
+
+            <tr class="group"><th colspan="2">Agent — in the composer</th></tr>
+            <tr><td>Enter</td><td>send</td></tr>
+            <tr><td>Shift + Enter</td><td>newline, for a multi-line prompt</td></tr>
+            <tr><td>@</td><td>start naming a clip — the list filters as you type</td></tr>
+            <tr><td>↑ / ↓</td><td>move through that list</td></tr>
+            <tr><td>Enter / Tab</td><td>accept the highlighted clip</td></tr>
+            <tr><td>Esc</td><td>dismiss the list, keeping what you typed</td></tr>
+          </tbody>
+        </table>
+      </div>
     </dialog>
 
     <script type="module" src="/static/app.js"></script>

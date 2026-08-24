@@ -135,6 +135,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "picture",
         "marks",
         "seams",
+        "sources",
         "framing",
         "holds",
         "continuity",

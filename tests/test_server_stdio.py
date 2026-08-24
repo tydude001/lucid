@@ -380,6 +380,7 @@ def test_finish_report_reachable_over_stdio(
         "picture",
         "marks",
         "seams",
+        "sources",
         "framing",
         "holds",
         "continuity",
