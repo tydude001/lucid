@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from lucid import ops
+from lucid import finish, ops
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.project import Project, ProjectError
@@ -346,6 +347,82 @@ def test_hold_ls_flags_a_missing_owned_cue(project: Project) -> None:
     result = ops.hold_ls(project.root)
 
     assert result["holds"][0]["cue_drift"] == "the owned cue no longer exists"
+
+
+# -- hold_check ---------------------------------------------------------------
+#
+# `_transcribe_span` and `finish.hold_seams` both shell out (whisper, ffmpeg
+# decode) — stood in here, `test_ops_finish_report.py`'s own
+# "monkeypatch the real op to lie" discipline, so what is under test is
+# `hold_check`'s own composition (cue_drift folded into faults alongside a
+# seam fault), not the transcription/decode machinery underneath it.
+
+
+def _seam_row(name: str, t: float, *, fault: str | None = None) -> dict[str, Any]:
+    return {
+        "name": name,
+        "time": round(t, 3),
+        "pre": -40.0,
+        "post": -40.0,
+        "peak_pre": -40.0,
+        "floor_post": -40.0,
+        "fault": fault,
+    }
+
+
+def test_hold_check_folds_cue_drift_into_faults(
+    project: Project, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = project.read_manifest()
+    manifest[ops.HOLDS_KEY] = [dict(STORED_HOLD)]
+    # Owned cue exists but with a stale src_start — an unrelated hand
+    # cue_rm/cue_add, the retro's own "two lists drift apart" shape.
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": 0.0}]
+    project.write_manifest(manifest)
+
+    render = tmp_path / "render.mp4"
+    render.write_bytes(b"not a real render, just needs to exist")
+
+    monkeypatch.setattr(ops, "_transcribe_span", lambda *a, **k: "i know what you did")
+    monkeypatch.setattr(
+        finish,
+        "hold_seams",
+        lambda media, marks, **k: [_seam_row(name, t) for name, t in marks],
+    )
+
+    result = ops.hold_check(project.root, render)
+
+    assert result["count"] == 1
+    item = result["holds"][0]
+    assert item["cue_drift"] is not None
+    assert "src_start" in item["cue_drift"]
+    assert all(seam["fault"] is None for seam in item["seams"])
+    # No seam fault fired — the one fault counted is the cue drift.
+    assert result["faults"] == 1
+
+
+def test_hold_check_reports_no_faults_when_the_owned_cue_agrees(
+    project: Project, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = project.read_manifest()
+    manifest[ops.HOLDS_KEY] = [dict(STORED_HOLD)]
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": 8.95}]
+    project.write_manifest(manifest)
+
+    render = tmp_path / "render.mp4"
+    render.write_bytes(b"not a real render, just needs to exist")
+
+    monkeypatch.setattr(ops, "_transcribe_span", lambda *a, **k: "i know what you did")
+    monkeypatch.setattr(
+        finish,
+        "hold_seams",
+        lambda media, marks, **k: [_seam_row(name, t) for name, t in marks],
+    )
+
+    result = ops.hold_check(project.root, render)
+
+    assert result["holds"][0]["cue_drift"] is None
+    assert result["faults"] == 0
 
 
 # -- _hold_gain_db --------------------------------------------------------------

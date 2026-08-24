@@ -10201,6 +10201,35 @@ def hold_rm(path: Path | str, clip_id: str, gap_word_index: int) -> dict[str, An
     return {"clip_id": clip_id, "gap_word_index": gap_word_index, "removed": found}
 
 
+def _hold_cue_drift(
+    cues_by_key: dict[tuple[str, int], dict[str, Any]],
+    stored_hold: dict[str, Any],
+    plan: dict[str, Any],
+) -> str | None:
+    """Compare a hold's owned cue (`(clip_id, cue_word_index)`) against what
+    `_hold_plan` resolves fresh right now — `None` when they agree, a message
+    naming the disagreement otherwise. Shared by `hold_ls` and `hold_check` so
+    the retro's own "two lists drift apart in one edit" check has exactly one
+    implementation, not two that can themselves drift apart.
+    """
+    owned_cue = cues_by_key.get((stored_hold["clip_id"], stored_hold["cue_word_index"]))
+    if owned_cue is None:
+        return "the owned cue no longer exists"
+    if owned_cue.get("asset") != stored_hold["asset"]:
+        return (
+            f"the owned cue now shows {owned_cue.get('asset')!r}, not "
+            f"{stored_hold['asset']!r}"
+        )
+    cue_src_start = owned_cue.get("src_start")
+    plan_src_start = plan["src_start"]
+    if cue_src_start is None or abs(float(cue_src_start) - plan_src_start) > 1e-3:
+        return (
+            f"the owned cue's src_start is {cue_src_start!r}, but this "
+            f"hold resolves to {plan_src_start:.3f} now"
+        )
+    return None
+
+
 def hold_ls(path: Path | str) -> dict[str, Any]:
     """Every stored hold plus its live-resolved plan — `shots_error`'s
     policy: a hold that cannot currently resolve is reported inline
@@ -10239,24 +10268,7 @@ def hold_ls(path: Path | str) -> dict[str, Any]:
                 if k not in stored_hold
             }
         )
-        owned_cue = cues_by_key.get((stored_hold["clip_id"], stored_hold["cue_word_index"]))
-        if owned_cue is None:
-            entry["cue_drift"] = "the owned cue no longer exists"
-        else:
-            cue_src_start = owned_cue.get("src_start")
-            plan_src_start = plan["src_start"]
-            if owned_cue.get("asset") != stored_hold["asset"]:
-                entry["cue_drift"] = (
-                    f"the owned cue now shows {owned_cue.get('asset')!r}, not "
-                    f"{stored_hold['asset']!r}"
-                )
-            elif cue_src_start is None or abs(float(cue_src_start) - plan_src_start) > 1e-3:
-                entry["cue_drift"] = (
-                    f"the owned cue's src_start is {cue_src_start!r}, but this "
-                    f"hold resolves to {plan_src_start:.3f} now"
-                )
-            else:
-                entry["cue_drift"] = None
+        entry["cue_drift"] = _hold_cue_drift(cues_by_key, stored_hold, plan)
         items.append(entry)
 
     return {"project": str(project.root), "holds": items, "count": len(items)}
@@ -10321,6 +10333,12 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
     that already exists, `verify`'s and `film_check`'s own stance. A hold
     that cannot currently resolve is reported with `hold_error`, `hold_ls`'s
     own policy, rather than taking the whole check down.
+
+    Each resolving item also carries `hold_ls`'s own **`cue_drift`** check
+    (`_hold_cue_drift`, shared rather than reimplemented) — the render-facing
+    half of the same guard, since `finish_report(holds=True)` calls this op,
+    not `hold_ls`, and a drifted owned cue must not read as `faults: 0`
+    here. A drift counts toward `faults` alongside a seam fault.
     """
     project = Project.open(path)
     render_path = Path(render).expanduser()
@@ -10330,6 +10348,9 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
     edit = _load_edit(project)
     rate = _rate(project)
     head_seconds = _head_seconds(project)
+    cues_by_key = {
+        (c["clip_id"], c["word_index"]): c for c in project.read_manifest().get("cues", [])
+    }
 
     items: list[dict[str, Any]] = []
     marks: list[tuple[str, float]] = []
@@ -10345,8 +10366,11 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
             plan = _hold_plan(project, edit, rate, stored_hold)
         except _PICTURE_REFUSALS as exc:
             entry["hold_error"] = str(exc)
+            entry["cue_drift"] = None
             items.append(entry)
             continue
+
+        entry["cue_drift"] = _hold_cue_drift(cues_by_key, stored_hold, plan)
 
         render_start = plan["gap_at"] + head_seconds
         render_end = render_start + plan["hold_length"]
@@ -10384,7 +10408,7 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
         for item in items
         for seam in item.get("seams", [])
         if seam["fault"] is not None
-    )
+    ) + sum(1 for item in items if item.get("cue_drift") is not None)
     return {
         "project": str(project.root),
         "render": str(render_path),
