@@ -765,6 +765,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "decodes placed footage for a scene-cut scan; ~5.7s on the film"
         ),
     )
+    p_finish_report.add_argument(
+        "--holds",
+        action="store_true",
+        help=(
+            "also run hold_check against the last render — off by default because it "
+            "decodes and transcribes render spans"
+        ),
+    )
 
     p_waveform = sub.add_parser(
         "waveform", help="RMS envelope for the timeline's waveform lane (cached)"
@@ -1120,6 +1128,64 @@ def _build_parser() -> argparse.ArgumentParser:
     p_vo_synth.add_argument(
         "--plan", action="store_true", help="resolve and report (and rank, if cached) without rendering or writing"
     )
+
+    p_hold = sub.add_parser(
+        "hold", help="film-audio holds — a clean span of a clip's own audio spliced into the VO"
+    )
+    hold_sub = p_hold.add_subparsers(dest="hold_command", required=True)
+
+    p_hold_add = hold_sub.add_parser(
+        "add", help="splice a hold: after this VO word, play the film clip's own audio"
+    )
+    p_hold_add.add_argument("clip_id")
+    p_hold_add.add_argument(
+        "gap_word_index", type=int, nargs="?", help="last VO word before the gap (omit and use --gap-phrase)"
+    )
+    p_hold_add.add_argument(
+        "cue_word_index", type=int, nargs="?", help="VO word the picture cue for asset starts on (omit and use --cue-phrase)"
+    )
+    p_hold_add.add_argument("--asset", help="registered clip_id of the film clip (must already be transcribed)")
+    p_hold_add.add_argument(
+        "--word-index-first", type=int, help="first word of asset's own transcript that must be heard clean"
+    )
+    p_hold_add.add_argument(
+        "--word-index-last", type=int, help="last word of asset's own transcript that must be heard clean"
+    )
+    p_hold_add.add_argument("--gap-phrase", help="resolve clip_id's transcript for the gap word — binds its last word")
+    p_hold_add.add_argument("--cue-phrase", help="resolve clip_id's transcript for the cue word — binds its first word")
+    p_hold_add.add_argument(
+        "--asset-phrase",
+        help="resolve --asset's own transcript for word_index_first/word_index_last together",
+    )
+    p_hold_add.add_argument(
+        "--after", type=int, default=-1, help="only match a --*-phrase forward of this word index"
+    )
+    p_hold_add.add_argument(
+        "--occurrence", type=int, help="pick the Nth match rather than refusing on ambiguity"
+    )
+    p_hold_add.add_argument(
+        "--head-margin", type=float, help=f"seconds before the first word (default {ops.HOLD_HEAD_MARGIN})"
+    )
+    p_hold_add.add_argument(
+        "--tail-margin", type=float, help=f"seconds after the last word (default {ops.HOLD_TAIL_MARGIN})"
+    )
+    p_hold_add.add_argument(
+        "--under", type=float, help=f"LU below the VO (default {ops.HOLD_UNDER})"
+    )
+    p_hold_add.add_argument("--fade-in", type=float, help=f"seconds (default {ops.HOLD_FADE_IN})")
+    p_hold_add.add_argument("--fade-out", type=float, help=f"seconds (default {ops.HOLD_FADE_OUT})")
+    p_hold_add.add_argument("--plan", action="store_true", help="resolve and report without writing")
+
+    p_hold_rm = hold_sub.add_parser("rm", help="drop a hold's record and cue (the spliced silence stays)")
+    p_hold_rm.add_argument("clip_id")
+    p_hold_rm.add_argument("gap_word_index", type=int)
+
+    hold_sub.add_parser("ls", help="list holds with their live-resolved plan")
+
+    p_hold_check = hold_sub.add_parser(
+        "check", help="transcribe each hold's own span off a render and check its seams"
+    )
+    p_hold_check.add_argument("render")
 
     p_reel = sub.add_parser(
         "reel", help="derive a new project holding one span of this one's timeline"
@@ -1908,7 +1974,7 @@ def _cmd_properties(args: argparse.Namespace) -> int:
 
 
 def _cmd_finish_report(args: argparse.Namespace) -> int:
-    return _emit(ops.finish_report(args.project, framing=args.framing))
+    return _emit(ops.finish_report(args.project, framing=args.framing, holds=args.holds))
 
 
 def _cmd_waveform(args: argparse.Namespace) -> int:
@@ -2139,6 +2205,38 @@ def _cmd_vo_synth(args: argparse.Namespace) -> int:
             plan=args.plan,
         )
     )
+
+
+def _cmd_hold(args: argparse.Namespace) -> int:
+    if args.hold_command == "add":
+        return _emit(
+            ops.hold_add(
+                args.project,
+                args.clip_id,
+                args.gap_word_index,
+                args.cue_word_index,
+                args.asset,
+                args.word_index_first,
+                args.word_index_last,
+                gap_phrase=args.gap_phrase,
+                cue_phrase=args.cue_phrase,
+                asset_phrase=args.asset_phrase,
+                after=args.after,
+                occurrence=args.occurrence,
+                head_margin=args.head_margin,
+                tail_margin=args.tail_margin,
+                under=args.under,
+                fade_in=args.fade_in,
+                fade_out=args.fade_out,
+                plan=args.plan,
+            )
+        )
+    if args.hold_command == "rm":
+        return _emit(ops.hold_rm(args.project, args.clip_id, args.gap_word_index))
+    if args.hold_command == "ls":
+        return _emit(ops.hold_ls(args.project))
+    # "check"
+    return _emit(ops.hold_check(args.project, args.render))
 
 
 def _cmd_reel(args: argparse.Namespace) -> int:
@@ -2399,6 +2497,7 @@ _COMMANDS = {
     "music": _cmd_music,
     "vo-extend": _cmd_vo_extend,
     "vo-synth": _cmd_vo_synth,
+    "hold": _cmd_hold,
     "reel": _cmd_reel,
     "review": _cmd_review,
     "reframe": _cmd_reframe,

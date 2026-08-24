@@ -1110,6 +1110,126 @@ def test_a_document_without_music_is_byte_identical_to_before_the_lane_existed()
     assert plain == with_none == with_empty
     assert "tractorA" not in plain and "playlist8" not in plain
 
+
+# -- the holds lane: a fourth, audio-only, real footage's own clean sound ----
+
+
+def _holds(*frames: int) -> list[mlt.Entry]:
+    entries, names = [], iter(("/media/film.mp4", "/media/sil.wav", "/media/sil2.wav"))
+    for count in frames:
+        entries.append(mlt.Entry(next(names), 0, count, has_video=True))
+    return entries
+
+
+def test_the_holds_lane_must_cover_the_timeline_exactly() -> None:
+    with pytest.raises(mlt.MLTError, match="holds lane covers 90 frames but the timeline is 120"):
+        mlt.document(audio=_audio(120), holds=_holds(90), rate=RATE)
+    with pytest.raises(mlt.MLTError, match="holds lane covers 150"):
+        mlt.document(audio=_audio(120), holds=_holds(150), rate=RATE)
+
+
+def test_a_still_on_the_holds_lane_is_refused() -> None:
+    with pytest.raises(mlt.MLTError, match="none to play"):
+        mlt.document(
+            audio=_audio(120),
+            holds=[mlt.Entry("/cards/x.png", 0, 120, is_image=True)],
+            rate=RATE,
+        )
+
+
+def test_the_holds_track_declares_the_timeline_total_with_no_exception() -> None:
+    document = mlt.document(audio=_audio(120), holds=_holds(90, 30), rate=RATE)
+    declared = mlt.declared_frames(document)
+    assert declared["tractor tractorB out"] == 120
+    assert set(declared.values()) == {120}
+
+
+def test_the_holds_lane_gets_its_own_mix_and_no_qtblend() -> None:
+    """`music`'s own discipline, restated for the fourth lane: additive
+    against the black background, no compositing transition — a hold's
+    picture is switched off at the node, so there is nothing of it on
+    screen to blend."""
+    document = mlt.document(
+        audio=_audio(120),
+        picture=[mlt.Entry("/media/film.mp4", 0, 120, has_video=True)],
+        holds=_holds(120),
+        rate=RATE,
+    )
+    sequence = next(
+        t for t in document.findall("tractor") if t.get("id", "").startswith("{")
+    )
+    tracks = [t.get("producer") for t in sequence.findall("track")]
+    holds_index = tracks.index("tractorB")
+
+    mixes = []
+    for transition in sequence.findall("transition"):
+        service = transition.find("property[@name='mlt_service']")
+        b_track = transition.find("property[@name='b_track']")
+        mixes.append(((service.text or ""), (b_track.text or "")))
+    assert ("mix", str(holds_index)) in mixes, mixes
+    assert ("qtblend", str(holds_index)) not in mixes, "the holds lane never blends"
+
+
+def test_a_document_with_both_music_and_holds_gets_two_distinct_mix_transitions() -> None:
+    """The trap a hardcoded `blended + 1` would hit: with both extra lanes
+    present, the second one's transition id must not collide with the
+    first's — `mlt.document`'s own `wrong = {...}` frame-total check would
+    stay clean either way, so only the transition ids themselves catch it."""
+    document = mlt.document(
+        audio=_audio(120), music=_music(120), holds=_holds(120), rate=RATE
+    )
+    sequence = next(
+        t for t in document.findall("tractor") if t.get("id", "").startswith("{")
+    )
+    ids = [t.get("id") for t in sequence.findall("transition")]
+    assert len(ids) == len(set(ids)), f"duplicate transition ids: {ids}"
+    tracks = [t.get("producer") for t in sequence.findall("track")]
+    music_index, holds_index = tracks.index("tractorA"), tracks.index("tractorB")
+    b_tracks = {
+        t.find("property[@name='b_track']").text
+        for t in sequence.findall("transition")
+        if (t.find("property[@name='mlt_service']").text or "") == "mix"
+    }
+    assert {str(music_index), str(holds_index)} <= b_tracks
+
+
+def test_the_holds_tracks_video_is_hidden() -> None:
+    document = mlt.document(audio=_audio(120), holds=_holds(120), rate=RATE)
+    holds_track = next(t for t in document.findall("tractor") if t.get("id") == "tractorB")
+    assert all(t.get("hide") == "video" for t in holds_track.findall("track"))
+
+
+def test_holds_sources_reach_the_bin() -> None:
+    document = mlt.document(audio=_audio(120), holds=_holds(90, 30), rate=RATE)
+    main_bin = next(p for p in document.findall("playlist") if p.get("id") == "main_bin")
+    assert len(main_bin.findall("entry")) == 1 + 3  # sequence + vo + film + silence
+
+
+def test_a_document_without_holds_is_byte_identical_to_before_the_lane_existed() -> None:
+    """The lane's ids live in their own namespace (hchain/playlist10/11/
+    tractorB) precisely so an unswapped project's document cannot move."""
+    plain = mlt.to_string(mlt.document(audio=_audio(120), rate=RATE))
+    with_none = mlt.to_string(mlt.document(audio=_audio(120), holds=None, rate=RATE))
+    with_empty = mlt.to_string(mlt.document(audio=_audio(120), holds=[], rate=RATE))
+    assert plain == with_none == with_empty
+    assert "tractorB" not in plain and "playlist10" not in plain
+
+
+def test_a_hold_node_carries_video_index_minus_one_and_no_audio_index() -> None:
+    """The exact mirror of the picture lane's own convention (`audio_index=
+    -1`, `video_index` untouched): a hold node silences picture, not sound,
+    and it does so with `video_index` alone — no `audio_index` property at
+    all, because the base `astream="0"` selector is already right (this
+    module's own docstring, and CLAUDE.md's `media.media_path()` containment
+    note)."""
+    document = mlt.document(audio=_audio(120), holds=_holds(120), rate=RATE)
+    node = next(n for n in document.findall("chain") if n.get("id") == "hchain0")
+    video_index = node.find("property[@name='video_index']")
+    audio_index = node.find("property[@name='audio_index']")
+    assert video_index is not None and video_index.text == "-1"
+    assert audio_index is None
+
+
 # -- the A2 fades: one entry-attached volume filter, dB keyframes ------------
 
 

@@ -1165,6 +1165,7 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
         "marks",
         "seams",
         "framing",
+        "holds",
         "last_render",
         "flags",
     }

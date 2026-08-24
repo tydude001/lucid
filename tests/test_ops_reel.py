@@ -517,6 +517,49 @@ def test_a_film_with_no_music_reports_none_dropped(film: Project, tmp_path: Path
     assert result["music_dropped"] is None
 
 
+# -- a hold is never inherited either, `tail_dropped`'s rule mirrored -----
+
+
+def _stored_hold() -> dict[str, Any]:
+    return {
+        "clip_id": "vo",
+        "gap_word_index": 6,
+        "cue_word_index": 3,
+        "asset": "vo",
+        "word_index_first": 0,
+        "word_index_last": 1,
+        "head_margin": ops.HOLD_HEAD_MARGIN,
+        "tail_margin": ops.HOLD_TAIL_MARGIN,
+        "under": ops.HOLD_UNDER,
+        "fade_in": ops.HOLD_FADE_IN,
+        "fade_out": ops.HOLD_FADE_OUT,
+    }
+
+
+def test_a_films_holds_are_dropped_and_named(film: Project, tmp_path: Path) -> None:
+    """A hold ties a VO gap to a picture cue *and* to a specific mix — none of
+    which the reel's own re-cut cue table has anything to do with. Dropped
+    unconditionally and named, `tail_dropped`/`music_dropped`'s own rule."""
+    manifest = film.read_manifest()
+    manifest[ops.HOLDS_KEY] = [_stored_hold()]
+    film.write_manifest(manifest)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+
+    assert result["holds_dropped"] == [_stored_hold()]
+    assert ops.HOLDS_KEY not in reel.read_manifest()
+    assert ops.hold_ls(reel.root)["holds"] == []
+    # And the film itself is untouched.
+    assert ops.hold_ls(film.root)["holds"][0]["gap_word_index"] == 6
+
+
+def test_a_film_with_no_holds_reports_none_dropped(film: Project, tmp_path: Path) -> None:
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+
+    assert result["holds_dropped"] == []
+
+
 # -- the edges of the span -----------------------------------------------
 
 

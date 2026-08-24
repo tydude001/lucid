@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import array
 import itertools
+import json
 import math
+import re
 import statistics
 import subprocess
 from collections.abc import Sequence
@@ -333,6 +335,64 @@ def loud_gaps(
 def unaccounted_sound(media: Path | str, spans: Sequence[tuple[float, float]]) -> dict[str, Any]:
     """Decode `media` and report the gaps in `spans` that hold sound anyway."""
     return loud_gaps(spans, envelope(decode(media)))
+
+
+def integrated_loudness(
+    media: Path | str, *, start: float | None = None, end: float | None = None
+) -> float:
+    """Integrated loudness (LUFS) of `media`'s audio, one number.
+
+    `music_bed.py:loudness()`'s own mechanism, ported: a single
+    `loudnorm=print_format=json` analysis pass, parsed for `input_i`. This is
+    the plain-scalar half of lucid's two loudness measurements — the one a
+    gain formula wants (`ops._vo_loudness`, `ops._hold_gain_db`) — and it is
+    deliberately not `finish.loudness`, which measures via the `ebur128`
+    filter for a fuller report (integrated *and* true peak) rather than a
+    single number for arithmetic. Two mechanisms, not one duplicated, because
+    they serve different callers: a formula wants a float, a report wants a
+    dict a person reads.
+
+    `start`/`end` trim the input first (`-ss`/`-t`), for measuring one span of
+    a longer file rather than the whole thing.
+    """
+    source = Path(media).expanduser()
+    if not source.exists():
+        raise EnergyError(f"no media to measure: {source}")
+
+    cmd = [FFMPEG, "-hide_banner", "-nostdin"]
+    if start is not None:
+        cmd += ["-ss", f"{float(start):.3f}"]
+    cmd += ["-i", str(source)]
+    if end is not None:
+        cmd += ["-t", f"{float(end) - float(start or 0.0):.3f}"]
+    cmd += ["-af", "loudnorm=print_format=json", "-f", "null", "-"]
+
+    # check=False on purpose: a bad file is a finding to report (no match, an
+    # EnergyError naming ffmpeg's own stderr), not a traceback.
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    match = re.findall(r"\{[^{}]*\"input_i\"[^{}]*\}", proc.stderr, re.DOTALL)
+    if not match:
+        raise EnergyError(
+            f"could not measure the loudness of {source.name}: "
+            f"{proc.stderr[-400:].strip()}"
+        )
+    parsed = json.loads(match[-1])
+    value = float(parsed["input_i"])
+    # Pure digital silence measures as `"-inf"` — a real string `loudnorm`
+    # prints, and `float()` parses it without complaint into an infinite
+    # value that reads as finite to everything downstream. Refused here
+    # rather than propagated: a gain formula built on it produces `-inf`,
+    # which a caller (`ops._hold_gain_db` -> `mlt.Entry.gain_db`) would carry
+    # straight into the writer's `volume` filter as a literal "-inf"
+    # keyframe — measured to corrupt the *entire* rendered audio mix, not
+    # just the one entry, at exit 0 (a completely silent VO input, real
+    # `melt`). "Refuse, never clamp, and name the measured number" (CLAUDE.md).
+    if not math.isfinite(value):
+        raise EnergyError(
+            f"{source.name} measured non-finite loudness ({parsed['input_i']!r}) — "
+            "likely pure digital silence, which a gain formula cannot be built on"
+        )
+    return value
 
 
 def attenuate(

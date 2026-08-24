@@ -34,6 +34,7 @@ from lucid import (
     captions,
     energy,
     faces,
+    finish,
     graphics,
     media,
     mlt,
@@ -2984,7 +2985,9 @@ def properties(
     return result
 
 
-def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
+def finish_report(
+    path: Path | str, *, framing: bool = False, holds: bool = False
+) -> dict[str, Any]:
     """The truth strip's own numbers, and the Finish mode report behind it.
 
     **Composes only**, `properties`'s own precedent (STUDIO.md § Step 01):
@@ -3035,6 +3038,16 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
     is `None` when it was not asked for, which is deliberately distinct from
     a measured zero: a consumer can tell "not measured" from "nothing
     stale", and no framing flag is raised either way.
+
+    `holds` is `hold_check`'s own per-hold seam/transcription report against
+    the render `last_render` names — **also off by default**, `framing`'s
+    own reasoning restated: it decodes and transcribes render spans, so it
+    must not ride every `project-changed` event the truth strip listens to
+    (`ops.hold_check` docstring). `None` when not asked for, distinct from a
+    project with no holds (which still returns a report, just an empty one)
+    — and also `None` when asked for but there is no render to check
+    against yet, since a hold's mix is only ever confirmed by listening to
+    an actual file.
 
     `last_render` is the render log's own last `output`, its basename, its
     timestamp, and whether that file is still on disk — `None` when nothing
@@ -3184,6 +3197,16 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
                 "steps": len(coverage["steps"]),
             }
 
+    # `hold_check`'s own report against the last render — `framing`'s own
+    # opt-in reasoning: it decodes and transcribes render spans, so it must
+    # not ride every `project-changed` event. `None` when not asked for
+    # (distinct from a measured "no holds"), and also `None` when there is
+    # no render on disk yet to check against — a hold's mix is confirmed by
+    # listening to a file, not by reading the project.
+    holds_section: dict[str, Any] | None = None
+    if holds and last_render_section is not None and last_render_section["exists"]:
+        holds_section = hold_check(path, last_render_section["output"])
+
     # A flag is an *open item* — something an action in the window can clear.
     # Three candidates were measured against the real film on 2026-08-17 and
     # deliberately left out, because each of them is permanent and a guard that
@@ -3286,6 +3309,7 @@ def finish_report(path: Path | str, *, framing: bool = False) -> dict[str, Any]:
         "marks": marks_section,
         "seams": seams_section,
         "framing": framing_section,
+        "holds": holds_section,
         "last_render": last_render_section,
         "flags": {"count": len(flags), "items": flags},
     }
@@ -3620,6 +3644,37 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         except (ProjectError, tx.TranscriptError) as exc:
             music_error = str(exc)
 
+    # The holds lane's own projection — `music_view`'s policy, per item
+    # rather than once, because a project can hold several: each stored
+    # hold's live `_hold_plan` resolution, or `hold_error` inline when it
+    # cannot resolve right now (an orphaned cue word, a moved margin that no
+    # longer fits) — never raised, so one bad hold cannot take the view down.
+    holds_view: list[dict[str, Any]] = []
+    if project.read_manifest().get(HOLDS_KEY):
+        for stored_hold in _stored_holds(project):
+            item: dict[str, Any] = dict(stored_hold)
+            try:
+                hold_plan = _hold_plan(project, edit, shots_rate, stored_hold)
+            except _PICTURE_REFUSALS as exc:
+                item["hold_error"] = str(exc)
+            else:
+                for key in (
+                    "src_start",
+                    "play_at",
+                    "elapsed",
+                    "hold_length",
+                    "hold_frames",
+                    "phrase_start",
+                    "phrase_end",
+                    "fade_in_frames",
+                    "fade_out_frames",
+                    "gap_at",
+                    "cue_at",
+                    "cue_echo",
+                ):
+                    item[key] = hold_plan[key]
+            holds_view.append(item)
+
     resolution = _mlt_resolution(project)
     reframe_error: str | None = None
     entries: dict[str, mlt.Reframe] = {}
@@ -3686,6 +3741,10 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
         "shots": shots or None,
         "shots_rate": shots_rate,
         "music": music_view,
+        # [] with no holds, each entry the stored record plus its
+        # live-resolved fields (or `hold_error` when it cannot resolve right
+        # now) — `music_view`'s policy, per item.
+        "holds": holds_view,
         # Ruling: this view stays Edit-relative — `segments`/`shots`/`seams`
         # below are unchanged by a configured head, because the web player
         # cannot play one yet and shifting this view's clock would desync it
@@ -6284,7 +6343,7 @@ def _sheet_extremes(
     """
     jobs: list[dict[str, Any]] = []
     probes: dict[int, list[float]] = {}
-    for row, (placement, begin, finish, _crossed, next_edge) in enumerate(stretches):
+    for row, (placement, begin, stretch_end, _crossed, next_edge) in enumerate(stretches):
         entry = placement["reframe"]
         if entry is None or entry.crop_at(begin) is None:
             continue  # No geometry, so no rect to be extreme against.
@@ -6294,11 +6353,13 @@ def _sheet_extremes(
             # for these rows regardless of what this function returns, so
             # spending a detector pass on them buys nothing.
             continue
-        count = min(SHEET_PROBE_MAX, max(SHEET_PROBE_MIN, round((finish - begin) * SHEET_PROBE_HZ)))
+        count = min(
+            SHEET_PROBE_MAX, max(SHEET_PROBE_MIN, round((stretch_end - begin) * SHEET_PROBE_HZ))
+        )
         times = sorted(
             {
-                *dsc.frame_times(begin, finish, count),
-                *(begin + (finish - begin) * moment for moment in at),
+                *dsc.frame_times(begin, stretch_end, count),
+                *(begin + (stretch_end - begin) * moment for moment in at),
             }
         )
         probes[row] = times
@@ -6616,13 +6677,15 @@ def reframe_sheet(
     for placement in placements:
         entry = placement["reframe"]
         begin = placement["src_start"]
-        finish = begin + placement["duration"]
+        stretch_end = begin + placement["duration"]
         windows = entry.windows() if entry is not None else ()
         # Dropped at the tail for the same reason: a window with under a frame
         # of a placement left is one that placement does not show. Whichever
         # placement starts there draws it as its own head.
         edges: list[float] = []
-        for edge in sorted({begin, *(b for b, _ in windows if begin - frame <= b < finish - frame)}):
+        for edge in sorted(
+            {begin, *(b for b, _ in windows if begin - frame <= b < stretch_end - frame)}
+        ):
             if edges and edge - edges[-1] <= frame:
                 # One instant. The later address wins, because that is the one
                 # the render steps to and the one a rect is stored at.
@@ -6634,7 +6697,7 @@ def reframe_sheet(
             # than to another window — never a slide's destination, since
             # nothing is there to slide into.
             next_edge = edges[index + 1] if index + 1 < len(edges) else None
-            stop = next_edge if next_edge is not None else finish
+            stop = next_edge if next_edge is not None else stretch_end
             stretches.append((placement, edge, stop, len(edges), next_edge))
 
     probed = _sheet_extremes(stretches, at) if extremes else {}
@@ -6645,7 +6708,7 @@ def reframe_sheet(
     # any project that has one.
     columns = SHEET_PICKS if extremes else len(at)
 
-    for row, (placement, begin, finish, crossed, next_edge) in enumerate(stretches):
+    for row, (placement, begin, stretch_end, crossed, next_edge) in enumerate(stretches):
         entry = placement["reframe"]
         source = entry.source if entry is not None else None
         sliding = _is_sliding(entry, next_edge)
@@ -6697,7 +6760,7 @@ def reframe_sheet(
             # every window is drawn either way.
             chosen = probed.get(row, {}).get("picks") or [
                 {
-                    "src_time": begin + (finish - begin) * moment,
+                    "src_time": begin + (stretch_end - begin) * moment,
                     "subject_x": None,
                     "offset": None,
                     "faces": None,
@@ -6769,7 +6832,7 @@ def reframe_sheet(
                 # The stretch this row is about — one window's worth of one
                 # placement, which is what the tiles are frames of.
                 "src_start": round(begin, 3),
-                "duration": round(finish - begin, 3),
+                "duration": round(stretch_end - begin, 3),
                 # And the placement it came out of, so a row can still be
                 # traced back to a shot on the timeline.
                 "placement_src_start": round(placement["src_start"], 3),
@@ -8746,25 +8809,890 @@ def _music_plan(
     }
 
 
+# -- film-audio holds ------------------------------------------------------
+#
+# A "hold" is `vo_extend`'s own mechanism (a real silence spliced into the VO
+# track right after a word) plus a picture cue pinning a film clip's own
+# in-point, tied together as one manifest record and one compound op — the
+# fix for the Longlegs retro's own complaint: today the gap, the pin and the
+# mix are three independently hand-maintained pieces (goodsometimes
+# `assemble_longlegs.py`/`music_bed.py`/`verify_longlegs.py`), and the
+# failure mode is exactly that they drift apart with nothing lucid can see.
+#
+# `HOLDS_KEY` ties them: an address into the VO transcript (`clip_id`,
+# `gap_word_index` — unique, `cue_add`'s own duplicate refusal), the picture
+# cue it owns (`cue_word_index`, `asset`), and which of the asset's own words
+# must be heard clean (`word_index_first`/`word_index_last`).
+#
+# **Everything derivable is derived live, never stored** — `_music_plan`'s
+# own discipline, restated because it matters even more here: a later hold
+# or cut can genuinely move an earlier hold's resolved numbers (`elapsed`,
+# `src_start`, `hold_frames`, the gain), so caching any of them would not be
+# an optimisation, it would be a way to go stale silently.
+HOLDS_KEY = "holds"
+
+#: goodsometimes' own numbers (`assemble_longlegs.py` HOLDS/`music_bed.py`),
+#: each overridable per stored hold.
+HOLD_HEAD_MARGIN = 0.15
+HOLD_TAIL_MARGIN = 0.45
+HOLD_UNDER = 0.0
+HOLD_FADE_IN = 0.10
+HOLD_FADE_OUT = 0.30
+#: `music_bed.py --hold-fade`'s own default: the ramp either side of a span
+#: the bed is gated silent across.
+HOLD_GATE_RAMP = 0.7
+
+
+def _stored_holds(project: Project) -> list[dict[str, Any]]:
+    """Every stored hold, validated — `_stored_tail`'s discipline, for a list
+    rather than a dict: a manifest edited by hand or carried over from a
+    future lucid gets a message naming the shape, not a `KeyError` three
+    calls later inside `_build_mlt`."""
+    stored = project.read_manifest().get(HOLDS_KEY, [])
+    if not isinstance(stored, list):
+        raise ProjectError(f"{project.manifest_path}'s {HOLDS_KEY!r} must be a JSON array")
+    holds: list[dict[str, Any]] = []
+    for item in stored:
+        if not isinstance(item, dict):
+            raise ProjectError(
+                f"{project.manifest_path}'s {HOLDS_KEY!r} entries must be JSON objects"
+            )
+        try:
+            holds.append(
+                {
+                    "clip_id": str(item["clip_id"]),
+                    "gap_word_index": int(item["gap_word_index"]),
+                    "cue_word_index": int(item["cue_word_index"]),
+                    "asset": str(item["asset"]),
+                    "word_index_first": int(item["word_index_first"]),
+                    "word_index_last": int(item["word_index_last"]),
+                    "head_margin": float(item.get("head_margin", HOLD_HEAD_MARGIN)),
+                    "tail_margin": float(item.get("tail_margin", HOLD_TAIL_MARGIN)),
+                    "under": float(item.get("under", HOLD_UNDER)),
+                    "fade_in": float(item.get("fade_in", HOLD_FADE_IN)),
+                    "fade_out": float(item.get("fade_out", HOLD_FADE_OUT)),
+                }
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectError(
+                f"{project.manifest_path}'s {HOLDS_KEY!r} entry must hold at least "
+                "'clip_id', 'gap_word_index', 'cue_word_index', 'asset', "
+                f"'word_index_first' and 'word_index_last', not {item!r}"
+            ) from exc
+    return holds
+
+
+def _hold_plan(
+    project: Project, edit: tl.Edit, rate: float, stored_hold: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve one stored hold to the frame span the writer builds its lane
+    at — `_music_plan`'s own shape, live against `edit` every time.
+
+    1. `cue_at`/`gap_at` — where the cue word and the gap word's own end now
+       sit on the timeline, `_splice_point`'s exact resolution for `gap_at`
+       so this can never disagree with what a real splice would compute.
+       **This is correct whether `edit` still holds the gap unspliced (the
+       first `hold_add` call) or already holds it (every later read)** — the
+       first-matching-segment walk finds the position right after the
+       original material either way (CLAUDE.md § A cut cannot invalidate a
+       cue's own precedent for word-indexing, restated for a splice point).
+    2. `elapsed = gap_at - cue_at` — how long the VO plays between showing the
+       cue and reaching the gap.
+    3. The asset's own phrase (`word_index_first`/`word_index_last`), which
+       needs a transcript to exist.
+    4. `src_start = phrase_start - elapsed - head_margin` — the algebra that
+       makes `play_at` (`src_start + elapsed`) land at exactly
+       `phrase_start - head_margin`, deterministically, every time. **Refused,
+       never clamped**, when `src_start < 0` — goodsometimes' own "pinned to
+       0" shortcut is exactly the v5→v6 seam bug this feature exists to stop
+       reproducing by hand.
+    5. `hold_length = (phrase_end - phrase_start) + head_margin + tail_margin`
+       — falls straight out of the algebra above, independent of `elapsed`.
+    6. The asset must have `hold_length` seconds from `src_start` on —
+       refused with the measured shortfall, `music_bed.py`'s own check.
+    """
+    clip_id = stored_hold["clip_id"]
+    gap_word_index = stored_hold["gap_word_index"]
+    cue_word_index = stored_hold["cue_word_index"]
+    asset = stored_hold["asset"]
+    head_margin = float(stored_hold.get("head_margin", HOLD_HEAD_MARGIN))
+    tail_margin = float(stored_hold.get("tail_margin", HOLD_TAIL_MARGIN))
+
+    parsed = _transcript(project, clip_id)
+    cue_echo = _cue_echo(parsed, cue_word_index)
+    gap_echo = _cue_echo(parsed, gap_word_index)
+
+    cue_at = edit.timeline_time(clip_id, cue_echo["start"])
+    if cue_at is None:
+        raise ProjectError(
+            f"this hold's cue word {cue_word_index} ({cue_echo['text']!r}) of "
+            f"{clip_id!r} is not on the timeline (already cut) — move the cue "
+            "word, or restore the material"
+        )
+    # `_splice_point`'s own resolution for the gap's own end, so a hold can
+    # never disagree with what `vo_extend`/`_splice_after` would compute.
+    gap_at = edit.timeline_time(clip_id, gap_echo["end"], closed_end=True)
+    if gap_at is None:
+        raise ProjectError(
+            f"this hold's gap word {gap_word_index} ({gap_echo['text']!r}) of "
+            f"{clip_id!r} is not on the timeline (already cut) — a hold opens "
+            "after material that currently plays, and this word does not"
+        )
+    elapsed = gap_at - cue_at
+
+    if not project.transcript_path(asset).exists():
+        raise ProjectError(
+            f"hold asset {asset!r} has no transcript — `lucid transcribe {asset}` "
+            "first, so the hold knows which of its own words must survive clean"
+        )
+    asset_transcript = _transcript(project, asset)
+    phrase_start = _cue_echo(asset_transcript, int(stored_hold["word_index_first"]))["start"]
+    phrase_end = _cue_echo(asset_transcript, int(stored_hold["word_index_last"]))["end"]
+
+    src_start = phrase_start - elapsed - head_margin
+    if src_start < 0:
+        raise ProjectError(
+            f"hold at {clip_id!r} word {gap_word_index} has no room: the cue "
+            f"word is {elapsed:.3f}s ahead of the gap, {asset!r}'s own phrase "
+            f"starts at {phrase_start:.3f}s, and a {head_margin:.3f}s head "
+            f"margin needs {-src_start:.3f}s more than {asset!r} has before "
+            "that point — re-cue this hold's cue_word_index later in the VO "
+            "to shrink elapsed, or move word_index_first earlier in the "
+            "asset's own line"
+        )
+
+    hold_length = (phrase_end - phrase_start) + head_margin + tail_margin
+    play_at = src_start + elapsed
+
+    asset_clip = media.get_clip(project, asset)
+    asset_duration = asset_clip.get("duration")
+    if asset_duration is None:
+        raise ProjectError(f"hold asset {asset!r} has no known duration")
+    remaining = float(asset_duration) - src_start
+    if remaining < hold_length:
+        raise ProjectError(
+            f"hold at {clip_id!r} word {gap_word_index} wants {hold_length:.3f}s "
+            f"from {src_start:.3f}s of {asset!r} but only {remaining:.3f}s "
+            f"remain (short by {hold_length - remaining:.3f}s) — shorten the "
+            "margins, move word_index_last earlier, or use a longer clip"
+        )
+
+    hold_frames = max(1, round(hold_length * rate))
+    fade_in = float(stored_hold.get("fade_in", HOLD_FADE_IN))
+    fade_out = float(stored_hold.get("fade_out", HOLD_FADE_OUT))
+    fade_in_frames = round(fade_in * rate)
+    fade_out_frames = round(fade_out * rate)
+    if fade_in_frames + fade_out_frames > max(hold_frames - 1, 0):
+        raise ProjectError(
+            f"hold at {clip_id!r} word {gap_word_index}'s fades "
+            f"({fade_in:g}s + {fade_out:g}s) do not fit inside its "
+            f"{hold_length:.3f}s span — shorten them"
+        )
+
+    return {
+        **stored_hold,
+        "cue_at": cue_at,
+        "gap_at": gap_at,
+        "elapsed": elapsed,
+        "src_start": src_start,
+        "play_at": play_at,
+        "hold_length": hold_length,
+        "hold_frames": hold_frames,
+        "phrase_start": phrase_start,
+        "phrase_end": phrase_end,
+        "fade_in_frames": fade_in_frames,
+        "fade_out_frames": fade_out_frames,
+        "asset_path": str(media.media_path(project, asset_clip)),
+        # Namespaced, not splatted: `_splice_after`'s own gap-word echo
+        # (`text`/`start`/`end`/`word_index`/`context_before`/`context_after`)
+        # rides at the top level of `hold_add`'s reply, and splatting the
+        # cue word's echo under the *same* key names would silently drop one
+        # of the two — a caller reading `result["text"]` cannot tell which
+        # word it named. "Both words' echoes" means both are reachable.
+        "cue_echo": _cue_echo(parsed, cue_word_index),
+    }
+
+
+def _vo_loudness(project: Project, edit: tl.Edit) -> float:
+    """Integrated loudness (LUFS) of the Edit's own *surviving* audio, all of
+    it concatenated into one scratch file and measured once.
+
+    **Not cached** — `_music_plan`'s own reasoning: which segments survive is
+    live edit state, and a stored number would drift the first time
+    something upstream is cut. One ffmpeg `loudnorm` analysis pass over the
+    VO's own duration is the cost, audio-only and much faster than real time,
+    paid once per export/plan call rather than per hold — every stored hold
+    in one call shares this single measurement.
+
+    Built from distinct source *files*, not per-segment: a segment's
+    `resource` repeats across an edit with many cuts of one clip, and this
+    opens each distinct file only once as an ffmpeg input, referencing it by
+    stream index from as many `atrim` filters as it has segments — the
+    `music_bed.py:bed_filtergraph` pattern, generalized from "one music track
+    per cue" to "one input per distinct source".
+    """
+    if not edit.segments:
+        raise ProjectError(
+            "this timeline has no audio at all, so there is nothing to measure "
+            "a hold's level against"
+        )
+
+    resource_index: dict[str, int] = {}
+    inputs: list[str] = []
+    parts: list[str] = []
+    labels: list[str] = []
+    for i, seg in enumerate(edit.segments):
+        clip = media.get_clip(project, seg.clip_id)
+        resource = str(media.media_path(project, clip))
+        if resource not in resource_index:
+            resource_index[resource] = len(inputs) // 2
+            inputs += ["-i", resource]
+        idx = resource_index[resource]
+        parts.append(
+            f"[{idx}:a]atrim=start={seg.start:.6f}:end={seg.end:.6f},"
+            f"asetpts=PTS-STARTPTS[vh{i}]"
+        )
+        labels.append(f"[vh{i}]")
+    parts.append(f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[voall]")
+
+    work = picture.scratch("vo-loudness-")
+    out = work / "vo.wav"
+    cmd = [
+        "ffmpeg",
+        "-v",
+        "error",
+        "-nostdin",
+        "-y",
+        *inputs,
+        "-filter_complex",
+        ";".join(parts),
+        "-map",
+        "[voall]",
+        "-c:a",
+        "pcm_s16le",
+        str(out),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+        return energy.integrated_loudness(out)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
+        raise ProjectError(
+            f"could not build the VO's own audio to measure a hold's level "
+            f"against: {detail}"
+        ) from exc
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _hold_gain_db(vo_lufs: float, hold_lufs: float, under: float) -> float:
+    """`music_bed.py`'s own formula (`gain = 10**((vo_i - under - seg_i)/20)`),
+    in dB directly rather than a linear factor — the writer's `gain_db` takes
+    dB natively, so there is no `10**(x/20)` round trip to get wrong."""
+    return (vo_lufs - under) - hold_lufs
+
+
+def _hold_gate_spans(
+    project: Project, edit: tl.Edit, rate: float, head_frames: int
+) -> list[tuple[int, int, dict[str, Any]]]:
+    """Every stored hold, resolved and placed in *lane* frame coordinates —
+    the same coordinate space `_build_mlt`'s music lead pad already uses
+    (`head_frames` folded in), because a head prepends real frames before the
+    Edit's own start and every lane built alongside it has to agree on where
+    frame 0 actually is.
+
+    Shared by the holds lane itself and `_gate_music_lane` — one hold list,
+    resolved once, is what keeps "where a hold plays" and "where the bed
+    goes silent" from ever being able to disagree.
+    """
+    resolved = []
+    for stored_hold in _stored_holds(project):
+        plan = _hold_plan(project, edit, rate, stored_hold)
+        start_frame = head_frames + round(plan["gap_at"] * rate)
+        resolved.append((start_frame, start_frame + plan["hold_frames"], plan))
+    resolved.sort(key=lambda item: item[0])
+    for (a_start, a_end, a_plan), (b_start, b_end, b_plan) in pairwise(resolved):
+        if b_start < a_end:
+            raise ProjectError(
+                f"hold at {a_plan['clip_id']!r} word {a_plan['gap_word_index']} "
+                f"and hold at {b_plan['clip_id']!r} word {b_plan['gap_word_index']} "
+                "overlap on the timeline — holds cannot stack"
+            )
+    return resolved
+
+
+def _gate_music_lane(
+    project: Project,
+    music_lane: list[mlt.Entry],
+    bed_resource: str,
+    hold_spans: list[tuple[int, int]],
+    rate: float,
+) -> list[mlt.Entry]:
+    """Split the bed's own audio entry at every hold span that intersects it,
+    substituting real silence for the covered stretch with `HOLD_GATE_RAMP`
+    fades either side — "**OUT**, not ducked": stacking score on cleared
+    dialogue is what makes a Content ID claim messy to contest, because the
+    disputed span stops isolating (goodsometimes `music_bed.py`'s own
+    reasoning, ported). A no-op with no bed, or when no hold intersects it —
+    `music_lane` comes back unchanged either way, so this composes for zero,
+    one, or many holds against zero, one, or (eventually) many bed segments.
+
+    Only the bed's own entry is ever split — lead/trail silence padding is
+    already silent and needs no gating (identified by `resource`, since a
+    caller building `music_lane` already knows which entry is the bed).
+    """
+    if not music_lane or not hold_spans:
+        return music_lane
+
+    ramp = max(1, round(HOLD_GATE_RAMP * rate))
+    out: list[mlt.Entry] = []
+    offset = 0
+    for entry in music_lane:
+        entry_start, entry_end = offset, offset + entry.frames
+        offset = entry_end
+        if entry.resource != bed_resource:
+            out.append(entry)
+            continue
+
+        cuts = sorted(
+            (max(lo, entry_start), min(hi, entry_end))
+            for lo, hi in hold_spans
+            if hi > entry_start and lo < entry_end
+        )
+        if not cuts:
+            out.append(entry)
+            continue
+
+        cursor = entry_start
+        for index, (lo, hi) in enumerate(cuts):
+            if lo > cursor:
+                seg_frames = lo - cursor
+                out.append(
+                    mlt.Entry(
+                        entry.resource,
+                        entry.src_in + (cursor - entry_start),
+                        seg_frames,
+                        has_video=entry.has_video,
+                        # The entry's own configured fade only at its real
+                        # edge; a gate ramp everywhere a hold cuts it off.
+                        fade_in_frames=(
+                            entry.fade_in_frames if cursor == entry_start else min(ramp, seg_frames)
+                        ),
+                        fade_out_frames=min(ramp, seg_frames),
+                        gain_db=entry.gain_db,
+                    )
+                )
+            silence = _tail_silence(project, (hi - lo) / rate)
+            out.append(mlt.Entry(str(silence), 0, hi - lo, is_image=False, has_video=False))
+            cursor = hi
+        if cursor < entry_end:
+            seg_frames = entry_end - cursor
+            out.append(
+                mlt.Entry(
+                    entry.resource,
+                    entry.src_in + (cursor - entry_start),
+                    seg_frames,
+                    has_video=entry.has_video,
+                    fade_in_frames=min(ramp, seg_frames),
+                    fade_out_frames=entry.fade_out_frames,
+                    gain_db=entry.gain_db,
+                )
+            )
+    return out
+
+
+def hold_add(
+    path: Path | str,
+    clip_id: str,
+    gap_word_index: int | None = None,
+    cue_word_index: int | None = None,
+    asset: str | None = None,
+    word_index_first: int | None = None,
+    word_index_last: int | None = None,
+    *,
+    gap_phrase: str | None = None,
+    cue_phrase: str | None = None,
+    asset_phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+    head_margin: float | None = None,
+    tail_margin: float | None = None,
+    under: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Splice a hold into `clip_id` after `gap_word_index`: a real gap opens
+    in the VO (`vo_extend`'s own mechanism, reused not reimplemented) and a
+    picture cue pins `asset`'s own in-point so its clean audio and picture
+    play across it — the fix for the three independently hand-maintained
+    pieces the Longlegs retro named (this module's own docstring).
+
+    Addressed by `(clip_id, gap_word_index)`, unique — a second `hold_add` at
+    the same address is refused, `cue_add`'s own "remove it first" refusal
+    (word-index addressing, not `hold_clip_id`: `_tail_silence` dedups
+    purely on seconds, so two holds of equal length would collide on it).
+    `gap_word_index`/`cue_word_index`/`word_index_first`/`word_index_last`
+    each also accept a `*_phrase` alternative — `gap_phrase` binds its
+    **last** word (`vo_extend`'s own meaning: "the last word before the
+    gap"), `cue_phrase` binds its **first** (`cue_add`'s own meaning), and
+    `asset_phrase` resolves against `asset`'s own transcript and binds its
+    **first and last** words to `word_index_first`/`word_index_last`
+    together — derived from the cue table, one source of truth, rather than
+    four numbers copied out of a transcript by hand.
+
+    Everything else is resolved live (`_hold_plan`): `elapsed` (how long the
+    VO plays between the cue and the gap), `src_start` (deterministically —
+    `phrase_start - elapsed - head_margin`, so `play_at` lands exactly at
+    `phrase_start - head_margin` every time, never chosen by ear), and
+    `hold_length` (the phrase's own span plus both margins). **Refused, never
+    clamped**, when there is no room (`src_start < 0`) or the asset runs out
+    (`hold_length` past its end) — both name the measured numbers.
+
+    On success this performs the same two mutations the hand process
+    performs by hand, atomically: `_splice_after` opens the gap (a real
+    silent WAV, `vo_extend`'s own mechanism — the hold's *audible* film
+    audio comes from the writer's own fourth lane at build time, never from
+    widening a clip_id past its registered duration), and the picture cue at
+    `cue_word_index` is written pointing at `asset` with the computed
+    `src_start` — refused if that word already shows a *different* asset,
+    since this call owns that cue.
+
+    **Mix-only fields are re-settable without re-splicing**: call again for
+    the same `(clip_id, gap_word_index)` with only `head_margin`/
+    `tail_margin`/`under`/`fade_in`/`fade_out` changed (and
+    `word_index_first`/`word_index_last` matching what is already stored,
+    or omitted) and the manifest record updates in place — `music()`'s own
+    "either field alone updates its own field" shape. Changing
+    `word_index_first`/`word_index_last` is refused: that changes
+    `hold_length`, which would require re-splicing a gap this call cannot
+    safely resize. There is no clean way to resize a hold once it is
+    spliced — only `lucid undo` (snapshot rollback) or `hold_rm` (which
+    strands the gap as an ordinary manufactured silence, not a true
+    removal) — `vo_extend`'s own one-way nature, inherited rather than
+    introduced.
+
+    `plan=True` resolves and reports without writing anything — not the
+    timeline and not the manifest, `vo_extend`'s own rule.
+    """
+    project = Project.open(path)
+    stored = _stored_holds(project)
+
+    parsed = _transcript(project, clip_id)
+    resolved_gap, _ = _resolve_word_or_phrase(
+        parsed, word_index=gap_word_index, phrase=gap_phrase, after=after, occurrence=occurrence, edge="last"
+    )
+    resolved_cue, _ = _resolve_word_or_phrase(
+        parsed, word_index=cue_word_index, phrase=cue_phrase, after=after, occurrence=occurrence, edge="first"
+    )
+
+    existing = next(
+        (h for h in stored if h["clip_id"] == clip_id and h["gap_word_index"] == resolved_gap),
+        None,
+    )
+
+    if asset_phrase is not None:
+        if word_index_first is not None or word_index_last is not None:
+            raise ProjectError(
+                "pass asset_phrase or word_index_first/word_index_last, not both"
+            )
+        if asset is None:
+            if existing is None:
+                raise ProjectError("hold_add needs asset the first time a hold is set")
+            asset = existing["asset"]
+        asset_resolved = _resolve_word_or_phrase(
+            _transcript(project, asset),
+            word_index=None,
+            phrase=asset_phrase,
+            after=after,
+            occurrence=occurrence,
+            edge="range",
+        )
+        resolved_first, resolved_last = asset_resolved
+    else:
+        resolved_first = word_index_first
+        resolved_last = word_index_last
+
+    if existing is None:
+        if asset is None or resolved_first is None or resolved_last is None:
+            raise ProjectError(
+                "a new hold needs asset, word_index_first (or asset_phrase) and "
+                "word_index_last set together — there is no hold with nothing "
+                "to show"
+            )
+        merged = {
+            "clip_id": clip_id,
+            "gap_word_index": resolved_gap,
+            "cue_word_index": resolved_cue,
+            "asset": asset,
+            "word_index_first": int(resolved_first),
+            "word_index_last": int(resolved_last),
+            "head_margin": HOLD_HEAD_MARGIN if head_margin is None else float(head_margin),
+            "tail_margin": HOLD_TAIL_MARGIN if tail_margin is None else float(tail_margin),
+            "under": HOLD_UNDER if under is None else float(under),
+            "fade_in": HOLD_FADE_IN if fade_in is None else float(fade_in),
+            "fade_out": HOLD_FADE_OUT if fade_out is None else float(fade_out),
+        }
+        resplice = True
+    else:
+        merged = dict(existing)
+        if asset is not None:
+            merged["asset"] = asset
+        if resolved_first is not None and int(resolved_first) != existing["word_index_first"]:
+            raise ProjectError(
+                f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
+                "word_index_first cannot change without re-splicing, which this "
+                "call cannot do safely. `hold_rm` then `hold_add` again, or "
+                "`lucid undo`"
+            )
+        if resolved_last is not None and int(resolved_last) != existing["word_index_last"]:
+            raise ProjectError(
+                f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
+                "word_index_last cannot change without re-splicing, which this "
+                "call cannot do safely. `hold_rm` then `hold_add` again, or "
+                "`lucid undo`"
+            )
+        for field, value in (
+            ("head_margin", head_margin),
+            ("tail_margin", tail_margin),
+            ("under", under),
+            ("fade_in", fade_in),
+            ("fade_out", fade_out),
+        ):
+            if value is not None:
+                merged[field] = float(value)
+        resplice = False
+
+    # Resolved (and, for a new hold, refused-with-measured-numbers) against
+    # the *pre-splice* edit — `_hold_plan`'s own contract: correct whether
+    # the gap is already open (a mix-only update) or not yet (a new hold).
+    edit = _load_edit(project)
+    rate = _rate(project)
+    hold_plan = _hold_plan(project, edit, rate, merged)
+
+    if not resplice:
+        # A mix-only update: nothing on the timeline changes, only the
+        # manifest record and (if the cue's own src_start moved because the
+        # margins changed) the cue it owns.
+        write = not plan
+        if write:
+            manifest = project.read_manifest()
+            cues = manifest.setdefault("cues", [])
+            for cue in cues:
+                if cue["clip_id"] == clip_id and cue["word_index"] == resolved_cue:
+                    cue["src_start"] = hold_plan["src_start"]
+                    break
+            holds = manifest.setdefault(HOLDS_KEY, [])
+            for item in holds:
+                if item["clip_id"] == clip_id and item["gap_word_index"] == resolved_gap:
+                    item.clear()
+                    item.update(merged)
+                    break
+            project.write_manifest(manifest)
+        return {
+            "clip_id": clip_id,
+            "hold_clip_id": None,
+            "written": write,
+            "plan": bool(plan),
+            "resplice": False,
+            "covered_by": [],
+            **hold_plan,
+        }
+
+    # A cue already at this exact word, for a *different* asset, is left
+    # alone rather than silently overwritten — the hold owns its own cue,
+    # not anyone else's.
+    manifest = project.read_manifest()
+    existing_cue = next(
+        (
+            c
+            for c in manifest.get("cues", [])
+            if c["clip_id"] == clip_id and c["word_index"] == resolved_cue
+        ),
+        None,
+    )
+    if existing_cue is not None and existing_cue["asset"] != merged["asset"]:
+        raise ProjectError(
+            f"word {resolved_cue} of {clip_id!r} already shows "
+            f"{existing_cue['asset']!r}, not {merged['asset']!r} — remove that "
+            "cue first, or point this hold's cue word elsewhere"
+        )
+
+    splice = _splice_after(
+        project,
+        clip_id,
+        resolved_gap,
+        lambda: _tail_silence(project, hold_plan["hold_length"]),
+        hold_plan["hold_length"],
+        plan=plan,
+        placeholder=f"hold-{round(hold_plan['hold_length'] * 1000)}ms",
+    )
+
+    if not plan:
+        manifest = project.read_manifest()
+        cues = manifest.setdefault("cues", [])
+        if existing_cue is None:
+            cues.append(
+                {"clip_id": clip_id, "word_index": resolved_cue, "asset": merged["asset"]}
+            )
+        for cue in cues:
+            if cue["clip_id"] == clip_id and cue["word_index"] == resolved_cue:
+                cue["asset"] = merged["asset"]
+                cue["src_start"] = hold_plan["src_start"]
+        cues.sort(key=lambda c: (c["clip_id"], c["word_index"]))
+        holds = manifest.setdefault(HOLDS_KEY, [])
+        holds.append(merged)
+        holds.sort(key=lambda h: (h["clip_id"], h["gap_word_index"]))
+        project.write_manifest(manifest)
+
+    return {
+        "clip_id": clip_id,
+        "written": not plan,
+        "plan": bool(plan),
+        "resplice": True,
+        **splice,
+        **{k: v for k, v in hold_plan.items() if k not in splice},
+    }
+
+
+def hold_rm(path: Path | str, clip_id: str, gap_word_index: int) -> dict[str, Any]:
+    """Drop a hold's record and its owned cue — the spliced silence stays.
+
+    **The gap does not close.** `vo_extend`'s own irreversibility, inherited
+    rather than introduced: there is no clean "un-splice" in this codebase,
+    only `lucid undo` (snapshot rollback). What this removes is the *meaning*
+    of the gap — after this call it reverts to being an ordinary manufactured
+    silence, which is a perfectly coherent, pre-existing state, not a broken
+    one.
+    """
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    holds = manifest.get(HOLDS_KEY, [])
+    found = next(
+        (h for h in holds if h["clip_id"] == clip_id and h["gap_word_index"] == gap_word_index),
+        None,
+    )
+    if found is None:
+        raise ProjectError(f"no hold at {clip_id!r} word {gap_word_index}")
+
+    manifest[HOLDS_KEY] = [h for h in holds if h is not found]
+    cues = manifest.get("cues", [])
+    manifest["cues"] = [
+        c
+        for c in cues
+        if not (c["clip_id"] == clip_id and c["word_index"] == found["cue_word_index"])
+    ]
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "gap_word_index": gap_word_index, "removed": found}
+
+
+def hold_ls(path: Path | str) -> dict[str, Any]:
+    """Every stored hold plus its live-resolved plan — `shots_error`'s
+    policy: a hold that cannot currently resolve is reported inline
+    (`hold_error`), never raised, so one bad entry cannot break the list.
+
+    Each item also carries a **drift check** against its own owned cue: the
+    hold owns `cue_word_index`'s cue, but nothing stops a plain `cue_rm`/
+    `cue_add` on that exact word from an unrelated caller — `cue_drift` names
+    the disagreement (the cue's stored `src_start` against what `_hold_plan`
+    would compute fresh right now) rather than silently trusting either, the
+    retro's own "two lists drift apart in one edit, and the failure is
+    inaudible" failure mode, now possible *inside* lucid instead of between
+    lucid and a hand-typed table.
+    """
+    project = Project.open(path)
+    edit = _load_edit(project)
+    rate = _rate(project)
+    cues_by_key = {
+        (c["clip_id"], c["word_index"]): c for c in project.read_manifest().get("cues", [])
+    }
+
+    items: list[dict[str, Any]] = []
+    for stored_hold in _stored_holds(project):
+        entry: dict[str, Any] = dict(stored_hold)
+        try:
+            plan = _hold_plan(project, edit, rate, stored_hold)
+        except _PICTURE_REFUSALS as exc:
+            entry["hold_error"] = str(exc)
+            entry["cue_drift"] = None
+            items.append(entry)
+            continue
+        entry.update(
+            {
+                k: v
+                for k, v in plan.items()
+                if k not in stored_hold
+            }
+        )
+        owned_cue = cues_by_key.get((stored_hold["clip_id"], stored_hold["cue_word_index"]))
+        if owned_cue is None:
+            entry["cue_drift"] = "the owned cue no longer exists"
+        else:
+            cue_src_start = owned_cue.get("src_start")
+            plan_src_start = plan["src_start"]
+            if owned_cue.get("asset") != stored_hold["asset"]:
+                entry["cue_drift"] = (
+                    f"the owned cue now shows {owned_cue.get('asset')!r}, not "
+                    f"{stored_hold['asset']!r}"
+                )
+            elif cue_src_start is None or abs(float(cue_src_start) - plan_src_start) > 1e-3:
+                entry["cue_drift"] = (
+                    f"the owned cue's src_start is {cue_src_start!r}, but this "
+                    f"hold resolves to {plan_src_start:.3f} now"
+                )
+            else:
+                entry["cue_drift"] = None
+        items.append(entry)
+
+    return {"project": str(project.root), "holds": items, "count": len(items)}
+
+
+def _transcribe_span(media_path: Path, start: float, length: float) -> str:
+    """The words heard in `[start, start + length)` of `media_path` —
+    `verify_longlegs.py:transcribe_span`'s own mechanism: cut the span with
+    ffmpeg, run it through `asr.transcribe`, join the words. A cut, not a
+    seek-and-limit inside whisper itself, because whisper has no span
+    argument of its own."""
+    work = picture.scratch("hold-check-")
+    try:
+        clip = work / "span.wav"
+        cmd = [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-nostdin",
+            "-y",
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{length:.3f}",
+            "-i",
+            str(media_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            str(clip),
+        ]
+        subprocess.run(cmd, capture_output=True, check=True)
+        payload = asr.transcribe(clip)
+        return " ".join(w.get("word", "").strip() for w in payload.get("words", [])).strip()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
+    """Transcribe each hold's own span off a render and check its seams.
+
+    `verify_longlegs.py`'s own check, ported and made general: this project's
+    stored holds resolved against the *current* edit (correct post-splice,
+    because `edit.timeline_time` on the current edit finds the position right
+    after the original material regardless of what else moved around it
+    elsewhere), each span cut from `render` and transcribed
+    (`asr.transcribe`), plus `finish.hold_seams`'s level check at both edges.
+
+    **Report, never refuse** — this is a post-hoc listening check on a render
+    that already exists, `verify`'s and `film_check`'s own stance. A hold
+    that cannot currently resolve is reported with `hold_error`, `hold_ls`'s
+    own policy, rather than taking the whole check down.
+    """
+    project = Project.open(path)
+    render_path = Path(render).expanduser()
+    if not render_path.is_file():
+        raise ProjectError(f"no such render: {render_path}")
+
+    edit = _load_edit(project)
+    rate = _rate(project)
+    head_seconds = _head_seconds(project)
+
+    items: list[dict[str, Any]] = []
+    marks: list[tuple[str, float]] = []
+    mark_owner: list[dict[str, Any]] = []
+    for stored_hold in _stored_holds(project):
+        label = f"{stored_hold['clip_id']}#{stored_hold['gap_word_index']}"
+        entry: dict[str, Any] = {
+            "clip_id": stored_hold["clip_id"],
+            "gap_word_index": stored_hold["gap_word_index"],
+            "asset": stored_hold["asset"],
+        }
+        try:
+            plan = _hold_plan(project, edit, rate, stored_hold)
+        except _PICTURE_REFUSALS as exc:
+            entry["hold_error"] = str(exc)
+            items.append(entry)
+            continue
+
+        render_start = plan["gap_at"] + head_seconds
+        render_end = render_start + plan["hold_length"]
+        entry["render_start"] = render_start
+        entry["render_end"] = render_end
+        try:
+            entry["heard"] = _transcribe_span(render_path, render_start, plan["hold_length"])
+        except (asr.ASRError, subprocess.CalledProcessError) as exc:
+            entry["heard"] = None
+            entry["heard_error"] = str(exc)
+
+        try:
+            asset_parsed = _transcript(project, stored_hold["asset"])
+            entry["phrase"] = " ".join(
+                w.text
+                for w in asset_parsed.words
+                if stored_hold["word_index_first"] <= w.index <= stored_hold["word_index_last"]
+            )
+        except tx.TranscriptError:
+            entry["phrase"] = None
+
+        marks.append((f"{label} in", render_start))
+        marks.append((f"{label} out", render_end))
+        mark_owner.append(entry)
+        mark_owner.append(entry)
+        items.append(entry)
+
+    if marks:
+        seams = finish.hold_seams(render_path, marks)
+        for owner, seam in zip(mark_owner, seams, strict=True):
+            owner.setdefault("seams", []).append(seam)
+
+    faults = sum(
+        1
+        for item in items
+        for seam in item.get("seams", [])
+        if seam["fault"] is not None
+    )
+    return {
+        "project": str(project.root),
+        "render": str(render_path),
+        "holds": items,
+        "count": len(items),
+        "faults": faults,
+    }
+
+
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
     """Does this timeline need the MLT writer?
 
-    Six ways to get there and they hit the same wall: a cue table lays
+    Seven ways to get there and they hit the same wall: a cue table lays
     picture over the edit, an edit naming two clips already holds two `src`
     files, a canvas override names a shape auto-editor can only letterbox
     into, a tail names a second and third resource (the card, the silence)
     auto-editor has no export for at all, a music bed asks for a second audio
-    track auto-editor has no more concept of than it has of the tail, and a
-    head names a resource prepended before the `src` file itself — the same
-    wall from the other end of the film. auto-editor 31.x refuses to
+    track auto-editor has no more concept of than it has of the tail, a head
+    names a resource prepended before the `src` file itself, and a hold names
+    a fourth audio-only track for a film clip's own clean sound — the same
+    wall the music trigger hits, one lane over. auto-editor 31.x refuses to
     *export* a multi-source timeline (exit 2) and *renders* one at 720x576
     with exit 0 (CLAUDE.md); it would take a canvas override and quietly
-    ignore it, which is the same failure wearing a different hat. All six
-    route through the MLT writer — and the music/head triggers must never lag
-    the writer's own lanes, or a project with a bed or a cold open recorded
-    exports through auto-editor and the render comes back without it, at exit
-    0, invisible to every check but listening (PLAN.md § The A2 music lane,
-    the gate).
+    ignore it, which is the same failure wearing a different hat. All seven
+    route through the MLT writer — and every trigger must never lag the
+    writer's own lanes, or a project with a bed, a cold open or a hold
+    recorded exports through auto-editor and the render comes back without
+    it, at exit 0, invisible to every check but listening (PLAN.md § The A2
+    music lane, the gate). The holds trigger is belt-and-suspenders here — a
+    real hold always splices a second `clip_id` into the edit, which the
+    first check below already catches — kept anyway on the same "never lag
+    the writer" discipline every other trigger here follows, rather than
+    trusting one path to cover a case it happens to cover today.
     """
     if len({segment.clip_id for segment in edit.segments}) > 1:
         return True
@@ -8775,6 +9703,7 @@ def _is_layered(project: Project, edit: tl.Edit) -> bool:
         or manifest.get(TAIL_KEY)
         or manifest.get(MUSIC_KEY)
         or manifest.get(HEAD_KEY)
+        or manifest.get(HOLDS_KEY)
     )
 
 
@@ -8984,6 +9913,79 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             )
         }
 
+    # The holds lane: a fourth, audio-only lane, each stored hold's own
+    # resolved film-clip span sitting at exactly the frame it plays, real
+    # silence everywhere else — `_hold_gate_spans` resolves every hold once,
+    # in the same lane coordinates (`head_frames` folded in) both this lane
+    # and the bed's own gating below need to agree on, or "where a hold
+    # plays" and "where the bed goes silent" could disagree.
+    holds_report: list[dict[str, Any]] = []
+    holds_lane: list[mlt.Entry] = []
+    hold_spans = _hold_gate_spans(project, edit, rate, head_frames)
+    if hold_spans:
+        total_frames = sum(entry.frames for entry in audio)
+        # One loudness pass over the whole VO, shared across every hold in
+        # this build rather than re-measured per hold (`_vo_loudness`'s own
+        # cost note).
+        vo_lufs = _vo_loudness(project, edit)
+        cursor = 0
+        for start_frame, end_frame, hold_plan in hold_spans:
+            if start_frame > cursor:
+                gap = start_frame - cursor
+                silence = _tail_silence(project, gap / rate)
+                holds_lane.append(
+                    mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False)
+                )
+            hold_lufs = energy.integrated_loudness(
+                hold_plan["asset_path"],
+                start=hold_plan["src_start"],
+                end=hold_plan["src_start"] + hold_plan["hold_length"],
+            )
+            level_db = _hold_gain_db(vo_lufs, hold_lufs, hold_plan.get("under", HOLD_UNDER))
+            holds_lane.append(
+                mlt.Entry(
+                    hold_plan["asset_path"],
+                    round(hold_plan["src_start"] * rate),
+                    hold_plan["hold_frames"],
+                    has_video=True,
+                    fade_in_frames=hold_plan["fade_in_frames"],
+                    fade_out_frames=hold_plan["fade_out_frames"],
+                    gain_db=level_db,
+                )
+            )
+            cursor = end_frame
+            holds_report.append(
+                {
+                    "clip_id": hold_plan["clip_id"],
+                    "gap_word_index": hold_plan["gap_word_index"],
+                    "cue_word_index": hold_plan["cue_word_index"],
+                    "asset": hold_plan["asset"],
+                    "src_start": hold_plan["src_start"],
+                    "hold_frames": hold_plan["hold_frames"],
+                    "level_db": level_db,
+                    "timeline_start": hold_plan["gap_at"],
+                    "lane_start_frame": start_frame,
+                }
+            )
+        if cursor < total_frames:
+            trail = total_frames - cursor
+            silence = _tail_silence(project, trail / rate)
+            holds_lane.append(mlt.Entry(str(silence), 0, trail, is_image=False, has_video=False))
+
+        # The bed goes **OUT, not ducked**, across every hold span — stacking
+        # score on cleared dialogue is a Content ID problem, not a loudness
+        # preference (this module's own docstring). Resolved after the holds
+        # lane itself so the two can never disagree about where a hold plays.
+        if music_lane:
+            bed_resource = music_plan["asset_path"] if music_plan is not None else ""
+            music_lane = _gate_music_lane(
+                project,
+                music_lane,
+                bed_resource,
+                [(start, end) for start, end, _ in hold_spans],
+                rate,
+            )
+
     resolution = _mlt_resolution(project)
     by_clip = _reframe_map(project, resolution)
     reframes = {
@@ -8993,6 +9995,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         audio=audio,
         picture=lane,
         music=music_lane,
+        holds=holds_lane,
         rate=rate,
         resolution=resolution,
         reframe=reframes,
@@ -9004,7 +10007,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "resolution": resolution,
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
-        "sources": len({entry.resource for entry in [*audio, *lane, *music_lane]}),
+        "sources": len({entry.resource for entry in [*audio, *lane, *music_lane, *holds_lane]}),
         # None with no head, or the resolved config plus the frames it
         # added — `tail`'s own echo shape, mirrored at the other end.
         "head": head_report,
@@ -9012,6 +10015,11 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         # None with no bed, or the resolved cue plus the frames its asset
         # actually plays — the rest of its lane is silence padding.
         "music": music_report,
+        # [] with no holds, or one entry per stored hold that resolved —
+        # `music`'s own reasoning, reported on both export roads so a caller
+        # sees the render actually carried each hold rather than trusting
+        # the manifest key alone.
+        "holds": holds_report,
         # What the render will actually crop, named where the render is built
         # rather than left for a pixel probe to discover.
         "reframed": sorted(
@@ -9047,6 +10055,10 @@ def _mlt_reply(built: dict[str, Any], edit: tl.Edit, **extra: Any) -> dict[str, 
         # failure the `_is_layered` trigger exists to prevent, and the reply
         # is where a caller sees the render actually carried it.
         "music": built["music"],
+        # [] with no holds, or one entry per resolved hold — the exact
+        # `music` reasoning: a hold recorded but not rendered is the silent
+        # failure `_is_layered`'s trigger exists to prevent.
+        "holds": built["holds"],
         # Named on both roads because a crop is a decision about what is on
         # screen, and the render that made it looks entirely plausible.
         "reframed": built["reframed"],
@@ -11368,6 +12380,12 @@ def reel(
     # `cues_pinned` shape with no pin to give it. Dropped and named, so the
     # reel's author decides — the future design can do better.
     music_dropped = _stored_music(source)
+    # A hold ties a VO gap to a picture cue *and* to a specific mix — none of
+    # which the reel's own re-cut cue table has anything to do with. Dropped
+    # unconditionally and named, `tail_dropped`/`music_dropped`'s own rule:
+    # a hold re-opened blind on a derivation is the `cues_pinned`-without-a-
+    # pin failure shape CLAUDE.md already documents for the picture side.
+    holds_dropped = _stored_holds(source)
     # Checked here rather than left to `cut_by_time`, at the granularity a reel
     # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
     # is reported and never refused, which is `cut_by_time`'s own convention
@@ -11432,6 +12450,9 @@ def reel(
         # Same rule, same reason: what the film's bed was, never carried onto
         # the derived project.
         "music_dropped": music_dropped,
+        # [] if the film had no holds; otherwise every one it had, never
+        # carried onto the derived project — same rule, same reason.
+        "holds_dropped": holds_dropped,
         "plan": bool(plan),
     }
     report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
@@ -11466,6 +12487,8 @@ def reel(
         manifest.pop(HEAD_KEY, None)
         # `music_dropped`'s own "never" line, for the same reason.
         manifest.pop(MUSIC_KEY, None)
+        # `holds_dropped`'s own "never" line, for the same reason.
+        manifest.pop(HOLDS_KEY, None)
         # Provenance, and the answer to the question a hand-made scratch copy
         # could not answer once already: which film is this, and which seconds
         # of it (HISTORY.md § The VO the project was holding). Additive and

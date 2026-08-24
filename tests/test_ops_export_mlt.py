@@ -462,7 +462,14 @@ def test_a_head_prepends_the_clip_and_its_audio_before_the_first_frame(
     filt = first_audio.find("filter")
     assert filt is not None
     level = filt.find("property[@name='level']")
-    assert level is not None and level.text == f"0=15.1;{head_frames - 1}=15.1"
+    # Keyframe positions are relative to the *producer*, offset by this
+    # entry's own `src_in` (`round(1.0 * EXPORT_FPS)`, this head's
+    # `src_start`) — not 0-based, a real melt render of a nonzero-`src_in`
+    # faded entry played back total silence under the old 0-based positions
+    # (mlt.py's own `_fade_level` docstring; caught by the holds lane's own
+    # readback test, the first caller with a nonzero `src_in`).
+    src_in = round(1.0 * EXPORT_FPS)
+    assert level is not None and level.text == f"{src_in}=15.1;{src_in + head_frames - 1}=15.1"
     # The lane's own picture entry carries no gain — only the audio side is
     # a "level" concept, and the head's own lane node is otherwise ordinary.
     assert first_picture.find("filter") is None

@@ -84,6 +84,10 @@ EXPECTED_TOOLS = {
     "music",
     "vo_extend",
     "vo_synth",
+    "hold_add",
+    "hold_rm",
+    "hold_ls",
+    "hold_check",
     "reel",
     "review_add",
     "review_verdict",
@@ -217,6 +221,7 @@ def test_finish_report_reachable_over_stdio(
         "marks",
         "seams",
         "framing",
+        "holds",
         "last_render",
         "flags",
     }
@@ -282,6 +287,10 @@ TOOL_TO_COMMAND = {
     "music": "music",
     "vo_extend": "vo-extend",
     "vo_synth": "vo-synth",
+    "hold_add": "hold",
+    "hold_rm": "hold",
+    "hold_ls": "hold",
+    "hold_check": "hold",
     "reel": "reel",
     "review_add": "review",
     "review_verdict": "review",
@@ -5844,6 +5853,34 @@ def _silence_wav(path: Path, duration: float) -> None:
     )  # fmt: skip
 
 
+def _quiet_vo_wav(path: Path, duration: float) -> None:
+    """A VO stand-in with a normal, measurable level — a different frequency
+    (100 Hz) from either tone under test, so it cannot be mistaken for one,
+    and full amplitude rather than `anullsrc`'s pure digital silence.
+
+    `energy.integrated_loudness` (`ops._vo_loudness`'s own measurement)
+    refuses `-inf` — which `loudnorm` reports not only for pure silence but
+    for *any* signal quiet enough that every block falls under EBU R128's
+    own -70 LUFS absolute gate (measured: even a -78 dBTP tone still gates
+    to `-inf`) — because a hold's gain formula built on `-inf` corrupts the
+    *whole* rendered audio mix, not just one entry, at real `melt`'s exit 0.
+    A deliberately *quiet* VO also does not help this test: `_hold_gain_db`
+    levels the hold to sit at the VO's own measured loudness, so an
+    artificially quiet VO attenuates the hold's own tone into the noise
+    floor and the Goertzel read comes back near zero for a reason that has
+    nothing to do with the mechanism under test. Full level, like the other
+    synthetic tones here, keeps the gain this scenario computes close to
+    unity.
+    """
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"sine=frequency=100:duration={duration}:sample_rate=48000",
+         "-c:a", "pcm_s16le", str(path)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+
 def _tone_window(path: Path, hz: float, start: float, duration: float) -> float:
     """Goertzel power at `hz` over one window of the render's own audio.
 
@@ -7152,3 +7189,475 @@ def test_attribute_speakers_labels_the_words_over_the_wire(tmp_path: Path) -> No
     cached = Path(out["applied"]["transcript"])
     saved = json.loads(cached.read_text(encoding="utf-8"))
     assert [w["speaker"] for w in saved["words"]] == truth
+
+
+# -- film-audio holds: the compound op, over the real server --------------
+#
+# `hold_add` is `vo_extend` (a real gap, registered like any other clip) plus
+# a picture cue, tied together — the fixture below is the fixture
+# `test_vo_extend_over_the_wire` uses for the VO half, plus a real encoded
+# film clip of its own for the hold's asset. Words: "the"(0.0-0.3)
+# "first"(0.5-0.9) "twelve"(1.0-1.4) "minutes"(1.5-1.9) — cue_word_index=2
+# ("twelve"), gap_word_index=3 ("minutes"), so `elapsed = gap_at - cue_at =
+# 1.9 - 1.0 = 0.9`, the same algebra `test_ops_holds.py` pins by hand.
+
+
+def _hold_vo_transcript(path: Path) -> None:
+    words = [
+        {"word": "the", "start": 0.0, "end": 0.3},
+        {"word": "first", "start": 0.5, "end": 0.9},
+        {"word": "twelve", "start": 1.0, "end": 1.4},
+        {"word": "minutes", "start": 1.5, "end": 1.9},
+        {"word": "of", "start": 2.0, "end": 2.2},
+        {"word": "scream", "start": 5.0, "end": 5.4},
+    ]
+    path.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+
+def _hold_film_transcript(path: Path) -> None:
+    words = [
+        {"word": "i", "start": 10.0, "end": 10.2},
+        {"word": "know", "start": 10.2, "end": 10.5},
+        {"word": "what", "start": 10.5, "end": 10.8},
+        {"word": "you", "start": 10.8, "end": 11.0},
+        {"word": "did", "start": 11.0, "end": 11.3},
+    ]
+    path.write_text(json.dumps({"language": "en", "words": words}), encoding="utf-8")
+
+
+async def _hold_fixture(client: Client, project: Path, vo: Path, film: Path) -> dict[str, str]:
+    """init -> import both clips -> attach both transcripts -> seed the VO.
+    Returns the two clip_ids."""
+    await client.call("init", path=str(project))
+    vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+    film_clip = await client.call("import_media", path=str(project), source=str(film))
+    vo_transcript = project.parent / "vo.json"
+    film_transcript = project.parent / "film.json"
+    _hold_vo_transcript(vo_transcript)
+    _hold_film_transcript(film_transcript)
+    await client.call(
+        "attach_transcript",
+        path=str(project),
+        clip_id=vo_clip["clip_id"],
+        transcript_path=str(vo_transcript),
+    )
+    await client.call(
+        "attach_transcript",
+        path=str(project),
+        clip_id=film_clip["clip_id"],
+        transcript_path=str(film_transcript),
+    )
+    await client.call(
+        "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+    )
+    return {"vo": vo_clip["clip_id"], "film": film_clip["clip_id"]}
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_add_over_the_wire(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        manifest_before = Project.open(project).manifest_path.read_text()
+
+        planned = await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+            plan=True,
+        )
+        manifest_after_plan = Project.open(project).manifest_path.read_text()
+
+        real = await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        status_after = await client.call("timeline_status", path=str(project))
+        refused = await session.call_tool(
+            "hold_add",
+            {
+                "path": str(project),
+                "clip_id": clips["vo"],
+                "gap_word_index": 3,
+                "cue_word_index": 2,
+                "word_index_first": 1,
+                "word_index_last": 4,
+            },
+        )
+        return {
+            "clips": clips,
+            "planned": planned,
+            "manifest_before": manifest_before,
+            "manifest_after_plan": manifest_after_plan,
+            "real": real,
+            "status_after": status_after,
+            "refused_is_error": refused.is_error,
+            "refused_text": refused.content[0].text,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["planned"]["written"] is False
+    assert out["manifest_after_plan"] == out["manifest_before"], "a plan touched the manifest"
+    assert out["planned"]["src_start"] == pytest.approx(8.95)
+
+    assert out["real"]["written"] is True
+    assert out["real"]["src_start"] == pytest.approx(8.95)
+    # "Both words' echoes" (CLAUDE.md's word-index convention): the gap
+    # word's echo rides `_splice_after`'s own top-level shape (`text` here
+    # is "minutes"), and the cue word's is namespaced under `cue_echo` so
+    # the two cannot collide under one key name.
+    assert out["real"]["text"] == "minutes"
+    assert out["real"]["cue_echo"]["text"] == "twelve"
+    assert out["status_after"]["timeline_duration"] == pytest.approx(6.0 + 1.9)
+
+    manifest = Project.open(project).read_manifest()
+    holds = manifest[ops.HOLDS_KEY]
+    assert len(holds) == 1
+    assert holds[0]["gap_word_index"] == 3
+    assert holds[0]["asset"] == out["clips"]["film"]
+    cues = manifest["cues"]
+    assert len(cues) == 1
+    assert cues[0] == {
+        "clip_id": out["clips"]["vo"],
+        "word_index": 2,
+        "asset": out["clips"]["film"],
+        "src_start": pytest.approx(8.95),
+    }
+
+    assert out["refused_is_error"]
+    assert "cannot change without re-splicing" in out["refused_text"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_add_refuses_insufficient_head_margin(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        return await session.call_tool(
+            "hold_add",
+            {
+                "path": str(project),
+                "clip_id": clips["vo"],
+                "gap_word_index": 3,
+                "cue_word_index": 2,
+                "asset": clips["film"],
+                "word_index_first": 0,
+                "word_index_last": 4,
+                "head_margin": 20.0,
+                "plan": True,
+            },
+        )
+
+    refused = anyio.run(_with_server, body)
+
+    assert refused.is_error
+    text = refused.content[0].text
+    assert "no room" in text
+    assert "more than" in text and "has before that point" in text
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_add_refuses_asset_too_short(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    # The film's own line (words up to 11.3s) needs more than the 10.6s this
+    # asset actually has.
+    _make_video(film, duration=10.6)
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        return await session.call_tool(
+            "hold_add",
+            {
+                "path": str(project),
+                "clip_id": clips["vo"],
+                "gap_word_index": 3,
+                "cue_word_index": 2,
+                "asset": clips["film"],
+                "word_index_first": 0,
+                "word_index_last": 4,
+                "plan": True,
+            },
+        )
+
+    refused = anyio.run(_with_server, body)
+
+    assert refused.is_error
+    text = refused.content[0].text
+    assert "short by" in text
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_ls_reports_per_item_error(tmp_path: Path) -> None:
+    """One good hold, one orphaned by a subsequent cut of its gap word —
+    `hold_ls` returns both, the bad one carrying `hold_error`, never raising
+    for the whole list."""
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        # Cut away word 5 ("scream") to leave the hold itself intact but
+        # prove one bad entry does not break a good one either — then
+        # orphan the *good* hold's own gap word by cutting it away too, in
+        # a second project so the good entry above stays good.
+        return await client.call("hold_ls", path=str(project))
+
+    out = anyio.run(_with_server, body)
+    assert out["count"] == 1
+    assert out["holds"][0].get("hold_error") is None
+    assert out["holds"][0]["cue_drift"] is None
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_is_layered_with_only_a_hold(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _silence_wav(vo, 6.0)
+    _make_video(film, duration=15.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        return await client.call("timeline_view", path=str(project))
+
+    out = anyio.run(_with_server, body)
+    assert out["layered"] is True
+    assert len(out["holds"]) == 1
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_hold_gates_the_music_lane(tmp_path: Path) -> None:
+    """A hold whose span overlaps the bed splits the bed's own document
+    entry around it — cheaper to check on the built `mlt.document` (via a
+    plain `kdenlive` export, which needs no melt) than a real render."""
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    film = tmp_path / "film.mp4"
+    _quiet_vo_wav(vo, 6.0)
+    # `hold_add` writes an unbounded picture cue (nothing follows it in the
+    # cue table), so the shot it projects runs from that cue to the end of
+    # the timeline — long enough here to need more runtime than the hold's
+    # own short phrase, hence the generous duration.
+    _make_video(film, duration=25.0)
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        await client.call(
+            "music",
+            path=str(project),
+            asset=clips["film"],
+            clip_id=clips["vo"],
+            word_index_start=0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(tmp_path / "out.mlt"), export_format="kdenlive"
+        )
+
+    result = anyio.run(_with_server, body)
+    assert result["writer"] == "mlt"
+    assert result["holds"]
+    assert result["music"] is not None
+
+    root = ET.parse(result["output"]).getroot()
+    music_playlist = next(p for p in root.findall("playlist") if p.get("id") == "playlist8")
+    entries = music_playlist.findall("entry")
+    # Gated: three entries where the un-gated lane would have had one (this
+    # bed starts at word 0 and needs no lead/trail padding, so its whole
+    # un-gated lane is a single entry) — the hold's own span splits the bed
+    # entry into a piece before it, a silent gate, and a piece after.
+    assert len(entries) == 3, ET.tostring(music_playlist, encoding="unicode")
+    # And the gated stretch is a real silent WAV, never the bed's own
+    # resource — "OUT, not ducked".
+    resources = {
+        node.get("id"): (node.find("property[@name='resource']").text or "")
+        for node in [*root.findall("chain"), *root.findall("producer")]
+    }
+    entry_resources = [resources.get(e.get("producer"), "") for e in entries]
+    assert any("silence" in r for r in entry_resources), entry_resources
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_hold_plays_its_own_film_audio_and_gates_the_bed_on_a_real_render(
+    visible_tmp: Path,
+) -> None:
+    """The end-to-end proof melt/auto-editor's exit-0 lies make necessary
+    (CLAUDE.md, WORK-ORDERS ruling 10): a hold's own tone must be audible
+    exactly across its resolved span, and the bed's own distinct tone must
+    be silent there and audible everywhere else — not merely a document
+    that validates.
+    """
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    film = visible_tmp / "film.mp4"
+    bed = visible_tmp / "bed.wav"
+    _quiet_vo_wav(vo, 6.0)
+    # 25s, not 15s: `hold_add` writes an unbounded picture cue (nothing
+    # follows it in the cue table), so the shot it projects runs from that
+    # cue to the end of the timeline — longer than the hold's own phrase.
+    _tone_video(film, 300.0, 25.0)
+    _tone_wav(bed, 880.0, 25.0)
+
+    transcript = visible_tmp / "vo.json"
+    transcript.write_text(
+        json.dumps(
+            {
+                "language": "en",
+                "words": [
+                    {"word": "the", "start": 0.0, "end": 0.3},
+                    {"word": "first", "start": 0.5, "end": 0.9},
+                    {"word": "twelve", "start": 1.0, "end": 1.4},
+                    {"word": "minutes", "start": 1.5, "end": 1.9},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    film_transcript = visible_tmp / "film.json"
+    film_transcript.write_text(
+        json.dumps(
+            {
+                "language": "en",
+                "words": [
+                    {"word": "i", "start": 10.0, "end": 10.2},
+                    {"word": "know", "start": 10.2, "end": 10.5},
+                    {"word": "what", "start": 10.5, "end": 10.8},
+                    {"word": "you", "start": 10.8, "end": 11.0},
+                    {"word": "did", "start": 11.0, "end": 11.3},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+        film_clip = await client.call("import_media", path=str(project), source=str(film))
+        bed_clip = await client.call("import_media", path=str(project), source=str(bed))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo_clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=film_clip["clip_id"],
+            transcript_path=str(film_transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=vo_clip["clip_id"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=film_clip["clip_id"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        await client.call(
+            "music",
+            path=str(project),
+            asset=bed_clip["clip_id"],
+            clip_id=vo_clip["clip_id"],
+            word_index_start=0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["writer"] == "melt"
+    hold = result["holds"][0]
+    render_start = hold["timeline_start"]  # head_seconds is 0.0 here
+    render_end = render_start + (hold["hold_frames"] / result["timebase"])
+    render = Path(result["output"])
+
+    # Comfortably inside the hold's own span, clear of its fade edges.
+    margin = 0.25
+    during_hold_300 = _tone_window(render, 300.0, render_start + margin, (render_end - render_start) - 2 * margin)
+    during_hold_880 = _tone_window(render, 880.0, render_start + margin, (render_end - render_start) - 2 * margin)
+    # Well before the hold: the bed should be audible (nothing gates it yet).
+    before_hold_880 = _tone_window(render, 880.0, 0.0, max(render_start - 0.3, 0.05))
+
+    assert during_hold_300 > 500.0, "the hold's own film audio must be audible across its span"
+    assert during_hold_880 < 50.0, "the bed must be gated OUT across the hold, not merely ducked"
+    assert before_hold_880 > 500.0, "the bed must be audible before the hold gates it"

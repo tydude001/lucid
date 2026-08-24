@@ -714,10 +714,19 @@ def _source_node(node_id: str, entry: Entry, bin_id: int, rate: float) -> ET.Ele
 #: floor this pipeline meets, and the dB ramp is the perceptually even fade.
 #: Both facts measured, not recalled: `level`'s keyframe VALUES are dB
 #: (gain-factor keys 0..1 rendered as a 1 dB wiggle at exit 0 — the silent
-#: wrong answer), its POSITIONS are relative to the entry the filter is
-#: attached to (probed with a lead entry ahead of it), and `level=0` is
+#: wrong answer), its POSITIONS are relative to the *producer*, not the
+#: timeline entry (the original probe used a lead entry ahead of the faded
+#: one on the timeline but never a nonzero `src_in` on the faded entry
+#: itself, so "relative to the entry" and "relative to the producer" were
+#: indistinguishable until holds' own entries — which always read from deep
+#: inside their source — measured the difference: keyframes written
+#: 0-based on a `src_in=268` entry rendered *silent throughout*, because by
+#: the time playback reaches producer frame 268 the animation is long past
+#: its last defined key. Offsetting every position by `entry.src_in` is
+#: what makes it land on the frames the entry actually plays. `level=0` is
 #: exactly unity (plateau at the no-filter control's own -33.12 dBFS).
-#: `~/lucid-a2-probe/fade_probe.py`, HISTORY.md § The A2 fades.
+#: `~/lucid-a2-probe/fade_probe.py` (src_in=0 only), the holds-lane readback
+#: that found the src_in gap, HISTORY.md § The A2 fades.
 FADE_FLOOR_DB = -60
 
 
@@ -726,7 +735,11 @@ def _fade_level(entry: Entry) -> str:
 
     Every edge is stated explicitly — the head key when only fading out, the
     tail key when only fading in — so nothing relies on how MLT extrapolates
-    past a final keyframe, which the probe did not measure.
+    past a final keyframe, which the probe did not measure. Every position is
+    `entry.src_in` plus its offset into the entry: byte-identical to before
+    this offset existed for every caller so far (music, tail, an unpinned
+    head), which all read from `src_in=0`, and correct for the first caller
+    that does not (a hold, which always reads from deep inside its asset).
 
     The plateau a fade ramps to and holds at is `entry.gain_db`, not a
     hardcoded 0 — a flat, non-fading level shift (the cold-open head's own
@@ -734,13 +747,14 @@ def _fade_level(entry: Entry) -> str:
     filter type. `gain_db=0.0` is unity, so every caller before this field
     existed still gets exactly the plateau it always got.
     """
-    last = entry.frames - 1
+    first = entry.src_in
+    last = entry.src_in + entry.frames - 1
     plateau = entry.gain_db
     keys: list[tuple[int, float]] = []
     if entry.fade_in_frames:
-        keys += [(0, FADE_FLOOR_DB), (entry.fade_in_frames, plateau)]
+        keys += [(first, FADE_FLOOR_DB), (first + entry.fade_in_frames, plateau)]
     else:
-        keys += [(0, plateau)]
+        keys += [(first, plateau)]
     if entry.fade_out_frames:
         keys += [(last - entry.fade_out_frames, plateau), (last, FADE_FLOOR_DB)]
     else:
@@ -888,6 +902,7 @@ def document(
     audio: list[Entry],
     picture: list[Entry] | None = None,
     music: list[Entry] | None = None,
+    holds: list[Entry] | None = None,
     rate: float,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
     reframe: dict[str, Reframe] | None = None,
@@ -933,6 +948,21 @@ def document(
     that has one: a second node of the same resource, a playlist holding that
     lane's entries with everything unsplit blanked out, and one more compositing
     transition. Nothing else changes — no new service, no mask, no crop filter.
+
+    `holds` is a fourth, audio-only lane, structurally identical to `music`
+    (own coverage check, own node prefix, own playlist pair, own tractor, own
+    additive `mix` transition) but with the opposite mute: its nodes carry
+    real footage that has both picture and sound, and the picture is what
+    gets switched off. The picture lane's own convention silences audio with
+    `audio_index=-1` while leaving `video_index` alone; a hold node is the
+    exact mirror — `video_index=-1` alone, no `audio_index` at all, because
+    `astream="0"` (the base node's own default) is already correct regardless
+    of container layout (a *relative* stream selector, not the absolute one
+    `media.py`'s two-mic trap is about — CLAUDE.md — and every hold node
+    resolves through `media.media_path()`, which already refuses a
+    multi-stream container before this module ever sees one). Never a
+    `qtblend` composite: this lane has nothing on screen to composite, the
+    same reason `music` never gets one.
     """
     if not audio:
         raise MLTError("an MLT document needs at least one entry on the edit's track")
@@ -963,7 +993,23 @@ def document(
                 f"the music lane holds a still ({wrong[0]!r}) — a held frame has "
                 "no sound to mix, so a card can never be a music entry"
             )
-    for entry in [*audio, *picture, *music]:
+    holds = holds or []
+    if holds:
+        covered = sum(entry.frames for entry in holds)
+        if covered != total_frames:
+            raise MLTError(
+                f"the holds lane covers {covered} frames but the timeline is "
+                f"{total_frames} — `music`'s own discipline: the caller pads "
+                "with real silent entries and trims by frame count, so every "
+                "declared length keeps agreeing"
+            )
+        wrong = [entry.resource for entry in holds if entry.is_image]
+        if wrong:
+            raise MLTError(
+                f"the holds lane holds a still ({wrong[0]!r}) — a hold plays a "
+                "clip's own clean audio, and a still has none to play"
+            )
+    for entry in [*audio, *picture, *music, *holds]:
         if entry.fade_in_frames < 0 or entry.fade_out_frames < 0:
             raise MLTError(f"negative fade frames on {entry.resource!r}")
         if entry.fade_in_frames + entry.fade_out_frames > max(entry.frames - 1, 0):
@@ -1003,7 +1049,7 @@ def document(
     # of the producer, not of the entry — but both point at one bin entry, so
     # `kdenlive:id` is keyed on the resource and not on the node.
     sources: dict[str, Entry] = {}
-    for entry in [*audio, *picture, *music]:
+    for entry in [*audio, *picture, *music, *holds]:
         sources.setdefault(entry.resource, entry)
     bin_ids = {resource: index + 2 for index, resource in enumerate(sources)}
 
@@ -1162,6 +1208,37 @@ def document(
         for playlist_id in ("playlist8", "playlist9"):
             ET.SubElement(music_track, "track", {"producer": playlist_id, "hide": "video"})
 
+    # The holds lane: real footage, picture switched off at the node rather
+    # than declared absent (`music`'s `set.test_video=1`) — the resource has
+    # actual video, so the node needs `video_index=-1` to stop it being
+    # decoded at all, not merely a claim that none exists. `set.test_audio=0`
+    # is `music`'s own flag, unchanged: sound is present. No `audio_index` —
+    # the base astream selector is already correct (see this function's own
+    # docstring, and `media.media_path()`'s containment). Ids in their own
+    # namespace (hchain/playlist10/playlist11/tractorB) so a document with no
+    # holds is byte-identical to one built before this lane existed.
+    hold_nodes: dict[str, str] = {}
+    if holds:
+        for entry in holds:
+            if entry.resource in hold_nodes:
+                continue
+            node_id = f"hchain{len(hold_nodes)}"
+            hold_nodes[entry.resource] = node_id
+            node = _source_node(node_id, entry, bin_ids[entry.resource], rate)
+            _property(node, "video_index", "-1")
+            _property(node, "set.test_audio", "0")
+            root.append(node)
+
+        root.append(_playlist("playlist10", holds, hold_nodes))
+        root.append(ET.Element("playlist", {"id": "playlist11"}))
+        hold_track = ET.SubElement(
+            root, "tractor", {"id": "tractorB", "in": "0", "out": str(total_frames - 1)}
+        )
+        _property(hold_track, "kdenlive:timeline_active", "1")
+        _property(hold_track, "kdenlive:track_name", "Holds")
+        for playlist_id in ("playlist10", "playlist11"):
+            ET.SubElement(hold_track, "track", {"producer": playlist_id, "hide": "video"})
+
     # A deterministic uuid: the same project rebuilt twice should produce the
     # same document, so a diff of two exports shows what actually changed.
     sequence_uuid = f"{{{uuid.uuid5(uuid.NAMESPACE_URL, f'lucid:{name}')}}}"
@@ -1183,6 +1260,8 @@ def document(
         stack.append("tractor4")
     if music:
         stack.append("tractorA")
+    if holds:
+        stack.append("tractorB")
     for producer in stack:
         ET.SubElement(sequence, "track", {"producer": producer})
 
@@ -1203,13 +1282,17 @@ def document(
     )
     # `b_track` is an index into the track list just written, which is why the
     # order above and the order here are one loop and not two lists that have
-    # to be kept in step. The edit and the music lane are the only tracks that
-    # can be soundless-picture audio; every other one carries video by
-    # construction — and the music lane never blends, because it has nothing
-    # on screen to composite.
+    # to be kept in step. The edit and the music/holds lanes are the only
+    # tracks that can be soundless-picture audio; every other one carries
+    # video by construction — and neither audio-only lane blends, because
+    # neither has anything on screen to composite.
     blended = 0
     for index, producer in enumerate(stack):
-        if index == 0 or producer == "tractorA" or (producer == "tractor0" and not audio_has_video):
+        if (
+            index == 0
+            or producer in ("tractorA", "tractorB")
+            or (producer == "tractor0" and not audio_has_video)
+        ):
             continue
         _transition(
             sequence,
@@ -1229,14 +1312,36 @@ def document(
     # Against track 0 like transition0: mix does not care that the black
     # background carries no sound, and `sum=1` keeps it additive and lossless
     # (measured — both tones survive at their exact source amplitudes,
-    # `~/lucid-a2-probe`).
+    # `~/lucid-a2-probe`). A running counter rather than `blended + 1` twice
+    # over: with both a music lane and a holds lane, the second `+ 1` would
+    # collide with the first's own transition id.
+    extra_mix = blended
     if music:
+        extra_mix += 1
         _transition(
             sequence,
-            f"transition{blended + 1}",
+            f"transition{extra_mix}",
             {
                 "a_track": "0",
                 "b_track": str(stack.index("tractorA")),
+                "mlt_service": "mix",
+                "internal_added": "237",
+                "always_active": "1",
+                "sum": "1",
+            },
+        )
+    # The holds lane's own mix — `music`'s exact mechanism, one track over:
+    # additive against track 0, never composited, because a hold has nothing
+    # on screen either (its picture is switched off at the node, `video_index
+    # = -1`, the whole reason this lane's nodes differ from music's).
+    if holds:
+        extra_mix += 1
+        _transition(
+            sequence,
+            f"transition{extra_mix}",
+            {
+                "a_track": "0",
+                "b_track": str(stack.index("tractorB")),
                 "mlt_service": "mix",
                 "internal_added": "237",
                 "always_active": "1",

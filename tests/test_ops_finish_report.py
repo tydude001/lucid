@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
+from lucid import ops, renderlog
 from lucid import timeline as tl
 from lucid import transcript as tx
 from lucid.project import Project, ProjectError
@@ -135,6 +135,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "marks",
         "seams",
         "framing",
+        "holds",
         "last_render",
         "flags",
     }
@@ -300,3 +301,44 @@ def test_framing_is_opt_in_and_none_is_not_zero(project: Project) -> None:
     on = ops.finish_report(project.root, framing=True)
     assert set(on["framing"]) == {"stale_seconds", "stale_stretches", "steps"}
     assert on["framing"]["stale_seconds"] == 0.0
+
+
+def test_holds_is_opt_in_and_none_with_no_render(project: Project) -> None:
+    """Off by default, `hold_check`'s own opt-in reasoning: it decodes and
+    transcribes render spans, so it must not ride every `project-changed`
+    event. Asking for it with no render on disk yet still reports `None` —
+    a hold's mix is confirmed by listening to a file, not by reading the
+    project."""
+    _with_one_pinned_cue(project)
+
+    off = ops.finish_report(project.root)
+    assert off["holds"] is None
+
+    on = ops.finish_report(project.root, holds=True)
+    assert on["holds"] is None
+
+
+def test_holds_runs_hold_check_against_the_last_render(project: Project) -> None:
+    """`finish_report`'s own composed-only rule: `last_render` is
+    `renderlog.last`'s own answer (`webui.py`'s pipeline, not `export`
+    itself), and once one exists `holds=True` runs `hold_check` against it —
+    a project with no stored holds still gets a real (empty) report rather
+    than `None`, the same "not measured" vs. "nothing to measure" split
+    `framing` draws."""
+    render = project.root / "renders" / "out.mp4"
+    render.parent.mkdir(parents=True, exist_ok=True)
+    render.write_bytes(b"not a real render, just needs to exist")
+    renderlog.append(
+        project, output=str(render), preset=None, expected_duration=1.5, stages={}
+    )
+
+    result = ops.finish_report(project.root, holds=True)
+
+    assert result["holds"] is not None
+    assert result["holds"] == {
+        "project": str(project.root),
+        "render": str(render),
+        "holds": [],
+        "count": 0,
+        "faults": 0,
+    }

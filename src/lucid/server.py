@@ -1245,7 +1245,7 @@ def properties(
 
 
 @_tool()
-def finish_report(path: str, framing: bool = False) -> dict[str, Any]:
+def finish_report(path: str, framing: bool = False, holds: bool = False) -> dict[str, Any]:
     """Duration/canvas/caption/picture/marks/seams report for Finish mode,
     composed only — the truth strip's own numbers.
 
@@ -1264,8 +1264,13 @@ def finish_report(path: str, framing: bool = False) -> dict[str, Any]:
     scene-cut scan — 5.7s wall and 46s of CPU on the film, uncached, every
     call. Off, `framing` is `None`, which means "not measured" rather than
     "nothing stale".
+
+    `holds` adds `hold_check`'s own per-hold seam/transcription report
+    against the last render — off by default for the same reason `framing`
+    is: it decodes and transcribes render spans. `None` when not asked for,
+    and also `None` when asked for but nothing has rendered here yet.
     """
-    return ops.finish_report(path, framing=framing)
+    return ops.finish_report(path, framing=framing, holds=holds)
 
 
 @_tool()
@@ -1740,6 +1745,115 @@ def vo_synth(
         readback=readback,
         plan=plan,
     )
+
+
+@_tool()
+def hold_add(
+    path: str,
+    clip_id: str,
+    gap_word_index: int | None = None,
+    cue_word_index: int | None = None,
+    asset: str | None = None,
+    word_index_first: int | None = None,
+    word_index_last: int | None = None,
+    gap_phrase: str | None = None,
+    cue_phrase: str | None = None,
+    asset_phrase: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+    head_margin: float | None = None,
+    tail_margin: float | None = None,
+    under: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Splice a hold into `clip_id` after `gap_word_index`: a real gap opens
+    in the VO (`vo_extend`'s own mechanism, reused) and a picture cue pins
+    `asset`'s own in-point, snapped to whole words with margin and
+    **refused, never clamped**, when it cannot fit.
+
+    Addressed by `(clip_id, gap_word_index)`, unique — a second `hold_add` at
+    the same address is refused. `gap_word_index`/`cue_word_index`/
+    `word_index_first`+`word_index_last` each also accept a phrase
+    alternative: `gap_phrase` binds its **last** word (the gap opens right
+    after it), `cue_phrase` binds its **first**, and `asset_phrase` resolves
+    against `asset`'s own transcript and binds its first and last words to
+    `word_index_first`/`word_index_last` together.
+
+    Everything else is resolved live: `elapsed` (how long the VO plays
+    between the cue and the gap), `src_start` (deterministically —
+    `phrase_start - elapsed - head_margin`), and `hold_length` (the phrase's
+    own span plus both margins). Refused, with the measured numbers, when
+    there is no room or the asset runs out.
+
+    Mix-only fields (`head_margin`/`tail_margin`/`under`/`fade_in`/
+    `fade_out`) are re-settable on an already-spliced hold by calling again
+    with the same address and no change to `word_index_first`/
+    `word_index_last` — those two are one-way once spliced (`hold_rm` then
+    `hold_add` again, or `lucid undo`, are the only ways to resize one).
+
+    `plan=True` resolves and reports without writing anything.
+    """
+    return ops.hold_add(
+        path,
+        clip_id,
+        gap_word_index,
+        cue_word_index,
+        asset,
+        word_index_first,
+        word_index_last,
+        gap_phrase=gap_phrase,
+        cue_phrase=cue_phrase,
+        asset_phrase=asset_phrase,
+        after=after,
+        occurrence=occurrence,
+        head_margin=head_margin,
+        tail_margin=tail_margin,
+        under=under,
+        fade_in=fade_in,
+        fade_out=fade_out,
+        plan=plan,
+    )
+
+
+@_tool()
+def hold_rm(path: str, clip_id: str, gap_word_index: int) -> dict[str, Any]:
+    """Drop a hold's record and its owned cue — the spliced silence stays.
+
+    `vo_extend`'s own irreversibility, inherited: there is no clean
+    "un-splice", only `lucid undo`. After this the gap reverts to being an
+    ordinary manufactured silence, a coherent pre-existing state rather than
+    a broken one.
+    """
+    return ops.hold_rm(path, clip_id, gap_word_index)
+
+
+@_tool()
+def hold_ls(path: str) -> dict[str, Any]:
+    """Every stored hold plus its live-resolved plan.
+
+    A hold that cannot currently resolve is reported inline (`hold_error`),
+    never raised. Each item also carries `cue_drift` — a check between the
+    hold's own owned cue and what it would compute fresh right now, since
+    nothing stops a plain `cue_rm`/`cue_add` on that exact word from an
+    unrelated caller.
+    """
+    return ops.hold_ls(path)
+
+
+@_tool()
+def hold_check(path: str, render: str) -> dict[str, Any]:
+    """Transcribe each hold's own span off `render` and check its seams.
+
+    For each stored hold: the required phrase, transcribed off the render at
+    the hold's live-resolved span, plus the level right at each edge against
+    the quiet floor just after it — "still loud" (a word cut off) or a
+    "noise-floor cliff" (a hard drop with nowhere graceful to land).
+    **Report, never refuse** — a post-hoc listening check on a render that
+    already exists, `verify`'s and `film_check`'s own stance.
+    """
+    return ops.hold_check(path, render)
 
 
 @_tool("path", "dest")
