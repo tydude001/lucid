@@ -44,8 +44,10 @@ node cdp.mjs shot out.png
 - **`click` refuses a target it cannot hit.** It asserts
   `document.elementFromPoint` at the point it presses, because `el.click()`
   skips hit-testing and reads green on a control nobody can reach.
-- **A screenshot never contains `<video>`** — headless Chrome does not
-  composite it. `drawImage` into a canvas and read the pixels, and only after
+- **Whether a screenshot contains `<video>` is not settled** — black on
+  2026-08-09, composited on 2026-08-19 and 2026-08-24, same binary. So a black
+  capture proves nothing and a good-looking one proves nothing: `drawImage`
+  into a canvas and read the pixels, and only after
   `!seeking && readyState >= 2`.
 - **`viewport` reports two sweeps and you need both.** `overflowing` walks the
   page and skips anything inside a scroll container — without that skip every
@@ -53,12 +55,10 @@ node cdp.mjs shot out.png
   `scrollers` is each scroll container against its *own* `clientWidth`, which
   is the only way a pane that clips a value mid-word ever shows up. In Edit
   mode expect exactly one, `#track-lanes`.
-- **`key` sends virtual key codes, and that is not cosmetic.** Escape without
-  `windowsVirtualKeyCode: 27` reaches a JS listener exactly like a real press,
-  so hand-written handlers look fine — but Chrome's close watcher, which
-  dismisses a native `<dialog>`, reads the virtual code and not `.key`.
-  Measured 2026-08-24: the shortcut sheet stayed open under a code-less
-  Escape, which would have been filed as a bug in the page.
+- **`key` sends virtual key codes, and that is not cosmetic** — a code-less
+  Escape reaches a JS listener but not Chrome's `<dialog>` close watcher, and
+  reads as a bug in the page. Measurement in wiki `tooling.md` § Headless
+  browser.
 - **A lazy image is not a broken image.** Measure `naturalWidth` only after
   scrolling the element's *real* scroll parent; through the wrong one, 30
   perfectly good tiles read exactly like a route that 404s.

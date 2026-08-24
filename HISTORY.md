@@ -10696,7 +10696,8 @@ at pixel (27, 58, 92) — `#1b3a5c` exactly — and at 10.5 s it is `rust` at
 source 0.829, (121, 50, 25) against `#7a3218`. So the preview shows the shot
 table's own answer, from the right place inside the right asset.
 
-**Left for Tyler, and named rather than done:** the three README screenshots.
+**Left for Tyler at the time, and done the same day** (§ The README
+screenshots came off the demo project): the three README screenshots.
 Drafts of all three modes against the demo project are at
 `~/lucid-work/demo-shots-{edit,frame,finish}.png` — the Edit one is a good
 shop window (the retake struck through, labelled b-roll on V2, the caption
