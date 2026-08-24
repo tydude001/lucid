@@ -39,6 +39,44 @@ node cdp.mjs shot out.png
 
 `CDP_PORT` overrides 9444.
 
+## Capturing the README screenshots
+
+They are dark, all three, and the theme is **seeded before the page loads,
+never toggled after it** — `theme.js` is the one classic script in `<head>`
+and applies `data-theme` before paint, so a toggle afterwards is a repaint the
+two canvases only follow via its `lucid:theme` event. Seeding means
+`localStorage`, which needs the origin, so it is goto, set, goto:
+
+```sh
+node cdp.mjs goto http://127.0.0.1:8793/
+node cdp.mjs eval '(() => localStorage.setItem("lucid.theme", "dark"))()'
+node cdp.mjs goto http://127.0.0.1:8793/    # now data-theme="dark" before paint
+```
+
+**Confirm the seed took, and then confirm the set agrees.** `#theme` reading
+`☾` says the attribute is set; only mean luma across the three says they read
+as one theme, and it is the check a recapture has twice not run. Two of the
+shots are mostly dark b-roll and Frame's sheet is mostly empty page, so a
+whole-set spread near 100 is a light capture wearing dark footage —
+HISTORY.md § The screenshots went back to dark.
+
+Each shot's state, and the order that gets all three from one page:
+
+- Render once from Finish (`#finish-render`). That one SSE stream fills both
+  Finish's stage report *and* the Edit agent pane's completion card — the card
+  is `handleRenderEvent`, not an agent run, so no `claude -p` is needed. It
+  does not survive a reload, so seed the theme **before** rendering.
+- **Finish** at `viewport 1400 1100`: click `Watch` (the player is not in the
+  page until then), seek the `<video>`, then `#finish-view`'s own `scrollTop`
+  to the bottom so the report sits above the picture.
+- **Frame** at 1400x900: `#frame-build-sheet`, then wait on `shot #` appearing
+  — a sheet takes seconds and the pane is honestly empty before it.
+- **Edit** at 1400x900: the highlighted word is `.w.playing`, the playhead's,
+  **not `.w.sel`** — clicking a word to seek raises the `.selection-toolbar`
+  over the transcript and Escape does not lower it. Seek from the ruler, or
+  clear with a `dragxy` on transcript whitespace, which is the gesture
+  `handleMouseDown` actually listens for.
+
 ## What it will not do for you
 
 - **`click` refuses a target it cannot hit.** It asserts

@@ -10753,3 +10753,51 @@ Every caption was rewritten to what its image actually shows. The old Frame
 one promised "a stacked split with its pane overlap measured", which the demo
 has none of; the old Finish one quoted 0.967, which was the Scream film's
 number.
+
+## The screenshots went back to dark — 2026-08-24
+
+Tyler read the README as "some dark mode, some light mode". All three were
+in fact the same theme — light — and the reading was still right about
+something real: mean luma ran 197 / 125 / 222 across Edit / Finish / Frame,
+a 97-point spread, because the demo's rust and navy b-roll fills two of the
+three images and Frame mode's sheet sits on a near-empty page. A set that
+disagrees with itself by that much does not read as one theme, whatever the
+`data-theme` attribute says. **The complaint named the attribute and was
+measuring the picture; both halves had to be checked before answering.**
+
+The cause was a lost mechanic rather than a decision. § The three screenshots
+are dark (2026-08-19) had seeded `localStorage["lucid.theme"]` before load
+deliberately — `theme.js` applies `data-theme` in `<head>` before paint, so a
+toggle afterwards flashes and the two canvases only repaint off its
+`lucid:theme` event. § The README screenshots came off the demo project, five
+days later, recaptured all three onto new footage and simply did not seed
+anything, so they came back at the default. Nothing said so: the images
+changed, the captions were rewritten to match, and the theme was not a thing
+either commit's checks looked at.
+
+Recaptured dark, same compositions, same demo project: 32 / 53 / 30, a
+23-point spread, and the remaining lightest one is Finish only because the
+rust footage fills it. The capture route is now written down in
+`.claude/skills/verify-live/SKILL.md` beside the harness that performs it,
+which is where the previous session would have found it.
+
+Three things the recapture had to relearn, all of them in that section now:
+
+- **One render fills two panes.** The Edit shot's "Export complete" card is
+  `agent.js`'s `handleRenderEvent`, not an agent run — the render job's SSE
+  stream draws it and Finish's stage report at once. So the theme has to be
+  seeded before the render, because neither survives a reload.
+- **Finish has no player until `Watch` is clicked**, and `#finish-view` is its
+  own scroll container; the report sits above the picture at its own
+  `scrollTop`, not the window's.
+- **The highlighted word in the Edit shot is `.w.playing`, not `.w.sel`.**
+  Clicking the word to seek raises the `.selection-toolbar` over the
+  transcript and `Escape` does not lower it — `refreshToolbar` hides on a null
+  selection, and the only gesture that nulls one is a `mousedown` outside any
+  `.w`. Seeking from the ruler leaves the playhead's own highlight and no
+  toolbar, which is what the earlier image had been showing all along.
+
+Both video frames were settled by `drawImage` readback rather than by looking
+at the capture — rust at (130, 66, 42) in the Edit preview, (128, 63, 40) in
+the Finish player — per the rule that a screenshot proves nothing either way
+about whether a `<video>` composited.
