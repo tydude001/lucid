@@ -10,7 +10,10 @@ its design system, the feature map and its build order — is
 [DAYDREAM.md](DAYDREAM.md). The Studio reshape — the workspace reorganized
 around Home/Edit/Frame/Finish with direct manipulation and the truth strip —
 is [STUDIO.md](STUDIO.md), which supersedes DAYDREAM.md § Build order where
-they conflict. The full command walkthrough that was README.md's body is
+they conflict. The post-reshape polish plan — doctor, the demo project,
+manifest-aware undo, and the rest of the works-for-anyone gap — is
+[POLISH.md](POLISH.md), one step per session, each with its own verify-first
+list. The full command walkthrough that was README.md's body is
 [docs/MANUAL.md](docs/MANUAL.md) — moved verbatim 2026-08-19 when README.md
 became a short newcomer-facing front door; nothing was deleted in the move.
 Open-item status lives in the wiki, not here.
