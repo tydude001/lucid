@@ -9966,16 +9966,19 @@ def hold_add(
     **Mix-only fields are re-settable without re-splicing**: call again for
     the same `(clip_id, gap_word_index)` with only `head_margin`/
     `tail_margin`/`under`/`fade_in`/`fade_out` changed (and
-    `word_index_first`/`word_index_last` matching what is already stored,
-    or omitted) and the manifest record updates in place — `music()`'s own
-    "either field alone updates its own field" shape. Changing
-    `word_index_first`/`word_index_last` is refused: that changes
-    `hold_length`, which would require re-splicing a gap this call cannot
-    safely resize. There is no clean way to resize a hold once it is
-    spliced — only `lucid undo` (snapshot rollback) or `hold_rm` (which
-    strands the gap as an ordinary manufactured silence, not a true
-    removal) — `vo_extend`'s own one-way nature, inherited rather than
-    introduced.
+    `word_index_first`/`word_index_last`/`cue_word_index`/`cue_phrase`
+    matching what is already stored) and the manifest record updates in
+    place — `music()`'s own "either field alone updates its own field"
+    shape. Changing `word_index_first`/`word_index_last` is refused: that
+    changes `hold_length`, which would require re-splicing a gap this call
+    cannot safely resize. Changing `cue_word_index`/`cue_phrase` is refused
+    too — this call owns exactly one cue, at its stored address, and moving
+    it would mean writing a second cue and leaving the old one's `src_start`
+    stale rather than re-addressing it. There is no clean way to resize or
+    re-address a hold once it is spliced — only `lucid undo` (snapshot
+    rollback) or `hold_rm` (which strands the gap as an ordinary
+    manufactured silence, not a true removal) — `vo_extend`'s own one-way
+    nature, inherited rather than introduced.
 
     `plan=True` resolves and reports without writing anything — not the
     timeline and not the manifest, `vo_extend`'s own rule.
@@ -10043,6 +10046,13 @@ def hold_add(
         merged = dict(existing)
         if asset is not None:
             merged["asset"] = asset
+        if resolved_cue != existing["cue_word_index"]:
+            raise ProjectError(
+                f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
+                "cue_word_index cannot change without re-splicing, which this "
+                "call cannot do safely. `hold_rm` then `hold_add` again, or "
+                "`lucid undo`"
+            )
         if resolved_first is not None and int(resolved_first) != existing["word_index_first"]:
             raise ProjectError(
                 f"hold at {clip_id!r} word {resolved_gap} is already spliced — "

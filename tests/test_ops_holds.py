@@ -240,6 +240,22 @@ def test_changing_word_index_first_on_an_already_spliced_hold_is_refused(project
         ops.hold_add(project.root, "vo", 3, 2, word_index_first=1, word_index_last=4)
 
 
+def test_changing_cue_word_index_on_an_already_spliced_hold_is_refused(project: Project) -> None:
+    manifest = project.read_manifest()
+    manifest[ops.HOLDS_KEY] = [dict(STORED_HOLD)]
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": 8.95}]
+    project.write_manifest(manifest)
+
+    with pytest.raises(ProjectError, match="cannot change without re-splicing"):
+        ops.hold_add(project.root, "vo", 3, 4, under=5.0)
+
+    # Refused before anything is written: the stored hold and the cue it
+    # owns are both untouched.
+    after = project.read_manifest()
+    assert after[ops.HOLDS_KEY] == [dict(STORED_HOLD)]
+    assert after["cues"] == [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": 8.95}]
+
+
 def test_a_mix_only_update_plan_does_not_write(project: Project) -> None:
     manifest = project.read_manifest()
     manifest[ops.HOLDS_KEY] = [dict(STORED_HOLD)]
