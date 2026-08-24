@@ -402,6 +402,13 @@ previous completes.
 
 ## Step 07 — the agent contact sheet (design note first — stops for review)
 
+Note written — see PLAN.md § The agent contact sheet — the design note.
+**Nothing is built; this is the step that stops for Tyler's review.** Two of
+its questions were answered by measurement rather than argued: the image
+channel works end to end (`claude -p --tools ""` puts an MCP tool's
+`ImageContent` in front of the model — verified by reading burnt-in text back),
+and the ±0.5s-around-each-cut lean loses to per-shot in-points on this film.
+
 **Why.** PLAN.md § Open questions, *Preview delivery in tier 1* — the oldest
 still-open question: **an agent cannot watch the film it edited.** `verify`
 lets it listen; nothing lets it look. The recorded lean is a contact sheet of

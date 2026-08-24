@@ -10604,3 +10604,44 @@ live control stays on screen and hit-testable at every width, console clean.
 One defect found and fixed in the pass: a resumed flow drew a bare "✓ Name it"
 with nothing after it, because the folded report for a step this session never
 ran was never filled in.
+
+## The agent contact sheet — the channel measured, nothing built — 2026-08-24
+
+POLISH.md § Step 07, which is the one step in that plan that ships a design
+note and stops. The note is PLAN.md § The agent contact sheet — the design
+note; what belongs here is what the measurements said, because two of them
+overturned the recorded lean.
+
+**The image channel works, and both halves had to be checked separately.** The
+SDK half: `mcp` 2.0.0 carries `ImageContent` in a tool result, round-tripped
+over a real stdio server. The half that actually decides the design, and that
+nothing in the SDK could answer: **`claude -p` under the agent panel's own
+`--tools ""` puts that image in front of the model.** Measured with a
+throwaway one-tool MCP server — asked what text was in the image, the model
+read `LUCID 7` back, in the right colour on the right background. The oldest
+open question in PLAN.md turned on a claim nobody had tested, and it holds.
+
+**±0.5 s around each cut boundary is the wrong address on this film.** The
+boundaries an agent can enumerate are the VO's — 62 of them — and the picture
+does not change at a VO cut unless a cue lands there, so it is 124 tiles of
+near-duplicate pairs. `timeline_view`'s `shots` is 38 entries, 25 of them
+video, each already carrying the asset, its path, the timeline second and the
+source second a tile needs to be labelled with. The proposal survived its own
+evidence: reading a 12-tile sheet of exactly those in-points, the model
+volunteered that the `cold-open` tile at t=0.0s is a black title card rather
+than live action — a `check_black` finding, arrived at by looking — and that
+two clips appear twice with a non-zero source offset, so they are cut in two.
+Both true, neither asked for.
+
+The rest is numbers the note carries: ~24 tiles at 384px four across is
+1552×1313 and 261 KiB, just under the ~1568px edge where vision downscaling
+starts, and the model read the *bottom row's* four labels back verbatim off
+one. `magick montage` beats an `ffmpeg xstack` (0.95s against 0.74s for
+twelve, and the 0.2s buys a label on its own band instead of over the picture,
+grid gutters, and no hand-built per-tile layout string). Extraction is 0.295s
+a frame on the real film.
+
+The standing rule the note ends on: a reading is an **opinion, not a check**.
+`reframe_sheet`'s precedent — the sheet is how an agent forms a hypothesis it
+must then confirm with an op that measures, and nothing in lucid should ever
+gate on what a model said it saw.

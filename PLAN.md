@@ -316,8 +316,14 @@ left. The conclusion survives because it was always the load-bearing one, but
   **What is still open is normalising at NLE export**, where frame-exactness
   actually matters and where a recorded `vfr` is what a future step would key
   off; nothing has been built for it, deliberately.
-- **Preview delivery in tier 1.** The consumer here is an agent, and an agent
-  cannot watch an MP4. Leading option: a contact sheet of frames at ±0.5s around
+- **Preview delivery in tier 1. Designed 2026-08-24 and awaiting review — see
+  § The agent contact sheet — the design note.** The consumer here is an agent,
+  and an agent cannot watch an MP4. The note measures the two claims this
+  question turned on: the image channel works end to end (an MCP tool result
+  reaches the model through `claude -p --tools ""`, verified by reading burnt-in
+  text back), and per-shot in-points beat the ±0.5s-around-each-cut lean this
+  bullet used to record. Nothing is built. The original lean, kept for the
+  record: a contact sheet of frames at ±0.5s around
   each cut boundary, which a vision model can actually check. Cheap to render;
   video-use independently ships decision-point composites (filmstrip +
   waveform), which validates the idea and removes its uniqueness. An MP4 for
@@ -4236,6 +4242,154 @@ reference-in-context were measured and made likeness worse. A best-of-N that
 also read back every candidate and preferred WER 0 among near-equal `sim` is
 the obvious next knob and is deliberately not built until a real line needs
 it.
+
+## The agent contact sheet — the design note — 2026-08-24
+
+POLISH.md § Step 07. **Nothing is built. This note stops for review.**
+
+**The question it answers** is the oldest one still open here (§ Open
+questions, *Preview delivery in tier 1*): an agent can *listen* to what it
+made — `verify` reads a render back through whisper and diffs it against the
+timeline — and it cannot *look* at it. That is the missing half of the
+self-check loop for the product's whole thesis. A person opens the window and
+watches; an agent has no window and cannot watch an MP4.
+
+Everything below was measured on 2026-08-24 against the real film
+(`~/lucid-work/polish-ui/proj`, the 5:36 Scream essay, 38 shots of which 25
+are video) rather than reasoned about, because the two load-bearing claims —
+that an image can reach the model at all, and that a label survives being one
+tile of twenty-five — are both the kind this repo has been wrong about before.
+
+### The channel works, and that was the thing to check first
+
+The agent panel runs `claude` with `--tools ''`, so the agent **cannot Read a
+file path**: lucid's MCP tools are the entire surface it has. The sheet has to
+travel inside the tool result as image content, and two separate things had to
+be true for that.
+
+**The SDK carries it.** `mcp` 2.0.0 has `ImageContent` in its `ContentBlock`
+union and `mcp.server.mcpserver.utilities.types.Image` as the helper a tool
+returns. Round-tripped over a real stdio server: a tool returning
+`Image(path=...)` arrives client-side as `ImageContent`, `mime_type`
+`image/png`, `is_error` false. No structural work needed.
+
+**`claude -p` puts it in front of the model**, which is the half that could
+not be read off the SDK and is the half the design depends on. Measured with a
+throwaway one-tool MCP server under the panel's own flags
+(`--strict-mcp-config --tools ""`): asked to call the tool and read the text in
+the image, the model answered `LUCID 7` — the burnt-in string, in the right
+colour on the right background, with an unprompted note that nothing else was
+in frame. The channel is real.
+
+### Frames: per-shot in-points, not ±0.5 s around each cut
+
+The recorded lean was a sheet at ±0.5 s around each cut boundary. **Measurement
+argues against it**, on this film:
+
+- The boundaries an agent can enumerate are the **VO's** cuts — 62 of them.
+  The picture does not change at a VO cut unless a cue happens to land there:
+  both sides of the seam are usually the same asset, at nearly the same source
+  second. A 124-tile sheet of near-duplicate pairs is the expensive way to
+  learn nothing.
+- `timeline_view`'s `shots` is already the projection *through*
+  `mlt.plan_picture` (CLAUDE.md), and every entry carries exactly what a tile
+  needs to be labelled with: `asset`, `asset_path`, `start` (the timeline
+  second), `src_start` (where inside the asset it reads), `is_image`. Nothing
+  has to be derived. 38 shots, 25 of them video — a fifth of the tile count,
+  each showing a different picture.
+- The proposal survives its own evidence. Reading a 12-tile sheet of exactly
+  those in-points, the model volunteered two findings without being asked for
+  any: that the `cold-open` tile at `t=0.0s` is a black title card rather than
+  live action (a `check_black` finding, arrived at by looking), and that two
+  clips appear twice with a non-zero `src` on the second instance, so they are
+  cut into two pieces. Both are true.
+
+The cue in-points are the same set for a cued project and a strict subset
+otherwise, so `shots` is the more general address. **A cut-boundary mode stays
+possible and is not the default**; the argument for adding one later is a
+specific question a per-shot sheet cannot answer, and none has been named yet.
+
+### Budget and paging: about twenty-four tiles, four across
+
+The constraint is the model's own image handling, not the file: vision
+downscales anything over ~1568 px on its long edge, and a downscaled sheet is
+a downscaled *label*. Measured at two tile widths, four across:
+
+| tiles | tile width | sheet | bytes | long edge |
+|---|---|---|---|---|
+| 25 | 320 | 1296×1096 | 198 KiB | native |
+| 25 | 384 | 1552×1313 | 261 KiB | native |
+
+The 384 sheet was read back exactly: asked for the labels of the **bottom
+four** tiles alone, the model returned all four verbatim
+(`s3-reveal t=265.6s src=30.5s`, …) and counted the distinct clip names across
+the whole grid correctly (9). So a page is **~24 tiles at 384 px, four
+across**, which is one page for this film's whole picture track and is the
+number a `page` argument should default to. An hour-long edit is several
+pages, addressed by shot index — deliberately not by "give me everything",
+which is how a tool result becomes a megabyte.
+
+### Composition: `magick montage`, label on its own band
+
+Both routes were built and timed on twelve real frames:
+
+- **`magick montage`** — 0.95 s for twelve, one subprocess per tile plus the
+  montage. `-splice` puts the label on a black band **below** the frame, so it
+  never covers picture, and `-geometry +2+2` gives the grid gutters.
+- **`ffmpeg` `xstack`** — 0.74 s, one call. Faster, and worse in three ways
+  that matter more than 0.2 s: the layout string has to be hand-built per tile
+  count (`w0+w1_h0`-style offsets, one term per column and row), `drawtext`
+  burns the label **over** the picture, and with no gutters two adjacent dark
+  tiles run together — visible in the probe output.
+
+`magick` is also already this repo's rasteriser, resolved through
+`graphics.magick_command()` with its coder caveat recorded. Both share the
+font-substitution risk libass has (CLAUDE.md § The font named in a style may
+not be installed), and the mitigation is the same one the cards use: the label
+is drawn at a size where a substitute is still legible, and legibility is
+settled by reading a render, which is what the measurements above did.
+
+### Cost, and containment
+
+**0.295 s per frame** to extract on this film (1920×816 h264 — a seek plus one
+frame through `picture.extract_frame`), so a cold 25-tile sheet is ~7.4 s of
+extraction plus ~1.8 s of montage. Cached, a second call is the montage alone.
+
+Containment is `ops.thumbnail`'s exactly, and it is the point: frames resolve
+through `media.media_path()` and `picture.extract_frame`, cached under
+`cache/`, keyed by `(asset, source second)` the way `cache/thumbs/` already is.
+**No third caller of `media.preview_path()`, ever** — a proxy is downscaled and
+never enters the manifest, and a contact sheet that reached one would be
+showing the agent a preview encode and calling it the film.
+
+### What this is not
+
+A reading is an **opinion, not a check**. `reframe_sheet` is the precedent: it
+draws the evidence and a person judges it; it decides nothing and nothing
+downstream reads its verdict. The same holds here — the sheet is how an agent
+forms a hypothesis it must then confirm with an op that measures
+(`check_black`, `check_frames`, `verify`, `film_check`). Nothing in lucid
+should ever gate on what a model said it saw.
+
+### Open, for the review this note stops for
+
+- **Whether the sheet takes a span.** Per-shot over the whole film is the
+  simple contract; `start`/`end` seconds would let an agent look at the part it
+  just changed. Adding it later is additive; adding it now is a second address
+  to keep correct.
+- **What else rides the label.** Clip name, timeline second and source second
+  were enough for every question asked in the probe. The shot index, the cue's
+  own word, and a `pinned` marker are all candidates and all cost label width,
+  which is the thing that was measured to be tight.
+- **The CLI half.** Parity says `lucid contact-sheet` exists; it writes a file
+  for a person rather than returning an image, the same op with two
+  deliveries. Whether the MCP tool *also* returns the path (so a human can open
+  what the agent looked at) is a small decision with a real answer either way.
+- **Whether an agent should be able to sheet a *render* rather than the
+  project.** It is the honest version of "watch what you made" and it opens
+  `renders/` to a second reader, which `GET /api/output` was deliberately kept
+  narrow about (§ Open questions, *Should the workspace play its own output*).
+  Parked here rather than decided.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 
