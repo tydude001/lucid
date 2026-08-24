@@ -95,13 +95,19 @@ def test_the_film_is_left_alone(film: Project, tmp_path: Path) -> None:
     to take one reel leaves it swapped after a render nobody kept — the failure
     `tiktok-reels` refuses one level down (HISTORY.md § `tiktok-reels`)."""
     before = film.manifest_path.read_text(encoding="utf-8")
+    before_history = film.snapshots()
 
     ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0, canvas="1080x1920")
 
     assert film.manifest_path.read_text(encoding="utf-8") == before
     assert ops._load_edit(film).duration == pytest.approx(12.0)
     assert ops.canvas(film.root)["canvas"] == "1920x816"
-    assert film.snapshots() == [], "the film's undo stack is not where the cuts went"
+    # A delta, not an empty stack: the fixture builds the film through
+    # `write_manifest`, which is a snapshot in its own right now. What must
+    # hold is that `reel` adds nothing to it.
+    assert [s.index for s in film.snapshots()] == [s.index for s in before_history], (
+        "the film's undo stack is not where the cuts went"
+    )
 
 
 # -- what the derivation has to carry ------------------------------------

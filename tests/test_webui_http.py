@@ -40,6 +40,15 @@ needs_ffprobe = pytest.mark.skipif(
 pytestmark = needs_ffprobe
 
 
+#: The undo depth a project has the moment it is seeded, before anyone edits
+#: it. `import_media` and `seed_timeline` each write the manifest, and a
+#: manifest write is a snapshot now (POLISH.md § Step 03) — most authoring
+#: state lives there, so undo had to cover it. "Nothing has been edited yet"
+#: is therefore this number rather than zero. Named once, so a change in what
+#: setup does is explained in one place instead of eight.
+SEEDED_DEPTH = 2
+
+
 def _make_wav(path: Path, *, duration: float = 12.0) -> None:
     rate = 22050
     with wave.open(str(path), "w") as out:
@@ -241,7 +250,7 @@ def test_overlapping_cut_at_spans_refuse_as_400_not_500(server: str) -> None:
 
     # And nothing got through: an overlap refusal is refused as a whole call.
     _, view = _json(f"{server}/api/view")
-    assert view["undo_depth"] == 0
+    assert view["undo_depth"] == SEEDED_DEPTH
 
 
 def test_cut_at_plan_true_returns_ops_cut_by_time_own_return_value(
@@ -261,7 +270,7 @@ def test_cut_at_plan_true_returns_ops_cut_by_time_own_return_value(
     assert payload == expected
 
     _, view = _json(f"{server}/api/view")
-    assert view["undo_depth"] == 0
+    assert view["undo_depth"] == SEEDED_DEPTH
     assert view["words"][3]["present"] is True  # nothing actually cut
 
 
@@ -277,7 +286,7 @@ def test_cut_at_plan_false_actually_mutates_the_timeline(server: str) -> None:
     _, view = _json(f"{server}/api/view")
     assert view["timeline_duration"] == pytest.approx(applied["duration_after"])
     assert view["timeline_duration"] < before["timeline_duration"]
-    assert view["undo_depth"] == 1
+    assert view["undo_depth"] == SEEDED_DEPTH + 1
     word = next(w for w in view["words"] if w["index"] == 3)
     assert word["present"] is True
     assert word["partial"] is True
@@ -292,7 +301,7 @@ def test_cut_at_requires_json_content_type(server: str) -> None:
         assert "application/json" in payload["error"]
 
     _, view = _json(f"{server}/api/view")
-    assert view["undo_depth"] == 0  # nothing got through
+    assert view["undo_depth"] == SEEDED_DEPTH  # nothing got through
 
 
 def test_cut_at_refuses_a_non_loopback_host(server: str) -> None:
@@ -310,7 +319,7 @@ def test_cut_at_refuses_a_non_loopback_host(server: str) -> None:
     assert code == 403
 
     _, view = _json(f"{server}/api/view")
-    assert view["undo_depth"] == 0
+    assert view["undo_depth"] == SEEDED_DEPTH
 
 
 def test_cut_at_404s_under_picker_root_before_a_project_is_open(
@@ -391,7 +400,7 @@ def test_cut_at_confirm_suspect_round_trips_over_http(tmp_path: Path) -> None:
         assert confirmed["removed"] > 0
 
         _, view = _json(f"{server}/api/view")
-        assert view["undo_depth"] == 1
+        assert view["undo_depth"] == SEEDED_DEPTH + 1
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -826,12 +835,12 @@ def test_apply_then_undo_returns_the_timeline_and_the_words(server: str) -> None
 
     _post(f"{server}/api/cut", {"clip_id": "vo", "ranges": [[3, 4]], "mode": "cut"})
     _, cut = _json(f"{server}/api/view")
-    assert cut["undo_depth"] == 1
+    assert cut["undo_depth"] == SEEDED_DEPTH + 1
     assert cut["timeline_duration"] < before["timeline_duration"]
 
     status, undone = _post(f"{server}/api/undo", {})
     assert status == 200
-    assert undone["undo_depth"] == 0
+    assert undone["undo_depth"] == SEEDED_DEPTH
 
     _, restored = _json(f"{server}/api/view")
     assert restored["timeline_duration"] == pytest.approx(before["timeline_duration"])
@@ -1311,6 +1320,41 @@ def test_captions_follow_a_cut(server: str) -> None:
     assert after["cues"][0]["start"] == pytest.approx(0.1)
 
 
+def test_undoing_a_manifest_only_mutation_moves_the_revision(
+    project: Path, server: str
+) -> None:
+    """A cue undo puts back a manifest and never touches `project.otio`, so an
+    open window has to hear about it the same way a restyle does. `_revision`
+    watches the manifest's mtime and the snapshot count, and this is the claim
+    that both halves of the restore reach it (POLISH.md § Step 03)."""
+    ops.cue_add(project, clip_id="vo", word_index=3, asset="card:title")
+    _, before = _json(f"{server}/api/view")
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        _, first = next(events)
+
+        status, undone = _post(f"{server}/api/undo", {})
+        assert status == 200
+        assert undone["manifest_restored"] is True
+
+        for event, data in events:
+            if event == "project-changed" and data["revision"] != first["revision"]:
+                break
+        else:
+            pytest.fail("no project-changed event followed the undo")
+    finally:
+        conn.close()
+
+    _, after = _json(f"{server}/api/view")
+    assert after["undo_depth"] == before["undo_depth"] - 1
+    assert ops.cue_ls(project)["cues"] == []
+
+
 def test_a_restyle_moves_the_revision_so_an_open_window_repaints(
     project: Path, server: str
 ) -> None:
@@ -1469,12 +1513,17 @@ def test_a_mutating_request_must_be_json(server: str) -> None:
         assert "application/json" in payload["error"]
 
     _, view = _json(f"{server}/api/view")
-    assert view["undo_depth"] == 0  # nothing got through
+    assert view["undo_depth"] == SEEDED_DEPTH  # nothing got through
 
 
 def test_a_non_loopback_host_cannot_mutate_either(server: str) -> None:
-    status, _ = _post(f"{server}/api/undo", {})  # nothing to undo, but routed
-    assert status == 400
+    # A routed mutation from a good Host, for contrast with the refusal
+    # below. It used to be chosen because there was nothing to undo; the
+    # fixture's own import and seed are undoable now (POLISH.md § Step 03),
+    # so what it demonstrates is a 200 rather than a 400 — the point of the
+    # test is the 403 that follows.
+    status, _ = _post(f"{server}/api/undo", {})
+    assert status == 200
 
     request = urllib.request.Request(
         f"{server}/api/cut",

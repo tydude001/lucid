@@ -10387,3 +10387,58 @@ not the directory. A test asserts the path appears nowhere in the row.
 caller is a person who has just cloned this — and exits non-zero when
 something required is missing, so a setup script can gate on it. `--json` is
 the same dict the MCP tool returns. Optional entries never move the exit code.
+
+## Manifest-aware undo — a snapshot is a pair — 2026-08-24
+
+POLISH.md § Step 03. `Project.snapshot()` copied `project.otio` and
+`restore()` put it back, which covered cuts and nothing else. Most authoring
+state stopped living in the timeline some time ago: the cue table, framing
+rects, the music bed, the caption style, head/tail/holds, unspoken marks and
+card records are all manifest keys that touch no `project.otio` at all. So a
+mis-dragged cue or a wrong framing rect had **no undo**, while a cut undid
+fine — and the Studio reshape is what made both a single gesture.
+
+A snapshot is now a pair, `N.otio` + `N.manifest.json`, written together and
+restored together. Two decisions carry it.
+
+**`Project.write_manifest` snapshots by default**, rather than a `_save_manifest`
+helper threaded through thirty-one call sites. The safe direction is the
+opposite of the obvious one: a manifest write that skipped history would not
+merely be un-undoable, it would be **erased by the next undo**, because a
+restore puts back the whole file. A forgotten call site under the default gets
+undo; a forgotten one under an opt-in loses data invisibly. Two writes opt out
+by name — `migrate` (which has `_backup_manifest`, and whose schema bump must
+not become an undo step) and `reel`'s seeding of the project it is in the
+middle of creating.
+
+**The snapshot is taken at most once per `Project` instance.** `_save_edit`
+snapshots and so does `write_manifest`, and `seed_timeline`/`import_edit`
+write both — which would cost two presses to take back one decision. The
+instance is the right scope rather than a lucky one: every op opens its own
+`Project` at the top and one op is one user action, while `reel` holds two
+instances for two projects and snapshots each on its own. It is a mutable
+field on a frozen dataclass, excluded from equality, so the handle stays
+hashable and comparable by root exactly as before.
+
+The two absences are not symmetrical, and `undo`'s return names which happened
+rather than leaving three identical-looking outcomes. **No manifest** is an
+older lucid's snapshot: the timeline comes back alone and the manifest is left
+exactly as it stands, never guessed at (`manifest_restored: false`). **No
+timeline** is a state that had none — undoing a `seed_timeline` — so
+`project.otio` is *removed*, because leaving the seeded edit in place would
+report an undo that did not happen.
+
+Two consequences accepted and reported rather than special-cased. Undoing an
+import un-registers the clip and leaves its media on disk: a manifest is a
+registry, and deleting somebody's footage is not an undo. Undoing past a
+`pack_apply` rolls the pack back, which is correct — it was a mutation.
+
+What this changed in the tests is worth naming, because it looks like churn
+and is not: a freshly seeded project now has an undo depth of **two** (import
+and seed each write the manifest), so fourteen assertions that read `== 0` or
+`== 1` became `SEEDED_DEPTH` and `SEEDED_DEPTH + 1`. The claim each one makes
+— "the cut added exactly one undo step" — is unchanged; what moved is the
+baseline it counts from, and it is named once per file rather than inlined.
+`_revision` already watched the manifest's mtime and the snapshot count, so a
+manifest restore fires `project-changed` for an open window for free; that is
+asserted over a real SSE connection rather than assumed.

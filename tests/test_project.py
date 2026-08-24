@@ -115,12 +115,20 @@ def test_migrate_copies_the_manifest_aside_before_writing(tmp_path: Path) -> Non
 
 
 def test_the_manifest_backup_is_invisible_to_undo(tmp_path: Path) -> None:
-    """`snapshots()` globs `*.otio` and parses stems as ints — a stray `.json`
-    in there must not become an undo step, or land in `int()`."""
+    """`lucid-v3.json` lives in `cache/history/` beside the numbered snapshots
+    and must not become an undo step: rolling the timeline back one edit must
+    not roll the schema back with it. Measured as a delta rather than against
+    an empty stack, because a manifest write is itself a snapshot now — the
+    fixture's own `write_manifest` takes one — and `migrate` is the write that
+    must not."""
     project = _v1_project(tmp_path)
-    Project.migrate(project.root)
+    before = project.snapshots()
 
-    assert project.snapshots() == []
+    backup = Path(Project.migrate(project.root)["backup"])
+
+    assert backup.parent == project.history_dir
+    assert [s.index for s in project.snapshots()] == [s.index for s in before]
+    assert backup not in {s.manifest for s in project.snapshots()}
 
 
 def test_migrate_plans_without_writing(tmp_path: Path) -> None:

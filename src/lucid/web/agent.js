@@ -569,10 +569,21 @@ function handleRenderEvent(data) {
  * happened to the edit". */
 function describeOp(payload) {
   if (payload && typeof payload.restored_from === "string") {
-    return (
-      `Undo — restored ${payload.segments ?? "?"} segment(s), ` +
-      `${fmt(payload.timeline_duration)} timeline. Undo depth ${payload.undo_depth ?? "?"}.`
-    );
+    // A snapshot is a pair now, and the three answers look identical from
+    // here unless the op's own flags are read: a cut coming back, a cue
+    // table coming back, and a seed being taken away. Read `manifest_restored`
+    // and `timeline_removed` off the reply rather than inferring either from
+    // the segment count — the pane draws what the op returned.
+    const parts = [];
+    if (payload.timeline_removed) {
+      parts.push("removed the timeline (undoing the seed)");
+    } else if (payload.timeline_restored) {
+      parts.push(`${payload.segments ?? "?"} segment(s), ${fmt(payload.timeline_duration)}`);
+    }
+    if (payload.manifest_restored) parts.push("project settings");
+    else if (payload.manifest_restored === false) parts.push("timeline only (older snapshot)");
+    const what = parts.length ? parts.join(" · ") : "the previous state";
+    return `Undo — restored ${what}. Undo depth ${payload.undo_depth ?? "?"}.`;
   }
   if (payload && typeof payload.removed === "number") {
     const removed = payload.removed.toFixed(2);

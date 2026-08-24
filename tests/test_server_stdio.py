@@ -25,9 +25,10 @@ from typing import Any
 
 import anyio
 import pytest
+from mcp import ClientSession, StdioServerParameters, stdio_client
+
 from lucid import energy, finishlog, graphics, media, ops, picture
 from lucid.project import Project
-from mcp import ClientSession, StdioServerParameters, stdio_client
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
 
@@ -121,6 +122,14 @@ EXPECTED_TOOLS = {
     "contact_sheet",
     "finish_report",
 }
+
+#: The undo depth a project has the moment it is seeded, before anyone edits
+#: it. `import_media` and `seed_timeline` each write the manifest, and a
+#: manifest write is a snapshot now (POLISH.md § Step 03) — most authoring
+#: state lives there, so undo had to cover it. "Nothing has been edited yet"
+#: is therefore this number rather than zero. Named once, so a change in what
+#: setup does is explained in one place instead of eight.
+SEEDED_DEPTH = 2
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -222,6 +231,114 @@ def test_doctor_takes_no_arguments_over_stdio() -> None:
     tools = anyio.run(_with_server, body)
     doctor = next(t for t in tools.tools if t.name == "doctor")
     assert not doctor.input_schema.get("properties")
+
+
+@needs_ffprobe
+def test_a_manifest_only_mutation_undoes_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The hole POLISH.md § Step 03 closes, asserted through the real server.
+
+    A cue touches no `project.otio` at all, so the timeline-only undo covered
+    cuts and nothing a gesture in the window can now do. Over the wire because
+    the snapshot happens inside `Project.write_manifest`, and a unit test of
+    `cue_add` would not notice a registration or a transport that lost it.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, audio, transcript)
+        before = await client.call("cue_ls", path=str(project))
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip, word_index=4, asset="card:title"
+        )
+        added = await client.call("cue_ls", path=str(project))
+        undone = await client.call("undo", path=str(project))
+        return {"before": before, "added": added, "undone": undone,
+                "after": await client.call("cue_ls", path=str(project))}
+
+    out = anyio.run(_with_server, body)
+
+    assert len(out["added"]["cues"]) == len(out["before"]["cues"]) + 1
+    assert out["undone"]["manifest_restored"] is True
+    assert out["undone"]["timeline_restored"] is True
+    assert out["after"]["cues"] == out["before"]["cues"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_framing_rect_undoes_over_the_wire(tmp_path: Path) -> None:
+    """`reframe` is the other manifest-only one-gesture mutation (Frame mode).
+
+    A real video source, because framing is refused on an audio-only project
+    — there is no frame to crop.
+    """
+    source = tmp_path / "clip.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, source, None)
+        set_to = await client.call(
+            "reframe", path=str(project), clip_id=clip, rect="10,0,100,120"
+        )
+        undone = await client.call("undo", path=str(project))
+        return {"set_to": set_to, "undone": undone,
+                "after": await client.call("reframe", path=str(project))}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["set_to"]["written"] is True
+    assert out["undone"]["manifest_restored"] is True
+    assert all(entry.get("stored") is None for entry in out["after"]["clips"])
+
+
+@needs_ffprobe
+def test_a_mixed_sequence_undoes_one_mutation_per_press(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """cut, cue, cut — in reverse, one decision at a time.
+
+    The failure this rules out is an op that snapshots twice because it writes
+    both files, which would cost two presses to take back one thing.
+    """
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        clip = await _seeded(client, project, audio, transcript)
+        await client.call("cut_by_time", path=str(project), spans=[[1.0, 2.0]])
+        await client.call(
+            "cue_add", path=str(project), clip_id=clip, word_index=6, asset="card:title"
+        )
+        await client.call("cut_by_time", path=str(project), spans=[[8.0, 9.0]])
+        steps = []
+        for _ in range(3):
+            steps.append(
+                {
+                    "status": await client.call("timeline_status", path=str(project)),
+                    "cues": len((await client.call("cue_ls", path=str(project)))["cues"]),
+                }
+            )
+            await client.call("undo", path=str(project))
+        steps.append(
+            {
+                "status": await client.call("timeline_status", path=str(project)),
+                "cues": len((await client.call("cue_ls", path=str(project)))["cues"]),
+            }
+        )
+        return steps
+
+    steps = anyio.run(_with_server, body)
+    durations = [round(s["status"]["timeline_duration"], 2) for s in steps]
+    cues = [s["cues"] for s in steps]
+
+    assert durations == [10.0, 11.0, 11.0, 12.0]
+    assert cues == [1, 1, 0, 0]
 
 
 def test_server_serves_ping_over_stdio() -> None:
@@ -456,11 +573,11 @@ def test_cut_by_transcript_end_to_end(tmp_path: Path, sources: tuple[Path, Path]
     assert out["cut"]["removed"] == pytest.approx(1.9, abs=0.01)
     assert out["cut"]["segments"] == 2
     assert out["status"]["timeline_duration"] == pytest.approx(10.1, abs=0.05)
-    assert out["status"]["undo_depth"] == 1
+    assert out["status"]["undo_depth"] == SEEDED_DEPTH + 1
 
     # Undo puts the timeline back exactly.
     assert out["undone"]["timeline_duration"] == pytest.approx(12.0, abs=0.05)
-    assert out["undone"]["undo_depth"] == 0
+    assert out["undone"]["undo_depth"] == SEEDED_DEPTH
 
 
 @needs_ffprobe
@@ -1035,12 +1152,12 @@ def test_cut_plan_resolves_without_touching_the_timeline(
 
     # Planning wrote nothing: same duration, and no snapshot to roll back.
     assert out["after_plan"]["timeline_duration"] == pytest.approx(12.0, abs=0.05)
-    assert out["after_plan"]["undo_depth"] == 0
+    assert out["after_plan"]["undo_depth"] == SEEDED_DEPTH
 
     # And the plan was exact — same removal, same resulting segment count.
     assert out["cut"]["removed"] == pytest.approx(planned["removed"], abs=1e-9)
     assert out["cut"]["segments"] == planned["segments"] == 2
-    assert out["after_cut"]["undo_depth"] == 1
+    assert out["after_cut"]["undo_depth"] == SEEDED_DEPTH + 1
 
 
 @needs_ffprobe
@@ -1564,7 +1681,7 @@ def test_cut_plan_reports_a_suspect_boundary_instead_of_refusing_it(tmp_path: Pa
     assert flagged[0]["text"] == "bit"
     assert flagged[0]["range"] == [3, 4]
     # Reported, not applied — the timeline is still untouched.
-    assert out["status"]["undo_depth"] == 0
+    assert out["status"]["undo_depth"] == SEEDED_DEPTH
 
 
 @needs_ffprobe
@@ -1786,7 +1903,7 @@ def test_cut_by_time_plan_matches_the_real_cut(
     out = anyio.run(_with_server, body)
 
     assert out["planned"]["plan"] is True
-    assert out["status_after_plan"]["undo_depth"] == 0
+    assert out["status_after_plan"]["undo_depth"] == SEEDED_DEPTH
     assert out["cut"]["duration_after"] == pytest.approx(out["planned"]["duration_after"], abs=1e-9)
     assert out["cut"]["removed"] == pytest.approx(out["planned"]["removed"], abs=1e-9)
     assert out["cut"]["applied"] == out["planned"]["applied"]
@@ -1969,7 +2086,7 @@ def test_cut_by_time_with_plan_reports_a_suspect_boundary_instead_of_refusing(
     flagged = out["planned"]["suspect_boundaries"]
     assert [hit["index"] for hit in flagged] == [3]
     assert flagged[0]["text"] == "bit"
-    assert out["status"]["undo_depth"] == 0
+    assert out["status"]["undo_depth"] == SEEDED_DEPTH
 
 
 @needs_ffprobe
@@ -5776,7 +5893,7 @@ def test_timeline_view_carries_both_coordinate_systems_per_segment(
     # recomputes by summing durations.
     assert second["start"] == pytest.approx(4.9)
     assert second["timeline_start"] == pytest.approx(3.0)
-    assert view["undo_depth"] == 1
+    assert view["undo_depth"] == SEEDED_DEPTH + 1
 
 
 @needs_ffprobe

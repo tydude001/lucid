@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -200,11 +200,65 @@ def _migration_steps(found: Any, manifest_path: Path) -> list[int]:
     return list(range(found, SCHEMA_VERSION))
 
 
+#: The suffix a snapshot's manifest half carries. Two dots on purpose: the
+#: glob `*.manifest.json` cannot reach `lucid-v3.json`, which
+#: `_backup_manifest` writes into the same directory and which must stay
+#: invisible to undo (rolling the timeline back one edit must not roll the
+#: schema back with it).
+MANIFEST_SNAPSHOT_SUFFIX = ".manifest.json"
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """One saved project state: the timeline, the manifest, or both.
+
+    A pair rather than a file, because most authoring state stopped living in
+    the timeline. The cue table, framing rects, the music bed, the caption
+    style, head/tail/holds, unspoken marks and card records are all manifest
+    keys that touch no `project.otio` at all — so an undo that restored only
+    the timeline covered cuts and nothing a gesture in the window can now do
+    (POLISH.md § Step 03).
+
+    Either half may be absent, and the two absences mean different things:
+
+    - **no `manifest`** — a snapshot written by a lucid that only saved
+      timelines. It restores the timeline alone and says so; it never guesses
+      at a manifest it does not have.
+    - **no `timeline`** — the project had no timeline when this was taken, so
+      the state being restored is one with no timeline in it. Undoing a
+      `seed_timeline` is exactly this case, and restoring it removes the
+      timeline the seed laid down.
+    """
+
+    index: int
+    timeline: Path | None
+    manifest: Path | None
+
+    @property
+    def legacy(self) -> bool:
+        """A timeline-only snapshot from before manifests were saved."""
+        return self.manifest is None
+
+
 @dataclass(frozen=True)
 class Project:
     """A handle to a project directory. Cheap to construct; does no I/O."""
 
     root: Path
+
+    #: The snapshot this instance already took, if any — the guard that keeps
+    #: one op to one undo step. `_save_edit` snapshots and so does
+    #: `write_manifest`, and an op doing both (`seed_timeline`, `import_edit`)
+    #: would otherwise leave two history entries for one user action, needing
+    #: two undos to walk back one decision.
+    #:
+    #: Per *instance* rather than per directory, and that is what makes it
+    #: correct rather than merely convenient: every op opens its own `Project`
+    #: at the top and one op is one user action, while `reel` — which touches
+    #: two projects — holds two instances and snapshots each on its own.
+    #: A mutable field on a frozen dataclass, excluded from equality, so the
+    #: handle stays hashable and comparable by root exactly as before.
+    _taken: list[Snapshot] = field(default_factory=list, compare=False, repr=False)
 
     # -- layout ----------------------------------------------------------
 
@@ -335,37 +389,98 @@ class Project:
 
     # -- history ---------------------------------------------------------
 
-    def snapshots(self) -> list[Path]:
-        """Every saved timeline state, oldest first."""
+    def snapshots(self) -> list[Snapshot]:
+        """Every saved state, oldest first — timelines and manifests paired up.
+
+        Indices come off the filenames rather than a counter, so the two halves
+        of one state find each other by number and a half-written pair is still
+        a readable snapshot. Anything in `cache/history/` that is not numbered
+        is not a snapshot: `lucid-v3.json` (the pre-migration manifest backup)
+        lives here too and stays invisible to undo on purpose.
+        """
         if not self.history_dir.exists():
             return []
-        return sorted(self.history_dir.glob("*.otio"), key=lambda p: int(p.stem))
+        found: dict[int, dict[str, Path]] = {}
+        for path in self.history_dir.iterdir():
+            if path.suffix == ".otio" and path.stem.isdigit():
+                found.setdefault(int(path.stem), {})["timeline"] = path
+            elif path.name.endswith(MANIFEST_SNAPSHOT_SUFFIX):
+                stem = path.name[: -len(MANIFEST_SNAPSHOT_SUFFIX)]
+                if stem.isdigit():
+                    found.setdefault(int(stem), {})["manifest"] = path
+        return [
+            Snapshot(index=i, timeline=found[i].get("timeline"), manifest=found[i].get("manifest"))
+            for i in sorted(found)
+        ]
 
-    def snapshot(self) -> Path | None:
-        """Copy the current timeline into history before it is overwritten.
+    def snapshot(self) -> Snapshot | None:
+        """Copy the current state into history before it is overwritten.
 
         A non-deterministic agent mutating a single source of truth in place is
-        exactly the case where undo is not a tier-2 feature (PLAN.md). Returns
-        None when there is no timeline yet — the first write has nothing to
-        lose.
+        exactly the case where undo is not a tier-2 feature (PLAN.md). Both
+        files go, together: a cue drag, a framing rect and a music bed are
+        mutations the window can make in one gesture and none of them touches
+        `project.otio`.
+
+        **At most once per `Project` instance.** An op that writes both files
+        would otherwise cost two undos to walk back one decision; the second
+        call returns the same snapshot the first took. The instance is the
+        right scope because every op opens its own (see `_taken`).
+
+        Returns None when there is nothing to lose — a project with neither
+        file yet, which is the state `Project.create` writes its first manifest
+        into. That is the same early return the timeline-only version had,
+        widened by one file.
         """
-        if not self.timeline_path.exists():
+        if self._taken:
+            return self._taken[-1]
+        halves = [
+            (self.timeline_path, "{}.otio"),
+            (self.manifest_path, "{}" + MANIFEST_SNAPSHOT_SUFFIX),
+        ]
+        live = [(src, pattern) for src, pattern in halves if src.exists()]
+        if not live:
             return None
+
         self.history_dir.mkdir(parents=True, exist_ok=True)
         existing = self.snapshots()
-        nxt = (int(existing[-1].stem) + 1) if existing else 0
-        dest = self.history_dir / f"{nxt}.otio"
-        shutil.copy2(self.timeline_path, dest)
-        return dest
+        index = (existing[-1].index + 1) if existing else 0
+        copied: dict[str, Path] = {}
+        for src, pattern in live:
+            dest = self.history_dir / pattern.format(index)
+            shutil.copy2(src, dest)
+            copied["timeline" if dest.suffix == ".otio" else "manifest"] = dest
 
-    def restore(self) -> Path:
-        """Roll the timeline back to the most recent snapshot, consuming it."""
+        taken = Snapshot(
+            index=index, timeline=copied.get("timeline"), manifest=copied.get("manifest")
+        )
+        self._taken.append(taken)
+        return taken
+
+    def restore(self) -> Snapshot:
+        """Roll back to the most recent snapshot, consuming it.
+
+        What each half means when it is absent is `Snapshot`'s own docstring,
+        and the two are not symmetrical. A snapshot with no manifest is an
+        older lucid's, and the manifest is left exactly as it stands rather
+        than guessed at. A snapshot with no *timeline* is a state that had no
+        timeline, so the timeline is **removed** — that is what undoing a
+        `seed_timeline` means, and leaving the seeded edit in place would
+        report an undo that did not happen.
+        """
         existing = self.snapshots()
         if not existing:
             raise ProjectError("nothing to undo — this project has no history")
         latest = existing[-1]
-        shutil.copy2(latest, self.timeline_path)
-        latest.unlink()
+
+        if latest.timeline is not None:
+            shutil.copy2(latest.timeline, self.timeline_path)
+            latest.timeline.unlink()
+        elif latest.manifest is not None:
+            self.timeline_path.unlink(missing_ok=True)
+        if latest.manifest is not None:
+            shutil.copy2(latest.manifest, self.manifest_path)
+            latest.manifest.unlink()
         return latest
 
     # -- lifecycle -------------------------------------------------------
@@ -454,7 +569,10 @@ class Project:
         for version in steps:
             manifest = _MIGRATIONS[version](manifest)
             manifest["schema_version"] = version + 1
-        project.write_manifest(manifest)
+        # `_backup_manifest` is this write's history, and it is deliberately
+        # not `snapshot()`'s: rolling the timeline back one edit must not roll
+        # the schema back with it.
+        project.write_manifest(manifest, snapshot=False)
         report["schema_version"] = SCHEMA_VERSION
         report["migrated"] = True
         return report
@@ -484,8 +602,25 @@ class Project:
             raise ProjectError(f"{self.manifest_path} must contain a JSON object")
         return manifest
 
-    def write_manifest(self, manifest: dict[str, Any]) -> None:
-        """Write the manifest atomically, so a crash can't truncate it."""
+    def write_manifest(self, manifest: dict[str, Any], *, snapshot: bool = True) -> None:
+        """Snapshot, then write the manifest atomically, so a crash can't truncate it.
+
+        The snapshot is on by default and that is the load-bearing decision.
+        Most authoring state lives here now — the cue table, framing rects, the
+        music bed, the caption style, head/tail/holds, marks, card records —
+        and a manifest write that skipped history would not merely be
+        un-undoable: it would be **erased by the next undo**, since a restore
+        puts back the whole file. So the safe direction is to snapshot unless
+        told otherwise, and `Project.snapshot`'s own once-per-instance guard is
+        what keeps an op that writes both files to one undo step.
+
+        `snapshot=False` is for the two writes that are not a user's edit:
+        `migrate` (which has `_backup_manifest`, and whose schema bump must not
+        become an undo step) and `reel`'s seeding of a project it is in the
+        middle of creating.
+        """
+        if snapshot:
+            self.snapshot()
         tmp = self.manifest_path.with_suffix(".json.tmp")
         with tmp.open("w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2, sort_keys=True)

@@ -198,6 +198,8 @@ ones are recognisably his video.
 
 ## Step 03 — manifest-aware undo
 
+Shipped — see HISTORY.md § Manifest-aware undo — a snapshot is a pair.
+
 **Why.** Verified 2026-08-24: `Project.snapshot()` copies only
 `project.otio` (project.py ~344) and `undo` restores only it (ops.py ~5227).
 But most authoring state now lives in the **manifest** — the cue table,

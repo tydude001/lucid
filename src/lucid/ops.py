@@ -5252,15 +5252,56 @@ def speech_overlap(
 
 
 def undo(path: Path | str) -> dict[str, Any]:
+    """Roll the project back one mutation — the timeline, the manifest, or both.
+
+    Most authoring state is manifest state now (the cue table, framing rects,
+    the music bed, the caption style, head/tail/holds, marks, card records),
+    so a snapshot is a **pair** and undo restores whichever halves it holds.
+    The return says which, because the three answers look identical from
+    outside and only one of them is "your cut came back":
+
+    - `manifest_restored: false` on an older, timeline-only snapshot. The
+      manifest is left exactly as it stands rather than guessed at.
+    - `timeline_removed: true` where the snapshot pre-dates there being a
+      timeline at all — undoing a `seed_timeline`. Nothing is loaded back,
+      because the state being restored had nothing to load.
+
+    Two consequences worth stating rather than special-casing. Undoing an
+    import un-registers the clip and **leaves its media on disk** — a
+    manifest is a registry, and deleting somebody's footage is not an undo.
+    And undoing past a `pack_apply` rolls the pack back, which is correct: it
+    was a mutation like any other.
+    """
     project = Project.open(path)
     restored = project.restore()
-    edit = _load_edit(project)
-    return {
-        "restored_from": str(restored),
-        "timeline_duration": edit.duration,
-        "segments": len(edit.segments),
+    report: dict[str, Any] = {
+        "restored_from": str(restored.timeline or restored.manifest),
+        "timeline_restored": restored.timeline is not None,
+        "manifest_restored": restored.manifest is not None,
+        "timeline_removed": restored.timeline is None and restored.manifest is not None,
         "undo_depth": len(project.snapshots()),
     }
+    if project.timeline_path.exists():
+        edit = _load_edit(project)
+        report["timeline_duration"] = edit.duration
+        report["segments"] = len(edit.segments)
+    else:
+        # A pre-seed state has no `Edit` to measure, and reporting 0.0 would
+        # read as an empty timeline rather than no timeline.
+        report["timeline_duration"] = None
+        report["segments"] = None
+    if restored.manifest is None:
+        report["note"] = (
+            "this snapshot was written before lucid saved manifests, so only "
+            "the timeline came back — the cue table, framing, music bed and "
+            "caption style are untouched"
+        )
+    if report["timeline_removed"]:
+        report["note"] = (
+            "the state before this snapshot had no timeline, so `project.otio` "
+            "was removed — run `lucid seed <clip_id>` to lay one down again"
+        )
+    return report
 
 
 # -- attenuating noise, rather than cutting it ----------------------------
@@ -13818,7 +13859,11 @@ def reel(
             "source_duration": duration,
         }
         report["linked"] = _reel_media(source, reel_project, manifest)
-        reel_project.write_manifest(manifest)
+        # No snapshot: this is the derived project being *built*, not edited.
+        # A history entry here would offer an undo back to a half-constructed
+        # reel — a manifest with no timeline beside it yet — which is not a
+        # state anyone chose. Its own cut, below, is what belongs on the stack.
+        reel_project.write_manifest(manifest, snapshot=False)
 
         shutil.copy2(source.timeline_path, reel_project.timeline_path)
         # A transcript indexes the source, so it is as true of the reel as of
