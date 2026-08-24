@@ -57,11 +57,11 @@
  * Layout skeleton (see index.html):
  *   #bar                  top bar: brand/project left, Export/Undo/theme
  *                         right (DAYDREAM.md § Workspace shell)
- *   #workspace             grid: transcript-pane | preview-pane | agent-pane
- *                          | inspector-pane — the parity long tail's rail
- *                          (assets.js + properties.js, one pane split two
- *                          ways rather than two more grid tracks — neither
- *                          needs a transcript's or the agent feed's width)
+ *   #workspace             grid: transcript-pane | preview-pane | rail-pane
+ *                          — the third track is ONE pane with three tab
+ *                          panels (agent.js, assets.js, properties.js),
+ *                          never three columns and never two stacked panes
+ *                          sharing a column's height (§ .rail-tabs)
  *   #timeline-pane          full-width strip under the workspace, ~22vh —
  *                          the picture in #preview-pane is the largest thing
  *                          on screen, not this strip and not the transcript.
@@ -366,9 +366,9 @@
  *                            one floating-panel look in the app, not two.
  *
  * .pane-rail / .pane-rail-tab / .pane-collapse-btn
- *                             (F2) the collapsed-state icon rail #agent-pane
- *                            and #inspector-pane fall back to under their
- *                            own width breakpoints — a 46px column with one
+ *                             (F2) the collapsed-state icon rail #rail-pane
+ *                            falls back to under its own width
+ *                            breakpoint — a 46px column with one
  *                            tab button, never a pane that just disappears
  *                            past the edge of an `overflow: hidden` body
  *                            with no scrollbar and nothing in the console
@@ -518,9 +518,12 @@
      widths come down from their old 26/24/22rem so the preview's own floor,
      below, can go up instead — see the #workspace comment for the rest of
      the fix. */
-  --pane-transcript-w: 22rem;
-  --pane-agent-w: 20rem;
-  --pane-inspector-w: 18rem;
+  --pane-transcript-w: 23rem;
+  /* One rail, not two side columns (2026-08-24 — index.html § One rail,
+     three tabs). 20rem is the agent composer's own old width, the widest of
+     the three panels now sharing this track; the transcript takes the rem
+     the fourth column gave up. */
+  --pane-rail-w: 20rem;
   /* Floors for the four workspace tracks. The first three used to sum to
      exactly 800px, which is the failure the #workspace comment below
      describes; transcript's and agent's floors now match inspector's own
@@ -529,17 +532,14 @@
      FIRST at a widening one, instead of being last in both directions. */
   --pane-transcript-min: 15rem;
   --pane-preview-min: 26rem;
-  --pane-agent-min: 15rem;
-  --pane-inspector-min: 15rem;
-  /* F2: the width of the collapsed-pane rail (see #workspace's two
-     breakpoints). --pane-agent-track / --pane-inspector-track are
-     indirection cells: ordinarily each just equals its own
-     `minmax(min, w)` above, unchanged from before F2, but the breakpoints
-     swap ONE of them to `var(--rail-w)` without having to rewrite
-     #workspace's whole grid-template-columns to do it. */
+  --pane-rail-min: 17rem;
+  /* F2: the width of the collapsed-pane rail (see #workspace's own
+     breakpoint). --pane-rail-track is an indirection cell: ordinarily it
+     just equals its own `minmax(min, w)` above, unchanged from before F2,
+     but the breakpoint swaps it to `var(--rail-w)` without having to
+     rewrite #workspace's whole grid-template-columns to do it. */
   --rail-w: 46px;
-  --pane-agent-track: minmax(var(--pane-agent-min), var(--pane-agent-w));
-  --pane-inspector-track: minmax(var(--pane-inspector-min), var(--pane-inspector-w));
+  --pane-rail-track: minmax(var(--pane-rail-min), var(--pane-rail-w));
   /* The other two tracks got the same treatment when F2's EXPANDED state was
      finally measured (see § the expanded rail, below): ordinarily each is
      just the expression it always was, and the two breakpoints down there
@@ -651,6 +651,15 @@ button.primary:hover:not(:disabled) {
   outline-offset: 1px;
 }
 
+/* The two sliders in the app — the timeline's zoom and the render player's
+   scrub — drew in Chrome's OWN accent, which is close enough to --accent to
+   look intentional and is not it: it does not move with the theme and it is
+   whatever the OS says. One declaration puts both on the palette's blue,
+   the same token the playhead and every selection use. */
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
 input[type="number"],
 input[type="range"],
 input[type="text"],
@@ -667,6 +676,64 @@ textarea {
 input[type="number"] {
   width: 62px;
   font-family: var(--font-mono);
+}
+
+/* -- the export control -----------------------------------------------------
+ *
+ * `preset [Default ▾] [Export]` as one segmented control. The select used to
+ * stand alone and unlabelled beside the button, which made the four presets
+ * effectively undiscoverable: nothing on screen said what "Default" was the
+ * default OF. The label is the fix and the shared border is what stops it
+ * reading as a loose word in the bar.
+ *
+ * The `<select>` keeps its NATIVE appearance on purpose. Stripping it would
+ * cost the caret, and putting one back means a `data:` background-image —
+ * which this page's `default-src 'self'` CSP counts as a foreign image and
+ * blocks, the same way it blocked the old `data:,` favicon (index.html's own
+ * note on that). `color-scheme` already repaints the browser's own widgets
+ * per theme (§ tokens), so a native select is not an off-theme one.
+ *
+ * Radii are structural rather than per-id: the group's first and last
+ * children round outward and everything between is square, so
+ * #export-resolution appearing mid-group (the `custom` preset) does not
+ * break the seam. `:first-child`/`:last-child` are structural and ignore
+ * `hidden`, which is why the button keeps the right-hand radius while the
+ * input is folded away.
+ */
+.export-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.export-group > * {
+  border-radius: 0;
+}
+
+.export-group > :first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.export-group > :last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.export-label {
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-right: none;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.export-group #export-preset {
+  border-left: none;
+  border-right: none;
+  background: var(--panel);
+  color: var(--ink-2);
 }
 
 /* Export flow's WIDTHxHEIGHT box (index.html #export-resolution) — same
@@ -886,6 +953,31 @@ textarea {
    values). Same --partial/--wash-partial pairing `.warn`/`.check-badge.warn`
    already use, so a flagged chip reads as the same "attention" colour
    everywhere in the app that draws one. */
+/* The all-clear, and it exists because its ABSENCE was the bug. The flags
+   chip read a flat, uncoloured "0 flags" beside four other flat, uncoloured
+   chips, which is visually identical to a chip that has not loaded yet and
+   to one whose value happens to be dull — the one thing this strip must
+   never say by accident is "nothing to report" (CLAUDE.md § A blank chip
+   where a warning would go, measured on Frame mode's own coverage chips).
+   Saying it in the same green every DONE badge and every clean check in the
+   app already uses costs nothing and settles it at a glance.
+
+   Deliberately narrow: only the flags chip takes it. `flags.count === 0` is
+   the op's own answer about its own subject, so drawing it green is drawing
+   what the op returned. A green canvas or caption chip would be this file
+   forming an opinion about a number — "captions not burned" is not a
+   failure and not a success — which is the exact mistake the `on
+   ("finish-report")` note below records twice.
+
+   Unlike `.chip.warn` there is no block-level `.ok` callout in this file for
+   this to collide with, so it needs the three colour declarations and
+   nothing else. */
+.chip.ok {
+  border-color: var(--kept);
+  background: var(--wash-kept);
+  color: var(--kept);
+}
+
 .chip.warn {
   border-color: var(--partial);
   background: var(--wash-partial);
@@ -922,10 +1014,14 @@ textarea {
    way first and keep the picture the last thing to shrink, which is the same
    priority the layout is arguing for at every other width. Measured in a real
    browser at 700/800/900/1400, the way the `auto` track above was. */
-/* A fourth track, added for the assets/properties rail — same `minmax()`
-   discipline as the note above and for the same reason: a bare width here
-   would be the next way for a pane to disappear at an ordinary window size
-   with no scrollbar and nothing in the console. */
+/* A third track for the rail — same `minmax()` discipline as the note above
+   and for the same reason: a bare width here would be the next way for a
+   pane to disappear at an ordinary window size with no scrollbar and nothing
+   in the console. It carried a fourth track from the assets/properties
+   column's own arrival until 2026-08-24, when that column and the agent's
+   became one tabbed pane (index.html § One rail, three tabs) — the merge is
+   also what let the preview stop being third-widest at 1400px, which is what
+   F3 below was arguing for and only half won. */
 /* F3 (2026-08-17): the floors above kept the preview from vanishing but
    never made it WIN. Measured at 1600/1400/1200/1024px the preview pane was
    the smallest, or second-smallest, of the four tracks at every one of
@@ -937,15 +1033,15 @@ textarea {
    agent pane too, drew entirely past the right edge of a `body` that is
    `overflow: hidden` — no scrollbar, no error in the console, just a pane
    nobody could reach, the exact class of failure the two comments above
-   already describe once each. --pane-agent-track / --pane-inspector-track
-   are what let one grid column swap between "full pane" and "a 46px rail"
-   without rewriting the grid-template-columns below: normally each token
-   just equals its own `minmax(min, w)`, and the two breakpoints under this
-   rule redefine ONE of them to `var(--rail-w)`, with
-   `#workspace[data-expand~="…"]` (set by app.js's toggleRailPane, clicking
-   the rail's own tab) redefining it back.
-   Each breakpoint also has to hide the collapsed pane's other children —
-   .pane-head, #assets-list, #properties-body, the agent feed and composer —
+   already describe once each. --pane-rail-track is what lets one grid
+   column swap between "full pane" and "a 46px rail"
+   without rewriting the grid-template-columns below: normally the token
+   just equals its own `minmax(min, w)`, and the breakpoint under this
+   rule redefines it to `var(--rail-w)`, with
+   `#workspace[data-expand~="rail"]` (set by app.js's toggleRailPane,
+   clicking the rail's own tab) redefining it back.
+   The breakpoint also has to hide the collapsed pane's other children —
+   .rail-tabs, #assets-list, #properties-body, the agent feed and composer —
    and there the contract's literal "flip back to display: X" does not work:
    .pane-head is `display: flex`, its siblings are plain block, and CSS
    `revert` (the obvious way to "put it back") does not restore an author
@@ -967,8 +1063,7 @@ textarea {
   grid-template-columns:
     var(--pane-transcript-track)
     var(--pane-preview-track)
-    var(--pane-agent-track)
-    var(--pane-inspector-track);
+    var(--pane-rail-track);
   min-height: 0;
 }
 
@@ -981,60 +1076,42 @@ textarea {
   display: none;
 }
 
-/* F2's two collapsible-pane breakpoints. At any width under 980px BOTH
-   apply at once (980 < 1200), but they target different panes — the
-   read-only inspector collapses first, the wider 1200px trigger matching
-   the measurement that put it wider than the player; the agent pane, whose
-   composer is the thing you're actually typing into, collapses only
-   later, at the narrower 980px. */
-@media (max-width: 1200px) {
-  :root {
-    --pane-inspector-track: var(--rail-w);
-  }
-
-  #inspector-pane > .pane-rail {
-    display: flex;
-  }
-
-  #workspace:not([data-expand~="inspector"]) #inspector-pane > :not(.pane-rail) {
-    display: none;
-  }
-
-  #workspace[data-expand~="inspector"] {
-    --pane-inspector-track: minmax(var(--pane-inspector-min), var(--pane-inspector-w));
-  }
-
-  #workspace[data-expand~="inspector"] #inspector-pane > .pane-rail {
-    display: none;
-  }
-
-  #workspace[data-expand~="inspector"] #inspector-pane .pane-collapse-btn {
-    display: inline-block;
-  }
-}
-
+/* F2's collapsible rail, now ONE breakpoint instead of two.
+ *
+ * The old pair (1200px for the inspector, 980px for the agent) were solving a
+ * four-track grid. Three tracks demand 15rem + 26rem + 17rem = 928px at the
+ * default floors, so 1200px would now collapse a rail on a window with 272px
+ * to spare — a pane hidden for arithmetic that no longer holds. 980px is the
+ * one that survives: it clears the 928px demand by 52px and is the width the
+ * agent composer (the widest thing in the rail) was already measured at.
+ *
+ * Collapsed the demand is 240 + 416 + 46 = 702px, and F2's own hiding trick
+ * is unchanged — `:not([data-expand~="rail"])` on the OUTER selector, because
+ * CSS `revert` on a `display` would jump past the author rule to the UA
+ * default and bring `.rail-tabs` back as `block` rather than `flex`.
+ */
 @media (max-width: 980px) {
   :root {
-    --pane-agent-track: var(--rail-w);
+    --pane-rail-track: var(--rail-w);
   }
 
-  #agent-pane > .pane-rail {
+  #rail-pane > .pane-rail {
     display: flex;
   }
 
-  #workspace:not([data-expand~="agent"]) #agent-pane > :not(.pane-rail) {
+  #workspace:not([data-expand~="rail"]) #rail-pane > :not(.pane-rail) {
     display: none;
   }
 
-  #workspace[data-expand~="agent"] {
-    --pane-agent-track: minmax(var(--pane-agent-min), var(--pane-agent-w));
+  #workspace[data-expand~="rail"] {
+    --pane-rail-track: minmax(var(--pane-rail-min), var(--pane-rail-w));
   }
 
-  #workspace[data-expand~="agent"] #agent-pane > .pane-rail {
+  #workspace[data-expand~="rail"] #rail-pane > .pane-rail {
     display: none;
   }
 
-  #workspace[data-expand~="agent"] #agent-pane .pane-collapse-btn {
+  #workspace[data-expand~="rail"] #rail-pane .pane-collapse-btn {
     display: inline-block;
   }
 }
@@ -1089,71 +1166,50 @@ textarea {
 }
 
 /* -- the expanded rail ------------------------------------------------------
- * F2's two rails have a state neither breakpoint above ever measured, and it
- * is the state the rail exists for: EXPANDED. Collapsed, the workspace demands
- * 160 + 320 + 46 + 46 = 572px and every width down to ~580 is clean, which is
- * what the note above measured and fixed. Expanding a rail swaps its 46px back
- * to a 15rem floor and nothing gives the 194px up, so the demand goes back
- * over the window and `body`'s `overflow: hidden` takes the difference —
- * meaning the pane you just clicked the tab to see is the pane that is gone.
- * That is the same failure F2 was written to fix, one state further in.
+ * The rail has a state its own breakpoint never measures, and it is the state
+ * the rail exists for: EXPANDED. Collapsed, the workspace demands
+ * 240 + 416 + 46 = 702px. Expanding swaps the 46px back to a 17rem floor and
+ * nothing gives the 226px up, so the demand goes back over the window and
+ * `body`'s `overflow: hidden` takes the difference — meaning the panel you
+ * just clicked the tab to see is the panel that is gone. That is the same
+ * failure the rail was added to fix, one state further in, and it was
+ * measured on the four-track layout before this merge (`body.scrollWidth`
+ * read 766 at a 700px window with one rail expanded).
  *
- * Measured on the film project in Edit mode (chrome-headless-shell 1228 over
- * CDP) at a 700px window, and the arithmetic is exact in both directions:
- * `body.scrollWidth` read 766 with the inspector expanded (160+320+46+240) and
- * 960 with both (160+320+240+240). Nothing is off by a border — every track is
- * `box-sizing: border-box`.
+ * The width below is that arithmetic solved for the window, at the floors in
+ * force above it:
  *
- * Both widths below are that same arithmetic solved for the window, at
- * whichever floors are in force above each one:
+ *   928 = 240 + 416 + 272   the rail expanded, at the default floors
  *
- *   1136 = 240 + 416 + 46 + 240   one rail expanded, at the default floors
- *    800 = 160 + 320 + 240 + 240  BOTH expanded, at the 860px floors
- *
- * Each fires at its own width rather than one under it, so the boundary width
+ * It fires at its own width rather than one under it, so the boundary width
  * itself — where the demand equals the window exactly — spends a pane it did
  * not strictly have to. A 1px margin, deliberately, rather than a 1px
  * overflow that no scrollbar would report.
  *
- * What yields is the transcript first and the preview second: § Layout's own
- * order, and the same one the 860px note above argues for at its own width.
- * The track goes to 0 AND the pane is hidden, because a 0-width track still
- * paints its 1px border and still lays its children out inside the neighbour.
+ * What yields is the transcript: § Layout's own order, and the same one the
+ * 860px note above argues for at its own width. The track goes to 0 AND the
+ * pane is hidden, because a 0-width track still paints its 1px border and
+ * still lays its children out inside the neighbour.
+ *
+ * The old second step — both rails expanded at once, which spent the preview
+ * as well — has no successor, because there is only one rail to expand. Below
+ * 928 with it open the demand is 416 + 272 = 688px, which holds every window
+ * down to ~690 without hiding the picture at all.
  */
-@media (max-width: 1136px) {
-  #workspace[data-expand~="inspector"],
-  #workspace[data-expand~="agent"] {
+@media (max-width: 928px) {
+  #workspace[data-expand~="rail"] {
     --pane-transcript-track: 0;
   }
 
-  #workspace[data-expand~="inspector"] #transcript-pane,
-  #workspace[data-expand~="agent"] #transcript-pane {
-    display: none;
-  }
-}
-
-@media (max-width: 800px) {
-  #workspace[data-expand~="inspector"][data-expand~="agent"] {
-    --pane-preview-track: 0;
-    /* The two `w` maxima are 320 and 288, so with both other tracks at 0 the
-       grid stops 92px short of a 700px window and leaves bare workspace
-       against the right edge — measured. `1fr` apiece is what spends it, and
-       it can only ever apply in this one state: everywhere else at least one
-       of the tracks either side is still asking for width. */
-    --pane-agent-track: minmax(var(--pane-agent-min), 1fr);
-    --pane-inspector-track: minmax(var(--pane-inspector-min), 1fr);
-  }
-
-  #workspace[data-expand~="inspector"][data-expand~="agent"] #preview-pane {
+  #workspace[data-expand~="rail"] #transcript-pane {
     display: none;
   }
 }
 
 /* -- collapsible pane rail (F2) --------------------------------------------
- * The 46px icon rail #agent-pane and #inspector-pane collapse to under the
- * two breakpoints above. Hidden outside them — every width down to 1200px
- * (inspector) / 980px (agent) still shows the whole pane, exactly as before
- * F2 existed.
+ * The 46px icon rail #rail-pane collapses to under the breakpoint above.
+ * Hidden outside it — every width down to 980px still shows the whole pane,
+ * exactly as before F2 existed.
  */
 .pane-rail {
   display: none;
@@ -1204,14 +1260,14 @@ textarea {
   overflow: hidden;
 }
 
-/* The four panes are placed explicitly rather than by source order, and the
+/* The three panes are placed explicitly rather than by source order, and the
    reason is the expanded-rail breakpoints above: `display: none` on a grid
    ITEM removes it from the grid, and auto-placement then slides every pane
    after it one track to the left. Measured — hiding the transcript that way
    put the preview into the transcript's own 0-width track and left the
    inspector track empty, so the pane that was asked for came back 46px wide
    and the player vanished, at no overflow and no error. Named columns would
-   read better still; four integers match #workspace's four-token template
+   read better still; three integers match #workspace's three-token template
    one-for-one, which is the thing that has to stay true. */
 #transcript-pane {
   grid-column: 1;
@@ -1222,22 +1278,114 @@ textarea {
   grid-column: 2;
 }
 
-#agent-pane {
+#rail-pane {
   grid-column: 3;
   border-left: 1px solid var(--line);
 }
 
-#inspector-pane {
-  grid-column: 4;
-  border-left: 1px solid var(--line);
+/* -- the rail's tab strip and its three panels ------------------------------
+ *
+ * The row that used to be three separate `.pane-head`s (agent's, assets',
+ * properties'). One tab is selected at a time and app.js's setRailTab() is
+ * the only thing that moves the selection: it flips `aria-selected` on the
+ * three buttons and `hidden` on the three panels, and writes the active
+ * name into the collapsed rail's own button.
+ *
+ * `.rail-panel[hidden]` is REQUIRED, not defensive. `.rail-panel` carries an
+ * author `display: flex`, which outranks the UA's `[hidden] { display: none }`
+ * — not on specificity, which is a tie at one attribute against one class,
+ * but on CASCADE ORIGIN: an author declaration beats a user-agent one however
+ * specific the UA's is. So without the companion rule below `hidden` does
+ * nothing at all and all three panels draw stacked on top of each other. That
+ * exact trap has cost this file both toolbars, the pad popover and #picture
+ * already (CLAUDE.md § An author `display:` rule outranks the UA's).
+ */
+.rail-tabs {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
 }
 
-/* Two `.pane-head`/body pairs stacked in one flex-column pane, each getting
-   an even share of the height and its own scroll — see app.css § Assets
-   pane / § Properties pane below for what fills each. */
+.rail-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* Scoped through .rail-tabs on purpose. Bare `.rail-tab[aria-selected="true"]`
+   is specificity (0,2,0) and the sheet's generic
+   `button:hover:not(:disabled)` is (0,2,1) — so hovering the SELECTED tab
+   would repaint its accent underline dim, which reads as the selection
+   moving under the cursor. The extra class wins it back at (0,3,0). */
+.rail-tabs .rail-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  background: none;
+  color: var(--accent);
+}
+
+.rail-tabs .pane-collapse-btn {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.rail-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail-panel[hidden] {
+  display: none;
+}
+
+/* A panel's own one-row toolbar, where a `.pane-head` would have been: the
+   properties read-only chip and its `project ⌫` reset, the agent's New Task.
+   Deliberately not `.pane-head` — that idiom is a pane's NAME, and the tab
+   above is already the name. */
+.rail-panel-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* `.chip`'s look without `.chip`'s cursor: a state, not a control. The one
+   in the properties bar is the half of that pane's old header sentence that
+   was actually a fact about the pane. */
+.chip-static {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 10.5px;
+}
+
+/* Each is now the whole of its own tab panel rather than half a shared
+   column — `50%` is what put the second of three clips outside the scroll
+   window at 1400px, which is the defect the tabs were added to fix. */
 #assets-list,
 #properties-body {
-  flex: 1 1 50%;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
@@ -2230,31 +2378,62 @@ textarea {
   font-size: 11px;
 }
 
-.asset-flags {
+/* Six facts per clip as a two-column mono grid, not six coloured pills
+   (2026-08-24 — assets.js § function fact). Two columns rather than a wrap:
+   a wrapping pill row re-flows every time a label changes length, so the
+   same fact sat in a different place on each row and none of them could be
+   scanned down the list. A grid puts `video` under `video` on every clip.
+
+   `minmax(0, 1fr)` and not `1fr`: a grid track's implicit minimum is
+   min-content, so a long label (`unplayable`, `files on disk`) would push
+   the column past its share and out of the 20rem rail — the same failure
+   #workspace's own note records at the pane level, one nesting in. */
+.asset-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px 10px;
+  margin-top: 7px;
+}
+
+.asset-fact {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.asset-flag {
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--dim);
-  font-size: 10px;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.asset-flag.ok {
-  border-color: var(--kept);
-  background: var(--wash-kept);
+/* Absence is ordinary and reads as ordinary. This is the state three of the
+   six facts are in on any voiceover clip, and it used to be three red pills. */
+.asset-fact.off {
+  color: var(--dim);
+}
+
+/* The only loud state, and only two facts can reach it: media that is not on
+   disk, and media the decoder refuses. Both are defects in the project. */
+.asset-fact.fail {
+  color: var(--cut);
+}
+
+.asset-fact-mark {
+  flex: 0 0 auto;
+  width: 0.8em;
   color: var(--kept);
+  text-align: center;
 }
 
-.asset-flag.fail {
-  border-color: var(--cut);
-  background: var(--wash-cut);
+.asset-fact.off .asset-fact-mark,
+.asset-fact.count .asset-fact-mark {
+  color: var(--dim);
+}
+
+.asset-fact.fail .asset-fact-mark {
   color: var(--cut);
 }
 
@@ -2302,15 +2481,46 @@ textarea {
  * to be — both tracks are fixed lengths (22vh / 180px minimum, --timeline-h
  * above), not content-sized, so they hold that height whether or not
  * #timeline-pane is present to fill it. */
+/* The run on the left, the render on the right, each scrolling on its own —
+   so the checklist that says whether the file is right cannot be pushed off
+   the top by the file arriving (2026-08-24, index.html § The two halves of
+   Finish). The shell stops scrolling for the same reason #frame-view's did. */
 #finish-view {
   grid-row: 3 / span 2;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   min-height: 0;
-  padding: 16px 20px;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg);
+}
+
+.finish-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.finish-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  /* The report is a narrow column of one-line findings; the player wants
+     every pixel left. `minmax(0, …)` on both, per #workspace's own note. */
+  grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+}
+
+.finish-run {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 18px 24px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
 }
 
 /* The trap CLAUDE.md names twice already — an id-selector `display: flex`
@@ -2389,41 +2599,94 @@ textarea {
 .finish-output {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 20px 20px;
+  overflow-y: auto;
   font-size: 12px;
   color: var(--ink-2);
 }
 
-.finish-output-line {
+/* -- the render's own transport ---------------------------------------------
+ *
+ * `<video controls>` draws the BROWSER's control bar, which is a different
+ * design language sitting inside lucid's chrome: different type, different
+ * icon set, different scrubber, and a light-on-dark look that does not
+ * follow the theme toggle. This is the preview pane's transport idiom
+ * instead — the same round play button, the same mono clock — so Finish
+ * stops looking like a second application.
+ *
+ * The scrubber is a real `<input type="range">`, not a div: it is the one
+ * control here a keyboard has to be able to drive, and #zoom already
+ * establishes the element in this file.
+ */
+.finish-player {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
-.finish-output video {
+.finish-player video {
   width: 100%;
-  max-width: 100%;
-  border-radius: 6px;
+  max-height: 62vh;
+  border-radius: var(--radius);
+  background: #000;
+}
+
+.finish-transport {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.finish-play {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.finish-scrub {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.finish-output-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.finish-output-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
 }
 
 /* -- frame view (frame.js, Studio reshape step 03) --------------------- *
  * The #finish-view precedent exactly: same grid slot (rows 3-4), same
  * flex-column-with-scroll shell. See that rule's own comment for why the
  * row span exists at all. */
+/* A list and a detail, each scrolling on its own — so the view is no longer
+   one long page with a sticky header (2026-08-24, index.html § A list and a
+   detail). That also retires the sticky-header workaround this rule used to
+   carry: nothing is sticky now, because the toolbar is simply not inside a
+   scroll container. */
 #frame-view {
   grid-row: 3 / span 2;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   min-height: 0;
-  /* No top padding, unlike #finish-view's otherwise-identical shell: .frame-head
-     below is sticky, and Chrome constrains a sticky box to its scroll
-     container's CONTENT box rather than its padding box — so with 16px here
-     the header pins 16px down and rows scroll through the strip above it,
-     measured. The 16px is on .frame-head's own padding instead, which puts
-     the text in the same place and makes the strip part of the header. */
-  padding: 0 20px 16px;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -2456,17 +2719,107 @@ textarea {
    lets the border box sit above the scrollport and a strip of the row above
    shows through anyway. Measured both ways: 16px of a row's Approve/Re-frame
    buttons floating over the chips, either time. */
-.frame-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* One row: the label, the three coverage chips, then the two jobs. It wraps
+   rather than clipping — everything in it is either a finding or an action
+   and there is no second place to reach any of it, which is the same
+   argument #bar's own wrap rule makes at 860px. */
+.frame-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.frame-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  /* `minmax(0, 1fr)` on the detail track for the reason #workspace's own
+     note records: an implicit `auto` track never shrinks below its content's
+     min-content, and a tile strip is wide. */
+  grid-template-columns: minmax(13rem, 19rem) minmax(0, 1fr);
+}
+
+/* The shot list is a fixed cost the detail column pays, and below ~1100px it
+   is one the tiles cannot afford. `.frame-tile-strip` is a designed
+   horizontal scroller with `flex: none` 220px tiles, so three of them plus
+   their gaps want 700px: at a 1024px window the 19rem list left the strip
+   680 and the third tile went behind a sideways scroll — on the width band
+   where it used to fit three across. Measured across nine widths in a real
+   browser, before and after.
+
+   13rem is the list's own floor, and it still holds `shot #12` plus an
+   asset name. It buys the 950–1100 band back; under ~950 three tiles do not
+   fit at any list width and the strip scrolls, which is what it is for. */
+@media (max-width: 1100px) {
+  .frame-body {
+    grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  }
+}
+
+/* Deliberately NOT `.pane` — that idiom sets `overflow: hidden`, and this
+   column is the scroller. */
+.frame-shots {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin: 0 -20px;
-  padding: 16px 20px 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
+  gap: 7px;
+  min-width: 0;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.frame-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Scoped through the container for the specificity reason `.rail-tab`'s own
+   selected rule records: bare `.frame-shot[aria-current="true"]` is (0,2,0)
+   and the sheet's generic `button:hover:not(:disabled)` is (0,2,1), so
+   hovering the selected shot would repaint it as an unselected one. */
+.frame-shots .frame-shot[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--wash-accent);
+  color: var(--ink);
+}
+
+.frame-shot-top {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.frame-shot-meta {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A shot the sheet skipped — a still, which is never cropped. Listed in
+   place rather than in a footnote, so the gap in the shot numbers is
+   answered where it is noticed; not selectable, because there is no window
+   behind it to show. */
+.frame-shot.skipped {
+  cursor: default;
+  border-style: dashed;
+  background: none;
 }
 
 .frame-coverage-row {
@@ -2484,13 +2837,6 @@ textarea {
   cursor: default;
 }
 
-.frame-actions-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 /* Reuses the `.warn.bad` idiom finish.js/properties.js already set via
    `el("div", "warn bad", …)` — app.js sets no analogous helper here since
    frame.js toggles the class itself (`className = message ? "warn bad" :
@@ -2498,6 +2844,71 @@ textarea {
    failures. Empty and classless when there is nothing to report. */
 #frame-detect-error {
   font-size: 12px;
+}
+
+/* -- the shot's filmstrip ---------------------------------------------------
+ *
+ * Twelve source frames across the selected shot, with its window boundaries
+ * and the sampled instants marked on them (frame.js § buildFilmstrip). The
+ * marks are absolutely positioned over the strip, so the strip is their
+ * containing block.
+ *
+ * `grid-auto-columns: minmax(0, 1fr)` and not `1fr`: an implicit grid track's
+ * minimum is min-content, and an <img> whose intrinsic width is 320px would
+ * hold the track open at 320 and run the strip off the column — #workspace's
+ * own note, three nestings in.
+ */
+.frame-strip-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.frame-strip {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.frame-strip img {
+  display: block;
+  width: 100%;
+  height: 62px;
+  /* `cover`, so twelve frames of any aspect read as one continuous strip
+     rather than twelve differently-letterboxed boxes. This is context, not
+     evidence — the tiles above are the evidence, and they are never cropped
+     by CSS. */
+  object-fit: cover;
+  background: var(--sunken);
+}
+
+/* A division between two windows of this shot. Full height, accent — the
+   same colour the playhead uses for "here is a position". */
+.frame-strip-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/* An instant one of the tiles above was cut at. Deliberately NOT red: red is
+   this palette's "wrong", and a sample is not a finding. */
+.frame-strip-tick {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  height: 9px;
+  margin-left: -1px;
+  background: var(--ink);
+  pointer-events: none;
 }
 
 /* One row per WINDOW (never a placement — CLAUDE.md's own correction).
@@ -2510,6 +2921,13 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  padding: 16px 20px 24px;
+  overflow-y: auto;
+  /* The reframe popover is absolutely positioned inside this box, and it is
+     now a SCROLL container as well as the positioning context — which is why
+     positionPanel() clamps against `scrollTop … scrollTop + clientHeight`
+     rather than `0 … clientHeight`. See frame.js. */
   position: relative;
 }
 
@@ -2538,13 +2956,35 @@ textarea {
    rather than something to review: it has no tiles, no Approve and no
    Re-frame…, and giving it the full row treatment would put three dead
    controls in the middle of the list. */
-.frame-row-skipped {
+/* One shot, named once, above its own windows — the header the row cards
+   used to repeat verbatim per window. */
+.frame-detail-head {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: baseline;
-  gap: 8px;
-  border-style: dashed;
-  background: none;
-  color: var(--dim);
+  padding-bottom: 2px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.frame-detail-asset {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+/* The row header's remaining subject, now that the shot and the asset have
+   moved up to .frame-detail-head: which window of that shot this card is. */
+.frame-row-window {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* All of this shot's windows judged. Per WINDOW is what `approvedKeys`
+   holds, so a shot only earns the tick when every one of its rows has it —
+   a tick on one-of-four would be a lie in the direction that matters. */
+.frame-shot-approved {
+  color: var(--kept);
 }
 
 .frame-row-header {

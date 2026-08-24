@@ -10801,3 +10801,187 @@ Both video frames were settled by `drawImage` readback rather than by looking
 at the capture — rust at (130, 66, 42) in the Edit preview, (128, 63, 40) in
 the Finish player — per the rule that a screenshot proves nothing either way
 about whether a `<video>` composited.
+
+## The workspace redesign — one rail, and the chrome stopped explaining itself — 2026-08-24
+
+Seven changes to `web/`, from a set of mockups drawn against `app.css`'s own
+tokens and approved before any code moved. One idea runs through all of them:
+**the chrome should state facts and label controls, and stop explaining
+lucid's architecture to the person using it.** Nothing here invents a visual
+language — the palette, the three type voices, `.chip`, `.toggle` and
+`.pane-head` are all untouched — it spends the existing one differently.
+
+### The right column was already clipping, in the README
+
+`#inspector-pane` stacked assets and properties as two `.pane-head`/body pairs
+in one 18rem column at `flex: 1 1 50%` apiece. At 1400px — the width the
+README screenshots are captured at — that left `#assets-list` about 129px, and
+the demo project's *second* of three clips fell outside the scroll window. It
+is in the shipped image. That is the shape CLAUDE.md § "a new control spends
+the pane's height" already records twice, reached this time by stacking two
+panes rather than by adding a control.
+
+And four columns at 1400px left the preview third widest, which is the exact
+finding F3 was written to fix and only half won.
+
+So `#agent-pane` and `#inspector-pane` became one `#rail-pane` with three tab
+panels. Measured after, same project, same width:
+
+| | before | after |
+|---|---|---|
+| `#workspace` tracks | 352 / 528 / 320 / 288 | 368 / **712** / 320 |
+| `#assets-list` height | ~129px | 550px, all three clips visible |
+| `#properties-body` | half a shared column | 545px of its own |
+| `#agent-feed` | a 20rem strip | 434px at full rail height |
+
+Every id the three modules write into is unchanged — this is a re-parenting,
+not a rewrite. `app.js`'s `setRailTab` is the only thing that moves the
+selection, and it persists through `cache/session.json` beside `pane_expand`.
+
+**`.rail-panel[hidden] { display: none }` is required, not defensive.** The
+panels carry an author `display: flex`, which outranks the UA's `[hidden]`
+rule, so without the companion rule `hidden` does nothing and all three draw
+stacked. Fifth time this file has been bitten by it; there is now a test.
+
+### Two breakpoints became one, and the arithmetic is different
+
+1200px (inspector) and 980px (agent) were one collapse width per collapsible
+pane. Three tracks demand 15rem + 26rem + 17rem = **928px**, so 1200px would
+now collapse a rail on a window with 272px to spare. 980px survives as the
+collapse width; 928px becomes the *expanded-rail* breakpoint, the state F2
+originally shipped without measuring at all.
+
+Swept at 1600 / 1400 / 1200 / 1024 / 980 / 960 / 928 / 900 / 860 / 800 / 700,
+in Edit (each of the three tabs), Frame and Finish, and — separately — with
+the rail collapsed **and** expanded at each width. `body.scrollWidth` equals
+`innerWidth` at every one of them, and the rail's right edge is inside the
+window in every state. Below 928 with the rail open the transcript yields and
+the preview takes the space, which is § Layout's own order.
+
+The one page-level finding, `#picture-video` wider than the viewport, is
+**pre-existing** — confirmed by stashing `src/lucid/web` and re-measuring, per
+"a symptom's cause is evidence, not inference". It is the placed picture
+inside `#frame`'s crop, which is what `overflow: hidden` there is for.
+
+### Frame became a list and a detail
+
+A sheet row is a window, not a placement, and that was the only grouping the
+view had: a shot with four windows drew four cards with the same header, and
+the film's 79 of them were one scroll with no way to reach a shot except past
+every shot before it. Now `#frame-shots` is one entry per shot — skipped
+stills in place, at their own index, so the gap in the numbers is still
+answered — and `#frame-rows` holds the selected shot's windows.
+
+Under the detail head, **the whole shot as a filmstrip**: twelve
+`/api/thumb/<clip_id>?at=` frames with the window boundaries and the three
+sampled instants marked on them. The tiles are evidence about three
+*instants*; a rect is a claim about a *stretch* (§ The tile that made a wrong
+window look right), and nothing in the view previously said which instants you
+had looked at. The clip it asks for is `row.asset` and never `row.clip_id` —
+the first filmstrip draft in this repo made that mistake and every request
+would have 400'd.
+
+Two defects the browser pass found, neither visible from the code:
+
+- **Both columns drew empty before a sheet existed.** `update()` never called
+  `renderRows()`, so `#frame-rows` was simply blank until the first sheet
+  event — survivable as one empty area under a header, and not as two empty
+  boxes, which read as a pane that failed to load. It now draws its own
+  waiting state, the rule `refreshCoverage` already follows out loud with
+  "scanning for cuts…".
+- **The 19rem shot list pushed the tile strip into horizontal scroll at
+  1024px**, where three tiles used to fit across. `.frame-tile-strip` is a
+  designed scroller with `flex: none` 220px tiles, so three want 700px and the
+  list left them 680. A 1100px breakpoint drops the list to its 13rem floor
+  and buys the 950–1100 band back; under ~950 three tiles do not fit at any
+  list width.
+
+And `#frame-rows` is now a scroll container as well as the reframe popover's
+positioning context, so `positionPanel` clamps against
+`scrollTop … scrollTop + clientHeight` rather than `0 … clientHeight`.
+Verified: `styleTop` came out 112 = scrollTop 8 + clientHeight 283 − panel 179.
+The old bounds would have given 104, and on the film's deep scroll the panel
+would have opened hundreds of pixels off the visible column — the failure
+`clampFloating` exists to prevent.
+
+### Finish stopped being one column, and got lucid's own transport
+
+The order was presets, manifest, burn, Render, the live stage report, and —
+last — the render itself. So the moment the thing you came to watch appeared,
+the checklist saying whether it is right had scrolled off the top. Two columns:
+the run at 26rem, the render taking the rest.
+
+`<video controls>` drew Chrome's control bar inside lucid's chrome — different
+type, different icons, and a look that ignores the theme toggle. It is
+`#transport`'s idiom now: the round play button, `fmt()`'s mono `m:ss.s`, and
+a real `<input type="range">` for the scrub, because it is the one control
+here a keyboard has to drive. Driven in the browser: plays, clock and thumb
+advance together, the glyph follows the *element's* state rather than the
+click, and a 610px drag at 120ms dwell seeks to 9.97s of 11.93.
+
+Both sliders in the app were drawing in Chrome's own accent — close enough to
+`--accent` to look intentional and not it, and it does not move with the
+theme. One `accent-color` declaration puts the zoom and the scrub on the
+palette's blue.
+
+### Five sentences left the chrome, and one moved onto a button
+
+Every pane label carried a sentence, and four of the five explained the
+architecture to someone who had not asked. The effect is that the dim
+small-caps became uniformly ignorable — including the one line that was doing
+real work.
+
+| was | now |
+|---|---|
+| `transcript  click a word · drag or shift-click to extend` | a tooltip, plus two rows in the `?` sheet under a new "Transcript — with the mouse" group |
+| `preview  640X360 CANVAS, NOT THE MEDIA'S SHAPE` | a mono `640×360` chip; the caveat is its tooltip |
+| `timeline  lanes are projections of one edit — no lane the render cannot produce` | nowhere — an invariant of the build, stated in PLAN.md and CLAUDE.md where it is enforceable |
+| `properties  read-only, composed from the same ops the CLI uses` | a `read-only` chip; the rest is CLAUDE.md § The web UI is a third client |
+| `frame  per-shot crop windows — Approve writes nothing, Re-frame does` | **onto both buttons**, as their `title` |
+
+The last is the exception and the point: it disambiguates two adjacent
+buttons, and a warning read three rows away from the button it is about is not
+a warning. The `?` dialog is now titled "keyboard & mouse", which is what it
+holds.
+
+### The rest
+
+- **The export preset was an unlabelled `<select>` reading "Default"**, with
+  its subject only in a `title`. It is one segmented control now —
+  `preset [Default ▾][Export]`, measured at zero-pixel seams — so the four
+  presets are reachable by someone who has not read `docs/MANUAL.md`. The
+  select keeps its native appearance: stripping it costs the caret, and
+  putting one back means a `data:` background-image, which this page's
+  `default-src 'self'` CSP blocks.
+- **`no flags` is green.** A flat, uncoloured "0 flags" beside four other flat
+  chips is visually identical to a chip that has not loaded — the one thing
+  the truth strip must never say by accident, which is the same lesson Frame's
+  own coverage chips taught. `flags.count === 0` is the op's own answer about
+  its own subject, so drawing it green is drawing what the op returned;
+  deliberately narrow, since a green canvas or caption chip would be the
+  window forming an opinion. Frame's `no stale framing` / `no step gaps` take
+  it too; `cuts framed` is a ratio and takes neither.
+- **`framing — see Frame` says `framing — not scanned`.** `null` is not zero
+  and must never read as one; the old text said so correctly and said nothing
+  about what "it" was. Why it has not run rides the tooltip.
+- **Six coloured pills per clip became a two-column mono fact grid.** Three of
+  them were permanently red on any voiceover, which is a lot of alarm for "this
+  audio file has no video in it" — and the redness is why the labels carried
+  the negative in the *word* (`no video`, `not described`), so the colour and
+  the word disagreed and the word is what a screenshot carries. `— video`
+  cannot be misread, so absence stops being an alarm and the labels go back to
+  plain nouns. Only two facts can still go loud: media not on disk, and media
+  the decoder refuses. A wrapping pill row also re-flowed per clip, so the same
+  fact sat in a different place on every row; a grid puts `video` under `video`.
+
+### Two contract tests changed, deliberately
+
+`tests/test_webui_http.py` pinned `page.count("pane-rail") >= 2` and both
+`@media` widths. Neither number was a threshold — each was "one per
+collapsible pane, and there are two panes", a premise this merge removes. Both
+are updated rather than deleted, because what they were really pinning is that
+the collapsed-pane affordance still exists at all. They gained: the three tab
+ids and their panels, exactly one `aria-selected="true"` in the static markup,
+the 928px breakpoint, and the `.rail-panel[hidden]` override. `.rail-panel`
+joins the load-bearing-selector list — losing that rule does not hide
+anything, it draws all three panels on top of each other.

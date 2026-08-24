@@ -173,24 +173,131 @@ function renderLastOutput() {
   if (!box) return;
   box.textContent = "";
   const last = lastFinish && lastFinish.last_render;
-  if (!last) return;
+  if (!last) {
+    // Its own column now, so "nothing here yet" has to be SAID — an empty
+    // half of the screen reads as a pane that failed to load.
+    box.append(el("div", "pane-placeholder", "nothing rendered from this window yet"));
+    return;
+  }
   if (!last.exists) {
     box.append(el("div", "warn", `last render: ${last.name} — no longer on disk`));
     return;
   }
-  const line = el("div", "finish-output-line", `last render: ${last.name} `);
+  const line = el("div", "finish-output-line");
+  line.append(el("span", "hint", "last render"));
+  // The name is a 60-character hash and this column is not always wide, so
+  // it ellipsises rather than wrapping the row into two — the full name
+  // rides the tooltip.
+  const name = el("span", "finish-output-name", last.name);
+  name.title = last.name;
+  line.append(name);
+  line.append(el("span", "spacer"));
   const watch = el("button", null, "Watch");
+  watch.type = "button";
+  // Still lazy, and for the reason it always was: /api/output streams the
+  // render, and building the element is what starts the fetch. Visiting
+  // Finish to read the checklist must not pull the whole file over.
   watch.addEventListener("click", () => {
     if (box.querySelector("video")) return;
-    const video = el("video");
-    video.controls = true;
-    video.preload = "metadata";
-    video.src = "/api/output";
-    box.append(video);
     watch.disabled = true;
+    box.append(buildPlayer());
   });
   line.append(watch);
   box.append(line);
+}
+
+/** The render, with lucid's transport rather than the browser's.
+ *
+ * `<video controls>` draws Chrome's own control bar — a different type
+ * family, a different icon set, and a light-on-dark look that ignores the
+ * theme toggle — inside a pane that is otherwise entirely this app's
+ * chrome. This is #transport's idiom instead: a round play button, the mono
+ * clock in `fmt()`'s own `m:ss.s`, and a range input for the scrub.
+ *
+ * The scrub is a real `<input type="range">` and not a styled div, for the
+ * reason `#zoom` already is one: it is the only control here that a keyboard
+ * has to be able to drive, and the native element brings arrow keys, Home/End
+ * and a screen-reader value for free.
+ *
+ * It does NOT reach into player.js. The preview transport belongs to Edit
+ * mode and this belongs to Finish; only one of the two views is ever on
+ * screen, and the window-level space binding was already shared with a
+ * `<video controls>` before this — unchanged, not newly broken.
+ */
+function buildPlayer() {
+  const wrap = el("div", "finish-player");
+  const video = el("video");
+  video.preload = "metadata";
+  video.playsInline = true;
+  video.src = "/api/output";
+  wrap.append(video);
+
+  const transport = el("div", "finish-transport");
+  const play = el("button", "finish-play", "▶");
+  play.type = "button";
+  play.title = "play / pause";
+  play.setAttribute("aria-label", "play or pause the render");
+  const clock = el("span", "clock mono", "0:00.0");
+  const scrub = document.createElement("input");
+  scrub.type = "range";
+  scrub.className = "finish-scrub";
+  scrub.min = "0";
+  scrub.max = "1000";
+  scrub.step = "1";
+  scrub.value = "0";
+  scrub.setAttribute("aria-label", "seek the render");
+  const total = el("span", "clock mono", "–");
+  const full = el("button", null, "⤢");
+  full.type = "button";
+  full.title = "fullscreen";
+  full.setAttribute("aria-label", "play the render fullscreen");
+  transport.append(play, clock, scrub, total, full);
+  wrap.append(transport);
+
+  // While a drag is live the scrub OWNS its own value: a `timeupdate` landing
+  // mid-drag would write the video's position back into the thumb and yank it
+  // out from under the cursor. Same rule the timeline's own gestures follow —
+  // do not redraw the node a gesture is holding.
+  let dragging = false;
+  const seekFromScrub = () => {
+    if (!Number.isFinite(video.duration)) return;
+    video.currentTime = (Number(scrub.value) / 1000) * video.duration;
+  };
+  scrub.addEventListener("pointerdown", () => {
+    dragging = true;
+  });
+  scrub.addEventListener("pointerup", () => {
+    dragging = false;
+  });
+  scrub.addEventListener("input", seekFromScrub);
+
+  video.addEventListener("loadedmetadata", () => {
+    total.textContent = fmt(video.duration);
+  });
+  video.addEventListener("timeupdate", () => {
+    clock.textContent = fmt(video.currentTime);
+    if (dragging || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    scrub.value = String(Math.round((video.currentTime / video.duration) * 1000));
+  });
+  // The glyph follows the ELEMENT's own state, never the click: a video that
+  // stalls, ends, or is paused by the OS media keys would otherwise leave the
+  // button claiming the opposite of what is happening.
+  const syncPlayGlyph = () => {
+    play.textContent = video.paused ? "▶" : "❚❚";
+  };
+  video.addEventListener("play", syncPlayGlyph);
+  video.addEventListener("pause", syncPlayGlyph);
+  video.addEventListener("ended", syncPlayGlyph);
+
+  play.addEventListener("click", () => {
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  });
+  full.addEventListener("click", () => {
+    if (video.requestFullscreen) video.requestFullscreen().catch(() => {});
+  });
+
+  return wrap;
 }
 
 /* -- the burn checkbox ------------------------------------------------------ */

@@ -6,7 +6,16 @@ timeline and a truth strip that makes the film's real state ambient.** The
 approved mockup is the visual contract:
 <https://claude.ai/code/artifact/ec8ef426-ee7f-40d7-9d6f-0d0bfab2e7d4> — four
 detailed screen mocks with numbered callouts, plus the rules kept/amended and
-the build order this file expands. This is the one document for that work;
+the build order this file expands.
+
+**Amended 2026-08-24 by a second approved mockup**, drawn against the shipped
+window rather than ahead of it:
+<https://claude.ai/code/artifact/aa6d4a62-833f-4520-bbd8-4a3781f5553e> — the
+agent and inspector columns merged into one tabbed rail, Frame and Finish
+reshaped as list-and-detail, and the pane-header sentences demoted out of the
+chrome. Where the two mockups disagree about layout, the later one is what
+shipped; the truth strip, the mode tabs and the direct-manipulation rules
+below are untouched by it. HISTORY.md § The workspace redesign. This is the one document for that work;
 DAYDREAM.md § Build order is superseded by § Build order here wherever the two
 conflict (they mostly do not — this plan is *how the window works*, Daydream
 parity was *what the window contains*).

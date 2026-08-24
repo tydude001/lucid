@@ -269,6 +269,13 @@ weight and is the widest pane at every width, the agent and inspector panes
 collapse to a 46px rail rather than off a hidden edge, and the top bar wraps
 instead of dropping Export. HISTORY.md § The web UI review.
 
+**Corrected 2026-08-24: it is three panes, not four.** The agent and
+inspector columns became one rail with three tab panels, because two panes
+stacked in one column were clipping the asset list at 1400px and four columns
+left the preview third widest — which is what the sentence above was arguing
+for and had only half won. One rail, one collapse breakpoint. HISTORY.md
+§ The workspace redesign.
+
 One thing the plan above got wrong, worth keeping written down: it expected
 "a media query plus a toggle". That shape stores the palette twice. What was
 built is `light-dark()` per token declared once, with `color-scheme` as the

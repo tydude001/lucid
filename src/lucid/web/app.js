@@ -167,10 +167,20 @@ function renderBar() {
   // timeline_view, `"canvas": list(resolution)`); render it here rather
   // than in properties.js, which is unowned and already renders it for a
   // different reason (the read-only inspector's own copy of the fact).
-  $("preview-canvas-note").textContent =
-    view.canvas && view.canvas.length === 2
-      ? `${view.canvas[0]}×${view.canvas[1]} canvas, not the media's shape`
-      : "";
+  // The dimensions are the chip; the caveat that makes them worth stating is
+  // its tooltip (index.html § the canvas dimensions are a FACT). Splitting
+  // them is what let this stop being a sentence in the header row — and the
+  // caveat is the whole of PLAN.md § Aspect swap step 4 in one line, so it
+  // is not dropped, just folded.
+  const note = $("preview-canvas-note");
+  const canvas = view.canvas && view.canvas.length === 2 ? view.canvas : null;
+  note.textContent = canvas ? `${canvas[0]}×${canvas[1]}` : "";
+  if (canvas) {
+    note.title =
+      "the project canvas — media is PLACED in this rectangle, never fitted to it, so this is not the media's own shape";
+  } else {
+    note.removeAttribute("title");
+  }
 
   const picker = $("clip");
   picker.textContent = "";
@@ -317,9 +327,58 @@ function toggleRailPane(name) {
   workspace.dataset.expand = expanded.join(" ");
 }
 
+// One rail now, not two (index.html § One rail, three tabs), so both the
+// collapsed strip's button and the in-place collapse button name the same
+// token. Kept as a loop over both selectors rather than two listeners, for
+// the reason toggleRailPane itself is shared: a duplicated fix is exactly
+// how F4's clamp bug reached only one of the two toolbars it was needed on.
 for (const btn of document.querySelectorAll(".pane-rail-tab, .pane-collapse-btn")) {
-  const pane = btn.closest("#agent-pane") ? "agent" : "inspector";
-  btn.addEventListener("click", () => toggleRailPane(pane));
+  btn.addEventListener("click", () => toggleRailPane("rail"));
+}
+
+/* -- the rail's three tab panels -------------------------------------------
+ *
+ * The agent, the asset list and the read-only inspector share one column and
+ * one panel's worth of height, one at a time. This is the ONLY thing that
+ * moves that selection.
+ *
+ * It writes `hidden` on the panels rather than a class, which is why app.css
+ * carries the companion `.rail-panel[hidden] { display: none }` rule — the
+ * panels' own author `display: flex` outranks the UA's `[hidden]` default,
+ * and without it all three would draw at once (CLAUDE.md § An author
+ * `display:` rule outranks the UA's — both toolbars, the pad popover and
+ * #picture before this one, which makes the rail the fifth).
+ *
+ * The collapsed 46px strip's own button takes the active panel's NAME, so a
+ * narrowed window says which panel is waiting behind it. Naming the
+ * container instead would need a word for "the rail" that nobody using this
+ * has.
+ */
+const RAIL_TABS = ["agent", "assets", "properties"];
+let railTab = "assets"; // agrees with index.html's own aria-selected/hidden
+
+function setRailTab(name) {
+  if (!RAIL_TABS.includes(name)) return;
+  railTab = name;
+  for (const which of RAIL_TABS) {
+    const tab = $(`rail-tab-${which}`);
+    const panel = $(`rail-${which}`);
+    if (tab) tab.setAttribute("aria-selected", String(which === name));
+    if (panel) panel.hidden = which !== name;
+  }
+  const collapsed = $("rail-collapsed-tab");
+  if (collapsed) collapsed.textContent = name;
+  // A panel's work rides being LOOKED AT, the same contract setMode() emits
+  // `mode` for and for the same measured reason: frame.js's coverage scan
+  // decodes every placed clip. Nothing in the rail is that expensive today
+  // (`/api/assets` and `/api/properties` are both cheap reads), but the next
+  // panel added here will be, and a pane that only learns it is visible by
+  // polling is the shape this event exists to prevent.
+  emit("rail-tab", name);
+}
+
+for (const btn of document.querySelectorAll(".rail-tab")) {
+  btn.addEventListener("click", () => setRailTab(btn.dataset.rail));
 }
 
 // -- mode tabs and the truth strip (Studio reshape step 01, step 03) --------
@@ -370,10 +429,17 @@ for (const chip of document.querySelectorAll(".truth-chip")) {
   });
 }
 
-function setChip(node, text, warn, title) {
+/** One truth-strip chip. `state` is `"warn"`, `"ok"`, or null — never a
+ * boolean, since the third value is what the strip was missing: a chip with
+ * no colour at all is indistinguishable from one that has not loaded, so
+ * "nothing is flagged" needed a way to SAY so rather than to look like
+ * nothing (app.css § .chip.ok). Only the flags chip ever passes `"ok"`; the
+ * rest carry facts that are neither good nor bad. */
+function setChip(node, text, state, title) {
   if (!node) return;
   node.textContent = text;
-  node.classList.toggle("warn", warn);
+  node.classList.toggle("warn", state === "warn");
+  node.classList.toggle("ok", state === "ok");
   // The chip text is short by necessity — `#bar` has overflowed at 700px
   // once already — so anything that does not fit rides the tooltip. An
   // absent `title` is removed rather than left stale from a prior bundle.
@@ -411,7 +477,12 @@ function framingLabel(framing) {
   // `project-changed`, so measuring it here would have made every cut pay
   // six seconds for a number the cut did not ask about. Frame mode measures
   // it, from its own `/api/reframe/coverage`, where the answer is the point.
-  if (!framing) return "framing — see Frame";
+  // `null` is NOT zero and must never be drawn as one. "framing — see Frame"
+  // said that correctly and said nothing about what "it" was; "not scanned"
+  // names the state, which is the difference between a reader thinking the
+  // scan came back clean and a reader knowing it has not run. The reason it
+  // has not run rides the tooltip, set at the call site.
+  if (!framing) return "framing — not scanned";
   const parts = [];
   if (framing.stale_seconds > 0) parts.push(`${framing.stale_stretches} stale`);
   if (framing.steps > 0) parts.push(`${framing.steps} step gap${framing.steps === 1 ? "" : "s"}`);
@@ -444,18 +515,37 @@ on("finish-report", (bundle) => {
   setChip(
     $("truth-duration"),
     `total ${fmt(d.total_seconds)}`,
-    false,
+    null,
     `edit ${fmt(d.edit_seconds)} · tail ${fmt(d.tail_seconds)} (listed, not summed)`,
   );
-  setChip($("truth-canvas"), bundle.canvas.canvas, flagged.has("canvas"));
-  setChip($("truth-captions"), captionLabel(bundle.captions), flagged.has("captions"));
-  setChip($("truth-framing"), framingLabel(bundle.framing), flagged.has("framing"));
+  setChip($("truth-canvas"), bundle.canvas.canvas, flagged.has("canvas") ? "warn" : null);
+  setChip(
+    $("truth-captions"),
+    captionLabel(bundle.captions),
+    flagged.has("captions") ? "warn" : null,
+  );
+  setChip(
+    $("truth-framing"),
+    framingLabel(bundle.framing),
+    flagged.has("framing") ? "warn" : null,
+    bundle.framing
+      ? null
+      : "Frame mode measures this — the scan decodes every placed clip (5.7s on the film), so it is not run on every change",
+  );
   // "1 flag" says nothing about *what*; the kinds are the whole content, and
   // they come off the op's own flag items rather than being re-derived from
   // the numbers this file can see.
   const n = bundle.flags.count;
   const kinds = [...flagged].join(", ");
-  setChip($("truth-flags"), n === 1 ? "1 flag" : `${n} flags`, n > 0, kinds ? `flagged: ${kinds}` : null);
+  // The one chip that takes `"ok"`. "no flags" rather than "0 flags" for the
+  // same reason it is green: a number beside four other numbers reads as
+  // another measurement, and this one is a verdict.
+  setChip(
+    $("truth-flags"),
+    n === 0 ? "no flags" : n === 1 ? "1 flag" : `${n} flags`,
+    n > 0 ? "warn" : "ok",
+    kinds ? `flagged: ${kinds}` : null,
+  );
 });
 
 /* -- session restore and save (STUDIO.md Step 04, contract § E) -----------
@@ -486,6 +576,7 @@ function sessionSnapshot() {
     zoom: timeline.getZoom(),
     scroll_left: timeline.getScrollLeft(),
     pane_expand: $("workspace").dataset.expand ?? "",
+    rail_tab: railTab,
     mode: getMode(),
     selection: sel && view ? { clip_id: view.clip_id, indices: sel.indices } : null,
   };
@@ -515,6 +606,10 @@ async function restoreSession() {
     // queries their layout.
     if (session.mode) setMode(session.mode);
     if (session.pane_expand != null) $("workspace").dataset.expand = session.pane_expand;
+    // Before the layout queries below, for setMode()'s own reason: which
+    // panel is showing decides what has a box at all. An unknown or absent
+    // value is ignored by setRailTab, leaving index.html's default.
+    if (session.rail_tab != null) setRailTab(session.rail_tab);
     // Zoom before scroll: zoom changes the scrollable width scroll_left
     // addresses.
     if (session.zoom != null) timeline.setZoom(session.zoom);

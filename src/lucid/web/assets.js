@@ -109,9 +109,36 @@ function fmtHz(n) {
   return n ? `${n.toLocaleString()} Hz` : "–";
 }
 
-function flag(label, ok, title) {
-  const cls = ok === null || ok === undefined ? "" : ok ? " ok" : " fail";
-  const node = el("span", `asset-flag${cls}`, label);
+/** One fact about a clip: a marker, then the thing it is a fact ABOUT.
+ *
+ * This replaced six coloured pills per clip (2026-08-24). The pills were
+ * legible one at a time and a wall six across — three of them permanently
+ * red on any ordinary voiceover, which is a lot of alarm for "this audio
+ * file has no video in it". Worse, the redness is why the labels carried
+ * the negative in the WORD (`no video`, `not described`): a red pill reading
+ * `described` says "described, and that is bad", so the colour and the word
+ * disagreed and the word is what a screenshot carries.
+ *
+ * A marker column fixes both at once. `— video` cannot be misread, so the
+ * labels go back to being plain nouns, and absence stops being an alarm:
+ *
+ *   `ok`      ✓ in the kept green, label in ink — the thing is there
+ *   `off`     – dim, label dim — the thing is absent, which is ordinary
+ *   `fail`    ✕ in the cut red, label red — the thing is WRONG
+ *   `count`   · dim marker, label in ink — a NUMBER, neither good nor bad
+ *
+ * Only `fail` is loud, and only two facts can reach it: a media file that is
+ * not on disk, and one the decoder refuses. Those are real defects in the
+ * project; nothing else here is. `count` exists so a cue tally stops
+ * borrowing one of the other three — the old pill went green at one cue,
+ * which said a clip with none had something wrong with it.
+ */
+function fact(label, state, title) {
+  const node = el("span", `asset-fact${state === "ok" ? "" : ` ${state}`}`);
+  const mark =
+    state === "ok" ? "\u2713" : state === "fail" ? "\u2715" : state === "count" ? "\u00b7" : "\u2013";
+  node.append(el("span", "asset-fact-mark", mark));
+  node.append(el("span", null, label));
   if (title) node.title = title;
   return node;
 }
@@ -119,12 +146,32 @@ function flag(label, ok, title) {
 /** `media.playability`'s verdict, or `null` when the file was not even
  * reachable to probe (a different claim than "unplayable" — ops.assets'
  * own docstring). Both are worth telling apart at a glance rather than
- * collapsing into one grey flag. */
-function playableFlag(clip) {
-  if (!clip.media_exists) return flag("missing", false, `not on disk: ${clip.media_path}`);
-  if (clip.playable === null || clip.playable === undefined) return flag("unchecked", null);
+ * collapsing into one grey fact. */
+function playableFact(clip) {
+  if (!clip.media_exists) return fact("missing", "fail", `not on disk: ${clip.media_path}`);
+  if (clip.playable === null || clip.playable === undefined) {
+    return fact("unchecked", "off", "media.playability was not run for this clip");
+  }
   const p = clip.playable;
-  return flag(p.playable ? "playable" : "unplayable", p.playable, p.reason || "");
+  if (p.playable) return fact("playable", "ok", p.reason || "");
+  // The one other loud state, and it earns it: a clip the decoder refuses is
+  // a clip the render will not have. Three of playability's four refusal
+  // classes pass a naive codec-name check (CLAUDE.md), so the reason is the
+  // content and it rides the tooltip.
+  return fact("unplayable", "fail", p.reason || "");
+}
+
+/** How many cues point at this asset. Shared by the clip and card rows, so
+ * the two cannot drift — and `count` rather than `ok`/`off`, because a clip
+ * with no cues is not a clip with a problem. */
+function cueFact(n) {
+  // Always the `count` marker, never the absence dash: "– 0 cues" says the
+  // same thing twice and reads as a missing capability rather than a tally
+  // that happens to be zero. `off` is added on top for the dim colour, which
+  // is the one thing zero should change.
+  const node = fact(`${n} cue${n === 1 ? "" : "s"}`, "count");
+  if (!n) node.classList.add("off");
+  return node;
 }
 
 function roleChips(clip) {
@@ -210,30 +257,29 @@ function buildClipRow(clip) {
     .join(" · ");
   row.append(el("div", "asset-meta", meta || "no probe metadata"));
 
-  const flags = el("div", "asset-flags");
-  flags.append(flag(clip.has_video ? "video" : "no video", !!clip.has_video));
-  flags.append(flag(clip.has_audio ? "audio" : "no audio", !!clip.has_audio));
-  // The label carries the negative, the way the video/audio pair above
-  // already does. A red chip reading `described` reads as "described, and
-  // that is bad" — the colour and the word disagree, and the word is what a
-  // screenshot carries. The API fields are untouched: this is label text.
-  flags.append(
-    flag(
-      clip.transcript ? "transcript" : "no transcript",
-      clip.transcript,
+  // Two columns, read across then down, and the pairing is deliberate: the
+  // two stream facts, then the two index facts, then what the file can do.
+  // The API fields are untouched — every label here is display text.
+  const facts = el("div", "asset-facts");
+  facts.append(fact("video", clip.has_video ? "ok" : "off"));
+  facts.append(fact("audio", clip.has_audio ? "ok" : "off"));
+  facts.append(
+    fact(
+      "transcript",
+      clip.transcript ? "ok" : "off",
       clip.transcript ? "transcribed" : "not transcribed",
     ),
   );
-  flags.append(
-    flag(
-      clip.described ? "described" : "not described",
-      clip.described,
+  facts.append(
+    fact(
+      "described",
+      clip.described ? "ok" : "off",
       clip.described ? "indexed by describe" : "not indexed",
     ),
   );
-  flags.append(flag(`${clip.cues} cue${clip.cues === 1 ? "" : "s"}`, clip.cues > 0 ? true : null));
-  flags.append(playableFlag(clip));
-  row.append(flags);
+  facts.append(playableFact(clip));
+  facts.append(cueFact(clip.cues));
+  row.append(facts);
 
   row.append(roleChips(clip));
 
@@ -279,11 +325,30 @@ function buildCardRow(card) {
     .join(" · ");
   row.append(el("div", "asset-meta", meta));
 
-  const flags = el("div", "asset-flags");
-  flags.append(flag("recorded", card.recorded, card.recorded ? "card_new/card_reauthor wrote this" : "no record — cannot be re-authored"));
-  flags.append(flag(card.files_exist ? "files on disk" : "missing files", card.files_exist));
-  flags.append(flag(`${card.cues} cue${card.cues === 1 ? "" : "s"}`, card.cues > 0 ? true : null));
-  row.append(flags);
+  // The clip row's own fact grid, with a card's two facts. Both take the
+  // loud state when false, and both earn it: a card with no `(template,
+  // slots, canvas, variant)` record cannot be re-authored by ANYTHING — it
+  // is reported, never guessed at (CLAUDE.md § So a card is re-authored,
+  // never resized) — and a card whose files are gone is a shot the render
+  // will not have.
+  const facts = el("div", "asset-facts");
+  facts.append(
+    fact(
+      "recorded",
+      card.recorded ? "ok" : "fail",
+      card.recorded
+        ? "card_new/card_reauthor wrote this"
+        : "no record — nothing can re-author this card at a new canvas",
+    ),
+  );
+  facts.append(
+    fact(
+      card.files_exist ? "files on disk" : "missing files",
+      card.files_exist ? "ok" : "fail",
+    ),
+  );
+  facts.append(cueFact(card.cues));
+  row.append(facts);
 
   return row;
 }

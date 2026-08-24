@@ -13,7 +13,12 @@ is [STUDIO.md](STUDIO.md), which supersedes DAYDREAM.md § Build order where
 they conflict. The post-reshape polish plan — doctor, the demo project,
 manifest-aware undo, and the rest of the works-for-anyone gap — is
 [POLISH.md](POLISH.md); all seven of its steps shipped 2026-08-24 and each
-carries a pointer to the HISTORY.md section that records it. The full command
+carries a pointer to the HISTORY.md section that records it. The workspace
+redesign that followed — one tabbed rail instead of two side columns, Frame
+and Finish as list-and-detail, and the pane headers demoted out of the
+chrome — is HISTORY.md § The workspace redesign; it has no plan document of
+its own, because it was drawn as mockups, approved, and built in one pass.
+The full command
 walkthrough that was README.md's body is
 [docs/MANUAL.md](docs/MANUAL.md) — moved verbatim 2026-08-19 when README.md
 became a short newcomer-facing front door; nothing was deleted in the move.
@@ -342,12 +347,23 @@ absent optional capability is "unavailable", never a failure, and never moves
     popover at once, invisible until words became tabbable. `#picture` is the
     one element that already had the companion rule, which is the only reason
     a stray `*/` deleting its whole block was subtle rather than catastrophic.
-    HISTORY.md § The web UI review.
+    **Fifth instance, and the first with a test: `.rail-panel`.** Its three
+    panels are how the rail shows one of agent/assets/properties, so without
+    the companion rule `hidden` does nothing and all three draw stacked.
+    HISTORY.md § The web UI review, § The workspace redesign.
   - **A floating panel is clamped by `dom.js`'s `clampFloating`, and there is
     exactly one copy.** The two callers hand it different spaces — the
     transcript toolbar is unscrolled, the cue toolbar has `scrollLeft` already
     folded in — so it takes bounds rather than a container. A second clamp is
     how the first fix reached one of the two toolbars and not the other.
+    - **When the positioning context is ALSO the scroll container, the
+      visible box is `scrollTop … scrollTop + clientHeight`, never
+      `0 … clientHeight`.** `offsetTop` is in content coordinates, so
+      clamping against the client box pins the panel to the top of the
+      CONTENT — correct only while nothing is scrolled, and hundreds of
+      pixels off the visible column once something is. `#frame-rows` became
+      one of these when Frame split into a list and a detail. HISTORY.md
+      § The workspace redesign.
     - **`clampFloating` MOVES a box; it cannot SHRINK one.** A panel taller
       than its container is pinned to the top with its own buttons hanging
       off the bottom — measured at 218px inside a 143px `overflow: hidden`
@@ -363,6 +379,29 @@ absent optional capability is "unavailable", never a failure, and never moves
         answers about whatever is painted there instead. Measure what a new
         control leaves the pane; fold away anything used once per asset.
         HISTORY.md § Import and transcribe became window operations.
+  - **The chrome states facts and labels controls; it does not explain the
+    build.** Five pane headers each carried a sentence, and four of them were
+    invariants addressed to whoever adds the next lane rather than to anyone
+    editing a film — so the dim small-caps became uniformly ignorable,
+    including the one line that disambiguated two adjacent buttons. A fact
+    earns a chip (`640×360`, `read-only`); a gesture earns a tooltip and a
+    row in the `?` sheet; an invariant belongs in PLAN.md or here, where it
+    is enforceable; **and a warning about a control goes ON that control**.
+    HISTORY.md § The workspace redesign.
+    - **A quiet chip is not the all-clear — it has to SAY so.** An
+      uncoloured "0 flags" beside four other uncoloured chips is
+      indistinguishable from one that has not loaded, which is Frame's own
+      blank-coverage-chip lesson one pane up. `.chip.ok` is deliberately
+      narrow: a chip goes green only where zero is the op's own verdict
+      about its own subject (`flags.count`, `stale_seconds`, `steps`), never
+      on a fact that is neither good nor bad (a canvas, a caption state, a
+      `cuts framed` ratio) — that would be the window forming an opinion.
+  - **The rail (`#rail-pane`) is ONE pane with three tab panels, not three
+    columns** — agent, assets and properties, each getting the whole rail
+    when its tab is on. Two panes stacked in one column at `flex: 1 1 50%`
+    is what clipped the second of three clips at 1400px, in the shipped
+    README screenshot. `app.js`'s `setRailTab` is the only thing that moves
+    the selection. HISTORY.md § The workspace redesign.
   - **The `?` sheet is hand-typed HTML — never generated — grouped by which
     pane owns each binding**, because that is what decides whether a key does
     anything: the transport bindings die the moment focus enters a field. Its
@@ -492,7 +531,11 @@ absent optional capability is "unavailable", never a failure, and never moves
     thumbnailed `shot.clip_id` and every V2 request would have 400'd on this
     project. Caught by reading real `/api/view` data before wiring the
     harness, guarded now by a test named for exactly this trap. HISTORY.md
-    § The assets, properties and filmstrip backend, and its panes.
+    § The assets, properties and filmstrip backend, and its panes. **Frame
+    mode's shot filmstrip is the first shipped caller and obeys it**
+    (`frame.js` § buildFilmstrip, `row.asset` and never `row.clip_id`);
+    a `card:` asset is skipped, since a card is not a clip id and cards
+    reach that view through `skipped` anyway.
   - **A description does not choose the clip — `synopsis` does, and lucid does
     not choose at all.** Which footage goes under a sentence is never a lexical
     match: measured against 25 human picks, the description index agreed 2

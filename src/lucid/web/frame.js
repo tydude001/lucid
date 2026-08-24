@@ -69,6 +69,14 @@ let reframedKeys = new Set();
 
 let openPanel = null; // the currently-open Re-frame… panel element, if any
 
+/* Which shot's windows the detail column is showing — a `row.shot` index, or
+   null before a sheet exists. Held here rather than read back off the DOM so
+   a re-render (a new sheet, a detect result, an approve toggle) keeps the
+   selection instead of silently jumping to the first shot. It is validated
+   against the current sheet on every render, so a rebuilt sheet with fewer
+   shots falls back to the first rather than showing an empty column. */
+let selectedShot = null;
+
 const STEP_FINE = 4;
 const STEP_COARSE = 32;
 
@@ -108,10 +116,23 @@ function rectText(rect) {
   return [rect.x, rect.y, rect.w, rect.h].map((v) => String(Math.round(v))).join(",");
 }
 
-function setChip(node, text, warn, title) {
+/** One coverage chip. `state` is `"warn"`, `"ok"` or null.
+ *
+ * The `"ok"` state was added 2026-08-24 and it is this file's own lesson
+ * applied: a chip that draws EMPTY while the scan runs reads as "nothing to
+ * report", which is why `refreshCoverage` below says "scanning for cuts…"
+ * out loud. A chip that draws a flat, uncoloured "no stale framing" beside
+ * two other flat chips has a milder version of the same problem — the
+ * all-clear looks exactly like a chip nobody has filled in. Green says it.
+ *
+ * Only the two chips that can WARN can also go green; `cuts framed` is a
+ * ratio, informational in both directions, and takes neither
+ * (app.js § .chip.ok makes the same split in the truth strip). */
+function setChip(node, text, state, title) {
   if (!node) return;
   node.textContent = text;
-  node.classList.toggle("warn", warn);
+  node.classList.toggle("warn", state === "warn");
+  node.classList.toggle("ok", state === "ok");
   if (title) node.title = title;
   else node.removeAttribute("title");
 }
@@ -165,7 +186,7 @@ async function refreshCoverage() {
   if (!hasPlacements(lastState)) {
     // Not a warning and not a blank chip — both would read as a verdict on
     // framing that nobody measured.
-    setChip($("frame-chip-stale"), "no footage placements to frame", false);
+    setChip($("frame-chip-stale"), "no footage placements to frame", null);
     $("frame-chip-steps") && ($("frame-chip-steps").textContent = "");
     $("frame-chip-cuts") && ($("frame-chip-cuts").textContent = "");
     return;
@@ -175,14 +196,14 @@ async function refreshCoverage() {
   // chips sat empty — and an empty chip where a warning would go reads as
   // "nothing to report", which is the one thing this view must never say by
   // accident. Measured in a browser: chips blank for 4s, then correct.
-  setChip($("frame-chip-stale"), "scanning for cuts…", false);
+  setChip($("frame-chip-stale"), "scanning for cuts…", null);
   $("frame-chip-steps") && ($("frame-chip-steps").textContent = "");
   $("frame-chip-cuts") && ($("frame-chip-cuts").textContent = "");
   let coverage;
   try {
     coverage = await ctx.api("/api/reframe/coverage");
   } catch (err) {
-    setChip($("frame-chip-stale"), "coverage unavailable", true);
+    setChip($("frame-chip-stale"), "coverage unavailable", "warn");
     $("frame-chip-steps") && ($("frame-chip-steps").textContent = "");
     $("frame-chip-cuts") && ($("frame-chip-cuts").textContent = "");
     ctx.emit("toast", err.message);
@@ -196,7 +217,7 @@ function renderCoverage(coverage) {
   setChip(
     $("frame-chip-stale"),
     staleOn ? `${coarse(coverage.stale_seconds)} stale` : "no stale framing",
-    staleOn,
+    staleOn ? "warn" : "ok",
     staleOn
       ? `${coverage.stale_seconds}s of framing held across a cut, over ${coverage.stale_stretches} stretch${coverage.stale_stretches === 1 ? "" : "es"}`
       : null,
@@ -205,11 +226,14 @@ function renderCoverage(coverage) {
   setChip(
     $("frame-chip-steps"),
     steps ? `${steps} unexplained step${steps === 1 ? "" : "s"}` : "no step gaps",
-    steps > 0,
+    steps > 0 ? "warn" : "ok",
   );
-  // Informational only — never .warn. default_seconds (the centre crop
-  // doing what it always did) is deliberately not read anywhere here.
-  setChip($("frame-chip-cuts"), `${coverage.cuts_framed}/${coverage.cuts} cuts framed`, false);
+  // Informational only — never .warn and never .ok either. A ratio is not a
+  // verdict: `0/0 cuts framed` is a project with no cuts, and `3/9` is not a
+  // fault, it is nine cuts of which six are inside one continuous framing.
+  // default_seconds (the centre crop doing what it always did) is
+  // deliberately not read anywhere here.
+  setChip($("frame-chip-cuts"), `${coverage.cuts_framed}/${coverage.cuts} cuts framed`, null);
 }
 
 /* -- the sheet job --------------------------------------------------------- */
@@ -320,7 +344,112 @@ function provenanceChip(row) {
 
 /* -- rows -------------------------------------------------------------- */
 
+/** The sheet's rows grouped by shot, with the skipped placements merged in
+ * at their own index.
+ *
+ * A sheet ROW is a window, not a placement (CLAUDE.md's own correction, and
+ * `ops.reframe_sheet`'s), and the op emits one placement's rows contiguously
+ * in source order. Until this existed that was the only grouping the view
+ * had: a shot with four windows drew four cards with the same header, and
+ * the film's 79 of them were one scroll with no way to reach a shot except
+ * past every shot before it.
+ *
+ * **The gap in the shot numbers is answered, not left to be read as a
+ * rendering fault.** Rows ran #0, #2, #3 on the film and #1 is a card:
+ * `ops._sheet_placements` puts stills in its own `skipped` list precisely so
+ * "nothing to check" and "not checked" stay different things, and each entry
+ * carries the reason ("a still is never cropped"). Sorting both into one
+ * list by index puts a skipped shot where its number would have been rather
+ * than in a footnote — the copy is the op's, so a new skip reason arrives
+ * here without an edit.
+ */
+function shotEntries() {
+  if (!lastSheet || !Array.isArray(lastSheet.rows)) return [];
+  const byShot = new Map();
+  for (const row of lastSheet.rows) {
+    if (!byShot.has(row.shot)) byShot.set(row.shot, []);
+    byShot.get(row.shot).push(row);
+  }
+  const entries = [...byShot.entries()].map(([shot, rows]) => ({ kind: "shot", shot, rows }));
+  for (const skip of Array.isArray(lastSheet.skipped) ? lastSheet.skipped : []) {
+    entries.push({ kind: "skipped", shot: skip.index, skip });
+  }
+  entries.sort((a, b) => a.shot - b.shot);
+  return entries;
+}
+
+/** The entry the detail column is showing, after validating the held
+ * selection against the sheet actually in hand. A rebuilt sheet with fewer
+ * shots, or one whose selected shot is now a skipped still, falls back to
+ * the first selectable shot rather than leaving the column empty. */
+function currentEntry() {
+  const entries = shotEntries();
+  if (!entries.length) return null;
+  const held = entries.find((e) => e.shot === selectedShot && e.kind === "shot");
+  if (held) return held;
+  const first = entries.find((e) => e.kind === "shot") || null;
+  selectedShot = first ? first.shot : null;
+  return first;
+}
+
 function renderRows() {
+  renderShotList();
+  renderDetail();
+}
+
+function renderShotList() {
+  const box = $("frame-shots");
+  if (!box) return;
+  box.textContent = "";
+  const entries = shotEntries();
+  if (!entries.length) {
+    box.append(el("div", "hint", "no sheet yet"));
+    return;
+  }
+  const active = currentEntry();
+  for (const entry of entries) {
+    if (entry.kind === "skipped") {
+      const note = el("div", "frame-shot skipped");
+      const top = el("div", "frame-shot-top");
+      top.append(el("span", "frame-row-shot", `shot #${entry.shot}`));
+      top.append(el("span", null, entry.skip.asset));
+      note.append(top);
+      note.append(el("div", "frame-shot-meta", entry.skip.why));
+      box.append(note);
+      continue;
+    }
+    const first = entry.rows[0];
+    const last = entry.rows[entry.rows.length - 1];
+    const btn = el("button", "frame-shot");
+    btn.type = "button";
+    // `aria-current` rather than `aria-selected`: this is "the one you are
+    // looking at", not a selection you could have several of. The rail's own
+    // tabs use aria-selected because they genuinely are a tablist.
+    btn.setAttribute("aria-current", String(Boolean(active) && active.shot === entry.shot));
+    const top = el("div", "frame-shot-top");
+    top.append(el("span", "frame-row-shot", `shot #${entry.shot}`));
+    top.append(el("span", null, first.asset));
+    top.append(el("span", "spacer"));
+    // Approval is per WINDOW, so a shot is only approved when all of its are
+    // — an "approved" tick on a shot with one of four judged would be a lie
+    // in exactly the direction that matters.
+    if (entry.rows.every((row) => approvedKeys.has(rowKey(row)))) {
+      top.append(el("span", "frame-shot-approved", "\u2713"));
+    }
+    btn.append(top);
+    const span = `src ${coarse(first.src_start)}\u2013${coarse(last.src_start + last.duration)}`;
+    const count = `${entry.rows.length} window${entry.rows.length === 1 ? "" : "s"}`;
+    btn.append(el("div", "frame-shot-meta", `${span} \u00b7 ${count}`));
+    btn.addEventListener("click", () => {
+      if (selectedShot === entry.shot) return;
+      selectedShot = entry.shot;
+      renderRows();
+    });
+    box.append(btn);
+  }
+}
+
+function renderDetail() {
   const box = $("frame-rows");
   if (!box) return;
   box.textContent = "";
@@ -329,43 +458,107 @@ function renderRows() {
     box.append(el("div", "hint", "build the sheet to see per-window crops"));
     return;
   }
-  // `row.windows` on each row is the PLACEMENT's own total window count —
-  // `n` here (this window's own position within that placement) is not a
-  // field the op returns, so it is derived purely from the rows' own
-  // ordering, which the op emits in placement order (CLAUDE.md: "the row
-  // is a window, not a placement, and that is a correction" — the rows for
-  // one placement are contiguous and in source order).
-  const seenPerShot = new Map();
-  // **The gap in the shot numbers is answered, not left to be read as a
-  // rendering fault.** Rows ran #0, #2, #3 on the film, and #1 is a card:
-  // `ops._sheet_placements` puts stills in its own `skipped` list precisely
-  // so the difference between "nothing to check" and "not checked" survives,
-  // and each entry already carries the reason ("a still is never cropped").
-  // Drawing that list is all this needs — the copy is the op's, not this
-  // file's, so a new skip reason arrives here without an edit.
-  //
-  // Placed by index, so a skipped shot sits where its number would have been
-  // rather than in a footnote under the rows: `skipped[].index` and
-  // `row.shot` are both positions in the same shot list.
-  const skipped = Array.isArray(lastSheet.skipped) ? lastSheet.skipped : [];
-  const pending = [...skipped].sort((a, b) => a.index - b.index);
-  const flushSkippedBefore = (limit) => {
-    while (pending.length && pending[0].index < limit) {
-      const entry = pending.shift();
-      const note = el("div", "frame-row frame-row-skipped");
-      note.append(el("span", "frame-row-shot", `shot #${entry.index}`));
-      note.append(el("span", null, entry.asset));
-      note.append(el("span", "hint", entry.why));
-      box.append(note);
-    }
-  };
-  for (const row of lastSheet.rows) {
-    flushSkippedBefore(row.shot);
-    const n = (seenPerShot.get(row.shot) || 0) + 1;
-    seenPerShot.set(row.shot, n);
-    box.append(buildRow(row, n));
+  const entry = currentEntry();
+  if (!entry) {
+    // A sheet whose every placement was skipped — every shot is a still.
+    // Distinct from having no sheet, and it has to read that way.
+    box.append(el("div", "hint", "this sheet has no croppable shots — every placement is a still"));
+    return;
   }
-  flushSkippedBefore(Infinity);
+  const first = entry.rows[0];
+  const last = entry.rows[entry.rows.length - 1];
+  const head = el("div", "frame-detail-head");
+  head.append(el("span", "frame-row-shot", `shot #${entry.shot}`));
+  head.append(el("span", "frame-detail-asset", first.asset));
+  const span = el(
+    "span",
+    "mono",
+    `src ${coarse(first.src_start)}\u2013${coarse(last.src_start + last.duration)}`,
+  );
+  // The full source seconds stay one hover away: this is the address
+  // `reframe --src-start` takes, and three decimals is how it is stored.
+  span.title = `src ${secs(first.src_start)}\u2013${secs(last.src_start + last.duration)}`;
+  head.append(span);
+  head.append(
+    el("span", "hint", `${entry.rows.length} window${entry.rows.length === 1 ? "" : "s"}`),
+  );
+  box.append(head);
+  const strip = buildFilmstrip(entry);
+  if (strip) box.append(strip);
+  entry.rows.forEach((row, i) => box.append(buildRow(row, i + 1)));
+}
+
+/** The whole shot as a strip of source frames, with its window boundaries
+ * and the three sampled instants marked on it.
+ *
+ * The tiles above are evidence about three INSTANTS; a rect is a claim about
+ * a STRETCH (CLAUDE.md § The tile that made a wrong window look right). So a
+ * clean row of tiles is not an approval of the span, and until this existed
+ * nothing in the view said which instants you had actually looked at, or how
+ * much of the shot sat between them.
+ *
+ * `/api/thumb/<clip_id>?at=` is `ops.thumbnail` — cached under
+ * `cache/thumbs/`, never in the manifest, never resolved by
+ * `media.media_path`/`preview_path`. It snaps `at` to a `THUMB_INTERVAL`
+ * bucket before reading or writing anything, so a strip across one shot asks
+ * for a handful of buckets rather than one file per cell.
+ *
+ * **The clip it asks for is `row.asset`, never `row.clip_id`.** A shot's
+ * addressing clip is the transcript track the cue hangs off — `"vo"` on an
+ * audio-only project — and its footage is `asset`. The first filmstrip draft
+ * in this repo thumbnailed `clip_id` and every request would have 400'd
+ * (CLAUDE.md § A shot's addressing clip is not its footage). A card asset is
+ * skipped rather than asked for: `card:<name>` is not a clip id, and cards
+ * reach this view through `skipped` anyway.
+ */
+function buildFilmstrip(entry) {
+  const first = entry.rows[0];
+  const last = entry.rows[entry.rows.length - 1];
+  const asset = first.asset;
+  if (!asset || asset.startsWith("card:")) return null;
+  const start = first.src_start;
+  const end = last.src_start + last.duration;
+  const span = end - start;
+  if (!(span > 0)) return null;
+
+  const wrap = el("div", "frame-strip-wrap");
+  wrap.append(
+    el("div", "hint", `the whole shot — ${coarse(start)} to ${coarse(end)} of ${asset}`),
+  );
+  const strip = el("div", "frame-strip");
+  const CELLS = 12;
+  for (let i = 0; i < CELLS; i += 1) {
+    // The MIDDLE of each cell's slice, not its left edge: a cell captioned
+    // with the instant at its own boundary is a frame from the neighbouring
+    // cell's territory.
+    const at = start + (span * (i + 0.5)) / CELLS;
+    const img = document.createElement("img");
+    img.src = `/api/thumb/${encodeURIComponent(asset)}?at=${at.toFixed(3)}`;
+    img.alt = "";
+    img.loading = "lazy";
+    img.title = `${asset} @ ${secs(at)}`;
+    strip.append(img);
+  }
+  // Where this shot's windows divide it. The first row's own start is the
+  // strip's left edge and is not a division, so the marks come off rows 2..n.
+  for (const row of entry.rows.slice(1)) {
+    const mark = el("div", "frame-strip-edge");
+    mark.style.left = `${(((row.src_start - start) / span) * 100).toFixed(3)}%`;
+    mark.title = `window boundary — src ${secs(row.src_start)}`;
+    strip.append(mark);
+  }
+  // And which instants the tiles above actually looked at.
+  for (const row of entry.rows) {
+    for (const sample of row.samples || []) {
+      if (sample.src_time === null || sample.src_time === undefined) continue;
+      const tick = el("div", "frame-strip-tick");
+      tick.style.left = `${(((sample.src_time - start) / span) * 100).toFixed(3)}%`;
+      tick.title = `sampled here — src ${secs(sample.src_time)}`;
+      strip.append(tick);
+    }
+  }
+  wrap.append(strip);
+  return wrap;
 }
 
 function buildRow(row, windowIndex) {
@@ -376,8 +569,10 @@ function buildRow(row, windowIndex) {
   wrapper.dataset.rowKey = key;
 
   const header = el("div", "frame-row-header");
-  header.append(el("span", "frame-row-shot", `shot #${row.shot}`));
-  header.append(el("span", null, row.asset));
+  // No `shot #N` and no asset here any more: the detail column is one shot,
+  // and `renderDetail`'s own head states both once. Repeating them per row
+  // was four identical headers on a four-window shot.
+  header.append(el("span", "frame-row-window", `window ${windowIndex} of ${row.windows}`));
   const span = el(
     "span",
     "mono",
@@ -387,7 +582,6 @@ function buildRow(row, windowIndex) {
   // `reframe --src-start` takes, and three decimals is how it is stored.
   span.title = `src ${secs(row.src_start)}–${secs(row.src_start + row.duration)}`;
   header.append(span);
-  header.append(el("span", "hint", `window ${windowIndex} of ${row.windows}`));
   // **The rect belongs to the row, not the tile** — a row is one window
   // (ops.reframe_sheet: "a sheet row is a window shown, not a placement"), so
   // its samples all read `crop_at` inside that one window and come back
@@ -438,14 +632,30 @@ function buildRow(row, windowIndex) {
   const actions = el("div", "frame-row-actions");
   const approveBtn = el("button", null, approvedKeys.has(key) ? "Approved" : "Approve");
   approveBtn.type = "button";
+  // **The pane's own head sentence, moved onto the control it is about**
+  // (2026-08-24). "per-shot crop windows — Approve writes nothing, Re-frame
+  // does" sat in dim small-caps at the top of the view, the fourth such
+  // sentence on the screen and the only one of the five doing real work: it
+  // disambiguates these two adjacent buttons. A warning read three rows away
+  // from the button it is about is not a warning. Both buttons carry their
+  // half, so the pair reads correctly whichever one the cursor lands on.
+  approveBtn.title =
+    "records your judgement of this window — writes no rect. Re-frame… is what changes the crop.";
   approveBtn.addEventListener("click", () => {
     if (approvedKeys.has(key)) approvedKeys.delete(key);
     else approvedKeys.add(key);
     wrapper.classList.toggle("frame-row-approved", approvedKeys.has(key));
     approveBtn.textContent = approvedKeys.has(key) ? "Approved" : "Approve";
+    // The shot list carries a tick once every window of a shot is approved,
+    // so it has to redraw — but only the list. Rebuilding the detail column
+    // here would remove the button the click landed in, and Chrome then
+    // drops the trailing `click` with nothing thrown (CLAUDE.md § So redraw
+    // only the node a gesture owns while it is live).
+    renderShotList();
   });
   const reframeBtn = el("button", null, "Re-frame…");
   reframeBtn.type = "button";
+  reframeBtn.title = "change this window's crop rect — the half of the pair that writes";
   reframeBtn.addEventListener("click", () => toggleReframePanel(row, reframeBtn));
   actions.append(approveBtn, reframeBtn);
   wrapper.append(actions);
@@ -517,15 +727,25 @@ function toggleReframePanel(row, anchorBtn) {
 function positionPanel(panel, anchorBtn, container) {
   const left = anchorBtn.offsetLeft;
   const top = anchorBtn.offsetTop + anchorBtn.offsetHeight;
+  // `#frame-rows` is BOTH the positioning context and, since the view became
+  // a list and a detail, the scroll container — so the visible box is
+  // `scrollTop … scrollTop + clientHeight` in the same coordinates
+  // offsetTop is measured in, not `0 … clientHeight`. Clamping against the
+  // latter would pin the panel to the top of the CONTENT on any shot scrolled
+  // past one screen, which is off the visible column entirely: a panel that
+  // opens somewhere nobody can see, which is the exact failure clampFloating
+  // exists to prevent (dom.js's header — and the reason it takes bounds
+  // rather than a container is that its two other callers hand it two
+  // different spaces).
   const { left: clampedLeft, top: clampedTop } = clampFloating(
     left,
     top,
     panel.offsetWidth,
     panel.offsetHeight,
-    0,
-    container.clientWidth,
-    0,
-    container.clientHeight,
+    container.scrollLeft,
+    container.scrollLeft + container.clientWidth,
+    container.scrollTop,
+    container.scrollTop + container.clientHeight,
   );
   panel.style.left = `${clampedLeft}px`;
   panel.style.top = `${clampedTop}px`;
@@ -666,4 +886,17 @@ export function update(state) {
   // is fetched when Frame is opened, and refreshed while it stays open.
   coverageStale = true;
   if (frameVisible()) refreshCoverage();
+  // Draw the shot list and the detail column even with no sheet in hand, so
+  // both say what they are waiting for. Until 2026-08-24 nothing called this
+  // on load and `#frame-rows` was simply EMPTY until the first sheet event —
+  // survivable when it was one blank area under a header, and not once the
+  // view became two columns, where two empty boxes read as a pane that failed
+  // to load rather than one that has nothing to draw yet. Same rule
+  // `refreshCoverage` already follows out loud with "scanning for cuts…":
+  // a view must never let silence stand in for an answer.
+  //
+  // Costs nothing — no fetch, and with no sheet it appends one line each.
+  // A rebuild WITH a sheet is right here too: `approvedKeys` was just reset
+  // above, and the shot list draws its tick from it.
+  renderRows();
 }

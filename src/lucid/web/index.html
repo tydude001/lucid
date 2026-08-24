@@ -30,34 +30,46 @@
       <button id="undo" title="roll back the last timeline mutation">
         Undo <span id="depth" class="depth"></span>
       </button>
-      <!-- Default = ops.export's own default (picture.RENDER_ARGS, no -res).
+      <!-- The preset and the button it belongs to are ONE control, and until
+           2026-08-24 they were not: an unlabelled `<select>` reading
+           "Default" sat beside a filled Export button, and the only place it
+           said what it was choosing was a `title`. A dropdown whose subject
+           is invisible is a dropdown nobody touches — the four presets below
+           were unreachable in practice for anyone who had not read
+           docs/MANUAL.md. The label is the whole fix; the shared border is
+           what makes it read as one thing rather than a stray word.
+
+           Default = ops.export's own default (picture.RENDER_ARGS, no -res).
            'custom' reveals #export-resolution; app.js reads both only when
            the user actually chose them (CLAUDE.md: draws and plays, never
            decides — an invalid combination still surfaces only through the
            render 'error' event ops.export raises). -->
-      <select id="export-preset" title="export quality preset">
-        <option value="">Default</option>
-        <option value="youtube">YouTube</option>
-        <option value="web">Web</option>
-        <!-- Refuses a project whose canvas is not 9:16 rather than reshaping
-             one; the refusal arrives as the render 'error' event, same as
-             every other invalid combination. -->
-        <option value="tiktok-reels">TikTok / Reels</option>
-        <option value="custom">Custom…</option>
-      </select>
-      <input
-        id="export-resolution"
-        type="text"
-        inputmode="numeric"
-        placeholder="1920x1080"
-        title="output resolution, WIDTHxHEIGHT — letterboxes the existing frame, does not reframe it"
-        hidden
-      />
-      <!-- The one filled button on the page, and it sits at the right end
-           (DAYDREAM.md § Workspace shell). -->
-      <button id="export" class="primary" title="render a watermark-free MP4 in the window">
-        Export
-      </button>
+      <span class="export-group">
+        <label class="export-label" for="export-preset">preset</label>
+        <select id="export-preset" title="export quality preset">
+          <option value="">Default</option>
+          <option value="youtube">YouTube</option>
+          <option value="web">Web</option>
+          <!-- Refuses a project whose canvas is not 9:16 rather than reshaping
+               one; the refusal arrives as the render 'error' event, same as
+               every other invalid combination. -->
+          <option value="tiktok-reels">TikTok / Reels</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input
+          id="export-resolution"
+          type="text"
+          inputmode="numeric"
+          placeholder="1920x1080"
+          title="output resolution, WIDTHxHEIGHT — letterboxes the existing frame, does not reframe it"
+          hidden
+        />
+        <!-- The one filled button on the page, and it sits at the right end
+             (DAYDREAM.md § Workspace shell). -->
+        <button id="export" class="primary" title="render a watermark-free MP4 in the window">
+          Export
+        </button>
+      </span>
       <!-- F8: the render's own status, beside the button that started it —
            progress used to land only in the agent feed, a column over,
            interleaved with agent turns, so the only trace near this button
@@ -123,9 +135,15 @@
          only by the bare id, so this is safe. -->
     <main id="workspace">
       <aside id="transcript-pane" class="pane" aria-label="transcript">
-        <div class="pane-head">
+        <!-- The gesture is a tooltip and a row in the `?` sheet, not a
+             permanent sentence in the header (2026-08-24). A hint you read
+             once and then re-read on every load for the rest of the project
+             is not a hint, it is furniture — and it was the same dim
+             small-caps as three other header sentences that say nothing
+             actionable at all, which is what made the ONE header sentence
+             that matters (Frame's "Approve writes nothing") ignorable too. -->
+        <div class="pane-head" title="click a word to seek and select it · drag, or shift-click, to extend the selection">
           transcript
-          <span class="hint">click a word · drag or shift-click to extend</span>
         </div>
         <div id="transcript"></div>
       </aside>
@@ -136,9 +154,14 @@
              otherwise have to open the properties pane to read, and the
              whole reason PLAN.md's "the picture is placed, never fitted"
              rule needs saying out loud. Filled by app.js on every load(). -->
+        <!-- The canvas dimensions are a FACT and keep their place; the
+             caveat they used to trail — "not the media's shape" — is the
+             reason the fact is worth stating and rides the tooltip. app.js
+             fills both. -->
         <div class="pane-head">
           preview
-          <span id="preview-canvas-note" class="hint"></span>
+          <span class="spacer"></span>
+          <span id="preview-canvas-note" class="chip-static mono"></span>
         </div>
         <div id="viewer">
           <!-- The frame is the project canvas, not the media's own shape, and
@@ -178,140 +201,164 @@
           <button id="play" title="play the timeline (space)" aria-label="play or pause the timeline">▶</button>
           <span id="clock" class="clock">0:00.0 / 0:00.0</span>
           <span class="spacer"></span>
-          <span id="playhint" class="hint">
-            playing the source through the edit — each seam is a seek, so
-            expect a click rather than a clean join
-          </span>
+          <!-- A permanent two-line paragraph in the transport, for a fact
+               that matters exactly once: the first time someone hears a
+               seam. The word is the affordance and the sentence is the
+               tooltip. -->
+          <span
+            id="playhint"
+            class="chip-static"
+            title="the transport plays the SOURCE through the edit, so every seam is a seek — expect a click there rather than a clean join. The render has no seams."
+            >seams</span
+          >
         </div>
       </section>
 
-      <aside id="agent-pane" class="pane" aria-label="agent">
-        <!-- F2: below 980px this collapses to a 46px rail (app.css's own
-             comment on #workspace records the 800px measurement that missed
-             this fourth-track floor) instead of running the pane off-screen
-             with no scrollbar. One tab, one job — app.js's toggleRailPane()
-             flips a token in #workspace's data-expand attribute, the same
-             function the collapse button below calls in reverse. -->
-        <div class="pane-rail">
-          <button class="pane-rail-tab" type="button" aria-label="show agent">agent</button>
-        </div>
-        <div class="pane-head">
-          agent
-          <span class="spacer"></span>
-          <button class="pane-collapse-btn" type="button" aria-label="collapse agent" title="collapse to rail">«</button>
-          <button id="agent-new-task" type="button" title="kill the running conversation and start fresh">
-            New Task
-          </button>
-        </div>
-        <div id="agent-feed" class="agent-feed"></div>
-        <form id="agent-composer" class="agent-composer">
-          <textarea
-            id="agent-prompt"
-            rows="2"
-            placeholder="Ask the agent to edit this project… (@ to mention a clip)"
-          ></textarea>
-          <div class="agent-composer-row">
-            <span class="hint">Enter sends · Shift-Enter newline<span id="agent-model"></span></span>
-            <button id="agent-stop" type="button" hidden>Stop</button>
-            <button id="agent-send" type="submit" class="primary">Send</button>
-          </div>
-        </form>
-      </aside>
+      <!-- One rail, three tabs — the assets/properties column and the agent
+           column merged (2026-08-24). Two things drove it, and only the
+           second is aesthetic: at 1400px the old inspector column was
+           already CLIPPING, because assets and properties were two
+           `.pane-head`/body pairs stacked in one 18rem column at `flex: 1 1
+           50%` apiece, so the second of three clips fell outside the scroll
+           window (the exact shape CLAUDE.md § "a new control spends the
+           pane's height" records twice already, here reached by stacking
+           two panes rather than by adding a control). And four columns at
+           1400px left the preview — § Layout's largest thing on screen —
+           third widest.
 
-      <!-- The parity long tail's own rail: every asset a cue can point at
-           (assets.js, GET /api/assets), and a read-only inspector for
-           whatever is currently selected (properties.js, GET /api/properties)
-           — two panes stacked in one column rather than two more grid
-           tracks, since neither needs the width a transcript or the agent
-           feed does. Filled entirely by the two modules; this file only
-           owns the shell (app.css § Assets pane / § Properties pane). -->
-      <aside id="inspector-pane" class="pane" aria-label="assets and properties">
-        <!-- F2: same rail as the agent pane, below 1200px — this pane's
-             read-only content is the least urgent of the four, which is why
-             it collapses first (agent still gets the full 980px down). -->
+           Every id the three modules write into is unchanged; this is a
+           re-parenting, not a rewrite. What changed for them: assets and
+           properties no longer share a column's height, so each gets the
+           whole rail when its tab is on, and the agent feed gets the same
+           instead of a 20rem strip. app.js owns the tab switch (setRailTab)
+           and nothing else here decides. -->
+      <aside id="rail-pane" class="pane" aria-label="agent, assets and properties">
+        <!-- F2's collapsed rail, now one instead of two. Its label is not
+             static: app.js writes the active tab's own name into it, so the
+             46px strip says which panel is waiting behind it rather than
+             naming a container nobody has a word for. -->
         <div class="pane-rail">
-          <button class="pane-rail-tab" type="button" aria-label="show inspector">assets</button>
+          <button id="rail-collapsed-tab" class="pane-rail-tab" type="button" aria-label="show the side panels">assets</button>
         </div>
-        <div class="pane-head">
-          assets
-          <span class="hint">click to inspect · role sets voiceover / footage</span>
-          <span class="spacer"></span>
-          <button class="pane-collapse-btn" type="button" aria-label="collapse inspector" title="collapse to rail">«</button>
+        <!-- `role="tablist"` and the three `aria-selected` flags are the
+             whole accessibility contract here: app.js keeps exactly one
+             `true` and moves `hidden` on the matching panel. The collapse
+             button rides this row rather than a fourth `.pane-head`, which
+             is the row the tabs replaced. -->
+        <div class="rail-tabs" role="tablist" aria-label="side panels">
+          <button id="rail-tab-agent" class="rail-tab" type="button" role="tab" data-rail="agent" aria-controls="rail-agent" aria-selected="false">agent</button>
+          <button id="rail-tab-assets" class="rail-tab" type="button" role="tab" data-rail="assets" aria-controls="rail-assets" aria-selected="true" title="click a clip or card to inspect it · the two role buttons set voiceover / footage">assets</button>
+          <button id="rail-tab-properties" class="rail-tab" type="button" role="tab" data-rail="properties" aria-controls="rail-properties" aria-selected="false">properties</button>
+          <button class="pane-collapse-btn" type="button" aria-label="collapse the side panels" title="collapse to rail">«</button>
         </div>
+
+        <!-- agent (agent.js) ---------------------------------------------->
+        <section id="rail-agent" class="rail-panel" role="tabpanel" aria-labelledby="rail-tab-agent" hidden>
+          <div class="rail-panel-bar">
+            <span class="spacer"></span>
+            <button id="agent-new-task" type="button" title="kill the running conversation and start fresh">
+              New Task
+            </button>
+          </div>
+          <div id="agent-feed" class="agent-feed"></div>
+          <form id="agent-composer" class="agent-composer">
+            <textarea
+              id="agent-prompt"
+              rows="2"
+              placeholder="Ask the agent to edit this project… (@ to mention a clip)"
+            ></textarea>
+            <div class="agent-composer-row">
+              <span class="hint">Enter sends · Shift-Enter newline<span id="agent-model"></span></span>
+              <button id="agent-stop" type="button" hidden>Stop</button>
+              <button id="agent-send" type="submit" class="primary">Send</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- assets (assets.js) -------------------------------------------->
         <!-- Studio's "footage in is still not a window operation" item —
              assets.js owns every control and status line here; this file
              only owns the static shell (app.css § Assets pane). `source`
              is a path on the machine RUNNING LUCID (the server, reachable
-             to the NAS), never a browser file picker — CLAUDE.md decision
-             #1 on the backend report this is wired against. -->
-        <!-- Closed by default, and that is a measurement rather than a
-             preference: opened, this form is 227px of a 613px inspector
-             pane, which left `#assets-list` a 126px window that two clips
-             already overflowed. The pane's job is the asset list; adding
-             footage is a once-per-clip errand, so it folds away. assets.js
-             opens it on its own for a project with no clips, where the
-             errand IS the pane's job. -->
-        <button
-          id="import-toggle"
-          class="import-toggle"
-          type="button"
-          aria-expanded="false"
-          aria-controls="import-form"
-        >
-          + Add footage
-        </button>
-        <form id="import-form" class="import-form" aria-label="add footage" hidden>
-          <div class="import-form-row">
-            <label for="import-source">Add footage — path on the lucid host</label>
-            <input
-              id="import-source"
-              type="text"
-              name="source"
-              placeholder="/path/on/the/machine/running/lucid/clip.mp4"
-              autocomplete="off"
-              required
-            />
-            <span class="hint">Not a file from this browser or phone — a path the lucid server itself can read (e.g. on the NAS).</span>
-          </div>
-          <div class="import-form-row">
-            <label for="import-clip-id">Clip id (optional)</label>
-            <input
-              id="import-clip-id"
-              type="text"
-              name="clip_id"
-              placeholder="leave blank to auto-name"
-              autocomplete="off"
-            />
-          </div>
-          <div class="import-form-row import-form-row-inline">
-            <label for="import-copy" class="toggle" id="import-copy-toggle">
-              <input id="import-copy" type="checkbox" name="copy" />
-              copy into project
-            </label>
-            <span class="spacer"></span>
-            <button id="import-submit" type="submit">Import</button>
-          </div>
-          <div id="import-status" class="asset-status" hidden></div>
-          <!-- Drawn only when import refuses a multi-mic container, so it
-               costs the pane no height the rest of the time — the lesson
-               the add-footage form itself taught (CLAUDE.md § its sibling).
-               Its label carries the stream count, set by assets.js. -->
-          <div id="import-offer" class="import-offer" hidden>
-            <button id="import-mix" class="import-mix" type="button"></button>
-            <button id="import-pick" class="import-mix" type="button"></button>
-          </div>
-        </form>
-        <div id="transcribe-status" class="asset-status" hidden></div>
-        <div id="assets-list"></div>
-        <div class="pane-head">
-          properties
-          <span class="hint">read-only, composed from the same ops the CLI uses</span>
-          <span class="spacer"></span>
-          <button id="properties-clear" type="button" title="back to project-wide properties" hidden>
-            project ⌫
+             to the NAS), never a browser file picker. -->
+        <section id="rail-assets" class="rail-panel" role="tabpanel" aria-labelledby="rail-tab-assets">
+          <!-- Closed by default, and that is a measurement rather than a
+               preference: opened, this form is 227px of the pane, which left
+               `#assets-list` a 126px window that two clips already
+               overflowed. The pane's job is the asset list; adding footage
+               is a once-per-clip errand, so it folds away. assets.js opens
+               it on its own for a project with no clips, where the errand IS
+               the pane's job. -->
+          <button
+            id="import-toggle"
+            class="import-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="import-form"
+          >
+            + Add footage
           </button>
-        </div>
-        <div id="properties-body"></div>
+          <form id="import-form" class="import-form" aria-label="add footage" hidden>
+            <div class="import-form-row">
+              <label for="import-source">Add footage — path on the lucid host</label>
+              <input
+                id="import-source"
+                type="text"
+                name="source"
+                placeholder="/path/on/the/machine/running/lucid/clip.mp4"
+                autocomplete="off"
+                required
+              />
+              <span class="hint">Not a file from this browser or phone — a path the lucid server itself can read (e.g. on the NAS).</span>
+            </div>
+            <div class="import-form-row">
+              <label for="import-clip-id">Clip id (optional)</label>
+              <input
+                id="import-clip-id"
+                type="text"
+                name="clip_id"
+                placeholder="leave blank to auto-name"
+                autocomplete="off"
+              />
+            </div>
+            <div class="import-form-row import-form-row-inline">
+              <label for="import-copy" class="toggle" id="import-copy-toggle">
+                <input id="import-copy" type="checkbox" name="copy" />
+                copy into project
+              </label>
+              <span class="spacer"></span>
+              <button id="import-submit" type="submit">Import</button>
+            </div>
+            <div id="import-status" class="asset-status" hidden></div>
+            <!-- Drawn only when import refuses a multi-mic container, so it
+                 costs the pane no height the rest of the time — the lesson
+                 the add-footage form itself taught (CLAUDE.md § its sibling).
+                 Its label carries the stream count, set by assets.js. -->
+            <div id="import-offer" class="import-offer" hidden>
+              <button id="import-mix" class="import-mix" type="button"></button>
+              <button id="import-pick" class="import-mix" type="button"></button>
+            </div>
+          </form>
+          <div id="transcribe-status" class="asset-status" hidden></div>
+          <div id="assets-list"></div>
+        </section>
+
+        <!-- properties (properties.js) ------------------------------------>
+        <section id="rail-properties" class="rail-panel" role="tabpanel" aria-labelledby="rail-tab-properties" hidden>
+          <!-- `read-only` is the half of the old header sentence that was a
+               STATE, so it keeps a chip. The other half — "composed from the
+               same ops the CLI uses" — is an invariant of the build, true
+               whether or not anyone reads it, and it is stated in
+               CLAUDE.md § The web UI is a third client where it belongs. -->
+          <div class="rail-panel-bar">
+            <span class="chip-static" title="every field here is composed from the same ops the CLI and MCP call — the window draws, it never decides">read-only</span>
+            <span class="spacer"></span>
+            <button id="properties-clear" type="button" title="back to project-wide properties" hidden>
+              project ⌫
+            </button>
+          </div>
+          <div id="properties-body"></div>
+        </section>
       </aside>
     </main>
 
@@ -323,22 +370,38 @@
          states below. Same top-level tier as #workspace and the timeline
          section — not nested inside either. -->
     <section id="finish-view" hidden aria-label="finish">
-      <div class="pane-head">
-        finish
-        <span class="hint">pick a preset, choose whether to burn captions, then render</span>
+      <!-- The two halves of Finish, side by side (2026-08-24). They used to
+           be one scrolling column in this order: presets, manifest, burn,
+           Render, the live stage report, and — last — the render itself. So
+           the moment the thing you came to watch appeared, the checklist
+           saying whether it is right had scrolled off the top. Two columns
+           cost nothing (the report is narrow and the player wants width) and
+           neither can push the other away.
+
+           The head sentence — "pick a preset, choose whether to burn
+           captions, then render" — is a reading of the three controls
+           directly under it, in their own order. It rides the toolbar's
+           tooltip now. -->
+      <div class="finish-toolbar" title="pick a preset, choose whether to burn captions, then render">
+        <span class="pane-head-inline">finish</span>
+        <span class="spacer"></span>
+        <label class="toggle" id="finish-burn-toggle">
+          <input type="checkbox" id="finish-burn-checkbox" /> Burn captions
+        </label>
+        <button id="finish-render" class="primary">Render</button>
       </div>
-      <div id="finish-presets" class="finish-presets"></div>
-      <div id="finish-manifest" class="finish-manifest"></div>
-      <label class="toggle" id="finish-burn-toggle">
-        <input type="checkbox" id="finish-burn-checkbox" /> Burn captions
-      </label>
-      <button id="finish-render" class="primary">Render</button>
-      <div id="finish-report" class="finish-report"></div>
+      <div class="finish-body">
+        <div class="finish-run">
+          <div id="finish-presets" class="finish-presets"></div>
+          <div id="finish-manifest" class="finish-manifest"></div>
+          <div id="finish-report" class="finish-report"></div>
+        </div>
       <!-- The last render, playable. `finish.js` fills this in; the <video>
            it builds points at /api/output, which streams the render log's
            own last output and nothing else. Empty (and silent) when nothing
            has been rendered here. -->
-      <div id="finish-output" class="finish-output"></div>
+        <div id="finish-output" class="finish-output"></div>
+      </div>
     </section>
 
     <!-- Studio reshape step 03 (STUDIO.md): the Frame view — `frame.js`
@@ -351,37 +414,54 @@
          among the three hidden-by-default sections doesn't matter, since
          only one is ever visible. -->
     <section id="frame-view" hidden aria-label="frame">
-      <!-- One wrapper so the head, the coverage chips and the two buttons
-           stick together at the top of the scrolling view — see app.css
-           § .frame-head for why they had to. -->
-      <div class="frame-head">
-        <div class="pane-head">
-          frame
-          <span class="hint">per-shot crop windows — Approve writes nothing, Re-frame does</span>
-        </div>
+      <!-- One toolbar row instead of three stacked ones (2026-08-24). The
+           three chips and the two buttons used to be a `.frame-head` column
+           of a label row, a chip row and a button row, and under them the
+           window cards ran down the page and stopped: on the demo project
+           the whole view ended two-thirds of the way up a 900px window, and
+           on the film the cards were a 79-item scroll with no way to reach
+           one shot except past all the others.
+
+           The head sentence — "Approve writes nothing, Re-frame does" — is
+           the ONE pane-head sentence in this file that was doing real work,
+           because it disambiguates two adjacent buttons. It did not survive
+           being the fourth line of dim small-caps on the screen, so it moved
+           onto the buttons themselves, where frame.js sets it as their
+           `title` (§ buildRow). -->
+      <div class="frame-toolbar">
+        <span class="pane-head-inline">frame</span>
         <div id="frame-coverage" class="frame-coverage-row" aria-label="framing coverage">
           <span id="frame-chip-stale" class="chip"></span>
           <span id="frame-chip-steps" class="chip"></span>
           <span id="frame-chip-cuts" class="chip"></span>
         </div>
-        <div class="frame-actions-row">
-          <button id="frame-build-sheet" class="primary" type="button">Build sheet</button>
-          <button id="frame-detect-gaps" type="button">Detect gaps</button>
-          <span id="frame-detect-error"></span>
-        </div>
+        <span class="spacer"></span>
+        <span id="frame-detect-error"></span>
+        <button id="frame-detect-gaps" type="button">Detect gaps</button>
+        <button id="frame-build-sheet" class="primary" type="button">Build sheet</button>
       </div>
-      <div id="frame-rows" class="frame-rows"></div>
+      <!-- A list and a detail. `#frame-shots` is one entry per SHOT (a
+           placement), `#frame-rows` the selected shot's own windows — which
+           is the one grouping the sheet's rows do not already have: a row is
+           a window, and a shot with four of them was four cards with the
+           same header. Each column scrolls on its own, so picking a shot
+           never costs the list its place. frame.js owns both. -->
+      <div class="frame-body">
+        <div id="frame-shots" class="frame-shots" role="listbox" aria-label="shots"></div>
+        <div id="frame-rows" class="frame-rows"></div>
+      </div>
     </section>
 
     <section id="timeline-pane">
       <div class="timeline-head">
         <span class="pane-head-inline">timeline</span>
-        <!-- The citation rides the tooltip, not the copy: agent.js's
-             placeholder makes the same call for the same reason. -->
-        <span class="hint" title="PLAN.md § The timeline">
-          lanes are projections of one edit — no lane the render cannot
-          produce
-        </span>
+        <!-- The sentence that stood here — "lanes are projections of one
+             edit, no lane the render cannot produce" — is an INVARIANT OF
+             THE BUILD, true whether or not anyone reads it, and it is
+             addressed to whoever adds the next lane rather than to anyone
+             editing a film. It lives in PLAN.md § The timeline and in
+             CLAUDE.md § Timeline lanes are projections, where it is
+             enforceable. Removed from the chrome 2026-08-24. -->
         <span class="spacer"></span>
         <label class="zoom-ctl">
           zoom
@@ -449,7 +529,7 @@
          below existed nowhere a user could find them. -->
     <dialog id="shortcuts-sheet">
       <div class="shortcuts-head">
-        <span class="pane-head-inline">keyboard shortcuts</span>
+        <span class="pane-head-inline">keyboard &amp; mouse</span>
         <button id="shortcuts-close" type="button" aria-label="close">×</button>
       </div>
       <div class="shortcuts-body">
@@ -478,6 +558,15 @@
             <tr><td>← / →</td><td>move to the previous / next word</td></tr>
             <tr><td>Shift + ← / →</td><td>extend the selection to that word</td></tr>
             <tr><td>Enter / Space</td><td>seek the player to the focused word</td></tr>
+
+            <!-- 2026-08-24: the two gestures that used to be printed
+                 permanently in the transcript pane's own header. They still
+                 belong grouped under the pane that owns them — that is this
+                 sheet's whole organising principle, and a mouse gesture is
+                 owned by a pane exactly the way a key is. -->
+            <tr class="group"><th colspan="2">Transcript — with the mouse</th></tr>
+            <tr><td>Click</td><td>seek there, and select that word</td></tr>
+            <tr><td>Drag, or Shift + click</td><td>extend the selection across words</td></tr>
 
             <tr class="group"><th colspan="2">Timeline — in the cue or music panel</th></tr>
             <tr><td>Enter</td><td>place the cue / apply the music bed</td></tr>

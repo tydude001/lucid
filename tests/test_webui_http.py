@@ -3816,8 +3816,12 @@ def test_app_css_load_bearing_selectors_resolve_to_a_rule(server: str) -> None:
         # The one channel errors arrive on (F6) — an aria-live region that
         # never lays out correctly is not actually announcing anything useful.
         "#toast": "the sole error channel; F9's data-severity styling keys off it",
-        # The shared pane-head/pane idiom all four panes reuse.
+        # The shared pane-head/pane idiom all three panes reuse.
         ".pane": "the flex-column/scroll/border idiom shared by every pane",
+        # The rail's tab panels — losing this rule does not hide anything,
+        # it draws all three panels on top of each other, because the
+        # companion `[hidden]` rule below has nothing to switch off.
+        ".rail-panel": "the agent/assets/properties tab panels' own box",
         # A timeline lane's own row (CLAUDE.md: "never draw a lane export
         # cannot produce") — this is the rule that makes a lane look like one.
         ".lane": "one lane's row; timeline.js draws several of these per project",
@@ -3845,8 +3849,27 @@ def test_app_css_declares_the_pane_layout_tokens_and_the_rail_breakpoints(
 
     assert "--pane-preview-min: 26rem" in css
     assert "--rail-w: 46px" in css
-    assert "@media (max-width: 1200px)" in css
+    # Two breakpoints became one on 2026-08-24, and again the pair was not a
+    # threshold — it was one collapse width per collapsible pane (1200px for
+    # the inspector, 980px for the agent). With three tracks the grid demands
+    # 15rem + 26rem + 17rem = 928px, so 1200px would collapse a rail on a
+    # window with 272px to spare. 980px survives as the collapse width and
+    # 928px is the second breakpoint the merged layout does need: the state
+    # where the rail is EXPANDED under its own collapse width, which is the
+    # state F2 originally shipped without measuring.
     assert "@media (max-width: 980px)" in css
+    assert "@media (max-width: 928px)" in css
+    # The same class of required override as #toast[hidden] below, and the
+    # same trap: `.rail-panel` carries an author `display: flex`, which
+    # outranks the browser's own `[hidden]` UA rule — so without this the
+    # `hidden` app.js sets on two of the three panels does nothing at all and
+    # all three draw stacked. It has cost this file both toolbars, the pad
+    # popover and #picture already.
+    assert re.search(r"\.rail-panel\[hidden\]\s*\{[^}]*display:\s*none", css), (
+        ".rail-panel[hidden] must set display:none explicitly, or the base "
+        ".rail-panel{display:flex} rule outranks the browser's own [hidden] "
+        "UA rule and every tab panel draws at once"
+    )
     assert re.search(r"#toast\[hidden\]\s*\{[^}]*display:\s*none", css), (
         "#toast[hidden] must set display:none explicitly, or the base "
         "#toast{display:flex} id rule (specificity 100) outranks the "
@@ -3885,7 +3908,26 @@ def test_index_html_carries_the_new_contract_ids(server: str) -> None:
     assert 'id="export-status"' in page
     assert 'id="shortcuts-sheet"' in page
     assert 'id="preview-canvas-note"' in page
-    assert page.count("pane-rail") >= 2
+    # This read `>= 2` until 2026-08-24, and the number was not a threshold —
+    # it was "one rail per collapsible pane, and there are two panes". The
+    # agent column and the assets/properties column became ONE pane with three
+    # tab panels, so there is one collapsible pane and one rail. The assertion
+    # is updated rather than deleted because what it was really pinning is
+    # that the collapsed-pane affordance still EXISTS: F2's finding was a pane
+    # drawing entirely past the right edge of an `overflow: hidden` body, with
+    # no scrollbar and nothing in the console, and the rail is the only way
+    # back to it.
+    assert page.count("pane-rail") >= 1
+    # The merge's own contract, so losing a panel is not silent. Each tab has
+    # a panel and each panel is named by its tab; app.js's setRailTab moves
+    # `hidden` between exactly these three.
+    for which in ("agent", "assets", "properties"):
+        assert f'id="rail-tab-{which}"' in page
+        assert f'id="rail-{which}"' in page
+    assert page.count('role="tab"') == 3
+    # Exactly one selected in the static markup — the state app.js starts
+    # from. Two would draw two panels at once on the first paint.
+    assert page.count('aria-selected="true"') == 1
 
 
 def test_dom_js_exports_the_shared_clamp_helper(server: str) -> None:
