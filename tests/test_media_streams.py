@@ -384,6 +384,36 @@ def test_probe_reports_no_chapters_for_ordinary_media(tmp_path: Path) -> None:
     assert media.probe(container).has_chapters is False
 
 
+@needs_ffprobe
+@needs_ffmpeg
+def test_probe_tolerates_ordinary_av_duration_skew(tmp_path: Path) -> None:
+    """The format/stream disagreement signal (`CHAPTER_DURATION_TOLERANCE`)
+    exists to catch a chapter/data track inflating `-show_format`'s own
+    `duration`, not ordinary A/V skew — a camera or NLE export where the
+    audio track runs shorter or longer than the video by real seconds, no
+    `-shortest` trim, no chapters anywhere. Measured directly (no `-metadata`
+    override survives ffmpeg's own mp4 muxer, which recomputes duration from
+    actual samples): the container's own `-show_format` duration lands on the
+    *longer* of the two streams' own durations, matching `stream_reference`
+    exactly, so this must not trip `has_chapters` or downgrade `duration` to
+    the shorter stream's own figure.
+    """
+    dest = tmp_path / "skewed.mp4"
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=2.8",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=3.2:sample_rate=48000",
+        "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-map", "1:a", "-c:a", "aac", str(dest),
+    ]  # fmt: skip
+    subprocess.run(command, capture_output=True, check=True)
+
+    info = media.probe(dest)
+
+    assert info.has_chapters is False
+    assert info.duration == pytest.approx(3.2, abs=0.05)
+
+
 def test_a_hand_built_media_info_still_means_no_chapters() -> None:
     """`has_chapters` defaults like `audio_streams` — additive, so an older
     hand-built `MediaInfo` still means what it always meant."""
