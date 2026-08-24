@@ -4,9 +4,11 @@ An open-source, local-first AI video editor. A lucid dream is a dream you
 control — lucid puts an AI agent on your timeline and keeps the whole thing
 on hardware you own: no cloud, no accounts, no metering.
 
-![The lucid workspace: transcript, preview with burnt-style captions, the
-agent panel working through a request against the timeline, and the layered
-timeline below](docs/img/edit-mode.png)
+![The lucid workspace on the demo project: the transcript with a retake struck
+through, the preview drawing the shot under the playhead with its captions, the
+agent panel reporting a finished render against the timeline, and the layered
+timeline below — picture, waveform and captions as three projections of one
+edit](docs/img/edit-mode.png)
 
 ## The idea
 
@@ -133,8 +135,9 @@ with the reasoning behind each behaviour.
   `black` and `spots` cover the picture side.
 
   ![Finish mode: the per-stage report — export, caption burn, frame count
-  agrees, audio verify at 0.967 similarity — above the finished file playing
-  in the page with its burnt captions](docs/img/finish-mode.png)
+  agrees, audio verify at 0.971 similarity — above the finished file playing
+  in the page with its burnt captions, and the truth strip down to zero
+  flags](docs/img/finish-mode.png)
 - **B-roll by description** — `describe` writes what is visible in each
   ~10-second window of footage; reading it back *is* the search, and a cue
   table addressed by word index lays clips and cards over the voiceover.
@@ -144,9 +147,10 @@ with the reasoning behind each behaviour.
   face-aware proposals (`reframe-detect`), a review sheet that draws every
   window on its own frames, and stacked splits for two-handers.
 
-  ![Frame mode: every crop window drawn on the source's own frames, a stacked
-  split with its pane overlap measured, and coverage chips for stale framing
-  and unexplained steps](docs/img/frame-mode.png)
+  ![Frame mode: one row per shot, each crop window drawn as a rect on three of
+  the source's own frames, with the window's rect quoted in source pixels,
+  Approve/Re-frame beside it, and coverage chips for stale framing and
+  unexplained steps](docs/img/frame-mode.png)
 - **Derived reels** — `reel` cuts a span of the film into a new project for a
   vertical teaser, reporting every picture it dropped and pinning every one
   it kept, so the reel shows what the film showed.

@@ -46,10 +46,14 @@ line is the one you are about to remove:
 That middle line is a **retake**: the narrator starts a sentence, stops, and
 says it again. Removing it is the thing lucid exists for.
 
-The two b-roll clips are flat colours with a burnt-in counter — `BLUE 3s`,
-`RUST 0s`. Ugly on purpose: every frame names which clip it is and how far
-into it, so when you look at the render you can tell at a glance whether the
-right footage is at the right moment.
+The two b-roll clips are flat colours carrying three marks — a centred
+counter (`BLUE 3s`), a faint grid, and `TL`/`TR`/`BL`/`BR` in the corners.
+Ugly on purpose. Every frame names which clip it is and how far into it, so
+one look at the render tells you whether the right footage is at the right
+moment; and every *corner* names itself, so a crop window that keeps all four
+is one that is not cropping. On real footage you judge a crop by whether the
+subject survived — there is no subject here, so the frame answers the question
+instead.
 
 ## 2. Make the project
 
@@ -246,5 +250,12 @@ and skip to step 3.
   and a `captions --burn` on an existing file is not one. A manifest can say
   captions are configured while nothing on disk was ever burned, and this is
   the field that stops that reading as clean.
+- `lucid -C ~/lucid-demo/proj reframe blue --rect 0,0,320,180` then
+  `lucid -C ~/lucid-demo/proj reframe-sheet` — a crop window is a rect in the
+  clip's own *source* pixels, so no cut can invalidate one. That rect keeps
+  the top-left quadrant, which the corner tags make obvious: `TL` survives and
+  the other three are gone. The sheet draws every window on the frames it
+  actually governs, and Frame mode in the window is the same sheet with
+  coverage chips over it.
 - Point step 1 at your own voiceover instead. Nothing in the walkthrough after
   step 2 knows the footage was generated.

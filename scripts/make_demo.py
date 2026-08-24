@@ -20,11 +20,12 @@ real recording — which is what makes the cut land in silence rather than
 clipping a consonant.
 
 The b-roll is two clips that could not be confused for each other and whose
-every second names itself (a burnt-in counter over a flat colour), the same
-precedent the repo already uses when the question is "which source second is
-this" — see CLAUDE.md. Real footage screenshots better and is the open half of
-this step; synthetic footage is what ships by default because it costs nobody
-a licence review.
+every second — and every corner — names itself: a burnt-in source-second
+counter, a grid, and `TL`/`TR`/`BL`/`BR` tags. That is the repo's own "every
+moment names itself" precedent (CLAUDE.md) extended one step, because framing
+asks a question a counter cannot answer: a crop window that keeps all four
+corners is not cropping. Real footage screenshots better; synthetic footage is
+what ships because it costs nobody a licence review.
 
     python scripts/make_demo.py ~/lucid-demo          # just the media
     python scripts/make_demo.py ~/lucid-demo --build  # ...and a seeded project
@@ -142,24 +143,52 @@ def make_voiceover(out: Path) -> Path:
     return out
 
 
+def _corner(tag: str, x: str, y: str) -> str:
+    return (
+        f"drawtext=text='{tag}':font=sans:fontsize=20:fontcolor=white@0.55:x={x}:y={y}"
+    )
+
+
 def make_broll(directory: Path) -> list[Path]:
-    """Two clips nobody could mix up, each second labelled with its own number."""
+    """Two clips nobody could mix up, where every second *and every corner*
+    names itself.
+
+    Three marks, each earning its place:
+
+    * the **centred counter** is the source second, which is the number a
+      cue's `src_start` and a contact sheet's label both quote — so a frame of
+      the render says how far into its clip it is;
+    * the **grid** gives a flat colour something a crop can be measured
+      against, which is what makes `reframe`'s windows legible on footage
+      nobody shot;
+    * the **corner tags** are the crop tell. A window that keeps all four is
+      not cropping; one showing `TL`/`BL` alone has taken the left half. On
+      real footage you judge a crop by whether the subject survived, and there
+      is no subject here — so the frame is built to answer the question
+      instead.
+    """
     _require("ffmpeg", "every media step goes through it", "Install ffmpeg.")
     made = []
     for name, colour, label in BROLL:
         dest = directory / name
-        # `%{eif:t:d}` is ffmpeg's own frame-time expression — the counter is
-        # the *source* second, which is the number a cue's `src_start` and a
-        # contact sheet's label both quote.
-        draw = (
-            f"drawtext=text='{label} %{{eif\\:t\\:d}}s':font=sans:fontsize=48:"
-            "fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
-        )
+        # `%{eif:t:d}` is ffmpeg's own frame-time expression, and the colons in
+        # it are escaped because a filter argument is colon-separated.
+        chain = ",".join([
+            "drawgrid=w=80:h=80:t=1:c=white@0.10",
+            _corner("TL", "12", "10"),
+            _corner("TR", "w-tw-12", "10"),
+            _corner("BL", "12", "h-th-10"),
+            _corner("BR", "w-tw-12", "h-th-10"),
+            (
+                f"drawtext=text='{label} %{{eif\\:t\\:d}}s':font=sans:fontsize=48:"
+                "fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
+            ),
+        ])
         _run([
             "ffmpeg", "-y", "-v", "error",
             "-f", "lavfi",
             "-i", f"color=c={colour}:s={BROLL_SIZE}:r={BROLL_FPS}:d={BROLL_SECONDS}",
-            "-vf", draw,
+            "-vf", chain,
             "-c:v", "libx264", "-pix_fmt", "yuv420p", str(dest),
         ])  # fmt: skip
         made.append(dest)

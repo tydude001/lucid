@@ -10720,3 +10720,35 @@ No schema bump. Everything added is additive-optional (`vfr` on a clip,
 `N.otio` in `cache/history/`), which is the rule the `caption_style`
 precedent set: a bump is for a key that makes the version number true, not
 for one every older manifest already means the absence of.
+
+## The README screenshots came off the demo project — 2026-08-24
+
+The swap the wiki's publish row had been waiting on. All three images are now
+the demo project, so nothing in the README is anybody's copyrighted footage,
+and every one of them shows its mode doing real work rather than sitting
+empty.
+
+Getting there needed three things, and the first is the one worth recording.
+**The b-roll grew corner tags.** Flat colour with a burnt-in second counter
+answers "which clip, how far in"; it cannot answer "did this crop keep the
+subject", because there is no subject. So each frame now carries a faint grid
+and `TL`/`TR`/`BL`/`BR` — a window that keeps all four is not cropping, and
+the demo's own `0,0,320,180` window is legible at a glance in both the render
+and the sheet. That is the repo's "every moment names itself" rule extended
+one step to every *region*.
+
+The other two were state, not code. Finish mode was captured **after a render
+driven from the page**, so the shot carries the per-stage report (export, burn,
+frame count agrees, audio verify 0.971), the truth strip down to `captions
+burned · 0 flags`, and the finished file playing in the page with its burnt
+caption — which is what the caption had always promised and the first draft
+did not show. Frame mode was captured after one `reframe` and a built sheet,
+because a project whose canvas matches its media has no windows to draw and
+the pane was honestly empty. Both routes are now bullets in `docs/DEMO.md`'s
+"what to try next", so the screenshots' state is reachable from the doc rather
+than staged for the camera.
+
+Every caption was rewritten to what its image actually shows. The old Frame
+one promised "a stacked split with its pane overlap measured", which the demo
+has none of; the old Finish one quoted 0.967, which was the Scream film's
+number.
