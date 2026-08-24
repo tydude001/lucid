@@ -96,7 +96,9 @@ Each shot's state, and the order that gets all three from one page:
 - **`key` sends virtual key codes, and that is not cosmetic** — a code-less
   Escape reaches a JS listener but not Chrome's `<dialog>` close watcher, and
   reads as a bug in the page. Measurement in wiki `tooling.md` § Headless
-  browser.
+  browser. It also takes a key NAME, so the transport is `key "Space"`; a
+  literal `key " "` is silently a no-op, which reads as space-to-play being
+  broken.
 - **A lazy image is not a broken image.** Measure `naturalWidth` only after
   scrolling the element's *real* scroll parent; through the wrong one, 30
   perfectly good tiles read exactly like a route that 404s.

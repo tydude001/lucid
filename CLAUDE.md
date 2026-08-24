@@ -352,18 +352,15 @@ absent optional capability is "unavailable", never a failure, and never moves
     the companion rule `hidden` does nothing and all three draw stacked.
     HISTORY.md § The web UI review, § The workspace redesign.
   - **A floating panel is clamped by `dom.js`'s `clampFloating`, and there is
-    exactly one copy.** The two callers hand it different spaces — the
-    transcript toolbar is unscrolled, the cue toolbar has `scrollLeft` already
-    folded in — so it takes bounds rather than a container. A second clamp is
-    how the first fix reached one of the two toolbars and not the other.
-    - **When the positioning context is ALSO the scroll container, the
-      visible box is `scrollTop … scrollTop + clientHeight`, never
-      `0 … clientHeight`.** `offsetTop` is in content coordinates, so
-      clamping against the client box pins the panel to the top of the
-      CONTENT — correct only while nothing is scrolled, and hundreds of
-      pixels off the visible column once something is. `#frame-rows` became
-      one of these when Frame split into a list and a detail. HISTORY.md
-      § The workspace redesign.
+    exactly one copy.** Its **three** callers hand it three different spaces,
+    which is why it takes bounds rather than a container: the transcript
+    toolbar is unscrolled, the cue toolbar has `scrollLeft` already folded in,
+    and `#frame-rows` is itself the scroll container — so its bounds are
+    `scrollTop … scrollTop + clientHeight`, never `0 … clientHeight`.
+    `offsetTop` is in content coordinates, so clamping a scroller against its
+    client box pins the panel to the top of the CONTENT, which is off the
+    visible column entirely once anything is scrolled. A second clamp is how
+    the first fix reached one of the two toolbars and not the other.
     - **`clampFloating` MOVES a box; it cannot SHRINK one.** A panel taller
       than its container is pinned to the top with its own buttons hanging
       off the bottom — measured at 218px inside a 143px `overflow: hidden`
