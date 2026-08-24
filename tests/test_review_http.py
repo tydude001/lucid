@@ -300,6 +300,53 @@ def test_non_ab_items_are_unaffected_by_an_ab_group_on_the_same_page(
     assert after_section == before_section
 
 
+# -- CSP nonce ----------------------------------------------------------------
+#
+# The module docstring's explicit security claim: a fresh per-response
+# nonce, echoed verbatim into both the `Content-Security-Policy` header and
+# the one `<script nonce="...">` tag, and never the review token reused as
+# a nonce — different secrets, different lifetimes. Nothing below exercised
+# this before; a future edit that reused `self.token` as the nonce, cached
+# it across requests, or let the header drift from the tag would have
+# passed the whole suite.
+
+
+def _csp_nonce(headers: dict[str, str]) -> str:
+    csp = headers["Content-Security-Policy"]
+    match = re.search(r"script-src 'nonce-([^']+)'", csp)
+    assert match, f"no script-src nonce in CSP header: {csp!r}"
+    return match.group(1)
+
+
+def test_the_csp_header_nonce_matches_the_scripts_own_nonce_attribute(
+    project: Path, server: str
+) -> None:
+    _add_ab_pair(project)
+
+    status, headers, body = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+
+    header_nonce = _csp_nonce(headers)
+    tag_match = re.search(rb'<script nonce="([^"]+)">', body)
+    assert tag_match, f"no <script nonce=...> tag in body:\n{body!r}"
+    tag_nonce = tag_match.group(1).decode()
+
+    assert header_nonce == tag_nonce
+    assert header_nonce != TOKEN
+
+
+def test_two_successive_requests_get_different_csp_nonces(server: str) -> None:
+    _, first_headers, _ = _get(f"{server}/?t={TOKEN}")
+    _, second_headers, _ = _get(f"{server}/?t={TOKEN}")
+
+    first_nonce = _csp_nonce(first_headers)
+    second_nonce = _csp_nonce(second_headers)
+
+    assert first_nonce != second_nonce
+    assert first_nonce != TOKEN
+    assert second_nonce != TOKEN
+
+
 def test_an_ab_group_member_with_no_token_is_forbidden(project: Path, server: str) -> None:
     """The fold must not create a new unauthenticated path: every data-src,
     src and form-action on the page still needs the token, including a
