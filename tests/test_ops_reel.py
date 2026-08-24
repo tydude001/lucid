@@ -124,17 +124,68 @@ def test_an_attenuated_copy_is_linked_too(film: Project, tmp_path: Path) -> None
     """`media_path()` prefers `attenuated` over `media`, which is what makes
     attenuation transparent downstream — so carrying `media/` alone would give
     the reel a render at full noise with nothing in the manifest saying so."""
+    film.attenuated_dir.mkdir(parents=True, exist_ok=True)
     calm = film.attenuated_dir / "vo.mp4"
     calm.write_bytes(b"the calm one")
+    film.stripped_dir.mkdir(parents=True, exist_ok=True)
+    stripped = film.stripped_dir / "vo.mp4"
+    stripped.write_bytes(b"the stripped one")
     manifest = film.read_manifest()
     manifest["clips"][0]["attenuated"] = "cache/attenuated/vo.mp4"
+    manifest["clips"][0]["stripped"] = "cache/stripped/vo.mp4"
     film.write_manifest(manifest)
 
     result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
     reel = Project.open(result["reel"])
 
+    # `attenuated` still wins over both — the calm copy is the render's own
+    # answer to "which bytes", regardless of what else is stacked under it.
     assert media.media_path(reel, media.get_clip(reel, "vo")).read_bytes() == b"the calm one"
-    assert {entry["key"] for entry in result["linked"]} == {"media", "attenuated"}
+    assert {entry["key"] for entry in result["linked"]} == {"media", "attenuated", "stripped"}
+    assert not any(entry["missing"] for entry in result["linked"])
+
+
+def test_a_stripped_only_clip_resolves_in_the_derived_reel(film: Project, tmp_path: Path) -> None:
+    """The exact shape CLAUDE.md's `_reel_media` warning describes: a key
+    `media_path()` reads that is absent from the reel's key tuple hands the
+    derived project a manifest entry pointing at nothing, at exit 0. No
+    `mixed` here on purpose — this is `stripped` standing alone, not riding
+    along with the multi-audio case.
+    """
+    film.stripped_dir.mkdir(parents=True, exist_ok=True)
+    clean = film.stripped_dir / "vo.mp4"
+    clean.write_bytes(b"the chapter-free copy")
+    manifest = film.read_manifest()
+    manifest["clips"][0]["stripped"] = "cache/stripped/vo.mp4"
+    manifest["clips"][0]["strip"] = {"had_chapters": True}
+    film.write_manifest(manifest)
+
+    result = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0)
+    reel = Project.open(result["reel"])
+    reel_clip = media.get_clip(reel, "vo")
+
+    assert media.media_path(reel, reel_clip).read_bytes() == b"the chapter-free copy"
+    assert {entry["key"] for entry in result["linked"]} == {"media", "stripped"}
+    assert not any(entry["missing"] for entry in result["linked"])
+    # `strip` rides along on the copied manifest, same as `mix` does for a
+    # mixdown — it is not a `_reel_media` key, so it needs no linking, only
+    # to have survived the manifest copy untouched.
+    assert reel_clip["strip"] == {"had_chapters": True}
+
+
+def test_a_stripped_only_clip_resolves_in_a_planned_reel(film: Project, tmp_path: Path) -> None:
+    """`reel(plan=True)`'s own `would_link` tuple has to carry `stripped`
+    too — the second of the two key-tuples CLAUDE.md warns must move in
+    lockstep with `_reel_media`'s.
+    """
+    manifest = film.read_manifest()
+    manifest["clips"][0]["stripped"] = "cache/stripped/vo.mp4"
+    film.write_manifest(manifest)
+
+    plan = ops.reel(film.root, tmp_path / "teaser", start=4.0, end=9.0, plan=True)
+
+    keys = {entry["key"] for entry in plan["would_link"] if entry["clip_id"] == "vo"}
+    assert "stripped" in keys
 
 
 def test_a_filesystem_that_refuses_symlinks_falls_back_to_an_absolute_path(

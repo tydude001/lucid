@@ -96,6 +96,10 @@ EXPECTED_TOOLS = {
     "reframe_detect",
     "reframe_coverage",
     "reframe_sheet",
+    "continuity_check",
+    "continuity_accept",
+    "continuity_reject",
+    "continuity_ls",
     "synopsis",
     "broll_brief",
     "verify",
@@ -113,6 +117,7 @@ EXPECTED_TOOLS = {
     "clip_role",
     "properties",
     "thumbnail",
+    "contact_sheet",
     "finish_report",
 }
 
@@ -222,6 +227,7 @@ def test_finish_report_reachable_over_stdio(
         "seams",
         "framing",
         "holds",
+        "continuity",
         "last_render",
         "flags",
     }
@@ -299,6 +305,10 @@ TOOL_TO_COMMAND = {
     "reframe_detect": "reframe-detect",
     "reframe_coverage": "reframe-coverage",
     "reframe_sheet": "reframe-sheet",
+    "continuity_check": "continuity-check",
+    "continuity_accept": "continuity-accept",
+    "continuity_reject": "continuity-reject",
+    "continuity_ls": "continuity-ls",
     "synopsis": "synopsis",
     "broll_brief": "broll-brief",
     "verify": "verify",
@@ -316,6 +326,7 @@ TOOL_TO_COMMAND = {
     "clip_role": "role",
     "properties": "properties",
     "thumbnail": "thumbnail",
+    "contact_sheet": "contact-sheet",
     "finish_report": "finish-report",
 }
 
@@ -2851,6 +2862,159 @@ def test_reframe_coverage_over_the_wire(tmp_path: Path, sources: tuple[Path, Pat
     assert out["strict"]["cuts"] == 0
     assert out["strict"]["stale_seconds"] == 0.0
     assert out["strict"]["threshold"] == 0.99
+
+
+@needs_ffmpeg
+@needs_ffprobe
+def test_import_media_contact_sheet_rides_along_over_the_wire(tmp_path: Path) -> None:
+    """`import_media`'s default `sheet=True`, over the real server: a video
+    clip's registration reply carries its own first look, so an agent sees
+    "the first N seconds are X" without a second call it has to remember to
+    make. `contact_sheet` itself is also independently reachable, for a
+    re-import or a wider look.
+    """
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage, duration=12.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        sheet = await client.call(
+            "contact_sheet", path=str(project), clip_id=clip["clip_id"]
+        )
+        return {"clip": clip, "sheet": sheet}
+
+    out = anyio.run(_with_server, body)
+
+    assert "contact_sheet" in out["clip"]
+    assert out["clip"]["contact_sheet"]["clip_id"] == out["clip"]["clip_id"]
+    assert len(out["clip"]["contact_sheet"]["frames"]) > 0
+    # The direct call is the same request `import_media` made internally —
+    # same count, same source times, and a cache hit the second time round.
+    assert len(out["sheet"]["frames"]) == len(out["clip"]["contact_sheet"]["frames"])
+    assert [f["src_time"] for f in out["sheet"]["frames"]] == [
+        f["src_time"] for f in out["clip"]["contact_sheet"]["frames"]
+    ]
+    assert all(f["cached"] for f in out["sheet"]["frames"])
+
+
+@needs_ffmpeg
+@needs_ffprobe
+def test_continuity_check_accept_reject_ls_round_trip_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The unpinned rewind the goodsometimes script's own gap missed, found
+    and then acknowledged over the real server — every new tool this feature
+    adds, reachable and registered, not just written.
+
+    `clipa` is 5s; shot0 (words 0-1, `[0, 3)`) fits inside it and leaves the
+    cursor at 3.0; shot1 (words 2-3, `[3, 6)`, 3s) would need to read
+    `[3, 6)` — 6s in, past the 5s asset — so `plan_picture` rewinds the
+    cursor to 0 rather than clamping (its own duration, 3s, fits from
+    there). Both cues are unpinned — `src_pin` is `None` on both — exactly
+    the case `shot_check.py`'s own `if pin is None: continue` would have
+    skipped.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "clipa.mp4"
+    _make_video(footage, duration=5.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call(
+            "import_media", path=str(project), source=str(footage), sheet=False
+        )
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cue_add", path=str(project), clip_id=vo["clip_id"], word_index=0, asset=clip["clip_id"]
+        )
+        # Every remaining word re-cued to clipa too, each shot 3s — short
+        # enough that every rewind-to-0 actually fits, rather than the last
+        # one growing to the timeline's own end (12.0) and overrunning the
+        # 5s asset outright, which is a refusal rather than a rewind.
+        for word_index in (2, 4, 6):
+            await client.call(
+                "cue_add",
+                path=str(project),
+                clip_id=vo["clip_id"],
+                word_index=word_index,
+                asset=clip["clip_id"],
+            )
+        checked = await client.call(
+            "continuity_check", path=str(project), stubs=False
+        )
+        rewind = next(f for f in checked["findings"] if f["kind"] == "rewind")
+        accepted = await client.call(
+            "continuity_accept",
+            path=str(project),
+            clip_id=rewind["clip_id"],
+            word_index=rewind["word_index"],
+            kind="rewind",
+        )
+        suppressed = await client.call("continuity_check", path=str(project), stubs=False)
+        listed = await client.call("continuity_ls", path=str(project))
+        rejected = await client.call(
+            "continuity_reject",
+            path=str(project),
+            clip_id=rewind["clip_id"],
+            word_index=rewind["word_index"],
+            kind="rewind",
+        )
+        restored = await client.call("continuity_check", path=str(project), stubs=False)
+        return {
+            "clip": clip,
+            "checked": checked,
+            "rewind": rewind,
+            "accepted": accepted,
+            "suppressed": suppressed,
+            "listed": listed,
+            "rejected": rejected,
+            "restored": restored,
+        }
+
+    out = anyio.run(_with_server, body)
+
+    # `sheet=False` on the video import — proof `--no-sheet`/`sheet=False`
+    # actually skips the sheet rather than only defaulting it on elsewhere.
+    assert "contact_sheet" not in out["clip"]
+
+    assert out["rewind"]["asset"] == out["clip"]["clip_id"]
+    accepted_word = out["rewind"]["word_index"]
+    assert out["accepted"]["accepted"] == 1
+
+    # The accepted rewind is gone from the live findings; every re-cued word
+    # rewinds the same way, so others may still be there — this checks the
+    # one that was actually accepted, not "no rewinds anywhere".
+    still_there = {
+        f["word_index"] for f in out["suppressed"]["findings"] if f["kind"] == "rewind"
+    }
+    assert accepted_word not in still_there
+    assert out["suppressed"]["accepted"] == 1
+
+    assert out["listed"]["count"] == 1
+    (row,) = out["listed"]["accepted"]
+    assert row["word_index"] == accepted_word
+    assert row["kind"] == "rewind"
+    assert row["stale"] is False
+
+    assert out["rejected"]["accepted"] == 0
+    restored_words = {
+        f["word_index"] for f in out["restored"]["findings"] if f["kind"] == "rewind"
+    }
+    assert accepted_word in restored_words
 
 
 @needs_ffmpeg

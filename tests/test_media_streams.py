@@ -53,6 +53,69 @@ def _two_mic_container(dest: Path, *, seconds: float = 2.0, video: bool = True) 
     return dest
 
 
+def _ffmeta_chapters(dest: Path, *, chapters: int, seconds: float) -> None:
+    """An FFMETADATA file with `chapters` entries evenly spanning `seconds`.
+
+    Shape confirmed against a real affected file, read-only, before writing
+    this test: `~/projects/goodsometimes`'s `Source/sl-0428-elevator.mp4`
+    (`ideas/lambs-longlegs.md`, "v3") carries a top-level `chapters` array
+    ffprobe surfaces exactly this way, plus a `codec_type: "data"` stream
+    whose own declared duration is the parent film's — this fixture
+    reproduces the array signal a synthetic clip can carry without a real
+    multi-hour source to inherit one from.
+    """
+    lines = [";FFMETADATA1"]
+    step = seconds / chapters
+    for i in range(chapters):
+        start_ms = round(i * step * 1000)
+        end_ms = round((i + 1) * step * 1000)
+        lines += [
+            "[CHAPTER]",
+            "TIMEBASE=1/1000",
+            f"START={start_ms}",
+            f"END={end_ms}",
+            f"title=Chapter {i + 1:02d}",
+        ]
+    dest.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _chaptered_container(dest: Path, *, seconds: float = 2.0, chapters: int = 2) -> Path:
+    """A container with one video, one audio stream, and a chapter list."""
+    meta = dest.with_suffix(".ffmeta")
+    _ffmeta_chapters(meta, chapters=chapters, seconds=seconds)
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", f"testsrc=size=160x120:rate=25:duration={seconds}",
+        "-f", "lavfi", "-i", f"sine=frequency=300:duration={seconds}:sample_rate=48000",
+        "-i", str(meta),
+        "-map_metadata", "2", "-map_chapters", "2",
+        "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-map", "1:a", "-c:a", "aac", "-shortest", str(dest),
+    ]  # fmt: skip
+    subprocess.run(command, capture_output=True, check=True)
+    return dest
+
+
+def _two_mic_chaptered_container(dest: Path, *, seconds: float = 2.0) -> Path:
+    """Both traps at once: two mics *and* a chapter list, on one container —
+    the shape that exercises `import_media`'s derive-before-derive ordering
+    (the strip runs on the already-mixed copy, not the raw source)."""
+    meta = dest.with_suffix(".ffmeta")
+    _ffmeta_chapters(meta, chapters=2, seconds=seconds)
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", f"testsrc=size=160x120:rate=25:duration={seconds}",
+        "-f", "lavfi", "-i", f"sine=frequency={MIC_A_HZ}:duration={seconds}:sample_rate=48000",
+        "-f", "lavfi", "-i", f"sine=frequency={MIC_B_HZ}:duration={seconds}:sample_rate=48000",
+        "-i", str(meta),
+        "-map_metadata", "3", "-map_chapters", "3",
+        "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-map", "1:a", "-map", "2:a", "-c:a", "aac", "-shortest", str(dest),
+    ]  # fmt: skip
+    subprocess.run(command, capture_output=True, check=True)
+    return dest
+
+
 def _tone_power(path: Path, hz: float) -> float:
     """Goertzel power at `hz` over the file's first audio stream, decoded."""
     decoded = path.with_suffix(".probe.wav")
@@ -286,3 +349,174 @@ def test_a_reel_carries_the_mixdown(tmp_path: Path) -> None:
     assert "mixed" in keys
     assert all(not entry["missing"] for entry in linked)
     assert media.media_path(reel, manifest["clips"][0]).is_file()
+
+
+# -- chapter/data-track stripping ------------------------------------------
+#
+# `-show_chapters` shape and detection logic confirmed against a real
+# affected file, read-only, before this was written:
+# `~/projects/goodsometimes/.../Longlegs .../Source/sl-0428-elevator.mp4`
+# carries a top-level `chapters` array and a `codec_type: "data"` stream
+# declaring 6869.662s over a 27.027s clip — but `-show_format`'s own
+# `duration` already read the *correct* 27.027s on that file and twelve of
+# its fifteen siblings, so the format/stream disagreement signal never fired
+# on the real sample; only the `chapters`-array signal did. Both signals are
+# still implemented (CLAUDE.md's own "trust neither alone" idiom), and this
+# fixture exercises the one that measurably fires.
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_probe_detects_a_chapter_list(tmp_path: Path) -> None:
+    container = _chaptered_container(tmp_path / "chaptered.mp4")
+
+    info = media.probe(container)
+
+    assert info.has_chapters is True
+    assert info.duration == pytest.approx(2.0, abs=0.05)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_probe_reports_no_chapters_for_ordinary_media(tmp_path: Path) -> None:
+    container = _two_mic_container(tmp_path / "cohost.mkv")
+
+    assert media.probe(container).has_chapters is False
+
+
+def test_a_hand_built_media_info_still_means_no_chapters() -> None:
+    """`has_chapters` defaults like `audio_streams` — additive, so an older
+    hand-built `MediaInfo` still means what it always meant."""
+    info = media.MediaInfo(
+        duration=1.0,
+        has_video=False,
+        has_audio=True,
+        fps=None,
+        width=None,
+        height=None,
+        sample_rate=48000,
+        channels=1,
+        video_codec=None,
+        audio_codec="pcm_s16le",
+        vfr=False,
+    )
+
+    assert info.has_chapters is False
+    assert info.as_dict()["has_chapters"] is False
+
+
+@needs_ffmpeg
+def test_strip_chapters_drops_the_chapter_list_and_the_data_track(tmp_path: Path) -> None:
+    container = _chaptered_container(tmp_path / "chaptered.mp4")
+    dest = tmp_path / "out" / "stripped.mp4"
+
+    report = media.strip_chapters(container, dest)
+
+    assert report == {"had_chapters": True}
+    stripped = media.probe(dest)
+    assert stripped.has_chapters is False
+    assert stripped.has_video is True
+    assert stripped.has_audio is True
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_import_strips_chapters(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "proj")
+    container = _chaptered_container(tmp_path / "chaptered.mp4")
+
+    clip = media.import_media(project, container)
+
+    assert clip["strip"] == {"had_chapters": True}
+    assert "stripped" in clip
+    assert media.probe(project.root / clip["stripped"]).has_chapters is False
+    # `media_path()` reaches the clean copy without a caller having to know
+    # it exists.
+    assert media.media_path(project, clip) == project.root / clip["stripped"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_an_ordinary_import_gets_no_strip_fields(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "proj")
+    container = tmp_path / "vo.wav"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi",
+         "-i", "sine=frequency=300:duration=1", str(container)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+    clip = media.import_media(project, container)
+
+    assert "strip" not in clip
+    assert "stripped" not in clip
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_multi_audio_chaptered_source_strips_the_already_mixed_copy(tmp_path: Path) -> None:
+    """When a source is both multi-mic and chaptered, the strip runs on the
+    already-mixed copy rather than the raw container — one derivation feeds
+    the next, and there is only one "which file is the untouched original"
+    question, not two.
+    """
+    project = Project.create(tmp_path / "proj")
+    container = _two_mic_chaptered_container(tmp_path / "cohost-chaptered.mkv")
+
+    clip = media.import_media(project, container, mix=True)
+
+    assert "mixed" in clip
+    assert clip["strip"] == {"had_chapters": True}
+    assert "stripped" in clip
+    stripped_info = media.probe(project.root / clip["stripped"])
+    # One audio stream, not two — proof the strip read the already-mixed
+    # copy rather than the raw two-mic container.
+    assert stripped_info.audio_streams == 1
+    assert stripped_info.has_chapters is False
+    # `stripped` is the more-derived file and wins over `mixed`.
+    assert media.media_path(project, clip) == project.root / clip["stripped"]
+    # `original_media_path` keeps the same preference — `attenuate_noises`
+    # must never rebuild from a copy still carrying the chapter list.
+    assert media.original_media_path(project, clip) == project.root / clip["stripped"]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_reel_carries_the_stripped_copy(tmp_path: Path) -> None:
+    """`media_path()` prefers `stripped`, so a derivation that does not carry
+    it hands the reel a path with nothing at it — the same trap
+    `test_a_reel_carries_the_mixdown` exists for, one key over.
+    """
+    project = Project.create(tmp_path / "proj")
+    container = _chaptered_container(tmp_path / "chaptered.mp4")
+    clip = media.import_media(project, container)
+
+    reel = Project.create(tmp_path / "reel")
+    manifest = project.read_manifest()
+    linked = ops._reel_media(project, reel, manifest)
+
+    keys = {entry["key"] for entry in linked if entry["clip_id"] == clip["clip_id"]}
+    assert "stripped" in keys
+    assert all(not entry["missing"] for entry in linked)
+    assert media.media_path(reel, manifest["clips"][0]).is_file()
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_stripped_only_project_resolves_in_a_planned_reel(tmp_path: Path) -> None:
+    """`reel(plan=True)`'s own `would_link` tuple has to carry `stripped`
+    too — the second of the two key-tuples CLAUDE.md warns must move in
+    lockstep with `_reel_media`'s.
+    """
+    project = Project.create(tmp_path / "proj")
+    container = _chaptered_container(tmp_path / "chaptered.mp4")
+    clip_id = media.import_media(project, container)["clip_id"]
+    ops.seed_timeline(project.root, clip_id, remove_silences=False)
+
+    plan = ops.reel(project.root, tmp_path / "reel", start=0.0, end=2.0, plan=True)
+
+    would_link_keys = {
+        entry["key"] for entry in plan["would_link"] if entry["clip_id"] == clip_id
+    }
+    assert "stripped" in would_link_keys

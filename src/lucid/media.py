@@ -74,6 +74,16 @@ class MediaInfo:
     #: through them. Defaulted so a hand-built `MediaInfo` still means what
     #: it always meant — one stream. PLAN.md § The co-hosted recording.
     audio_streams: int = 1
+    #: A chapter list — or the inherited data/text track that carries one —
+    #: was detected on this container. Measured against a real affected file
+    #: (goodsometimes `Source/sl-0428-elevator.mp4`): a movie rip's chapter
+    #: list survives every re-encode from clip to concat to delivery as a
+    #: `codec_type: "data"` stream whose own declared `duration` is the
+    #: *parent film's* runtime (6869.662s on a 27.027s clip), and ffprobe
+    #: surfaces it as a top-level `chapters` array whenever the QuickTime
+    #: chapter-track reference resolves. Defaulted like `audio_streams` so a
+    #: hand-built `MediaInfo` elsewhere still means what it always meant.
+    has_chapters: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -103,21 +113,77 @@ def _ffprobe(media: Path, *args: str) -> dict[str, Any]:
     return json.loads(completed.stdout)
 
 
+#: How far `-show_format`'s own `duration` may disagree with the loudest of
+#: the real video/audio streams before it counts as the second chapter-
+#: contamination signal, below. Picked as a "clearly not rounding" gap, not
+#: measured against a real disagreement — on every affected file this repo
+#: has actually probed (goodsometimes `Source/`, sixteen clips, thirteen
+#: carrying the data track) `-show_format` already reported the *correct*
+#: figure; the data stream's own inflated duration never leaked into it.
+#: This stays as the defensive second signal the two-signal idiom calls for
+#: (safe zones, brightness bbox — "trust neither alone"), for a muxer that
+#: computes container duration differently than this box's ffmpeg does.
+CHAPTER_DURATION_TOLERANCE = 0.05
+
+
 def probe(path: Path | str) -> MediaInfo:
-    """Run ffprobe against `path` and summarise its first video/audio stream."""
+    """Run ffprobe against `path` and summarise its first video/audio stream.
+
+    **Chapter/data-track contamination**, detected on two independent
+    signals, neither trusted alone: a non-empty top-level `chapters` array,
+    and/or `-show_format`'s own `duration` disagreeing with the loudest of
+    the real video/audio stream durations by more than
+    `CHAPTER_DURATION_TOLERANCE`. A movie rip cut with a third-party tool
+    inherits its parent film's chapter list as a `codec_type: "data"` stream
+    that survives every re-encode (goodsometimes `ideas/lambs-longlegs.md`,
+    "v3"), and that data stream's own declared duration can run to the
+    *film's* runtime rather than the clip's — measured directly against
+    `Source/sl-0428-elevator.mp4`, a 27.027s clip carrying a data stream
+    declaring 6869.662s. `audio_streams` below only counts `codec_type ==
+    "audio"`, so this never interferes with the multi-mic count.
+
+    When either signal fires, `duration` is read off the real video/audio
+    stream instead of trusting `-show_format` — the same per-stream fallback
+    already used when `-show_format` reports nothing at all, generalized to
+    fire on disagreement too rather than only on absence.
+    """
     media = Path(path).expanduser()
     if not media.exists():
         raise MediaError(f"no such media file: {media}")
 
-    payload = _ffprobe(media, "-show_format", "-show_streams")
+    payload = _ffprobe(media, "-show_format", "-show_streams", "-show_chapters")
     streams = payload.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
 
-    duration = payload.get("format", {}).get("duration")
-    if duration is None:
-        # Some containers only carry duration per-stream.
-        duration = (video or audio or {}).get("duration")
+    def _stream_duration(stream: dict[str, Any] | None) -> float | None:
+        value = stream.get("duration") if stream else None
+        return float(value) if value is not None else None
+
+    format_duration_raw = payload.get("format", {}).get("duration")
+    format_duration = float(format_duration_raw) if format_duration_raw is not None else None
+    video_duration = _stream_duration(video)
+    audio_duration = _stream_duration(audio)
+    stream_reference = max(
+        (d for d in (video_duration, audio_duration) if d is not None), default=None
+    )
+    # The existing fallback's own preference — video over audio — generalized
+    # to also serve as the correction when the container-level figure is
+    # contaminated, not only when it is absent.
+    stream_fallback = video_duration if video_duration is not None else audio_duration
+
+    duration_disagrees = bool(
+        format_duration is not None
+        and stream_reference is not None
+        and stream_reference > 0
+        and abs(format_duration - stream_reference) / stream_reference > CHAPTER_DURATION_TOLERANCE
+    )
+    has_chapters = bool(payload.get("chapters")) or duration_disagrees
+
+    if format_duration is None or has_chapters and stream_fallback is not None:
+        duration = stream_fallback
+    else:
+        duration = format_duration
     if duration is None:
         raise MediaError(f"ffprobe reported no duration for {media}")
 
@@ -140,6 +206,7 @@ def probe(path: Path | str) -> MediaInfo:
         # A 1% tolerance: 30000/1001 vs 29.97 is rounding, not variability.
         vfr=bool(fps and avg and abs(fps - avg) / fps > 0.01),
         audio_streams=sum(1 for s in streams if s.get("codec_type") == "audio"),
+        has_chapters=has_chapters,
     )
 
 
@@ -429,6 +496,38 @@ def derive_single_audio(
     }
 
 
+def strip_chapters(source: Path, dest: Path) -> dict[str, Any]:
+    """Write a copy of `source` with its chapter list and data track dropped.
+
+    Modeled on `derive_single_audio`: a plain stream copy, no re-encode.
+    `-map 0` takes every real stream, `-map_chapters -1` drops the chapter
+    list itself, and `-dn` drops the data/text track a chapter list travels
+    on — matching goodsometimes' own fix (`ideas/lambs-longlegs.md`, "v3":
+    "`-map_chapters -1 -dn` at both ends now"). Verified against a real
+    affected file: `nb_streams` goes from 3 to 2 and the `chapters` array
+    from 2 entries to 0, byte-identical picture and sound.
+
+    There is no legitimate choice to offer here, unlike a multi-mic
+    container — the source film's chapter list was never meant to travel
+    with a clip cut from it — so this is unconditional, never gated behind a
+    flag the way `mix`/`audio_stream` are.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source),
+        "-map", "0", "-map_chapters", "-1", "-dn", "-c", "copy", str(dest),
+    ]  # fmt: skip
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    if completed.returncode != 0 or not dest.exists():
+        raise MediaError(
+            f"ffmpeg could not strip chapters from {source}: {completed.stderr.strip()[-800:]}"
+        )
+    return {"had_chapters": True}
+
+
 def decode_stream_wav(
     source: Path | str, dest: Path | str, *, stream: int, rate: int = 16000
 ) -> float:
@@ -517,6 +616,19 @@ def import_media(
     written to `cache/mixed/`, recorded as `mixed`/`mix`, and picked up by
     `media_path()` everywhere downstream — the `attenuated` precedent.
     PLAN.md § The co-hosted recording.
+
+    **A chapter list — or the data/text track it rides on — is stripped
+    unconditionally**, no flag to opt out: unlike the audio-stream case above,
+    there is no legitimate choice to offer, since the source film's chapter
+    list was never meant to travel with a clip cut from it. Detected on two
+    signals (`probe`'s own `has_chapters`), written to `cache/stripped/`,
+    recorded as `stripped`/`strip`, and — like `mixed` — picked up by
+    `media_path()` automatically. When a container is both multi-mic and
+    chaptered the strip runs on the already-mixed copy, not the raw source,
+    so there is one "which file is the untouched original" question rather
+    than two. `duration` is re-probed off the most-derived file afterward,
+    closing the latent gap this path shared with the multi-mic-only one
+    (which never re-probed its own mixdown before this).
     """
     source = Path(path).expanduser().resolve()
     info = probe(source)
@@ -585,8 +697,40 @@ def import_media(
         record["mix"] = mix_report
         record["mixed"] = str(derived.relative_to(project.root))
 
+    most_derived: Path | None = derived if "mixed" in record else None
+    if info.has_chapters:
+        # Same derive-before-place ordering as the mixed-copy branch above,
+        # and for the same reason: a failure here must leave nothing
+        # registered. Strip the already-mixed copy when both apply, rather
+        # than taking a second independent pass over the raw container — one
+        # derivation feeds the next, and there is then only one "which file
+        # is the untouched original" question, not two.
+        strip_source = most_derived or source
+        stripped = project.stripped_dir / f"{clip_id}{strip_source.suffix}"
+        try:
+            strip_report = strip_chapters(strip_source, stripped)
+        except MediaError:
+            stripped.unlink(missing_ok=True)
+            raise
+        record["strip"] = strip_report
+        record["stripped"] = str(stripped.relative_to(project.root))
+        most_derived = stripped
+
     record.update(_place(project, source, clip_id, copy=copy))
     record.update(info.as_dict())
+    if most_derived is not None:
+        # Duration correctness on the file everything downstream will
+        # actually read. `info.duration` above is already the *original*
+        # container's corrected figure when chapters were detected there
+        # (`probe`'s own two-signal fix) — this re-probe instead closes the
+        # latent gap in the derivation itself: an amix re-encode (the
+        # multi-mic sum path) can drift a hair from the source it was built
+        # from, and nothing before this feature ever checked. `fps`/`width`/
+        # `height` need no re-probe: every derivation here stream-copies
+        # video (`-c:v copy` in `derive_single_audio`, plain `-c copy` in
+        # `strip_chapters`), so the picture is bit-identical either way —
+        # only the audio-driven `duration` can move.
+        record["duration"] = probe(most_derived).duration
 
     clips.append(record)
     project.write_manifest(manifest)
@@ -633,16 +777,27 @@ def media_path(project: Project, clip: dict[str, Any]) -> Path:
     """The path tools should hand to ffmpeg/auto-editor for this clip.
 
     The `attenuated` entry when `attenuate_noises` has produced one, else the
-    `mixed` entry when the container held more than one audio stream, else
-    the `media/` entry, else the original source when the filesystem would
-    not take a symlink. Preferring them here — rather than threading a "use
-    the calm copy" flag through every caller — is what makes both
-    transparent to every downstream op (seed/cut/export/verify) for free,
-    and it is what keeps the writer single-stream: nothing downstream of
-    import ever chooses an audio stream, so MLT's `audio_index` trap is
+    `stripped` entry when the container carried a chapter/data track, else
+    the `mixed` entry when the container held more than one audio stream,
+    else the `media/` entry, else the original source when the filesystem
+    would not take a symlink. Preferring them here — rather than threading a
+    "use the calm/clean copy" flag through every caller — is what makes all
+    three transparent to every downstream op (seed/cut/export/verify) for
+    free, and it is what keeps the writer single-stream: nothing downstream
+    of import ever chooses an audio stream, so MLT's `audio_index` trap is
     never in the render path at all.
+
+    `stripped` sits *above* `mixed`: when a container is both multi-mic and
+    chaptered, the strip runs *on* the mixed copy (`import_media`'s own
+    derive-before-derive ordering), so `stripped` is the more-derived of the
+    two and `mixed` and `stripped` would otherwise resolve to file bytes that
+    agree in every byte but the dropped chapter/data track — recording both
+    and preferring the more-derived one first is what "most-derived wins"
+    means, without a special case for that overlap.
     """
-    local = clip.get("attenuated") or clip.get("mixed") or clip.get("media")
+    local = (
+        clip.get("attenuated") or clip.get("stripped") or clip.get("mixed") or clip.get("media")
+    )
     return (project.root / local) if local else Path(clip["source"])
 
 
@@ -653,13 +808,15 @@ def original_media_path(project: Project, clip: dict[str, Any]) -> Path:
     second call cannot attenuate an already-attenuated file — every run is a
     clean rebuild from the untouched original, not a compounding one.
 
-    It keeps the `mixed` copy, though, which is the point of the split: the
-    untouched original of a two-mic container is the *mixdown*, not the
-    container. Reading the container here would attenuate mic A alone and
-    hand `media_path()` back a one-mic file — the very loss import refuses
-    to make silently.
+    It keeps the `stripped`/`mixed` copies, though, which is the point of the
+    split: the untouched original of a two-mic or chaptered container is the
+    stripped/mixdown copy, not the raw container. Reading the container here
+    would hand `attenuate_noises` a copy still carrying the parent film's
+    chapter list, or mic A alone, and hand `media_path()` back a file import
+    already refused to hand it silently. Same "more-derived wins" preference
+    as `media_path()`, for the same reason.
     """
-    local = clip.get("mixed") or clip.get("media")
+    local = clip.get("stripped") or clip.get("mixed") or clip.get("media")
     return (project.root / local) if local else Path(clip["source"])
 
 

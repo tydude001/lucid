@@ -151,11 +151,28 @@ def import_media(
     copy: bool = False,
     mix: bool = False,
     audio_stream: int | None = None,
+    sheet: bool = True,
 ) -> dict[str, Any]:
+    """Register a media file, with a first-look `contact_sheet` riding along.
+
+    `sheet=True` by default: the whole point of a first-look sheet is that it
+    is *seen*, not merely available for a caller to remember to ask for — an
+    opt-in-only sheet reproduces the same silent-unless-looked-at shape
+    CLAUDE.md keeps naming (`stale_seconds`, `off_timeline`). Best-effort and
+    never fails the import itself: a thumbnail extraction problem on a clip
+    that otherwise imported fine surfaces as `contact_sheet_error`, not as a
+    raised exception a caller has to catch around a successful registration.
+    """
     project = Project.open(path)
-    return media.import_media(
+    record = media.import_media(
         project, source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream
     )
+    if sheet and record.get("has_video"):
+        try:
+            record = {**record, "contact_sheet": contact_sheet(path, record["clip_id"])}
+        except Exception as exc:  # noqa: BLE001 — best-effort, never fails the import
+            record = {**record, "contact_sheet_error": str(exc)}
+    return record
 
 
 def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
@@ -2986,7 +3003,7 @@ def properties(
 
 
 def finish_report(
-    path: Path | str, *, framing: bool = False, holds: bool = False
+    path: Path | str, *, framing: bool = False, holds: bool = False, continuity: bool = False
 ) -> dict[str, Any]:
     """The truth strip's own numbers, and the Finish mode report behind it.
 
@@ -3048,6 +3065,13 @@ def finish_report(
     — and also `None` when asked for but there is no render to check
     against yet, since a hold's mix is only ever confirmed by listening to
     an actual file.
+
+    `continuity` adds `continuity_check`'s own finding count, split by kind,
+    and how many stored marks are currently suppressing one — **also off by
+    default**: its `stubs=True` half pays the identical `media.scene_cuts`
+    decode `framing` does, so it must not ride every `project-changed` event
+    either. `None` when not asked for; a project with no findings still
+    returns a report (empty `by_kind`, zero `count`), the `framing` shape.
 
     `last_render` is the render log's own last `output`, its basename, its
     timestamp, and whether that file is still on disk — `None` when nothing
@@ -3207,6 +3231,30 @@ def finish_report(
     if holds and last_render_section is not None and last_render_section["exists"]:
         holds_section = hold_check(path, last_render_section["output"])
 
+    # `continuity_check`'s own numbers — `framing`'s own opt-in reasoning
+    # restated: `stubs=True` pays the identical scene-cut decode cost, so it
+    # must not ride every `project-changed` event either. `continuity_check`
+    # already reports `shots_error` rather than raising over a stale/orphaned
+    # cue (the same refusal `picture_section` above already surfaces), but a
+    # stub scan's own `media.scene_cuts` can still raise on an asset that
+    # will not decode — `reframe_coverage`'s own uncaught failure mode, which
+    # is why `framing` above needs the same `except _PICTURE_REFUSALS` net.
+    continuity_section: dict[str, Any] | None = None
+    if continuity:
+        try:
+            continuity_report = continuity_check(path)
+        except _PICTURE_REFUSALS:
+            continuity_section = {"count": 0, "by_kind": {}, "accepted": 0}
+        else:
+            by_kind: dict[str, int] = {}
+            for finding in continuity_report["findings"]:
+                by_kind[finding["kind"]] = by_kind.get(finding["kind"], 0) + 1
+            continuity_section = {
+                "count": continuity_report["count"],
+                "by_kind": by_kind,
+                "accepted": continuity_report["accepted"],
+            }
+
     # A flag is an *open item* — something an action in the window can clear.
     # Three candidates were measured against the real film on 2026-08-17 and
     # deliberately left out, because each of them is permanent and a guard that
@@ -3300,6 +3348,34 @@ def finish_report(
                 "mode": "finish",
             }
         )
+    if continuity_section is not None and continuity_section["by_kind"].get("rewind"):
+        # Actionable and reaches zero on a fix, `framing`'s own test:
+        # re-cueing the shot clears it. `replay`/`short_shot` are deliberately
+        # not flagged — a replay is reported never refused precisely because
+        # a rhyme and a mistake look identical from the cue table, so calling
+        # it a defect would be wrong as often as it is right, and a short
+        # shot is routinely a deliberate fast cut.
+        flags.append(
+            {
+                "kind": "continuity",
+                "message": (
+                    f"{continuity_section['by_kind']['rewind']} shot(s) rewind behind "
+                    "where their own footage last played"
+                ),
+                "mode": "finish",
+            }
+        )
+    if continuity_section is not None and continuity_section["by_kind"].get("stub"):
+        flags.append(
+            {
+                "kind": "continuity",
+                "message": (
+                    f"{continuity_section['by_kind']['stub']} shot(s) end on a real cut "
+                    "inside their own footage — likely trimmed to a fragment"
+                ),
+                "mode": "finish",
+            }
+        )
 
     return {
         "duration": duration_section,
@@ -3310,6 +3386,7 @@ def finish_report(
         "seams": seams_section,
         "framing": framing_section,
         "holds": holds_section,
+        "continuity": continuity_section,
         "last_render": last_render_section,
         "flags": {"count": len(flags), "items": flags},
     }
@@ -4005,6 +4082,70 @@ def thumbnail(
         "path": str(frame_path),
         "cached": hit,
     }
+
+
+#: How far into a clip's head the first-look sheet reaches, and the spacing
+#: between its frames — goodsometimes' own spacing choice for exactly this
+#: (`ideas/lambs-longlegs.md`, "v3"). 10s comfortably covers the incident
+#: that motivates this: two shots used `sl-0428-elevator.mp4` from its own
+#: head, which is 4.5s of "BASED ON THE NOVEL BY THOMAS HARRIS" over black,
+#: because nobody had looked at the clip's own first seconds before cueing
+#: it. Bounded regardless of clip length — unlike the whole-clip-filmstrip
+#: cost `THUMBS_DIR`'s own docstring argues against, this is a handful of
+#: frames, always, so the eager-decode concern that shapes `thumbnail()`'s
+#: laziness does not apply here.
+FIRST_LOOK_SECONDS = 10.0
+FIRST_LOOK_INTERVAL = 1.5
+
+
+def contact_sheet(
+    path: Path | str,
+    clip_id: str,
+    *,
+    seconds: float = FIRST_LOOK_SECONDS,
+    interval: float = FIRST_LOOK_INTERVAL,
+) -> dict[str, Any]:
+    """A handful of cached frames from a clip's head — the first look.
+
+    So "the first 4.5s are opening credits" is seen before a shot is cued to
+    it, never discovered after (goodsometimes' own incident, `FIRST_LOOK_SECONDS`
+    above). Built entirely on `thumbnail()`'s own cache and containment — no
+    new cache directory, no new manifest key, no new web route:
+    `interval` here is the same knob `GET /api/thumb/<clip_id>?at=&interval=`
+    already exposes, and every frame lands in the existing
+    `cache/thumbs/<clip_id>/` layout `thumbnail()` already writes and
+    `webui._send_thumb` already serves.
+
+    **Not `reframe_sheet`'s shape on purpose.** That one draws framing
+    rectangles with `magick` and combines tiles into one montage PNG behind
+    its own hardened route, because the whole point is reviewing a *crop
+    decision*. A first look needs none of that: it is N ordinary thumbnails,
+    already servable through the existing route, and a second image-serving
+    path here would be an unjustified third caller of exactly the kind
+    CLAUDE.md warns `preview_path`'s own containment against.
+
+    An audio-only clip returns `frames: []` rather than raising — there is
+    nothing to sheet, and that is not a failure, matching `check_frames`'s
+    own "nothing to check" precedent for an audio-only project.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    if not clip.get("has_video"):
+        return {
+            "clip_id": clip_id,
+            "frames": [],
+            "interval": interval,
+            "reason": "no video track",
+        }
+
+    duration = float(clip.get("duration") or 0.0)
+    span = min(seconds, duration)
+    frames: list[dict[str, Any]] = []
+    at = 0.0
+    while at <= span + 1e-6:
+        frames.append(thumbnail(path, clip_id, at, interval=interval))
+        at += interval
+    return {"clip_id": clip_id, "frames": frames, "interval": interval}
 
 
 #: Cards are written as PNG by every path that makes one, but a person can
@@ -7562,6 +7703,569 @@ def reframe_coverage(
         "stale_stretches": len(held_over),
         "default_seconds": round(default_seconds, 3),
         "skipped": skipped,
+    }
+
+
+# -- continuity checking --------------------------------------------------
+#
+# Ports goodsometimes' `shot_check.py` (rewind/replay) and its v5 scan (short
+# shots, film-internal-cut stubs) into lucid, over `_picture_plan`'s
+# *resolved* `src_start` rather than `build_shots`' raw `src_pin` — the gap
+# the standalone script had (`shot_check.py:82-84`'s own comment, wrong for
+# any unpinned video cue: `src_pin` is `None` for one, `src_start` never is).
+# Overrun needs no finding here: `mlt.plan_picture` already refuses it
+# structurally (mlt.py's own overrun guard, "a pinned cue shows the moment it
+# names or nothing" / the unpinned rewind-to-0 rather than clamp), so a shot
+# that reaches this walk at all cannot overrun its asset. If that refusal is
+# ever softened to a clamp, this stops catching what it silently relied on
+# the other file to catch — worth this comment surviving that change.
+
+CONTINUITY_MIN_SHOT = 3.0
+CONTINUITY_STUB_TOLERANCE = 1.2
+#: goodsometimes' own default — narrative time has to pass before a re-use
+#: reads as a rhyme rather than a stumble.
+CONTINUITY_GAP = 20.0
+#: How far behind its asset's last position a shot has to land to count as a
+#: rewind rather than measurement noise between two float computations of
+#: "the same instant" — `reframe_coverage`'s own frame-of-tolerance idiom,
+#: restated in seconds rather than frames because a rewind is a narrative
+#: judgement, not a pixel-exact boundary.
+CONTINUITY_REWIND_TOLERANCE = 0.05
+#: How much of an earlier shot's source range a later one has to re-show to
+#: count as a replay rather than two shots that merely sit near each other in
+#: the same footage.
+CONTINUITY_REPLAY_OVERLAP = 0.4
+
+CONTINUITY_ACCEPTED_KEY = "continuity_accepted"
+
+
+def _pseudo_head_shot(project: Project) -> dict[str, Any] | None:
+    """The stored cold open, reshaped as a shot `continuity_check` can walk
+    against — WORK-ORDERS ruling 6: "a body-first-shot rewind against the
+    cold open is caught natively, no --prepend flag." It is never a
+    finding's own *subject* (it has no cue to re-cue through cue_add/
+    cue_rm), only the earliest same-asset context a real shot's rewind or
+    replay is measured against.
+
+    `start`/`duration` place it immediately before the Edit's own frame 0 —
+    running from `-seconds` to `0.0` — so a first real shot that reuses the
+    head's asset reads as a zero-timeline-gap rewind exactly the way two
+    adjacent body shots would, with no second code path for the boundary.
+    Returns `None` with no head, or with a head whose asset no longer
+    resolves — the same "report, don't crash a read" treatment
+    `reframe_coverage` gives an unregistered clip.
+    """
+    head_cfg = _stored_head(project)
+    if head_cfg is None:
+        return None
+    try:
+        resolved = _resolve_asset(project, head_cfg["asset"])
+    except _PICTURE_REFUSALS:
+        return None
+    return {
+        "clip_id": None,
+        "word_index": None,
+        "text": None,
+        "asset": head_cfg["asset"],
+        "src_start": head_cfg["src_start"],
+        "start": -head_cfg["seconds"],
+        "duration": head_cfg["seconds"],
+        **resolved,
+    }
+
+
+def _continuity_finding(kind: str, shot: dict[str, Any], *, detail: str) -> dict[str, Any]:
+    """One finding's fixed shape — always keyed to the shot it is *about*,
+    never to whatever it was compared against. `word_index` is the cue's own
+    address (never the asset — CLAUDE.md: "a shot's addressing clip is not
+    its footage"), so a finding drives straight into `cue_add`/`cue_rm`.
+    """
+    return {
+        "kind": kind,
+        "clip_id": shot["clip_id"],
+        "word_index": shot["word_index"],
+        "text": shot.get("text"),
+        "asset": shot["asset"],
+        "start": round(float(shot["start"]), 3),
+        "detail": detail,
+    }
+
+
+def _shot_continuity_findings(
+    shots: list[dict[str, Any]],
+    *,
+    gap: float,
+    min_shot: float,
+    head_shot: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Rewind, replay and short-shot findings, walked in timeline order.
+
+    **Rewind** compares a shot only against the *immediately preceding* shot
+    on the same asset — direct port of `shot_check.py`'s `faults()` — and
+    fires when that shot lands behind where the previous one left off
+    (`CONTINUITY_REWIND_TOLERANCE`) with less than `gap` seconds of timeline
+    between them. **Replay** compares against *every* earlier shot on the
+    same asset — goodsometimes' own design, reported rather than refused,
+    because "a deliberate rhyme and a mistake look identical from the cue
+    table" (the elevator's own two kept replays, `ideas/lambs-longlegs.md`)
+    — and fires on a source-range overlap past `CONTINUITY_REPLAY_OVERLAP`
+    with `gap` seconds or more between them. The two conditions are
+    mutually exclusive on one pair (`< gap` vs `>= gap`), so a single
+    (earlier, later) pair is never reported as both.
+
+    A still is never walked here: a card has no source range to rewind or
+    replay against, matching `_sheet_placements`' own "a still is never
+    cropped" treatment.
+    """
+    findings: list[dict[str, Any]] = []
+    walk: list[dict[str, Any]] = ([head_shot] if head_shot is not None else []) + list(shots)
+    last_on_asset: dict[str, dict[str, Any]] = {}
+    seen_on_asset: dict[str, list[dict[str, Any]]] = {}
+
+    for shot in walk:
+        if shot.get("is_image"):
+            continue
+        asset = str(shot["asset"])
+        is_subject = shot.get("clip_id") is not None
+        previous = last_on_asset.get(asset)
+
+        if is_subject and previous is not None:
+            behind = previous["src_start"] + previous["duration"] - shot["src_start"]
+            timeline_gap = shot["start"] - (previous["start"] + previous["duration"])
+            if behind > CONTINUITY_REWIND_TOLERANCE and timeline_gap < gap:
+                findings.append(
+                    _continuity_finding(
+                        "rewind",
+                        shot,
+                        detail=(
+                            f"lands {behind:.2f}s behind {asset!r}'s own last position, "
+                            f"{timeline_gap:.2f}s of timeline later"
+                        ),
+                    )
+                )
+
+        if is_subject:
+            for earlier in seen_on_asset.get(asset, []):
+                overlap = min(
+                    earlier["src_start"] + earlier["duration"], shot["src_start"] + shot["duration"]
+                ) - max(earlier["src_start"], shot["src_start"])
+                timeline_gap = shot["start"] - (earlier["start"] + earlier["duration"])
+                if overlap > CONTINUITY_REPLAY_OVERLAP and timeline_gap >= gap:
+                    findings.append(
+                        _continuity_finding(
+                            "replay",
+                            shot,
+                            detail=(
+                                f"replays {overlap:.2f}s already shown of {asset!r}, "
+                                f"{timeline_gap:.2f}s later"
+                            ),
+                        )
+                    )
+
+        if is_subject and shot["duration"] < min_shot:
+            findings.append(
+                _continuity_finding(
+                    "short_shot",
+                    shot,
+                    detail=f"{shot['duration']:.2f}s, under the {min_shot:.2f}s floor",
+                )
+            )
+
+        last_on_asset[asset] = shot
+        seen_on_asset.setdefault(asset, []).append(shot)
+
+    return findings
+
+
+def _stub_findings(
+    shots: list[dict[str, Any]],
+    *,
+    tolerance: float,
+    threshold: float,
+    same_window: float,
+) -> list[dict[str, Any]]:
+    """A shot that ends — or begins — right where its own footage has a real
+    internal cut: a re-use trimmed to stop just short of, or start just past,
+    a scene change *inside the source*, so what plays is a fragment of a shot
+    rather than the shot itself (goodsometimes' v5 scan).
+
+    Same call shape as `reframe_coverage`'s per-asset scan (one
+    `media.scene_cuts` per asset, bounded by `until` — the furthest src
+    second any shot of it reads), and the same frame-of-tolerance discipline:
+    a cut sitting at or within `same_window` of a shot's own edge is the
+    *expected* case — the timeline cuts there on purpose — and is excluded,
+    scoring only the interior (`reframe_coverage`'s own "steps"/"stale"
+    asymmetry, ops.py's own comment at its `steps` walk).
+
+    Pays `media.scene_cuts`' decode cost per asset — not cheap, the same
+    "needs no face detector is not the same as cheap" this repo already
+    learned from `reframe_coverage` (CLAUDE.md § Frame mode) — so the caller
+    gates this behind `stubs=` and never composes it into anything that
+    re-runs on every `project-changed`.
+    """
+    real = [s for s in shots if not s.get("is_image") and s.get("clip_id") is not None]
+    if not real:
+        return []
+
+    scans: dict[str, list[dict[str, float]]] = {}
+    for asset in {str(s["asset"]) for s in real}:
+        used = [s for s in real if str(s["asset"]) == asset]
+        until = max(s["src_start"] + s["duration"] for s in used)
+        scans[asset] = [
+            cut for cut in media.scene_cuts(used[0]["asset_path"], until=until)
+            if cut["score"] >= threshold
+        ]  # fmt: skip
+
+    findings: list[dict[str, Any]] = []
+    for shot in real:
+        asset = str(shot["asset"])
+        start = shot["src_start"]
+        end = start + shot["duration"]
+        for cut in scans[asset]:
+            at = cut["src_time"]
+            if not (start + same_window < at < end - same_window):
+                continue  # at (or outside) the shot's own edge — expected
+            near_start = at - start <= tolerance
+            near_end = end - at <= tolerance
+            if not (near_start or near_end):
+                continue
+            edge, distance = ("start", at - start) if near_start else ("end", end - at)
+            findings.append(
+                _continuity_finding(
+                    "stub",
+                    shot,
+                    detail=(
+                        f"a real cut in {asset!r} sits {distance:.2f}s from this shot's own "
+                        f"{edge} — likely trimmed to a fragment rather than the shot itself"
+                    ),
+                )
+            )
+    return findings
+
+
+def _finding_fingerprint(finding: dict[str, Any]) -> dict[str, Any]:
+    """The finding's own numbers, rounded — what `continuity_accept` stores
+    and what a later run's recomputed finding is compared against.
+    `unspoken`'s own staleness rule: a mismatch means the shot moved under
+    the mark (re-cued, re-timed), and the finding is reported again rather
+    than trusted blindly ("a stale mark is kept, never applied").
+    """
+    return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in finding.items()}
+
+
+def _continuity_raw_findings(
+    project: Project,
+    *,
+    gap: float,
+    min_shot: float,
+    stub_tolerance: float,
+    stubs: bool,
+    scene_threshold: float,
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """Every finding, unfiltered by any accepted mark — the one derivation
+    `continuity_check`, `continuity_accept` and `continuity_ls` all share, so
+    "is this finding still live" is answered the same way in all three.
+
+    Returns `(findings, shots_error, stub_error)`. `shots_error` is
+    `_PICTURE_REFUSALS` from `_picture_plan` itself — a stale/orphaned cue, an
+    asset that no longer resolves — and empties `findings` entirely, the same
+    "no picture, nothing to say" `timeline_view` already reports. `stub_error`
+    is scoped to *only* the stub scan's own `media.scene_cuts` call: an asset
+    that will not decode must not take the rewind/replay/short-shot findings
+    — pure cue-table arithmetic, no media touched — down with it. Distinct
+    fields because the two failures mean different things: one says nothing
+    here could be checked, the other says *most* of it could.
+    """
+    rate = _export_fps(_clips_by_id(project))
+    try:
+        shots, _ = _picture_plan(project, rate)
+    except _PICTURE_REFUSALS as exc:
+        return [], str(exc), None
+    head_shot = _pseudo_head_shot(project)
+    findings = _shot_continuity_findings(shots, gap=gap, min_shot=min_shot, head_shot=head_shot)
+    stub_error: str | None = None
+    if stubs and shots:
+        same_window = 1.0 / rate
+        try:
+            findings += _stub_findings(
+                shots, tolerance=stub_tolerance, threshold=scene_threshold, same_window=same_window
+            )
+        except media.MediaError as exc:
+            stub_error = str(exc)
+    findings.sort(key=lambda f: f["start"])
+    return findings, None, stub_error
+
+
+def continuity_check(
+    path: Path | str,
+    *,
+    gap: float = CONTINUITY_GAP,
+    min_shot: float = CONTINUITY_MIN_SHOT,
+    stub_tolerance: float = CONTINUITY_STUB_TOLERANCE,
+    stubs: bool = True,
+    scene_threshold: float = SCENE_THRESHOLD,
+) -> dict[str, Any]:
+    """Rewinds, replays, short shots, and film-internal-cut stubs.
+
+    Ports goodsometimes' `shot_check.py` (rewind/replay) and its v5 scan
+    (short shots, stubs) into lucid, correcting the one gap the standalone
+    script had: it read `build_shots`' raw `src_pin`, `None` for every
+    *unpinned* cue, so it only ever checked pinned shots. This reads
+    `_picture_plan`'s resolved `src_start` instead — the cursor-carried
+    position `mlt.plan_picture` actually decided on — so an unpinned re-use
+    is checked exactly like a pinned one.
+
+    **The stored head is walked as a pseudo-shot before the first real
+    one** (WORK-ORDERS ruling 6), so a body shot that rewinds into the cold
+    open's own footage is caught the same way a body-to-body rewind is —
+    no separate flag for it.
+
+    **Overrun is not a finding here**: `mlt.plan_picture` already refuses it
+    structurally, so a shot cannot reach this walk at all if it overruns its
+    asset (see `_shot_continuity_findings`'s own module comment).
+
+    **Replay is reported, never refused** — a deliberate narrative rhyme and
+    a mistake look identical from the cue table alone (goodsometimes' own
+    design, and lucid's own `attribute_speakers`/`reframe_detect` precedent:
+    a judgement call is surfaced, never silently decided).
+
+    `stubs=True` by default and costs a `media.scene_cuts` decode per
+    distinct asset placed — pass `stubs=False` to skip it. `scene_threshold`
+    defaults to `SCENE_THRESHOLD` (0.15, pinned against this repo's own
+    film) but is caller-settable on purpose: goodsometimes needed 0.12 on
+    darker footage from a different film, and hard-coding 0.15 here would
+    have silently under-detected on it.
+
+    **Findings already acknowledged by `continuity_accept` are dropped**,
+    unless the shot moved under the mark — `unspoken`'s own staleness rule.
+    A stale one is kept (never silently re-suppressed) and marked
+    `accepted_stale: True`; `accepted` counts the ones cleanly suppressed.
+
+    A refused picture projection (a stale/orphaned cue, an asset that no
+    longer resolves) reports `shots_error` and an empty finding list rather
+    than raising — `timeline_view`'s own precedent for the same refusal
+    class, `_PICTURE_REFUSALS`. A stub-scan failure on one asset is narrower:
+    it reports `stub_error` and keeps every rewind/replay/short-shot finding
+    computed from the cue table alone — that arithmetic touches no media, so
+    one asset that will not decode must not take the rest of the report
+    down with it.
+    """
+    project = Project.open(path)
+    findings, shots_error, stub_error = _continuity_raw_findings(
+        project,
+        gap=gap,
+        min_shot=min_shot,
+        stub_tolerance=stub_tolerance,
+        stubs=stubs,
+        scene_threshold=scene_threshold,
+    )
+    if shots_error is not None:
+        return {
+            "findings": [],
+            "count": 0,
+            "accepted": 0,
+            "accepted_stale": [],
+            "shots_error": shots_error,
+            "stub_error": None,
+        }
+
+    accepted = _stored_continuity_accepted(project)
+    kept: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
+    suppressed = 0
+    for finding in findings:
+        key = (finding["clip_id"], finding["word_index"], finding["kind"])
+        mark = accepted.get(key)
+        if mark is None:
+            kept.append(finding)
+        elif mark["fingerprint"] == _finding_fingerprint(finding):
+            suppressed += 1
+        else:
+            stale_finding = {**finding, "accepted_stale": True}
+            kept.append(stale_finding)
+            stale.append(stale_finding)
+    return {
+        "findings": kept,
+        "count": len(kept),
+        "accepted": suppressed,
+        "accepted_stale": stale,
+        "shots_error": None,
+        "stub_error": stub_error,
+    }
+
+
+def _stored_continuity_accepted(project: Project) -> dict[tuple[str, int, str], dict[str, Any]]:
+    stored = project.read_manifest().get(CONTINUITY_ACCEPTED_KEY, [])
+    if not isinstance(stored, list):
+        raise ProjectError(
+            f"{project.manifest_path}'s {CONTINUITY_ACCEPTED_KEY!r} must be a JSON array"
+        )
+    marks: dict[tuple[str, int, str], dict[str, Any]] = {}
+    for record in stored:
+        key = (str(record["clip_id"]), int(record["word_index"]), str(record["kind"]))
+        marks[key] = record
+    return marks
+
+
+def continuity_accept(path: Path | str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+    """Acknowledge one continuity finding once — the deliberate elevator
+    rhyme, never re-reported every run.
+
+    Addressed the way a cue is (`clip_id`, `word_index` — the finding's own
+    cue), plus `kind`, since one cue's shot can carry more than one finding.
+    Stores a fingerprint of the finding's own numbers at accept time; a later
+    run whose recomputed fingerprint disagrees means the shot moved under the
+    mark (re-cued, re-timed) and the finding is reported again —
+    `unspoken`'s own "a stale mark is kept, never applied" asymmetry: a
+    suppressed real problem is invisible, a re-reported accepted one is only
+    a minor annoyance.
+
+    Refuses when no finding of `kind` currently sits at that cue — there is
+    nothing to acknowledge, and accepting a finding that is not there would
+    make a later real occurrence of it silently vanish the moment it appears
+    (the fingerprint would already be stored, coincidentally or not). Runs
+    the stub scan only when `kind == "stub"`, so accepting a rewind/replay/
+    short-shot finding never pays `media.scene_cuts`' decode cost.
+    """
+    project = Project.open(path)
+    findings, shots_error, stub_error = _continuity_raw_findings(
+        project,
+        gap=CONTINUITY_GAP,
+        min_shot=CONTINUITY_MIN_SHOT,
+        stub_tolerance=CONTINUITY_STUB_TOLERANCE,
+        stubs=(kind == "stub"),
+        scene_threshold=SCENE_THRESHOLD,
+    )
+    if shots_error is not None:
+        raise ProjectError(f"cannot accept a continuity finding: {shots_error}")
+    if kind == "stub" and stub_error is not None:
+        raise ProjectError(f"cannot accept a stub finding: the scan itself failed: {stub_error}")
+    match = next(
+        (
+            f
+            for f in findings
+            if f["clip_id"] == clip_id and f["word_index"] == word_index and f["kind"] == kind
+        ),
+        None,
+    )
+    if match is None:
+        raise ProjectError(
+            f"no {kind!r} finding at {clip_id!r} word {word_index} to accept — run "
+            "continuity_check (CLI: `lucid continuity-check`) to see current findings"
+        )
+
+    manifest = project.read_manifest()
+    marks = manifest.setdefault(CONTINUITY_ACCEPTED_KEY, [])
+    kept = [
+        m
+        for m in marks
+        if not (
+            str(m["clip_id"]) == clip_id
+            and int(m["word_index"]) == word_index
+            and str(m["kind"]) == kind
+        )
+    ]
+    kept.append(
+        {
+            "clip_id": clip_id,
+            "word_index": word_index,
+            "kind": kind,
+            "asset": match["asset"],
+            "fingerprint": _finding_fingerprint(match),
+        }
+    )
+    kept.sort(key=lambda m: (m["clip_id"], int(m["word_index"]), m["kind"]))
+    manifest[CONTINUITY_ACCEPTED_KEY] = kept
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "word_index": word_index, "kind": kind, "accepted": len(kept)}
+
+
+def continuity_reject(path: Path | str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+    """Unmark a continuity finding, putting it back into `continuity_check`."""
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    marks = manifest.get(CONTINUITY_ACCEPTED_KEY, [])
+    kept = [
+        m
+        for m in marks
+        if not (
+            str(m["clip_id"]) == clip_id
+            and int(m["word_index"]) == word_index
+            and str(m["kind"]) == kind
+        )
+    ]
+    if len(kept) == len(marks):
+        raise ProjectError(f"no accepted {kind!r} finding at {clip_id!r} word {word_index}")
+    if kept:
+        manifest[CONTINUITY_ACCEPTED_KEY] = kept
+    else:
+        manifest.pop(CONTINUITY_ACCEPTED_KEY, None)
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "word_index": word_index, "kind": kind, "accepted": len(kept)}
+
+
+def continuity_ls(path: Path | str) -> dict[str, Any]:
+    """Every accepted continuity finding, with whether it is still live and
+    whether its fingerprint still matches what was accepted.
+
+    `unspoken_ls`'s own shape: `stale` is true only when the finding is
+    still found *and* disagrees with what was recorded — a finding that has
+    disappeared entirely (the shot was re-cued away, or the issue was fixed)
+    is reported via `still_found: False` rather than as stale, since there is
+    nothing live to disagree with the mark. Pays the stub scan only when at
+    least one accepted mark is itself a `stub` finding — and if that scan
+    itself fails, every `stub`-kind row's `still_found` reports `None`
+    (unknown) rather than `False`, so a scan failure never reads as "fixed".
+    """
+    project = Project.open(path)
+    accepted = _stored_continuity_accepted(project)
+    needs_stubs = any(kind == "stub" for (_, _, kind) in accepted)
+    if accepted:
+        findings, shots_error, stub_error = _continuity_raw_findings(
+            project,
+            gap=CONTINUITY_GAP,
+            min_shot=CONTINUITY_MIN_SHOT,
+            stub_tolerance=CONTINUITY_STUB_TOLERANCE,
+            stubs=needs_stubs,
+            scene_threshold=SCENE_THRESHOLD,
+        )
+    else:
+        findings, shots_error, stub_error = [], None, None
+    current = {(f["clip_id"], f["word_index"], f["kind"]): f for f in findings}
+
+    rows: list[dict[str, Any]] = []
+    for (clip_id, word_index, kind), mark in sorted(accepted.items()):
+        if kind == "stub" and stub_error is not None:
+            rows.append(
+                {
+                    "clip_id": clip_id,
+                    "word_index": word_index,
+                    "kind": kind,
+                    "asset": mark.get("asset"),
+                    "still_found": None,
+                    "stale": False,
+                }
+            )
+            continue
+        live = current.get((clip_id, word_index, kind))
+        stale = live is not None and _finding_fingerprint(live) != mark["fingerprint"]
+        rows.append(
+            {
+                "clip_id": clip_id,
+                "word_index": word_index,
+                "kind": kind,
+                "asset": mark.get("asset"),
+                "still_found": live is not None,
+                "stale": stale,
+            }
+        )
+    return {
+        "project": str(project.root),
+        "count": len(rows),
+        "stale": sum(1 for row in rows if row["stale"]),
+        "shots_error": shots_error,
+        "stub_error": stub_error,
+        "accepted": rows,
     }
 
 
@@ -12029,15 +12733,17 @@ def _reel_media(source: Project, reel: Project, manifest: dict[str, Any]) -> lis
     reel and on the film return the same bytes.
 
     **Every key `media_path()` prefers, not just `media/`.** It resolves
-    `attenuated` → `mixed` → `media`, so carrying `media/` alone would give
-    the reel a render at full noise with nothing in the manifest saying so —
-    the shape of bug `test_export_renders_the_attenuated_copy_not_the_original`
-    exists for, pointing the other way. `mixed` joins them for the same
+    `attenuated` → `mixed` → `stripped` → `media`, so carrying `media/` alone
+    would give the reel a render at full noise with nothing in the manifest
+    saying so — the shape of bug
+    `test_export_renders_the_attenuated_copy_not_the_original` exists for,
+    pointing the other way. `mixed` and `stripped` join them for the same
     reason and a worse failure: the derived manifest is copied wholesale, so
-    a two-mic clip's `mixed` entry would name a `cache/mixed/` file that was
-    never linked into the reel and every op resolving that clip would hit a
-    path with nothing at it. **This tuple is the list of keys `media_path()`
-    reads; adding one there without adding it here is the whole bug.**
+    a two-mic or chaptered clip's `mixed`/`stripped` entry would name a
+    `cache/mixed/`/`cache/stripped/` file that was never linked into the reel
+    and every op resolving that clip would hit a path with nothing at it.
+    **This tuple is the list of keys `media_path()` reads; adding one there
+    without adding it here is the whole bug.**
 
     Falls back to writing the film's absolute path into the derived manifest
     where the filesystem will not take a symlink — the NAS case that already
@@ -12050,7 +12756,7 @@ def _reel_media(source: Project, reel: Project, manifest: dict[str, Any]) -> lis
     """
     linked: list[dict[str, Any]] = []
     for clip in manifest.get("clips", []):
-        for key in ("media", "attenuated", "mixed"):
+        for key in ("media", "attenuated", "mixed", "stripped"):
             entry = clip.get(key)
             if not entry:
                 continue
@@ -12462,7 +13168,7 @@ def reel(
         report["would_link"] = [
             {"clip_id": clip.get("clip_id"), "key": key}
             for clip in source.read_manifest().get("clips", [])
-            for key in ("media", "attenuated", "mixed")
+            for key in ("media", "attenuated", "mixed", "stripped")
             if clip.get(key)
         ]
         # The one call the real path makes, so what is planned is what would

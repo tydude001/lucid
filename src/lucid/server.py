@@ -257,6 +257,7 @@ def import_media(
     copy: bool = False,
     mix: bool = False,
     audio_stream: int | None = None,
+    sheet: bool = True,
 ) -> dict[str, Any]:
     """Register a media file with the project, probing it with ffprobe.
 
@@ -272,9 +273,22 @@ def import_media(
     (two mics of one performance); `audio_stream=k` keeps one, numbered from
     0 in ffmpeg's own audio ordering. Either writes a derived copy under
     `cache/mixed/` that every later op reads without knowing it.
+
+    A chapter list or the data/text track it rides on — a movie rip's own
+    inherited from its parent film — is stripped unconditionally, with no
+    flag to opt out: there is no legitimate choice to offer, unlike the
+    audio-stream one. `strip`/`stripped` on the record say so when it
+    happened; `duration` is corrected from the real video/audio streams
+    either way it was detected.
+
+    `sheet=True` by default: a `contact_sheet` of the clip's first ten
+    seconds rides along on the returned record — cached frames from
+    `thumbnail()`, so the clip's own opening (credits, black, a slate) is
+    seen before it is cued to a shot rather than discovered after. Pass
+    `sheet=False` to skip it. `--no-sheet` on the CLI.
     """
     return ops.import_media(
-        path, source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream
+        path, source, clip_id=clip_id, copy=copy, mix=mix, audio_stream=audio_stream, sheet=sheet
     )
 
 
@@ -1245,7 +1259,9 @@ def properties(
 
 
 @_tool()
-def finish_report(path: str, framing: bool = False, holds: bool = False) -> dict[str, Any]:
+def finish_report(
+    path: str, framing: bool = False, holds: bool = False, continuity: bool = False
+) -> dict[str, Any]:
     """Duration/canvas/caption/picture/marks/seams report for Finish mode,
     composed only — the truth strip's own numbers.
 
@@ -1269,8 +1285,13 @@ def finish_report(path: str, framing: bool = False, holds: bool = False) -> dict
     against the last render — off by default for the same reason `framing`
     is: it decodes and transcribes render spans. `None` when not asked for,
     and also `None` when asked for but nothing has rendered here yet.
+
+    `continuity` adds `continuity_check`'s finding count by kind (rewind,
+    replay, short_shot, stub) and how many are currently accepted — also off
+    by default, its `stubs=True` half paying the identical scene-cut decode
+    `framing` does. `None` when not asked for.
     """
-    return ops.finish_report(path, framing=framing, holds=holds)
+    return ops.finish_report(path, framing=framing, holds=holds, continuity=continuity)
 
 
 @_tool()
@@ -2078,6 +2099,84 @@ def reframe_coverage(
 
 
 @_tool()
+def continuity_check(
+    path: str,
+    gap: float = ops.CONTINUITY_GAP,
+    min_shot: float = ops.CONTINUITY_MIN_SHOT,
+    stub_tolerance: float = ops.CONTINUITY_STUB_TOLERANCE,
+    stubs: bool = True,
+    scene_threshold: float = ops.SCENE_THRESHOLD,
+) -> dict[str, Any]:
+    """Rewinds, replays, short shots, and film-internal-cut stubs — reports,
+    never decides.
+
+    **Rewind**: a shot lands behind where its own asset last left off, with
+    under `gap` seconds of timeline since. **Replay**: an earlier shot's
+    source range is re-shown, `gap` seconds or more later — reported, never
+    refused, because a deliberate narrative rhyme and a mistake look
+    identical from the cue table alone. **short_shot**: under `min_shot`
+    seconds (stills excluded). **stub**: a shot ends or begins right where
+    its own footage has a real internal cut — likely a fragment rather than
+    the shot itself.
+
+    The stored cold open (`head`) is walked as a pseudo-shot before the
+    first real one, so a body shot that rewinds into the head's own footage
+    is caught the same way a body-to-body rewind is. Overrun is never a
+    finding: `mlt.plan_picture` already refuses it structurally, so nothing
+    reaches this walk having overrun its asset.
+
+    `stubs=True` costs a scene-cut decode per distinct asset placed —
+    `stubs=False` skips it. `scene_threshold` defaults to the pinned 0.15 but
+    is caller-settable: darker footage from a different film has needed 0.12.
+
+    Findings already acknowledged by `continuity_accept` are dropped unless
+    the shot moved under the mark, in which case they are kept and marked
+    `accepted_stale: True` rather than silently re-suppressed.
+    """
+    return ops.continuity_check(
+        path,
+        gap=gap,
+        min_shot=min_shot,
+        stub_tolerance=stub_tolerance,
+        stubs=stubs,
+        scene_threshold=scene_threshold,
+    )
+
+
+@_tool()
+def continuity_accept(path: str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+    """Acknowledge one continuity finding once — a deliberate rhyme, never
+    re-reported every run.
+
+    Addressed the way a cue is (`clip_id`, `word_index`), plus `kind`, since
+    one shot can carry more than one finding. Stores a fingerprint of the
+    finding's own numbers; a later run whose recomputed fingerprint disagrees
+    means the shot moved under the mark, and the finding is reported again
+    rather than trusted blindly. Refuses when no finding of `kind` currently
+    sits at that cue — `continuity_check` first, then accept what it found.
+    """
+    return ops.continuity_accept(path, clip_id, word_index, kind)
+
+
+@_tool()
+def continuity_reject(path: str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+    """Unmark a continuity finding, putting it back into `continuity_check`."""
+    return ops.continuity_reject(path, clip_id, word_index, kind)
+
+
+@_tool()
+def continuity_ls(path: str) -> dict[str, Any]:
+    """Every accepted continuity finding, with whether it is still live and
+    whether it still matches what was accepted (`stale`).
+
+    A finding that has disappeared entirely — the shot was re-cued away, or
+    the issue was fixed — reports `still_found: False` rather than `stale`,
+    since there is nothing live left to disagree with the mark.
+    """
+    return ops.continuity_ls(path)
+
+
+@_tool()
 def reframe_sheet(
     path: str,
     out: str | None = None,
@@ -2140,6 +2239,24 @@ def thumbnail(
     that renders can reach it (the same wall the preview proxy has).
     """
     return ops.thumbnail(path, clip_id, at, interval=interval)
+
+
+@_tool()
+def contact_sheet(
+    path: str,
+    clip_id: str,
+    seconds: float = ops.FIRST_LOOK_SECONDS,
+    interval: float = ops.FIRST_LOOK_INTERVAL,
+) -> dict[str, Any]:
+    """A handful of cached frames from a clip's own head — the first look.
+
+    Built entirely on `thumbnail()`'s cache — no new cache location, no new
+    manifest key, no new web route. `import_media` calls this automatically
+    (`sheet=True` by default); call it directly to regenerate one after a
+    re-import, or to look further than the default ten seconds/1.5s spacing.
+    An audio-only clip returns `frames: []`, not a refusal.
+    """
+    return ops.contact_sheet(path, clip_id, seconds=seconds, interval=interval)
 
 
 @_tool()

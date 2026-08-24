@@ -965,7 +965,8 @@ def test_import_audio_flags_parse_and_reach_ops(
     seen: dict[str, object] = {}
 
     def _stub(path: object, source: object, *, clip_id: str | None = None, copy: bool = False,
-              mix: bool = False, audio_stream: int | None = None) -> dict[str, object]:
+              mix: bool = False, audio_stream: int | None = None,
+              sheet: bool = True) -> dict[str, object]:
         seen.update({"mix": mix, "audio_stream": audio_stream, "copy": copy})
         return {"clip_id": "c"}
 
@@ -1101,6 +1102,7 @@ def test_finish_report_subcommand_emits_json(
         "seams",
         "holds",
         "framing",
+        "continuity",
         "last_render",
         "flags",
     }

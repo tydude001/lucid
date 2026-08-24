@@ -57,6 +57,12 @@ FRAMES_DIR = "cache/frames"
 SHEET_DIR = "cache/sheets"
 ATTENUATED_DIR = "cache/attenuated"
 MIXED_DIR = "cache/mixed"
+#: A copy of an imported clip with its chapter list and the data/text track
+#: it rides on stripped (`media.strip_chapters`). Not in `_SUBDIRS`, the
+#: `MIXED_DIR` precedent: a project never had one until the first chaptered
+#: source was imported, and `media.import_media` creates it on demand the
+#: way `derive_single_audio`'s own `mixed_dir` write does.
+STRIPPED_DIR = "cache/stripped"
 WAVEFORM_DIR = "cache/waveform"
 #: Browser-playable stand-ins for footage a `<video>` cannot decode
 #: (PLAN.md § The preview proxy transcode). Cache because it is re-derivable
@@ -239,6 +245,10 @@ class Project:
     @property
     def mixed_dir(self) -> Path:
         return self.root / MIXED_DIR
+
+    @property
+    def stripped_dir(self) -> Path:
+        return self.root / STRIPPED_DIR
 
     @property
     def waveform_dir(self) -> Path:

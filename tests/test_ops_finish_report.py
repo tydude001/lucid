@@ -17,6 +17,7 @@ asserting a value the honest op happens to produce today.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -136,6 +137,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "seams",
         "framing",
         "holds",
+        "continuity",
         "last_render",
         "flags",
     }
@@ -316,6 +318,70 @@ def test_holds_is_opt_in_and_none_with_no_render(project: Project) -> None:
 
     on = ops.finish_report(project.root, holds=True)
     assert on["holds"] is None
+
+
+def test_continuity_is_opt_in_and_none_is_not_zero(project: Project) -> None:
+    """Off by default, `framing`'s own opt-in reasoning: `stubs=True` pays
+    the identical scene-cut decode cost. `None` off, a real (non-`None`)
+    report on — this fixture's single shot genuinely runs short (2.5s of
+    edit against `CONTINUITY_MIN_SHOT`'s 3.0s), so `count` on is a real 1,
+    not a vacuous zero.
+    """
+    _with_one_pinned_cue(project)
+
+    off = ops.finish_report(project.root)
+    assert off["continuity"] is None
+    assert [f for f in off["flags"]["items"] if f["kind"] == "continuity"] == []
+
+    on = ops.finish_report(project.root, continuity=True)
+    assert set(on["continuity"]) == {"count", "by_kind", "accepted"}
+    assert on["continuity"]["count"] == 1
+    assert on["continuity"]["by_kind"] == {"short_shot": 1}
+    # `short_shot` is not flag-worthy (routinely a deliberate fast cut) —
+    # only `rewind`/`stub` are, so no flag here despite a non-zero count.
+    assert [f for f in on["flags"]["items"] if f["kind"] == "continuity"] == []
+
+
+def test_continuity_flags_rewind_and_stub_but_not_replay_or_short_shot(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`test_properties_composes_rather_than_reimplements`'s own method:
+    monkeypatch the real op to lie, and check the lie surfaces here too,
+    rather than asserting a value the honest op happens to produce today."""
+    _with_one_pinned_cue(project)
+
+    def _lying_continuity_check(*args: object, **kwargs: object) -> dict[str, Any]:
+        return {
+            "findings": [
+                {"kind": "rewind"},
+                {"kind": "rewind"},
+                {"kind": "replay"},
+                {"kind": "short_shot"},
+                {"kind": "stub"},
+            ],
+            "count": 5,
+            "accepted": 2,
+            "accepted_stale": [],
+            "shots_error": None,
+            "stub_error": None,
+        }
+
+    monkeypatch.setattr(ops, "continuity_check", _lying_continuity_check)
+    result = ops.finish_report(project.root, continuity=True)
+
+    assert result["continuity"] == {
+        "count": 5,
+        "by_kind": {"rewind": 2, "replay": 1, "short_shot": 1, "stub": 1},
+        "accepted": 2,
+    }
+    kinds = [f["kind"] for f in result["flags"]["items"] if f["kind"] == "continuity"]
+    assert kinds == ["continuity", "continuity"]
+    messages = " ".join(f["message"] for f in result["flags"]["items"] if f["kind"] == "continuity")
+    assert "2 shot(s) rewind" in messages
+    assert "1 shot(s) end on a real cut" in messages
+    for flag in result["flags"]["items"]:
+        if flag["kind"] == "continuity":
+            assert flag["mode"] == "finish"
 
 
 def test_holds_runs_hold_check_against_the_last_render(project: Project) -> None:

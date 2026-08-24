@@ -209,6 +209,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="keep one audio stream of a multi-stream container (0 is the first)",
     )
+    p_import.add_argument(
+        "--no-sheet",
+        dest="sheet",
+        action="store_false",
+        help="skip the first-look contact sheet this makes by default",
+    )
 
     p_role = sub.add_parser(
         "role", help="read or set a clip's import role — voiceover vs footage"
@@ -773,6 +779,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "decodes and transcribes render spans"
         ),
     )
+    p_finish_report.add_argument(
+        "--continuity",
+        action="store_true",
+        help=(
+            "also run continuity_check (rewind/replay/short-shot/stub) — off by default "
+            "because its stub scan decodes placed footage the same way --framing does"
+        ),
+    )
 
     p_waveform = sub.add_parser(
         "waveform", help="RMS envelope for the timeline's waveform lane (cached)"
@@ -791,6 +805,24 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=ops.THUMB_INTERVAL,
         help=f"grid `at` snaps to, in seconds ({ops.THUMB_INTERVAL})",
+    )
+
+    p_sheet_cmd = sub.add_parser(
+        "contact-sheet",
+        help="a handful of cached frames from a clip's own head (cached, built on thumbnail)",
+    )
+    p_sheet_cmd.add_argument("clip_id")
+    p_sheet_cmd.add_argument(
+        "--seconds",
+        type=float,
+        default=ops.FIRST_LOOK_SECONDS,
+        help=f"how far into the clip to look (default {ops.FIRST_LOOK_SECONDS})",
+    )
+    p_sheet_cmd.add_argument(
+        "--interval",
+        type=float,
+        default=ops.FIRST_LOOK_INTERVAL,
+        help=f"spacing between frames (default {ops.FIRST_LOOK_INTERVAL})",
     )
 
     p_preview = sub.add_parser(
@@ -1358,6 +1390,64 @@ def _build_parser() -> argparse.ArgumentParser:
         f"(default {ops.SCENE_THRESHOLD}, picked by the framing control)",
     )
 
+    p_continuity_check = sub.add_parser(
+        "continuity-check",
+        help="rewinds, replays, short shots, and film-internal-cut stubs — reports, never decides",
+    )
+    p_continuity_check.add_argument(
+        "--gap",
+        type=float,
+        default=ops.CONTINUITY_GAP,
+        help=f"timeline seconds that make a re-use a rhyme rather than a rewind "
+        f"(default {ops.CONTINUITY_GAP})",
+    )
+    p_continuity_check.add_argument(
+        "--min-shot",
+        type=float,
+        default=ops.CONTINUITY_MIN_SHOT,
+        help=f"shots shorter than this are flagged (default {ops.CONTINUITY_MIN_SHOT}s)",
+    )
+    p_continuity_check.add_argument(
+        "--stub-tolerance",
+        type=float,
+        default=ops.CONTINUITY_STUB_TOLERANCE,
+        help=f"how close a real internal cut has to sit to a shot's own edge to "
+        f"flag it as a fragment (default {ops.CONTINUITY_STUB_TOLERANCE}s)",
+    )
+    p_continuity_check.add_argument(
+        "--no-stubs",
+        dest="stubs",
+        action="store_false",
+        help="skip the film-internal-cut-stub scan — it costs a scene-cut decode "
+        "per distinct asset placed. On by default",
+    )
+    p_continuity_check.add_argument(
+        "--scene-threshold",
+        type=float,
+        default=ops.SCENE_THRESHOLD,
+        metavar="SCORE",
+        help=f"scene score above which a change of picture is a cut "
+        f"(default {ops.SCENE_THRESHOLD}; darker footage from a different film "
+        "has needed 0.12)",
+    )
+
+    p_continuity_accept = sub.add_parser(
+        "continuity-accept",
+        help="acknowledge one continuity finding once — a deliberate rhyme, never re-reported",
+    )
+    p_continuity_accept.add_argument("clip_id")
+    p_continuity_accept.add_argument("word_index", type=int)
+    p_continuity_accept.add_argument("kind", choices=["rewind", "replay", "short_shot", "stub"])
+
+    p_continuity_reject = sub.add_parser(
+        "continuity-reject", help="unmark a continuity finding"
+    )
+    p_continuity_reject.add_argument("clip_id")
+    p_continuity_reject.add_argument("word_index", type=int)
+    p_continuity_reject.add_argument("kind", choices=["rewind", "replay", "short_shot", "stub"])
+
+    sub.add_parser("continuity-ls", help="every accepted continuity finding, and whether it is stale")
+
     p_sheet = sub.add_parser(
         "reframe-sheet",
         help="draw every placement's framing window on its own source frames, for review",
@@ -1664,6 +1754,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
             copy=args.copy,
             mix=args.mix,
             audio_stream=args.audio_stream,
+            sheet=args.sheet,
         )
     )
 
@@ -1974,7 +2065,11 @@ def _cmd_properties(args: argparse.Namespace) -> int:
 
 
 def _cmd_finish_report(args: argparse.Namespace) -> int:
-    return _emit(ops.finish_report(args.project, framing=args.framing, holds=args.holds))
+    return _emit(
+        ops.finish_report(
+            args.project, framing=args.framing, holds=args.holds, continuity=args.continuity
+        )
+    )
 
 
 def _cmd_waveform(args: argparse.Namespace) -> int:
@@ -1983,6 +2078,12 @@ def _cmd_waveform(args: argparse.Namespace) -> int:
 
 def _cmd_thumbnail(args: argparse.Namespace) -> int:
     return _emit(ops.thumbnail(args.project, args.clip_id, args.at, interval=args.interval))
+
+
+def _cmd_contact_sheet(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.contact_sheet(args.project, args.clip_id, seconds=args.seconds, interval=args.interval)
+    )
 
 
 def _cmd_preview(args: argparse.Namespace) -> int:
@@ -2311,6 +2412,31 @@ def _cmd_reframe_coverage(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_continuity_check(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.continuity_check(
+            args.project,
+            gap=args.gap,
+            min_shot=args.min_shot,
+            stub_tolerance=args.stub_tolerance,
+            stubs=args.stubs,
+            scene_threshold=args.scene_threshold,
+        )
+    )
+
+
+def _cmd_continuity_accept(args: argparse.Namespace) -> int:
+    return _emit(ops.continuity_accept(args.project, args.clip_id, args.word_index, args.kind))
+
+
+def _cmd_continuity_reject(args: argparse.Namespace) -> int:
+    return _emit(ops.continuity_reject(args.project, args.clip_id, args.word_index, args.kind))
+
+
+def _cmd_continuity_ls(args: argparse.Namespace) -> int:
+    return _emit(ops.continuity_ls(args.project))
+
+
 def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
     moments = [float(part) for part in args.moments.split(",")] if args.moments else None
     return _emit(
@@ -2483,6 +2609,7 @@ _COMMANDS = {
     "finish-report": _cmd_finish_report,
     "waveform": _cmd_waveform,
     "thumbnail": _cmd_thumbnail,
+    "contact-sheet": _cmd_contact_sheet,
     "preview": _cmd_preview,
     "web": _cmd_web,
     "open": _cmd_open,
@@ -2503,6 +2630,10 @@ _COMMANDS = {
     "reframe": _cmd_reframe,
     "reframe-detect": _cmd_reframe_detect,
     "reframe-coverage": _cmd_reframe_coverage,
+    "continuity-check": _cmd_continuity_check,
+    "continuity-accept": _cmd_continuity_accept,
+    "continuity-reject": _cmd_continuity_reject,
+    "continuity-ls": _cmd_continuity_ls,
     "reframe-sheet": _cmd_reframe_sheet,
     "synopsis": _cmd_synopsis,
     "broll-brief": _cmd_broll_brief,
