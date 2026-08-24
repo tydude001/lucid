@@ -48,6 +48,10 @@ from lucid import (
 # has, and the same fix.
 from lucid import describe as dsc
 
+# `doctor` is also the name of the op below — the `describe`/`verify`/`fonts`
+# collision again, and the same fix.
+from lucid import doctor as doc
+
 # `fonts` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time — the `describe`/`verify` fix.
 from lucid import fonts as lucid_fonts
@@ -100,6 +104,29 @@ def _save_edit(project: Project, edit: tl.Edit) -> None:
 def init(path: Path | str, *, name: str | None = None) -> dict[str, Any]:
     project = Project.create(path, name=name)
     return {"project": str(project.root), "manifest": project.read_manifest()}
+
+
+def doctor() -> dict[str, Any]:
+    """Probe every external dependency lucid needs, and name each one's trap.
+
+    The one op that takes no project, because it answers a question asked
+    *before* there is one: can this machine run lucid at all. Report-only —
+    it installs nothing, writes nothing, and opens no project.
+
+    `ok` reads the **required** section alone. The three optional
+    capabilities gate one feature each (`describe`, `reframe-detect`,
+    `vo-synth`), and everything lucid promises works without all three, so a
+    box with none of them still gets a clean bill of health.
+
+    The value is not the ✓/✗ — it is the sentence after a ✗. Every failure
+    carries the named trap out of this repo's own record and the command that
+    fixes it: that melt lives inside the Kdenlive flatpak, that PyPI's
+    auto-editor is a stale fork of a different program, that an unattended box
+    renders under `QT_QPA_PLATFORM=offscreen` rather than needing a session.
+    `doctor.render()` is the human rendering of the same dict, which is what
+    `lucid doctor` prints.
+    """
+    return doc.report()
 
 
 def info(path: Path | str, *, raw: bool = False) -> dict[str, Any]:

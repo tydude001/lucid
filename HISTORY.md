@@ -10340,3 +10340,50 @@ title is required, nothing defaults to a word, and the test file holds the
 motivation as a measurement: the phrase that fits `chapter` still refuses
 `bumper`, so if the bumper's box ever grows, the card's reason to exist
 changes visibly.
+
+## `lucid doctor` — six binaries, and the sentence after the ✗ — 2026-08-24
+
+POLISH.md § Step 01. lucid depends on six external programs and the repo's
+own record is a catalogue of the ways they fail *silently*: melt prints
+`Failed to load` and exits 0; PyPI's `auto-editor` is a stale 29.x fork of a
+different program under the same name, whose multi-source render degrades to
+720x576 at exit 0; libass substitutes a font nobody chose and ffmpeg exits 0;
+whisper resolves through a three-step chain ending in a hardcoded sibling
+venv. Tyler navigates all of that with CLAUDE.md. A newcomer has nothing.
+
+`doctor.py` probes each one and `ops.doctor()` returns the report — the one
+op that takes no project, because it answers the question asked before there
+is one. Report-only: it installs nothing and writes nothing. The value is not
+the ✓/✗, it is the sentence after a ✗, so every failing row carries the named
+trap and the command out of this repo's own record ("`pip install
+auto-editor` gets 29.3.1 — install the binary from the GitHub release";
+"melt has no host package on many boxes, it ships inside Kdenlive").
+
+Two rules the probes hold to.
+
+**An exit code is not evidence where this repo has measured it lying.** melt
+is passed only by finding its own `melt <version>` banner in stdout — a
+`Failed to load` at exit 0 is a failure here. whisper is *run*
+(`--help`, ~1 s), because the failure it catches is a venv that has lost
+torch: it resolves fine, advertises the right path, and dies minutes into a
+transcription. auto-editor is checked by major, not by presence, since 29.x
+is present and wrong.
+
+**Nothing costs anything.** No model loads, no frame decodes. The whole run
+is under two seconds on this box, which is what makes it something to run
+first rather than something to be talked into.
+
+Two things it deliberately does not do. Optional capabilities
+(`LUCID_VLM`, `LUCID_FACE`, `LUCID_TTS`) are reported as "this feature is
+unavailable", never as failures, and never move `ok` — everything lucid
+promises works without all three. And **the voice path is never printed**:
+`tts.available()` returns it, doctor composes its own row instead, because a
+voice is somebody's recorded speech and doctor prints on a screen someone may
+be sharing. Unset is an expected refusal (there is no default voice on
+purpose), not a broken install; an incomplete one names the missing files and
+not the directory. A test asserts the path appears nowhere in the row.
+
+`lucid doctor` is the one subcommand that prints prose rather than JSON — its
+caller is a person who has just cloned this — and exits non-zero when
+something required is missing, so a setup script can gate on it. `--json` is
+the same dict the MCP tool returns. Optional entries never move the exit code.

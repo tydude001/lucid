@@ -36,6 +36,7 @@ SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", 
 #: silently not existing.
 EXPECTED_TOOLS = {
     "ping",
+    "doctor",
     "init",
     "migrate_project",
     "import_media",
@@ -186,6 +187,43 @@ def sources(tmp_path: Path) -> tuple[Path, Path]:
     return _make_sources(tmp_path)
 
 
+def test_doctor_reachable_over_stdio() -> None:
+    """The one tool that takes no project, so `@_tool()` has no selector to bind.
+
+    That is the whole reason it is checked here rather than only as a unit:
+    `_tool()` falls through to a plain registration when none of its named
+    selectors is in the signature, and nothing but the real registry proves
+    the fall-through happened.
+    """
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("doctor")
+
+    payload = anyio.run(_with_server, body)
+    assert isinstance(payload["ok"], bool)
+    assert {r["name"] for r in payload["required"]} == {
+        "ffmpeg",
+        "ffprobe",
+        "whisper",
+        "auto-editor",
+        "melt",
+        "magick",
+    }
+    # Optional entries never move the verdict — each gates one feature.
+    assert payload["ok"] == all(r["ok"] for r in payload["required"])
+
+
+def test_doctor_takes_no_arguments_over_stdio() -> None:
+    """A project-less tool advertising a `path` would be a `-C` binding hole."""
+
+    async def body(session: ClientSession) -> Any:
+        return await session.list_tools()
+
+    tools = anyio.run(_with_server, body)
+    doctor = next(t for t in tools.tools if t.name == "doctor")
+    assert not doctor.input_schema.get("properties")
+
+
 def test_server_serves_ping_over_stdio() -> None:
     async def body(session: ClientSession) -> Any:
         return await Client(session).call("ping")
@@ -246,6 +284,7 @@ def test_every_tool_is_registered() -> None:
 #: differ the mapping is recorded here and asserted in both directions, so a
 #: tool added to only one front end fails the suite either way.
 TOOL_TO_COMMAND = {
+    "doctor": "doctor",
     "init": "init",
     "migrate_project": "migrate",
     "import_media": "import",

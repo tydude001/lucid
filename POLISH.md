@@ -65,6 +65,9 @@ is the only one that needs a design round.
 
 ## Step 01 — `lucid doctor`
 
+Shipped — see HISTORY.md § `lucid doctor` — six binaries, and the
+sentence after the ✗.
+
 **Why.** lucid depends on six external binaries, and the repo's own record is
 a catalog of the ways they fail *silently*: `melt` prints `Failed to load` and
 exits 0; PyPI's auto-editor is a stale 29.x whose multi-source render degrades

@@ -231,6 +231,23 @@ def ping() -> dict[str, str]:
 
 
 @_tool()
+def doctor() -> dict[str, Any]:
+    """Probe every external binary lucid depends on, and name each one's trap.
+
+    Takes no project — it answers the question asked before there is one.
+    Report-only: nothing is installed and nothing is written. `ok` reads the
+    required section alone; the three optional entries each gate one feature
+    (`describe`, `reframe_detect`, `vo_synth`) and everything else works
+    without them.
+
+    Every failing entry carries the fix, not just the ✗ — where melt actually
+    lives, why PyPI's auto-editor is the wrong program, what to set on a box
+    with no display.
+    """
+    return ops.doctor()
+
+
+@_tool()
 def init(path: str, name: str | None = None) -> dict[str, Any]:
     """Create a lucid project directory at `path`."""
     return ops.init(path, name=name)

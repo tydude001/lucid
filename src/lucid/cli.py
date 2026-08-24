@@ -199,6 +199,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("ping", help="print the same payload the MCP ping tool returns")
 
+    p_doctor = sub.add_parser(
+        "doctor", help="check every external dependency lucid needs, and say how to fix each"
+    )
+    # The one subcommand that prints prose by default. Every other one emits
+    # JSON because its caller is a script or an agent; doctor's caller is a
+    # person who has just cloned this and wants to know what is missing, and
+    # the sentence after a ✗ is the whole point of the command. `--json` is
+    # the same dict the MCP tool returns, for the scripted case.
+    p_doctor.add_argument(
+        "--json", action="store_true", help="emit the report as JSON instead of prose"
+    )
+
     p_init = sub.add_parser("init", help="create a project directory")
     # `default=None`, not `"."`, so the handler can tell "not given" from
     # "given as `.`" and refuse the ambiguous both-were-given call.
@@ -2689,6 +2701,24 @@ def _cmd_export(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Print the dependency report, and exit non-zero when something required is missing.
+
+    The exit code is the one thing here that is not report-only: `lucid
+    doctor` is what a setup script or a CI step would gate on, and a command
+    that always exits 0 cannot be gated on. Optional capabilities never move
+    it — they gate a feature, not the install.
+    """
+    from lucid import doctor as doc
+
+    payload = ops.doctor()
+    if args.json:
+        _emit(payload)
+    else:
+        print(doc.render(payload))
+    return 0 if payload["ok"] else 1
+
+
 def _cmd_ping(_args: argparse.Namespace) -> int:
     from lucid.server import ping
 
@@ -2717,6 +2747,7 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
 
 
 _COMMANDS = {
+    "doctor": _cmd_doctor,
     "init": _cmd_init,
     "info": _cmd_info,
     "migrate": _cmd_migrate,

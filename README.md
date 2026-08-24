@@ -55,6 +55,9 @@ three non-goals are permanent.
   Kdenlive install provides it.
 - **ImageMagick (`magick`)** — rasterises title and end cards.
 
+Run `lucid doctor` to check all of this at once — it probes every binary,
+reports what it found and where, and names the fix for anything missing.
+
 Optional, feature-gated: a torch-capable interpreter named by `LUCID_VLM`
 powers `describe` (b-roll search by what's on screen), and one named by
 `LUCID_FACE` powers `reframe-detect` (face-aware crop proposals).
