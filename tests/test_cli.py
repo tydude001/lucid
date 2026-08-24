@@ -800,6 +800,92 @@ def test_film_check_flags_parse_and_reach_ops(
     assert "reference" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
 
 
+def test_finish_check_flags_parse_and_reach_ops(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--hold`'s comma-delimited spec parses into `finish_check`'s own
+    `{"name","start","length","ducked"}` shape, and every other flag reaches
+    `ops.finish_check` under the right keyword — the real behind-it check
+    (real ffmpeg/whisper) is covered by test_ops_finish_check*.py and the
+    stdio suite; this only guards the CLI's own parsing and wiring, the way
+    test_film_check_flags_parse_and_reach_ops does one command over.
+    """
+    project = tmp_path / "proj"
+    final = tmp_path / "final.mp4"
+    final.write_bytes(b"not real media, ops.finish_check is stubbed below")
+
+    captured: dict[str, object] = {}
+
+    def _stub(path: object, final_arg: object, **kwargs: object) -> dict[str, object]:
+        captured["path"] = path
+        captured["final"] = final_arg
+        captured.update(kwargs)
+        return {"faults": 0, "ok": True}
+
+    monkeypatch.setattr(ops, "finish_check", _stub)
+
+    assert main([
+        "-C", str(project),
+        "finish-check", str(final),
+        "--hold", "miggs,42.0,1.9",
+        "--hold", "point-taken,50.0,2.1,ducked",
+        "--prepend-seconds", "11.5",
+        "--duration-tolerance", "0.75",
+        "--pix-th", "0.2",
+        "--black-min-duration", "0.1",
+        "--windowed-model", "medium",
+        "--window", "8.0",
+        "--overlap", "4.0",
+        "--recheck-pad", "6.0",
+        "--language", "en",
+        "--clip-id", "vo",
+        "--transcript", "heard.json",
+    ]) == 0  # fmt: skip
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"faults": 0, "ok": True}
+
+    assert captured["final"] == str(final)
+    assert captured["holds"] == [
+        {"name": "miggs", "start": 42.0, "length": 1.9, "ducked": False},
+        {"name": "point-taken", "start": 50.0, "length": 2.1, "ducked": True},
+    ]
+    assert captured["prepend_seconds"] == 11.5
+    assert captured["duration_tolerance"] == 0.75
+    assert captured["pix_th"] == 0.2
+    assert captured["black_min_duration"] == 0.1
+    assert captured["windowed_model"] == "medium"
+    assert captured["window"] == 8.0
+    assert captured["overlap"] == 4.0
+    assert captured["recheck_pad"] == 6.0
+    assert captured["language"] == "en"
+    assert captured["clip_id"] == "vo"
+    assert captured["transcript_path"] == "heard.json"
+
+
+def test_finish_check_with_no_hold_flags_passes_none_through(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No `--hold` at all reaches `ops.finish_check` as `holds=None` — the
+    sentinel WORK-ORDERS ruling 5 gives the stored-holds fallback, never an
+    empty list (which would mean "explicitly no holds")."""
+    project = tmp_path / "proj"
+    final = tmp_path / "final.mp4"
+    final.write_bytes(b"stubbed")
+    captured: dict[str, object] = {}
+
+    def _stub(path: object, final_arg: object, **kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"faults": 0, "ok": True}
+
+    monkeypatch.setattr(ops, "finish_check", _stub)
+
+    assert main(["-C", str(project), "finish-check", str(final)]) == 0
+    capsys.readouterr()
+
+    assert captured["holds"] is None
+    assert captured["prepend_seconds"] is None
+
+
 @pytest.mark.skipif(
     shutil.which("magick") is None or shutil.which("ffmpeg") is None,
     reason="the render half of the font report needs ImageMagick and ffmpeg with libass",

@@ -103,8 +103,35 @@ def test_words_the_render_never_played_are_reported_as_dropped() -> None:
 
     result = verify.compare(expected, heard)
 
-    assert result["dropped"] == [{"text": "three four", "at_expected_word": 2}]
+    assert result["dropped"] == [
+        {"text": "three four", "at_expected_word": 2, "at_heard_word": 2}
+    ]
     assert result["repeated"] == []
+
+
+def test_a_drop_at_the_very_start_of_heard_reports_at_heard_word_zero() -> None:
+    """`finish_check`'s boundary recheck needs `at_heard_word` at every edge,
+    not just mid-sequence — a drop before anything survived has nowhere to
+    anchor but position 0."""
+    expected = ["one", "two", "three", "four"]
+    heard = ["three", "four"]
+
+    result = verify.compare(expected, heard)
+
+    assert result["dropped"] == [{"text": "one two", "at_expected_word": 0, "at_heard_word": 0}]
+
+
+def test_a_drop_at_the_very_end_of_heard_reports_at_heard_word_len_heard() -> None:
+    """The other edge: a drop after everything else survived anchors past
+    the last heard word, `len(heard)`."""
+    expected = ["one", "two", "three", "four"]
+    heard = ["one", "two"]
+
+    result = verify.compare(expected, heard)
+
+    assert result["dropped"] == [
+        {"text": "three four", "at_expected_word": 2, "at_heard_word": len(heard)}
+    ]
 
 
 def test_a_single_missing_word_is_below_the_noise_floor() -> None:

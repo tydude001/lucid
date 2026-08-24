@@ -21,7 +21,8 @@ from urllib.parse import urlencode, urlsplit
 
 import pytest
 
-from lucid import ops, reviewserver
+from lucid import finishlog, ops, reviewserver
+from lucid.project import Project
 
 TOKEN = "test-token-not-a-secret"
 
@@ -140,3 +141,69 @@ def test_a_verdict_for_an_unregistered_name_is_refused(server: str) -> None:
         server, f"/verdict?t={TOKEN}", {"name": "no-such-item", "verdict": "ship it"}
     )
     assert status == 400
+
+
+# -- finish_check's WARN badge, joined on sha256 -----------------------------
+
+
+def test_an_item_with_no_finish_check_shows_the_no_check_yet_note(server: str) -> None:
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+    assert status == 200
+    assert b"no finish_check yet" in body
+
+
+def test_a_failing_finish_check_shows_the_warn_badge(project: Path, server: str) -> None:
+    item = ops.review_list(project)["items"][0]
+    finishlog.append(
+        Project.open(project),
+        final=str(project / item["path"]),
+        sha256=item["sha256"],
+        faults=3,
+        ok=False,
+        summary={"missing": 3},
+    )
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+
+    assert status == 200
+    assert "⚠ finish_check: 3 fault(s)".encode() in body
+    assert b"no finish_check yet" not in body
+
+
+def test_a_passing_finish_check_shows_no_warn(project: Path, server: str) -> None:
+    item = ops.review_list(project)["items"][0]
+    finishlog.append(
+        Project.open(project),
+        final=str(project / item["path"]),
+        sha256=item["sha256"],
+        faults=0,
+        ok=True,
+        summary={},
+    )
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+
+    assert status == 200
+    assert b"finish_check" not in body
+    assert b"no finish_check yet" not in body
+
+
+def test_a_finish_check_keyed_to_a_different_sha256_does_not_match(
+    project: Path, server: str
+) -> None:
+    """The join is on bytes, not on name — a stale or unrelated log entry
+    must not paint a badge that does not belong to this item."""
+    finishlog.append(
+        Project.open(project),
+        final="/tmp/some-other-file.mp4",
+        sha256="0" * 64,
+        faults=5,
+        ok=False,
+        summary={},
+    )
+
+    status, _, body = _get(f"{server}/?t={TOKEN}")
+
+    assert status == 200
+    assert b"no finish_check yet" in body
+    assert b"5 fault" not in body

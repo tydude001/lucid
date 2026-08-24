@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -35,6 +35,7 @@ from lucid import (
     energy,
     faces,
     finish,
+    finishlog,
     graphics,
     media,
     mlt,
@@ -10251,12 +10252,22 @@ def hold_ls(path: Path | str) -> dict[str, Any]:
     return {"project": str(project.root), "holds": items, "count": len(items)}
 
 
-def _transcribe_span(media_path: Path, start: float, length: float) -> str:
+def _transcribe_span(
+    media_path: Path, start: float, length: float, *, model: str = asr.DEFAULT_MODEL
+) -> str:
     """The words heard in `[start, start + length)` of `media_path` —
     `verify_longlegs.py:transcribe_span`'s own mechanism: cut the span with
     ffmpeg, run it through `asr.transcribe`, join the words. A cut, not a
     seek-and-limit inside whisper itself, because whisper has no span
-    argument of its own."""
+    argument of its own.
+
+    `model` defaults to `asr.DEFAULT_MODEL` — `hold_check`'s own choice,
+    unaffected by this becoming keyword-optional. `finish_check` passes
+    `asr.WINDOWED_MODEL` explicitly for both its per-hold spans and its
+    boundary rechecks (pipeline.md's "believe the smaller model" is
+    directional, not just a default value — WORK-ORDERS ruling: a bigger
+    model can *clean up* the very disfluency a recheck exists to catch).
+    """
     work = picture.scratch("hold-check-")
     try:
         clip = work / "span.wav"
@@ -10280,7 +10291,7 @@ def _transcribe_span(media_path: Path, start: float, length: float) -> str:
             str(clip),
         ]
         subprocess.run(cmd, capture_output=True, check=True)
-        payload = asr.transcribe(clip)
+        payload = asr.transcribe(clip, model=model)
         return " ".join(w.get("word", "").strip() for w in payload.get("words", [])).strip()
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -10371,6 +10382,54 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
         "count": len(items),
         "faults": faults,
     }
+
+
+def _resolved_hold_spans(
+    project: Project, edit: tl.Edit, rate: float, head_seconds: float
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """This project's stored holds, resolved live to `finish_check`'s own
+    `{"name", "start", "length", "ducked"}` shape — WORK-ORDERS ruling 5's
+    fallback for a caller that passes no `holds` of its own.
+
+    `start`/`start + length` land in *`final`'s own absolute seconds*
+    (`head_seconds` folded into `gap_at`, `hold_check`'s own `render_start`
+    arithmetic) — the same coordinate space an explicit `holds` argument is
+    documented to use, so the two are interchangeable to every caller
+    downstream.
+
+    **Always `ducked=False`.** A lucid hold always splices a real silence
+    into the VO first (`_hold_plan`), so its own audio *replaces* the VO
+    across the gap rather than playing under it — goodsometimes' `@UNDER`
+    concept (a cue that ducks rather than pauses) has no lucid-native
+    equivalent to inherit, and every stored hold's edges are genuine seams.
+
+    A hold that cannot currently resolve is reported in a second list
+    (`hold_ls`'s own policy) rather than raised, so one bad stored hold
+    cannot take the rest of `finish_check` down with it.
+    """
+    spans: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for stored_hold in _stored_holds(project):
+        try:
+            plan = _hold_plan(project, edit, rate, stored_hold)
+        except _PICTURE_REFUSALS as exc:
+            errors.append(
+                {
+                    "clip_id": stored_hold["clip_id"],
+                    "gap_word_index": stored_hold["gap_word_index"],
+                    "hold_error": str(exc),
+                }
+            )
+            continue
+        spans.append(
+            {
+                "name": f"{stored_hold['clip_id']}#{stored_hold['gap_word_index']}",
+                "start": plan["gap_at"] + head_seconds,
+                "length": plan["hold_length"],
+                "ducked": False,
+            }
+        )
+    return spans, errors
 
 
 def _is_layered(project: Project, edit: tl.Edit) -> bool:
@@ -12690,6 +12749,410 @@ def verify(
         result["loud_gaps"] = {"error": str(exc)}
 
     return result
+
+
+def _time_overlaps(a_start: float, a_end: float, b_start: float, b_end: float) -> bool:
+    """Whether `[a_start, a_end)` and `[b_start, b_end)` share any instant —
+    `finish_check`'s own test for "does this fall inside a declared prepend
+    or hold span", both for the blackdetect fault logic and the heard-word
+    filter ahead of the windowed diff."""
+    return a_start < b_end and b_start < a_end
+
+
+def _boundary_recheck(
+    dropped: Sequence[dict[str, Any]],
+    heard_words: Sequence[Any],
+    final_duration: float,
+    *,
+    pad: float,
+    transcribe: Callable[[float, float], str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """`finish_check`'s step 6, pulled out for testability without ffmpeg or
+    whisper — `picture.blackdetect`/`parse_blackdetect`'s own split.
+
+    Every `dropped` entry (a `verify.compare` result, so each carries
+    `at_heard_word`) is re-cut `pad` seconds past its own heard-side
+    neighbours and handed to `transcribe(start, length) -> str` — injected
+    rather than called directly, so this can be exercised against a canned
+    function that returns fixed text for a fixed span
+    (`test_verify.py`'s own discipline for `compare`, one level up).
+    `heard_words` needs only `.start`/`.end` on each item — a real
+    `Transcript.words` tuple, or a hand-built stand-in in a test.
+
+    Returns `(missing, boundary_misses)` — every dropped entry ends up in
+    exactly one. **Getting the direction backwards silently turns every real
+    defect into "recovered"**: a recheck that *fails* to find the missing
+    text close to the padded span means the miss is real (`missing`); one
+    that *does* find it (even reworded — `vfy.SIMILAR`'s own tolerance for a
+    second take) means the windowed pass lost it at a stitch and this
+    recovered it (`boundary_misses`, not a fault).
+    """
+    missing: list[dict[str, Any]] = []
+    boundary_misses: list[dict[str, Any]] = []
+    for dropped_entry in dropped:
+        j1 = dropped_entry["at_heard_word"]
+        raw_start = heard_words[j1 - 1].end if j1 > 0 else 0.0
+        raw_end = heard_words[j1].start if j1 < len(heard_words) else final_duration
+        span_start = max(0.0, raw_start - pad)
+        span_end = min(final_duration, raw_end + pad)
+        recheck_entry = {**dropped_entry, "recheck_start": span_start, "recheck_end": span_end}
+        if span_end <= span_start:
+            recheck_entry["recheck_error"] = "nothing to re-cut — the span is empty"
+            missing.append(recheck_entry)
+            continue
+        try:
+            recheck_text = transcribe(span_start, span_end - span_start)
+        except (asr.ASRError, subprocess.CalledProcessError) as exc:
+            recheck_entry["recheck_error"] = str(exc)
+            missing.append(recheck_entry)
+            continue
+        recheck_entry["recheck_text"] = recheck_text
+        recheck_tokens = vfy.tokens([recheck_text])
+        missing_tokens = vfy.tokens([dropped_entry["text"]])
+        _, ratio = vfy._closest_run(missing_tokens, recheck_tokens)
+        recheck_entry["recheck_similarity"] = round(ratio, 3)
+        if ratio >= vfy.SIMILAR:
+            boundary_misses.append(recheck_entry)
+        else:
+            missing.append(recheck_entry)
+    return missing, boundary_misses
+
+
+def finish_check(
+    path: Path | str,
+    final: Path | str,
+    *,
+    holds: Sequence[Mapping[str, Any]] | None = None,
+    prepend_seconds: float | None = None,
+    fps: float | None = None,
+    duration_tolerance: float = 0.5,
+    pix_th: float = 0.10,
+    black_min_duration: float = 0.0,
+    windowed_model: str | None = None,
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
+    recheck_pad: float = asr.WINDOW,
+    language: str | None = None,
+    clip_id: str | None = None,
+    transcript_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Check a **delivered** file against this project's own timeline —
+    `verify_longlegs.py`, generalized into a first-class op rather than one
+    project's script. `final` is whatever an external mix pass produced (a
+    cold open and/or holds concatenated onto one of lucid's own renders,
+    entirely outside `export`), not a render this project made itself —
+    `verify`/`check_frames`/`check_black`/`film_check` are the checks for
+    that.
+
+    Every number this reports is in **`final`'s own absolute seconds**:
+    `prepend_seconds` (a cold open or bumper glued on before the Edit's own
+    first frame) and each hold's `start`/`start + length` all describe
+    positions in `final`, not Edit time — `locate`'s two-clock rule.
+
+    **WORK-ORDERS ruling 5 — holds and a head are project state now.**
+    `prepend_seconds` defaults to the stored head's own length
+    (`_head_seconds`) when left unset (`None`); pass `0.0` explicitly to
+    check a file with no prepend even though this project has a head
+    configured. `holds` defaults to this project's stored `HOLDS_KEY` spans,
+    resolved live against the current edit and offset by the resolved
+    `prepend_seconds` (`_resolved_hold_spans`); pass an explicit list (`[]`
+    included) to check against a caller-supplied set instead — `film_check`'s
+    `reference` argument's own shape.
+
+    Eight steps, each reported and none individually fatal to the others —
+    `hold_check`'s own stance, because this is a listening check on a file
+    that already exists:
+
+    1. **Streams & duration.** `media.stream_inventory(final)` (a chapter
+       list, a stray non-picture/non-sound stream, a stream that outruns the
+       picture) plus `final`'s total duration against
+       `_frame_total_with_tail(...)/rate + prepend_seconds`, within
+       `duration_tolerance`.
+    2. **Loudness.** `finish.loudness(final)` — report only; no established
+       target LUFS to fault against.
+    3. **Blackdetect**, called directly (`picture.blackdetect`, never
+       `ops.check_black`) — `check_black`'s own tail-frame reasoning is
+       calibrated to an un-prepended lucid render and does not transfer once
+       `final` has a cold open glued onto the front. A run is a fault unless
+       it overlaps `[0, prepend_seconds)` or a declared hold's own span.
+    4. **Per-hold transcription + seam.** Each hold's own span, transcribed
+       on its own (`_transcribe_span`, defaulting every ASR call this makes
+       to `asr.WINDOWED_MODEL` — pipeline.md's "believe the smaller model"
+       is directional, not just a default) and reported as text with no
+       expected script to diff against — a hold plays the film's own
+       dialogue, not the VO. `finish.hold_seams` alongside, at every
+       non-ducked hold's in/out and (when `prepend_seconds > 0`) the
+       prepend-to-body join.
+    5. **Windowed VO diff.** `asr.transcribe_windowed` (or a supplied
+       `transcript_path`, `verify`'s own escape hatch), with every heard
+       word overlapping the prepend span or a hold span filtered out
+       **before** the diff — `final`'s own non-VO audio would otherwise
+       inflate the diff with noise that is not a defect, and risk a hold's
+       vocabulary coincidentally shifting `SequenceMatcher`'s alignment
+       elsewhere in the sequence.
+    6. **The boundary recheck.** Every `dropped` entry `vfy.compare` reports
+       is re-cut (padded `recheck_pad` past its own heard-side neighbours,
+       via `verify.compare`'s `at_heard_word`) and re-transcribed on its
+       own. Close to the missing text → `boundary_misses` (the windowed
+       pass lost it at a stitch, recovered here, not a fault); not close →
+       stays in `missing`, a real fault — **getting this direction backwards
+       silently turns every real defect into "recovered"**.
+    7. **Self-repeats.** `verify.find_adjacent_repeats` over the same
+       filtered heard sequence — lucid's existing tool, applied to a
+       render's own transcript for the first time.
+    8. **Aggregate**, and `finishlog.append` — the artifact-keyed log
+       `lucid review serve`'s WARN badge joins against by sha256.
+    """
+    project = Project.open(path)
+    final_path = Path(final).expanduser()
+    if not final_path.is_file():
+        raise finish.FinishError(f"no such file to check: {final_path}")
+
+    edit = _load_edit(project)
+    if not edit.segments:
+        raise ProjectError(
+            "the timeline is empty — there is nothing to check a delivered file against"
+        )
+
+    rate = float(fps) if fps else _export_fps(_clips_by_id(project))
+    head_seconds = _head_seconds(project)
+    prepend = float(prepend_seconds) if prepend_seconds is not None else head_seconds
+    if prepend < 0:
+        raise ProjectError(f"prepend_seconds must not be negative, not {prepend!r}")
+
+    hold_errors: list[dict[str, Any]] = []
+    resolved_holds: list[dict[str, Any]]
+    if holds is None:
+        resolved_holds, hold_errors = _resolved_hold_spans(project, edit, rate, head_seconds)
+    else:
+        resolved_holds = []
+        for i, h in enumerate(holds):
+            try:
+                resolved_holds.append(
+                    {
+                        "name": str(h.get("name", f"hold {i}")),
+                        "start": float(h["start"]),
+                        "length": float(h["length"]),
+                        "ducked": bool(h.get("ducked", False)),
+                    }
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ProjectError(
+                    f"holds[{i}] must hold at least numeric 'start' and 'length', not {h!r}"
+                ) from exc
+
+    covering: list[tuple[float, float]] = []
+    if prepend > 0:
+        covering.append((0.0, prepend))
+    for span in resolved_holds:
+        covering.append((span["start"], span["start"] + span["length"]))
+
+    # -- 1. streams & duration ----------------------------------------------
+    expected_duration = _frame_total_with_tail(project, edit, rate) / rate
+    want_duration = expected_duration + prepend
+    final_info = media.probe(final_path)
+    stream_report = media.stream_inventory(final_path)
+    duration_delta = final_info.duration - want_duration
+    duration_agrees = abs(duration_delta) <= duration_tolerance
+
+    # -- 2. loudness — report only --------------------------------------------
+    try:
+        loudness_report = finish.loudness(final_path)
+    except finish.FinishError as exc:
+        loudness_report = {
+            "integrated": None,
+            "lra": None,
+            "true_peak": None,
+            "error": str(exc),
+        }
+
+    # -- 3. blackdetect, called directly --------------------------------------
+    black_runs: list[dict[str, Any]] = []
+    black_notes: list[str] = []
+    if not final_info.has_video:
+        black_notes.append(
+            "this file has no video stream, so there is no picture to scan for black."
+        )
+    else:
+        for run in picture.blackdetect(final_path, pix_th=pix_th, min_duration=black_min_duration):
+            explained = any(_time_overlaps(run["start"], run["end"], lo, hi) for lo, hi in covering)
+            black_runs.append({**run, "explained": explained})
+    black_faults = sum(1 for run in black_runs if not run["explained"])
+
+    # -- 4. per-hold transcription + seam -------------------------------------
+    model = windowed_model or asr.WINDOWED_MODEL
+    hold_items: list[dict[str, Any]] = []
+    seam_marks: list[tuple[str, float]] = []
+    seam_owners: list[dict[str, Any]] = []
+    for span in resolved_holds:
+        entry: dict[str, Any] = dict(span)
+        try:
+            entry["heard"] = _transcribe_span(
+                final_path, span["start"], span["length"], model=model
+            )
+        except (asr.ASRError, subprocess.CalledProcessError) as exc:
+            entry["heard"] = None
+            entry["heard_error"] = str(exc)
+        if not span["ducked"]:
+            seam_marks.append((f"{span['name']} in", span["start"]))
+            seam_marks.append((f"{span['name']} out", span["start"] + span["length"]))
+            seam_owners.append(entry)
+            seam_owners.append(entry)
+        hold_items.append(entry)
+
+    prepend_seam: dict[str, Any] | None = None
+    if prepend > 0:
+        prepend_seam = {"name": "prepend -> body"}
+        seam_marks.append(("prepend -> body", prepend))
+        seam_owners.append(prepend_seam)
+
+    if seam_marks:
+        seams = finish.hold_seams(final_path, seam_marks)
+        for owner, seam in zip(seam_owners, seams, strict=True):
+            owner.setdefault("seams", []).append(seam)
+
+    seam_owner_list = [*hold_items, *([prepend_seam] if prepend_seam is not None else [])]
+    seam_faults = sum(
+        1 for owner in seam_owner_list for seam in owner.get("seams", []) if seam["fault"] is not None
+    )
+
+    # -- 5. windowed VO diff, prepend/hold words filtered first --------------
+    transcripts = _transcripts_for(project, clip_id)
+    transcripts, unspoken = _spoken_transcripts(project, transcripts)
+    placed, cut = captions.place(edit, transcripts)
+    if not placed:
+        raise vfy.VerifyError(
+            "no transcribed word survives on the timeline — there is nothing "
+            "for finish_check to compare final against"
+        )
+    expected = vfy.tokens(word.text for word in placed)
+
+    asr_result: dict[str, Any] = {}
+    if transcript_path is not None:
+        asr_result["mode"] = "supplied"
+        heard_transcript = tx.load(transcript_path, clip_id="render")
+    else:
+        asr_result["mode"] = "windowed"
+        payload = asr.transcribe_windowed(
+            final_path,
+            window=window,
+            overlap=overlap,
+            model=model,
+            language=language or _shared_language(transcripts),
+        )
+        heard_transcript = tx.parse_whisper(
+            payload, clip_id="render", origin=f"whisper:{model} windowed"
+        )
+        asr_result.update(
+            {
+                "windows": payload["windows"],
+                "silent_windows": payload["silent_windows"],
+                "hallucinated_words": payload["hallucinated_words"],
+                "window": window,
+                "overlap": overlap,
+            }
+        )
+        cached = project.verify_dir / f"{final_path.stem}.finish-check.windowed.json"
+        tx.save(heard_transcript, cached)
+        asr_result["heard_transcript"] = str(cached)
+
+    heard_words_all = list(heard_transcript.words)
+    filtered_words = [
+        w
+        for w in heard_words_all
+        if not any(_time_overlaps(w.start, w.end, lo, hi) for lo, hi in covering)
+    ]
+    words_filtered = len(heard_words_all) - len(filtered_words)
+    heard = vfy.tokens(w.text for w in filtered_words)
+
+    diff = vfy.compare(expected, heard)
+
+    # -- 6. the boundary recheck ----------------------------------------------
+    missing, boundary_misses = _boundary_recheck(
+        diff["dropped"],
+        filtered_words,
+        final_info.duration,
+        pad=recheck_pad,
+        transcribe=lambda start, length: _transcribe_span(final_path, start, length, model=model),
+    )
+
+    # -- 7. self-repeats --------------------------------------------------------
+    repeats = vfy.find_adjacent_repeats(heard)
+
+    # -- 8. aggregate & log -----------------------------------------------------
+    faults = (
+        len(stream_report["faults"])
+        + (0 if duration_agrees else 1)
+        + black_faults
+        + seam_faults
+        + len(hold_errors)
+        + len(missing)
+        + len(repeats)
+    )
+    ok = faults == 0
+    digest = _sha256(final_path)
+
+    summary = {
+        "duration_agrees": duration_agrees,
+        "stream_faults": len(stream_report["faults"]),
+        "loudness": {
+            "integrated": loudness_report.get("integrated"),
+            "true_peak": loudness_report.get("true_peak"),
+        },
+        "black_runs": len(black_runs),
+        "black_faults": black_faults,
+        "hold_errors": len(hold_errors),
+        "seam_faults": seam_faults,
+        "missing": len(missing),
+        "boundary_misses": len(boundary_misses),
+        "repeats": len(repeats),
+    }
+    finishlog.append(
+        project, final=str(final_path), sha256=digest, faults=faults, ok=ok, summary=summary
+    )
+
+    return {
+        "project": str(project.root),
+        "final": str(final_path),
+        "sha256": digest,
+        "prepend_seconds": prepend,
+        "duration": {
+            "final": final_info.duration,
+            "expected": expected_duration,
+            "want": want_duration,
+            "delta": duration_delta,
+            "tolerance": duration_tolerance,
+            "agrees": duration_agrees,
+        },
+        "streams": stream_report,
+        "loudness": loudness_report,
+        "black": {
+            "has_video": final_info.has_video,
+            "pix_th": pix_th,
+            "min_duration": black_min_duration,
+            "runs": black_runs,
+            "faults": black_faults,
+            **({"notes": black_notes} if black_notes else {}),
+        },
+        "holds": hold_items,
+        "hold_errors": hold_errors,
+        "prepend_seam": prepend_seam,
+        **asr_result,
+        "expected_words": len(expected),
+        "heard_words": len(heard),
+        "words_filtered": words_filtered,
+        "clips": sorted(transcripts),
+        "words_cut_from_transcript": cut,
+        **unspoken,
+        "similarity": diff["similarity"],
+        "diff": diff["diff"],
+        "repeated": diff["repeated"],
+        "missing": missing,
+        "boundary_misses": boundary_misses,
+        "repeats": repeats,
+        "faults": faults,
+        "ok": ok,
+    }
 
 
 # -- deriving a project ---------------------------------------------------

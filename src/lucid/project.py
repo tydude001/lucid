@@ -91,6 +91,12 @@ THUMBS_LOG = "cache/agent_thumbs.jsonl"
 #: part of the edit. No manifest key names it and `_revision()` never stats
 #: it, so a render never counts as a project mutation.
 RENDERS_LOG = "cache/renders.jsonl"
+#: One JSON line per `ops.finish_check` run against a delivered file —
+#: `RENDERS_LOG`'s own precedent, one lane over: derived telemetry about an
+#: artifact lucid did not produce (the external mix pass's own output), not
+#: part of the edit. No manifest key names it and `_revision()` never stats
+#: it, so a finish_check run never counts as a project mutation.
+FINISH_CHECKS_LOG = "cache/finish_checks.jsonl"
 
 _SUBDIRS = (
     MEDIA_DIR,
@@ -322,6 +328,10 @@ class Project:
     @property
     def renders_log_path(self) -> Path:
         return self.root / RENDERS_LOG
+
+    @property
+    def finish_checks_log_path(self) -> Path:
+        return self.root / FINISH_CHECKS_LOG
 
     # -- history ---------------------------------------------------------
 

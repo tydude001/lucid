@@ -27,7 +27,7 @@ import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-from lucid import energy, graphics, media, ops, picture
+from lucid import energy, finishlog, graphics, media, ops, picture
 from lucid.project import Project
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
@@ -88,6 +88,7 @@ EXPECTED_TOOLS = {
     "hold_rm",
     "hold_ls",
     "hold_check",
+    "finish_check",
     "reel",
     "review_add",
     "review_verdict",
@@ -297,6 +298,7 @@ TOOL_TO_COMMAND = {
     "hold_rm": "hold",
     "hold_ls": "hold",
     "hold_check": "hold",
+    "finish_check": "finish-check",
     "reel": "reel",
     "review_add": "review",
     "review_verdict": "review",
@@ -2103,6 +2105,153 @@ def test_transcribe_drops_a_runaway_tail_and_says_how_many(tmp_path: Path) -> No
     assert out["transcribed"]["words"] == 4
     # The real words survive whole, in order, and nothing of the loop is left.
     assert out["found"]["text"] == "them alive you know"
+
+
+def _fake_whisper_finish_check(path: Path) -> Path:
+    """A branching whisper stand-in for `finish_check`'s own stdio test.
+
+    `finish_check` makes several separate whisper invocations — one windowed
+    multi-file pass, one per hold, one per boundary recheck — and CLAUDE.md
+    is explicit that none of them should run concurrently, so one stub has
+    to answer all the shapes rather than assuming a single fixed transcript.
+    The two shapes it distinguishes are how many positional media files it
+    is handed: `transcribe_windowed`'s own `nargs="+"` invocation hands
+    whisper every window at once; `_transcribe_span` (a hold's own span, or
+    a boundary recheck — this test's project has no holds, so it is always
+    the recheck) hands it exactly one file.
+    """
+    script = path / "fake-whisper-finish-check.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import argparse, json\n"
+        "from pathlib import Path\n"
+        "p = argparse.ArgumentParser()\n"
+        "p.add_argument('media', nargs='+')\n"
+        "p.add_argument('--model')\n"
+        "p.add_argument('--output_format')\n"
+        "p.add_argument('--word_timestamps')\n"
+        "p.add_argument('--output_dir')\n"
+        "p.add_argument('--verbose', default=None)\n"
+        "p.add_argument('--language', default=None)\n"
+        "args = p.parse_args()\n"
+        "out = Path(args.output_dir)\n"
+        "# Window-local words: transcribe_windowed's own _absolute() adds\n"
+        "# each window's start offset on the way out, so these are\n"
+        "# deliberately window-relative rather than whole-file times.\n"
+        "# 'charlie'/'delta' are never emitted by either window — a real\n"
+        "# stitch loss, not a reconciliation artifact.\n"
+        "WINDOWS = {\n"
+        "    0: [{'word': 'alpha', 'start': 0.3, 'end': 0.6},\n"
+        "        {'word': 'bravo', 'start': 1.3, 'end': 1.6}],\n"
+        "    1: [{'word': 'echo', 'start': 0.3, 'end': 0.6},\n"
+        "        {'word': 'foxtrot', 'start': 1.3, 'end': 1.6}],\n"
+        "}\n"
+        "if len(args.media) > 1:\n"
+        "    for m in args.media:\n"
+        "        stem = Path(m).stem\n"
+        "        idx = int(stem.lstrip('w'))\n"
+        "        words = WINDOWS.get(idx, [])\n"
+        "        (out / f'{stem}.json').write_text(json.dumps({'language': 'en', 'words': words}))\n"
+        "else:\n"
+        "    # A single-file call, always the boundary recheck in this test\n"
+        "    # (no holds) — recovers the run the two windows lost.\n"
+        "    words = [{'word': 'charlie', 'start': 0.1, 'end': 0.4},\n"
+        "             {'word': 'delta', 'start': 0.5, 'end': 0.8}]\n"
+        "    stem = Path(args.media[0]).stem\n"
+        "    (out / f'{stem}.json').write_text(json.dumps({'language': 'en', 'words': words}))\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_finish_check_reachable_over_stdio_and_recovers_a_boundary_miss(
+    tmp_path: Path,
+) -> None:
+    """`finish_check` is registered and reachable, and step 6's direction is
+    right end to end: a run neither window's own fake transcript ever
+    emits — a real stitch loss, not a reconciliation artifact — is recut and
+    re-transcribed on its own by the same branching stub and comes back as
+    `boundary_misses`, not `missing`. `finishlog` gains an entry keyed to
+    `final`'s own sha256.
+    """
+    project = tmp_path / "proj"
+    vo = tmp_path / "vo.wav"
+    _make_wav(vo, tones=[(0.0, 6.0)], duration=6.0)
+
+    transcript = tmp_path / "vo.json"
+    transcript.write_text(
+        json.dumps(
+            {
+                "language": "en",
+                "words": [
+                    {"word": "alpha", "start": 0.0, "end": 0.4},
+                    {"word": "bravo", "start": 1.0, "end": 1.4},
+                    {"word": "charlie", "start": 2.0, "end": 2.4},
+                    {"word": "delta", "start": 3.0, "end": 3.4},
+                    {"word": "echo", "start": 4.0, "end": 4.4},
+                    {"word": "foxtrot", "start": 5.0, "end": 5.4},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    server = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "lucid.cli", "mcp"],
+        env={"LUCID_WHISPER": str(_fake_whisper_finish_check(tmp_path))},
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(vo))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=clip["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=clip["clip_id"], remove_silences=False
+        )
+        return await client.call(
+            "finish_check",
+            path=str(project),
+            final=str(vo),
+            prepend_seconds=0.0,
+            window=4.0,
+            overlap=2.0,
+            recheck_pad=1.0,
+        )
+
+    result = anyio.run(lambda: _with_server(body, server))
+
+    assert {
+        "faults", "ok", "streams", "duration", "black", "holds", "missing",
+        "boundary_misses", "repeats",
+    } <= set(result)  # fmt: skip
+    assert result["mode"] == "windowed"
+    assert result["holds"] == []
+    assert result["hold_errors"] == []
+    assert result["missing"] == []
+    assert len(result["boundary_misses"]) == 1
+    assert result["boundary_misses"][0]["text"] == "charlie delta"
+    assert result["repeats"] == []
+    assert result["streams"]["clean"] is True
+    assert result["duration"]["agrees"] is True
+    assert result["black"]["has_video"] is False
+    assert result["faults"] == 0
+    assert result["ok"] is True
+
+    logged = finishlog.last(Project.open(project))
+    assert logged is not None
+    assert logged["ok"] is True
+    assert logged["faults"] == 0
+    assert logged["sha256"] == result["sha256"]
 
 
 @needs_ffprobe

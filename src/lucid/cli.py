@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from lucid import (
     __version__,
@@ -26,6 +27,7 @@ from lucid.asr import ASRError
 from lucid.autoeditor import AutoEditorError
 from lucid.describe import DescribeError
 from lucid.energy import EnergyError
+from lucid.finish import FinishError
 from lucid.graphics import GraphicsError
 from lucid.media import MediaError
 from lucid.mlt import MLTError
@@ -108,6 +110,34 @@ def _resolution(value: str) -> tuple[int, int]:
             f"{value!r} is not a resolution — use WIDTHxHEIGHT, e.g. 1920x1080"
         ) from None
     return (width, height)
+
+
+def _parse_hold(value: str) -> dict[str, Any]:
+    """Parse `finish-check --hold`'s `NAME,START,LENGTH[,ducked]` spec.
+
+    Comma-delimited, not colon — colon is already `_parse_timecode`'s own
+    `[[H:]M:]S` separator, and a hold spec needs to stay unambiguous if a
+    `START`/`LENGTH` is ever given as a timecode. `--rect X,Y,W,H`'s own
+    convention, one field over. `START`/`LENGTH` are `final`'s own absolute
+    seconds, plain floats — a hold spec is comma-delimited precisely so it
+    never collides with a timecode's own colons.
+    """
+    parts = value.split(",")
+    if len(parts) not in (3, 4):
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a hold — use NAME,START,LENGTH[,ducked], "
+            "e.g. miggs,42.0,1.9"
+        )
+    name, start_str, length_str, *rest = parts
+    try:
+        start, length = float(start_str), float(length_str)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{value!r}'s START and LENGTH must be numbers, in final's own "
+            "absolute seconds"
+        ) from None
+    ducked = bool(rest) and rest[0].strip().lower() in ("ducked", "true", "1", "yes")
+    return {"name": name, "start": start, "length": length, "ducked": ducked}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1531,6 +1561,72 @@ def _build_parser() -> argparse.ArgumentParser:
         "--plan", action="store_true", help="resolve and check without writing the manifest"
     )
 
+    p_finish_check = sub.add_parser(
+        "finish-check",
+        help="check a delivered file (a mix pass outside lucid) against this project's timeline",
+    )
+    p_finish_check.add_argument("final", help="the delivered file to check")
+    p_finish_check.add_argument(
+        "--hold",
+        dest="holds",
+        action="append",
+        type=_parse_hold,
+        metavar="NAME,START,LENGTH[,ducked]",
+        help="a hold's own span in final's absolute seconds — repeatable. "
+        "Default: this project's stored holds, resolved live",
+    )
+    p_finish_check.add_argument(
+        "--prepend-seconds",
+        type=float,
+        help="length of a cold open/bumper glued on before the timeline's own "
+        "first frame (default: this project's stored head length)",
+    )
+    p_finish_check.add_argument(
+        "--fps", type=float, help="the rate the export used (default: the picture's, else 30)"
+    )
+    p_finish_check.add_argument(
+        "--duration-tolerance",
+        type=float,
+        default=0.5,
+        help="how far final's total duration may drift from expected before it "
+        "is a fault (0.5s)",
+    )
+    p_finish_check.add_argument(
+        "--pix-th", type=float, default=0.10, help="ffmpeg blackdetect pix_th (0.10)"
+    )
+    p_finish_check.add_argument(
+        "--black-min-duration",
+        type=float,
+        default=0.0,
+        help="shortest black run blackdetect reports (0.0s)",
+    )
+    p_finish_check.add_argument(
+        "--windowed-model",
+        help=f"whisper model for every ASR call this makes (default: {asr.WINDOWED_MODEL})",
+    )
+    p_finish_check.add_argument(
+        "--window", type=float, default=asr.WINDOW, help=f"window length ({asr.WINDOW}s)"
+    )
+    p_finish_check.add_argument(
+        "--overlap", type=float, default=asr.OVERLAP, help=f"window overlap ({asr.OVERLAP}s)"
+    )
+    p_finish_check.add_argument(
+        "--recheck-pad",
+        type=float,
+        default=asr.WINDOW,
+        help=f"seconds either side of a dropped run's own neighbours to re-cut "
+        f"before re-transcribing it ({asr.WINDOW}s)",
+    )
+    p_finish_check.add_argument("--language", help="force a language instead of detecting one")
+    p_finish_check.add_argument(
+        "--clip-id", "--clip", dest="clip_id", help="check against only this clip's words"
+    )
+    p_finish_check.add_argument(
+        "--transcript",
+        dest="transcript_path",
+        help="use this transcript of final instead of running whisper's windowed pass",
+    )
+
     p_import_edit = sub.add_parser(
         "import-edit",
         help="lay a cut made in Kdenlive down as this project's timeline",
@@ -2478,6 +2574,28 @@ def _cmd_film_check(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_finish_check(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.finish_check(
+            args.project,
+            args.final,
+            holds=args.holds,
+            prepend_seconds=args.prepend_seconds,
+            fps=args.fps,
+            duration_tolerance=args.duration_tolerance,
+            pix_th=args.pix_th,
+            black_min_duration=args.black_min_duration,
+            windowed_model=args.windowed_model,
+            window=args.window,
+            overlap=args.overlap,
+            recheck_pad=args.recheck_pad,
+            language=args.language,
+            clip_id=args.clip_id,
+            transcript_path=args.transcript_path,
+        )
+    )
+
+
 def _cmd_import_edit(args: argparse.Namespace) -> int:
     return _emit(
         ops.import_edit(args.project, args.document, clip_id=args.clip_id, plan=args.plan)
@@ -2640,6 +2758,7 @@ _COMMANDS = {
     "verify": _cmd_verify,
     "frames": _cmd_frames,
     "film-check": _cmd_film_check,
+    "finish-check": _cmd_finish_check,
     "import-edit": _cmd_import_edit,
     "black": _cmd_black,
     "spots": _cmd_spots,
@@ -2678,6 +2797,9 @@ _EXPECTED = (
     # A pack file that does not resolve — an unknown top-level key, a font
     # role with no fallback stack, and the rest of `pack.py`'s own refusals.
     PackError,
+    # `finish.loudness`/`hold_seams` cannot decode or measure `final` — a
+    # message naming the file, not a traceback.
+    FinishError,
 )
 
 

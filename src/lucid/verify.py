@@ -206,7 +206,20 @@ def compare(expected: list[str], heard: list[str]) -> dict[str, Any]:
             missing = expected[i1:i2]
             # The opposite failure: a cut that reached past its word range.
             if len(missing) >= MIN_RUN:
-                dropped.append({"text": " ".join(missing), "at_expected_word": i1})
+                dropped.append(
+                    {
+                        "text": " ".join(missing),
+                        "at_expected_word": i1,
+                        # SequenceMatcher's own `j1` for this opcode — where
+                        # in `heard` the drop sits, symmetric with
+                        # `repeated`'s existing `at_heard_word`. This is the
+                        # boundary index `finish_check`'s step 6 recheck
+                        # needs: the words immediately either side of it in
+                        # `heard` are what a windowed pass actually
+                        # transcribed right where the miss happened.
+                        "at_heard_word": j1,
+                    }
+                )
 
     return {
         "similarity": round(matcher.ratio(), 3),

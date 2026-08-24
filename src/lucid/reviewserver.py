@@ -25,6 +25,15 @@ recording a verdict string against an already-registered item, never an edit.
 Reuses `webui._stream_file`/`webui._ranges` for the one hand-rolled piece of
 HTTP in the package (Range), rather than a second, divergent copy of the
 byte math — see `webui.py`'s own module docstring.
+
+**Each item's badge also joins `finishlog` by sha256** — every registered
+item already carries its own hash (`ops.review_add`), so a `finish_check`
+result follows the delivered *bytes* rather than a name or path that could
+be re-registered under something new. `" — no finish_check yet"` or
+`" — ⚠ finish_check: N fault(s)"` beside the byte-identical/MISMATCH control
+badge — a **report**, never a refusal: nothing here blocks a page from
+serving, the same stance `finish_report`'s `burned: "unknown"` and a
+`control_ok: False` item (displayed, never refused at *serve* time) take.
 """
 
 from __future__ import annotations
@@ -38,7 +47,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from lucid import ops
+from lucid import finishlog, ops
 from lucid import webui as _webui
 from lucid.project import Project, ProjectError
 
@@ -173,14 +182,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_page(self, *, head_only: bool) -> None:
         listing = ops.review_list(str(self.project_root))
-        html = _render_page(listing, self.token)
+        html = _render_page(listing, self.token, Project.open(self.project_root))
         if head_only:
             self._send(HTTPStatus.OK, b"", "text/html; charset=utf-8")
             return
         self._send_html(HTTPStatus.OK, html)
 
 
-def _render_page(listing: dict[str, Any], token: str) -> str:
+def _render_page(listing: dict[str, Any], token: str, project: Project) -> str:
     items = sorted(listing["items"], key=lambda it: it["added_at"])
     verdicts = listing["verdicts"]
     sections = []
@@ -201,6 +210,19 @@ def _render_page(listing: dict[str, Any], token: str) -> str:
         badge = ""
         if item["kind"] == "control":
             badge = " — byte-identical" if item.get("control_ok") else " — MISMATCH"
+
+        # `finish_check`'s own WARN, joined on sha256 rather than name or
+        # path — a review item can be re-registered under a new name, or the
+        # same delivered bytes registered twice, and the finish_check
+        # result should follow the *bytes*. **Report, never refuse**: this
+        # is a badge beside an item that already serves, the same stance
+        # `finish_report`'s `burned: "unknown"` and a `control_ok: False`
+        # item (displayed, never refused at *serve* time) both take.
+        fc = finishlog.for_sha256(project, item["sha256"])
+        if fc is None:
+            badge += " — no finish_check yet"
+        elif not fc["ok"]:
+            badge += f" — ⚠ finish_check: {fc['faults']} fault(s)"
 
         existing = verdicts.get(name)
         current = ""

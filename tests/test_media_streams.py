@@ -502,6 +502,95 @@ def test_a_reel_carries_the_stripped_copy(tmp_path: Path) -> None:
     assert media.media_path(reel, manifest["clips"][0]).is_file()
 
 
+# -- stream_inventory (ops.finish_check's step 1) --------------------------
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_stream_inventory_is_clean_on_ordinary_media(tmp_path: Path) -> None:
+    container = _two_mic_container(tmp_path / "cohost.mkv")
+
+    result = media.stream_inventory(container)
+
+    assert result["clean"] is True
+    assert result["chapters"] == 0
+    assert result["faults"] == []
+    assert len(result["streams"]) == 3  # 1 video, 2 audio
+    assert all(s["fault"] is None for s in result["streams"])
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_stream_inventory_flags_a_chapter_list(tmp_path: Path) -> None:
+    container = _chaptered_container(tmp_path / "chaptered.mp4", chapters=2)
+
+    result = media.stream_inventory(container)
+
+    assert result["clean"] is False
+    assert result["chapters"] == 2
+    assert any("chapter" in f for f in result["faults"])
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_stream_inventory_flags_a_non_picture_non_sound_stream(tmp_path: Path) -> None:
+    dest = tmp_path / "with-subs.mp4"
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=1.0",
+        "-f", "lavfi", "-i", "sine=frequency=300:duration=1.0:sample_rate=48000",
+        "-f", "srt", "-i", "-",
+        "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-map", "1:a", "-c:a", "aac",
+        "-map", "2", "-c:s", "mov_text",
+        str(dest),
+    ]  # fmt: skip
+    subtitle = "1\n00:00:00,000 --> 00:00:01,000\nhi\n\n"
+    subprocess.run(command, input=subtitle, capture_output=True, text=True, check=True)
+
+    result = media.stream_inventory(dest)
+
+    assert result["clean"] is False
+    subtitle_faults = [s for s in result["streams"] if s["codec_type"] == "subtitle"]
+    assert subtitle_faults and subtitle_faults[0]["fault"] == "not picture or sound"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_stream_inventory_flags_a_stream_that_outruns_the_picture(tmp_path: Path) -> None:
+    """A stream whose own declared duration outruns the picture's by more
+    than `media.STREAM_DURATION_SLACK` — the shape a movie rip's inherited
+    chapter-track *data* stream takes even when no top-level `chapters`
+    array survives (ffprobe only surfaces the array when the QuickTime
+    chapter-track reference resolves); a real audio/video pair from one
+    encode never disagrees by anything near this much.
+    """
+    dest = tmp_path / "mismatched.mp4"
+    command = [
+        "ffmpeg", "-nostdin", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=1.0",
+        "-f", "lavfi", "-i", "sine=frequency=300:duration=5.0:sample_rate=48000",
+        "-map", "0:v", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-map", "1:a", "-c:a", "aac",
+        str(dest),
+    ]  # fmt: skip
+    subprocess.run(command, capture_output=True, check=True)
+
+    result = media.stream_inventory(dest)
+
+    assert result["clean"] is False
+    audio = next(s for s in result["streams"] if s["codec_type"] == "audio")
+    assert audio["fault"] == "outruns the picture"
+    assert any("outruns the picture" in f for f in result["faults"])
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_stream_inventory_refuses_a_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(media.MediaError, match="no such media"):
+        media.stream_inventory(tmp_path / "nope.mp4")
+
+
 @needs_ffprobe
 @needs_ffmpeg
 def test_a_stripped_only_project_resolves_in_a_planned_reel(tmp_path: Path) -> None:

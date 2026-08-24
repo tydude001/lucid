@@ -1877,6 +1877,68 @@ def hold_check(path: str, render: str) -> dict[str, Any]:
     return ops.hold_check(path, render)
 
 
+@_tool()
+def finish_check(
+    path: str,
+    final: str,
+    holds: list[dict[str, Any]] | None = None,
+    prepend_seconds: float | None = None,
+    fps: float | None = None,
+    duration_tolerance: float = 0.5,
+    pix_th: float = 0.10,
+    black_min_duration: float = 0.0,
+    windowed_model: str | None = None,
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
+    recheck_pad: float = asr.WINDOW,
+    language: str | None = None,
+    clip_id: str | None = None,
+    transcript_path: str | None = None,
+) -> dict[str, Any]:
+    """Check a **delivered** file against this project's timeline —
+    `verify`/`check_frames`/`check_black`/`film_check` for a file an
+    external mix pass produced, not one of lucid's own renders.
+
+    `final` carries a cold open and/or holds concatenated on outside lucid,
+    so every position this reports is in `final`'s own absolute seconds.
+    `prepend_seconds` defaults to this project's stored head length; `holds`
+    defaults to its stored holds, resolved live and offset the same way —
+    pass either explicitly (an empty `holds` list included) to check a file
+    against a different set than what is currently stored.
+
+    Eight checks, none individually fatal to the others: stream/chapter/
+    duration agreement against the timeline's own arithmetic; loudness
+    (report only); blackdetect, with a run explained only when it falls
+    inside the prepend or a hold's own span; each hold's own span
+    transcribed and its seam levels measured; a windowed transcription of
+    `final` diffed against the timeline's expected words, with every heard
+    word inside the prepend or a hold filtered out first; every dropped run
+    re-cut and re-transcribed on its own to catch a windowed-pass false miss
+    at a window stitch (`boundary_misses`, recovered — a run that still
+    cannot be found stays in `missing`, a real fault); and a self-repeat
+    scan over the same filtered transcript. `faults`/`ok` aggregate all of
+    it, and every run is logged (`finishlog`) so `lucid review serve` can
+    show a WARN badge keyed to the file's own sha256.
+    """
+    return ops.finish_check(
+        path,
+        final,
+        holds=holds,
+        prepend_seconds=prepend_seconds,
+        fps=fps,
+        duration_tolerance=duration_tolerance,
+        pix_th=pix_th,
+        black_min_duration=black_min_duration,
+        windowed_model=windowed_model,
+        window=window,
+        overlap=overlap,
+        recheck_pad=recheck_pad,
+        language=language,
+        clip_id=clip_id,
+        transcript_path=transcript_path,
+    )
+
+
 @_tool("path", "dest")
 def reel(
     path: str,

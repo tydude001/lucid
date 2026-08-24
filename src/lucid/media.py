@@ -260,6 +260,84 @@ def count_frames(path: Path | str) -> dict[str, Any]:
     }
 
 
+#: How far a non-picture stream's own declared duration may outrun the
+#: picture's before `stream_inventory` calls it a fault —
+#: `verify_longlegs.py`'s own number, ported: a real audio/subtitle stream
+#: agrees with the picture to well inside this; a stream still declaring a
+#: parent film's runtime does not.
+STREAM_DURATION_SLACK = 0.5
+
+
+def stream_inventory(path: Path | str) -> dict[str, Any]:
+    """Every stream in `path`, flagged the way `verify_longlegs.py`'s own
+    `streams()` check was: a chapter list, a stream that is neither picture
+    nor sound, and a non-picture stream whose own duration outruns the
+    picture's by more than `STREAM_DURATION_SLACK` — each is a fault a
+    *delivered* file should never carry.
+
+    `ops.finish_check`'s step 1, ported 1:1 rather than re-derived: this is
+    the finished-file check `probe()`'s own chapter detection exists to make
+    unnecessary at *import* time (`import_media` strips a chapter list before
+    it ever reaches a project), so this function does not consult `probe()`
+    at all — a delivered file was built entirely outside lucid and the two
+    checks answer different questions about it. `clean` says nothing about
+    whether the *total* duration agrees with the timeline; that comparison
+    needs the project's own arithmetic and is `finish_check`'s to make, off
+    `probe(path).duration` directly.
+    """
+    source = Path(path).expanduser()
+    if not source.exists():
+        raise MediaError(f"no such media file: {source}")
+
+    payload = _ffprobe(source, "-show_streams", "-show_chapters")
+    raw_streams = payload.get("streams", [])
+    chapters = payload.get("chapters", [])
+
+    def _duration(stream: dict[str, Any]) -> float | None:
+        value = stream.get("duration")
+        return float(value) if value is not None else None
+
+    picture = next((s for s in raw_streams if s.get("codec_type") == "video"), None)
+    picture_duration = _duration(picture) if picture is not None else None
+
+    streams: list[dict[str, Any]] = []
+    faults: list[str] = []
+    if chapters:
+        faults.append(f"{len(chapters)} chapter(s) present — -map_chapters -1 was missed")
+
+    for stream in raw_streams:
+        kind = stream.get("codec_type")
+        duration = _duration(stream)
+        fault: str | None = None
+        if kind not in ("video", "audio"):
+            fault = "not picture or sound"
+        elif (
+            kind != "video"
+            and picture_duration is not None
+            and duration is not None
+            and duration > picture_duration + STREAM_DURATION_SLACK
+        ):
+            fault = "outruns the picture"
+        entry = {
+            "index": stream.get("index"),
+            "codec_type": kind,
+            "codec_name": stream.get("codec_name"),
+            "duration": duration,
+            "fault": fault,
+        }
+        if fault is not None:
+            faults.append(f"stream {entry['index']} ({kind}): {fault}")
+        streams.append(entry)
+
+    return {
+        "path": str(source),
+        "streams": streams,
+        "chapters": len(chapters),
+        "faults": faults,
+        "clean": not faults,
+    }
+
+
 #: The floor `scene_cuts` decodes at. Not the threshold anything is judged on —
 #: scores come back and the caller thresholds them, because the expensive half
 #: is the decode and re-deciding the number must not cost another pass. Below
