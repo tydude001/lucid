@@ -1728,8 +1728,11 @@ def vo_synth(
     word_index: int | None = None,
     readback: bool = True,
     plan: bool = False,
+    lexicon: str | None = None,
+    flat_floor: float = 4.5,
+    flat_weight: float = 0.002,
 ) -> dict[str, Any]:
-    """Say `text` in a cloned voice — render several seeds, rank by likeness, read the winner back.
+    """Say `text` in a cloned voice — render several seeds, rank by likeness less flatness, read the winner back.
 
     The backend is zero-shot Qwen3-TTS with a ≈19 s reference clip (`tts.py`
     — measured in local-llm's voice-clone note to beat every fine-tune on the
@@ -1738,11 +1741,20 @@ def vo_synth(
 
     Seeds `seed .. seed+candidates-1` render in one process; each comes back
     with `sim` (cosine of its speaker embedding against the reference — a real
-    take of the same speaker ≈0.99, a 3-semitone shift ≈0.96) and the highest
-    is `chosen`. A render that hit `max_seconds` is `capped` and never wins
-    while an uncapped one exists. The winner is read back through whisper and
-    `heard`/`wer` reported — a clone that sounds right and says the wrong
-    words is the failure nothing else sees; `readback=False` skips it.
+    take of the same speaker ≈0.99, a 3-semitone shift ≈0.96) and `spread`
+    (voiced pitch movement, semitones). `chosen` is the highest `sim` less
+    `flat_weight` per semitone of `spread` under `flat_floor` — likeness alone
+    keeps the flattest read, because sims in one pool differ by thousandths
+    while spread differs by semitones (`ops.SYNTH_FLAT_FLOOR`'s comment is the
+    measurement; `flat_weight=0` restores likeness-only). A render that hit
+    `max_seconds` is `capped` and never wins while an uncapped one exists.
+    The winner is read back through whisper and `heard`/`wer` reported — a
+    clone that sounds right and says the wrong words is the failure nothing
+    else sees; `readback=False` skips it. `lexicon` (default: the project's
+    own `lexicon.json`, if present) is `{"say": {written: respelling},
+    "hear": {variant: canonical}}` — `say` respells what the model is given
+    (the fix for a mispronounced name), `hear` folds whisper's spelling back
+    to the script's before the WER is scored.
 
     Renders are cached under `cache/synth/` per (voice, text, cap), so a repeat
     call is free and a new `seed` range renders only what it lacks. With
@@ -1765,6 +1777,9 @@ def vo_synth(
         word_index=word_index,
         readback=readback,
         plan=plan,
+        lexicon=lexicon,
+        flat_floor=flat_floor,
+        flat_weight=flat_weight,
     )
 
 

@@ -8948,6 +8948,65 @@ SYNTH_MAX_SECONDS = 20.0
 SYNTH_READBACK_MODEL = "small.en"
 
 
+#: The flatness penalty's two numbers, both measured (goodsometimes,
+#: 2026-08-24, on the Lambs/Longlegs synth VO — the essay whose flat winners
+#: prompted this). Likeness alone systematically keeps the flattest read: sims
+#: inside one seed pool differ by thousandths while pitch spread differs by
+#: *semitones*, so the flattest take wins on noise. The floor is where the
+#: penalty starts — 4.5 st, just under the 4.6–6.8 st band the one measured
+#: voice's own reference clips sit in — and the weight prices a semitone of
+#: missing movement at 0.002 sim, the measured likeness gap between a clone
+#: and a real take of the same speaker (0.9895 vs 0.993). A take *in* the band
+#: pays nothing; a 2.5 st monotone pays 0.004, which outbids a thousandths sim
+#: edge without ever outbidding a real likeness difference. Both are per-voice
+#: numbers wearing defaults from the only voice measured so far; `flat_floor`/
+#: `flat_weight` on the op are the override, and 0 disables the penalty.
+SYNTH_FLAT_FLOOR = 4.5
+SYNTH_FLAT_WEIGHT = 0.002
+
+
+def _load_lexicon(path: Path | str | None, project_root: Path) -> tuple[dict[str, Any], str | None]:
+    """The synth lexicon — `{"say": {written: respelling}, "hear": {variant: canonical}}`.
+
+    An explicit path wins and must exist; otherwise `<project>/lexicon.json`
+    is picked up when present, because pronunciation fixes are content, not
+    tooling, and the project is where the content lives. `say` respells what
+    the model is *given* ("Clarice" → "Clariss" is how a mispronunciation is
+    fixed — instruct prompts made renders worse, local-llm round 3); `hear`
+    folds whisper's spelling of a word back to the script's before the WER is
+    scored ("long legs" → "longlegs"), so a transcription-spelling miss stops
+    costing error budget that should be catching real misreads.
+    """
+    if path is not None:
+        p = Path(path).expanduser()
+        if not p.is_file():
+            raise tl.TimelineError(f"no lexicon at {p}")
+    else:
+        p = project_root / "lexicon.json"
+        if not p.is_file():
+            return {}, None
+    data = json.loads(p.read_text(encoding="utf-8"))
+    for key in data:
+        if key not in ("say", "hear"):
+            raise tl.TimelineError(f'lexicon {p} has an unknown key {key!r} — it takes "say" and "hear"')
+    return data, str(p)
+
+
+def _apply_say(text: str, lexicon: dict[str, Any]) -> str:
+    """Respell each `say` word, whole words only, case-insensitively."""
+    for written, respelt in (lexicon.get("say") or {}).items():
+        text = re.sub(rf"\b{re.escape(written)}\b", respelt, text, flags=re.IGNORECASE)
+    return text
+
+
+def _fold(text: str, lexicon: dict[str, Any]) -> str:
+    """Lower-case and map every `hear` variant to its canonical form, both WER sides."""
+    text = text.lower()
+    for variant, canonical in (lexicon.get("hear") or {}).items():
+        text = text.replace(variant.lower(), canonical.lower())
+    return text
+
+
 def _norm_words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower().replace("-", " "))
 
@@ -8975,8 +9034,11 @@ def vo_synth(
     word_index: int | None = None,
     readback: bool = True,
     plan: bool = False,
+    lexicon: str | None = None,
+    flat_floor: float = SYNTH_FLAT_FLOOR,
+    flat_weight: float = SYNTH_FLAT_WEIGHT,
 ) -> dict[str, Any]:
-    """Say `text` in a cloned voice: render `candidates` seeds, rank them by likeness, verify the winner by ear.
+    """Say `text` in a cloned voice: render `candidates` seeds, rank them by likeness less flatness, verify the winner by ear.
 
     The backend and the measurement behind its shape are `tts.py`'s docstring
     and local-llm's `notes/voice-clone-zero-shot.md`: zero-shot Qwen3-TTS with
@@ -8987,17 +9049,30 @@ def vo_synth(
     **What is chosen and how.** Seeds `seed .. seed+candidates-1` render in one
     worker process; each comes back with `sim` — cosine of its speaker embedding
     against the reference's (real takes of the same speaker score ≈0.99, a
-    three-semitone pitch shift ≈0.96) — and the highest wins, a lower seed
-    breaking ties. A candidate that hit the length cap is `capped` and never
-    wins while an uncapped one exists: it did not end because the line did.
-    The winner is then **read back** through whisper (`SYNTH_READBACK_MODEL`)
-    and `heard`/`wer` are reported beside it, because a clone that sounds like
-    the speaker and says the wrong words is the failure nothing else here sees;
-    `readback=False` skips it for a caller that will listen.
+    three-semitone pitch shift ≈0.96) — and `spread`, its voiced pitch movement
+    in semitones. The winner is the highest `sim` less a flatness penalty of
+    `flat_weight` per semitone below `flat_floor` (`SYNTH_FLAT_FLOOR`'s comment
+    is the measurement; `flat_weight=0` restores likeness-only, and a candidate
+    with no `spread` — an old cache, too little voiced audio — pays nothing),
+    a lower seed breaking ties. Likeness alone systematically keeps the
+    flattest read, because sims inside one pool differ by thousandths while
+    spread differs by semitones. A candidate that hit the length cap is
+    `capped` and never wins while an uncapped one exists: it did not end
+    because the line did. The winner is then **read back** through whisper
+    (`SYNTH_READBACK_MODEL`) and `heard`/`wer` are reported beside it, because
+    a clone that sounds like the speaker and says the wrong words is the
+    failure nothing else here sees; `readback=False` skips it for a caller
+    that will listen.
 
     **Nothing is decided from the transcript of a render** — the ranking is on
-    likeness and the readback is a report. A caller wanting a different take
-    re-runs with another `seed`, which is a different set of tickets.
+    the numbers above and the readback is a report. A caller wanting a
+    different take re-runs with another `seed`, a different set of tickets.
+
+    **The lexicon.** `lexicon` (else `<project>/lexicon.json`, if present) is
+    `{"say": {...}, "hear": {...}}` — `_load_lexicon`'s docstring says which
+    side fixes which fault. The model is given the `say`-respelt text (reported
+    as `say_text` when it differs) and the WER is scored through the `hear`
+    folds on both sides; the words spliced into the timeline are still `text`'s.
 
     **Cache.** Renders land under `cache/synth/<key>/`, keyed on the voice, the
     text and the cap, one WAV per seed, so a repeat call (or a `plan` after a
@@ -9031,11 +9106,15 @@ def vo_synth(
     project = Project.open(path)
     if clip_id is not None and word_index is not None:
         _splice_point(project, clip_id, word_index)  # refuse before the render, not after it
+    lex, lex_path = _load_lexicon(lexicon, project.root)
+    say_text = _apply_say(text, lex)
     voice_path = tts.voice_dir(voice)
     ref_text = (voice_path / "ref.txt").read_text(encoding="utf-8").strip()
+    # Keyed on what the model is given: a respelt line is different audio, and
+    # a line no `say` rule touches keeps the key it had before lexicons existed.
     key = hashlib.sha256(
         json.dumps(
-            {"voice": str(voice_path), "ref_text": ref_text, "text": text, "max_seconds": max_seconds},
+            {"voice": str(voice_path), "ref_text": ref_text, "text": say_text, "max_seconds": max_seconds},
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()[:16]
@@ -9063,7 +9142,7 @@ def vo_synth(
         detector = tts.available(voice_path)
         if not detector["available"]:
             raise tts.TTSError(str(detector["why"]))
-        for entry in tts.synth(text, voice_path, out_dir, missing, max_seconds=max_seconds):
+        for entry in tts.synth(say_text, voice_path, out_dir, missing, max_seconds=max_seconds):
             known[int(entry["seed"])] = entry
         out_dir.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(
@@ -9078,7 +9157,13 @@ def vo_synth(
         )
     uncapped = [c for c in ok if not c.get("capped")]
     pool = uncapped or ok
-    winner = min(pool, key=lambda c: (-float(c["sim"]), int(c["seed"])))
+
+    def _score(c: dict[str, Any]) -> float:
+        spread = c.get("spread")
+        penalty = float(flat_weight) * max(0.0, float(flat_floor) - float(spread)) if spread is not None else 0.0
+        return float(c["sim"]) - penalty
+
+    winner = min(pool, key=lambda c: (-_score(c), int(c["seed"])))
 
     result: dict[str, Any] = {
         "text": text,
@@ -9093,11 +9178,15 @@ def vo_synth(
         "plan": bool(plan),
         "written": False,
     }
+    if lex_path is not None:
+        result["lexicon"] = lex_path
+    if say_text != text:
+        result["say_text"] = say_text
     if readback and not plan:
         payload = asr.transcribe(winner["path"], model=SYNTH_READBACK_MODEL)
         heard = " ".join(seg["text"] for seg in payload.get("segments", [])).strip()
         result["heard"] = heard
-        result["wer"] = round(_wer(_norm_words(text), _norm_words(heard)), 3)
+        result["wer"] = round(_wer(_norm_words(_fold(text, lex)), _norm_words(_fold(heard, lex))), 3)
     if clip_id is not None and word_index is not None:
         splice = _splice_after(
             project,

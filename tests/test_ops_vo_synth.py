@@ -101,7 +101,10 @@ def _stub(monkeypatch: pytest.MonkeyPatch, answers: dict[int, dict[str, Any]]) -
                 continue
             path = out_dir / f"s{seed}.wav"
             _tone(path, spec["duration"])
-            out.append({"seed": seed, "path": str(path), "duration": spec["duration"], "sim": spec["sim"], "capped": spec.get("capped", False)})
+            entry = {"seed": seed, "path": str(path), "duration": spec["duration"], "sim": spec["sim"], "capped": spec.get("capped", False)}
+            if "spread" in spec:
+                entry["spread"] = spec["spread"]
+            out.append(entry)
         return out
 
     monkeypatch.setattr(tts, "available", lambda voice=None: {"available": True, "python": "/stub", "model": "/stub", "voice": "/stub", "why": None})
@@ -133,6 +136,39 @@ def test_a_tie_goes_to_the_lower_seed(project: Project, voice: Path, monkeypatch
     assert ops.vo_synth(project.root, "x", voice=str(voice))["chosen"]["seed"] == 0
 
 
+def test_a_flat_read_loses_to_a_livelier_one_a_thousandth_behind_on_likeness(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The goodsometimes measurement this ranking exists for: sims inside one
+    seed pool differ by thousandths while pitch spread differs by semitones,
+    so likeness-only kept a 2.5 st monotone over a 5 st read 0.0004 behind it.
+    Under the floor the monotone pays 0.002/st and the livelier take wins."""
+    _stub(monkeypatch, {
+        0: {"sim": 0.9906, "duration": 1.0, "spread": 2.5},
+        1: {"sim": 0.9902, "duration": 1.0, "spread": 5.0},
+        2: {"sim": 0.9800, "duration": 1.0, "spread": 6.0},
+    })
+    result = ops.vo_synth(project.root, "x", voice=str(voice))
+    assert result["chosen"]["seed"] == 1
+    assert result["candidates"][0]["spread"] == 2.5
+
+
+def test_flat_weight_zero_restores_likeness_only_ranking(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub(monkeypatch, {0: {"sim": 0.9906, "duration": 1.0, "spread": 2.5}, 1: {"sim": 0.9902, "duration": 1.0, "spread": 5.0}, 2: {"sim": 0.98, "duration": 1.0, "spread": 6.0}})
+    assert ops.vo_synth(project.root, "x", voice=str(voice), flat_weight=0.0)["chosen"]["seed"] == 0
+
+
+def test_a_candidate_without_spread_pays_no_penalty(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An old cache predates the measurement, and pyin returns nothing on a
+    line with under 20 voiced frames — neither is evidence of flatness, so
+    neither is penalised and the ranking degrades to what it was."""
+    _stub(monkeypatch, {0: {"sim": 0.991, "duration": 1.0}, 1: {"sim": 0.990, "duration": 1.0, "spread": 6.0}, 2: {"sim": 0.98, "duration": 1.0}})
+    assert ops.vo_synth(project.root, "x", voice=str(voice))["chosen"]["seed"] == 0
+
+
+def test_a_spread_inside_the_band_pays_nothing(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub(monkeypatch, {0: {"sim": 0.9906, "duration": 1.0, "spread": 4.6}, 1: {"sim": 0.9902, "duration": 1.0, "spread": 7.0}, 2: {"sim": 0.98, "duration": 1.0, "spread": 5.0}})
+    assert ops.vo_synth(project.root, "x", voice=str(voice))["chosen"]["seed"] == 0
+
+
 def test_a_capped_render_never_wins_while_an_uncapped_one_exists(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A render at the cap did not end because the line ended. Round 2's 655 s
     renders scored fine on likeness for their first seconds; the cap is what
@@ -154,6 +190,66 @@ def test_every_seed_failing_is_a_refusal_naming_each(project: Project, voice: Pa
     _stub(monkeypatch, {0: {"error": "RuntimeError: a"}, 1: {"error": "RuntimeError: b"}})
     with pytest.raises(tts.TTSError, match="seed 0: RuntimeError: a; seed 1"):
         ops.vo_synth(project.root, "x", voice=str(voice), candidates=2)
+
+
+# -- the lexicon -------------------------------------------------------------
+
+
+def test_say_respells_what_the_model_is_given_and_the_splice_keeps_the_script(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The fix for a mispronounced name is respelling it in the prompt text
+    (local-llm round 3 — instruct prompts made renders worse). The respelt
+    text is what the model gets and what the cache is keyed on; the script's
+    own words are what the result reports as `text`."""
+    sent: list[str] = []
+    _stub(monkeypatch, {s: {"sim": 0.98, "duration": 1.0} for s in range(3)})
+    stubbed = tts.synth
+
+    def spy(text: str, *args: Any, **kwargs: Any):
+        sent.append(text)
+        return stubbed(text, *args, **kwargs)
+
+    monkeypatch.setattr(tts, "synth", spy)
+    lex = tmp_path / "lex.json"
+    lex.write_text(json.dumps({"say": {"Clarice": "Clariss"}}), encoding="utf-8")
+
+    result = ops.vo_synth(project.root, "Clarice gets there", voice=str(voice), lexicon=str(lex))
+
+    assert sent == ["Clariss gets there"]
+    assert result["text"] == "Clarice gets there"
+    assert result["say_text"] == "Clariss gets there"
+    assert result["lexicon"] == str(lex)
+
+
+def test_hear_folds_whispers_spelling_out_of_the_wer(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Whisper writing 'long legs' for 'Longlegs' is a spelling, not a misread;
+    folded, the WER stops spending its budget on it and stays a misread check."""
+    _stub(monkeypatch, {s: {"sim": 0.98, "duration": 1.0} for s in range(3)})
+    monkeypatch.setattr(ops.asr, "transcribe", lambda path, model=None, language=None: {"segments": [{"text": "Long Legs is watching"}]})
+    lex = tmp_path / "lex.json"
+    lex.write_text(json.dumps({"hear": {"long legs": "longlegs"}}), encoding="utf-8")
+
+    result = ops.vo_synth(project.root, "Longlegs is watching", voice=str(voice), lexicon=str(lex))
+    assert result["wer"] == 0.0
+
+
+def test_the_projects_own_lexicon_is_picked_up_unasked(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub(monkeypatch, {s: {"sim": 0.98, "duration": 1.0} for s in range(3)})
+    (project.root / "lexicon.json").write_text(json.dumps({"say": {"grey": "gray"}}), encoding="utf-8")
+    result = ops.vo_synth(project.root, "a grey morning", voice=str(voice))
+    assert result["say_text"] == "a gray morning"
+    assert result["lexicon"] == str(project.root / "lexicon.json")
+
+
+def test_a_named_lexicon_that_does_not_exist_is_refused(project: Project, voice: Path, tmp_path: Path) -> None:
+    with pytest.raises(tl.TimelineError, match="no lexicon at"):
+        ops.vo_synth(project.root, "x", voice=str(voice), lexicon=str(tmp_path / "absent.json"))
+
+
+def test_a_lexicon_with_an_unknown_key_is_refused_by_name(project: Project, voice: Path, tmp_path: Path) -> None:
+    lex = tmp_path / "lex.json"
+    lex.write_text(json.dumps({"pronounce": {}}), encoding="utf-8")
+    with pytest.raises(tl.TimelineError, match="unknown key 'pronounce'"):
+        ops.vo_synth(project.root, "x", voice=str(voice), lexicon=str(lex))
 
 
 # -- cache -------------------------------------------------------------------

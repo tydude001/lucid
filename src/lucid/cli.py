@@ -1190,6 +1190,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_vo_synth.add_argument(
         "--plan", action="store_true", help="resolve and report (and rank, if cached) without rendering or writing"
     )
+    p_vo_synth.add_argument(
+        "--lexicon",
+        help='a JSON file of {"say": {written: respelling}, "hear": {variant: canonical}} '
+        "(default: the project's lexicon.json, if present)",
+    )
+    p_vo_synth.add_argument(
+        "--flat-floor",
+        type=float,
+        default=ops.SYNTH_FLAT_FLOOR,
+        help="semitones of pitch movement below which the flatness penalty starts",
+    )
+    p_vo_synth.add_argument(
+        "--flat-weight",
+        type=float,
+        default=ops.SYNTH_FLAT_WEIGHT,
+        help="likeness docked per semitone under the floor (0 restores likeness-only ranking)",
+    )
 
     p_hold = sub.add_parser(
         "hold", help="film-audio holds — a clean span of a clip's own audio spliced into the VO"
@@ -2400,6 +2417,9 @@ def _cmd_vo_synth(args: argparse.Namespace) -> int:
             word_index=word_index,
             readback=not args.no_readback,
             plan=args.plan,
+            lexicon=args.lexicon,
+            flat_floor=args.flat_floor,
+            flat_weight=args.flat_weight,
         )
     )
 

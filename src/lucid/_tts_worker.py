@@ -13,6 +13,14 @@ landing in a JSON document is a parse error that reads like a synth failure.
 The model is loaded **once** for the job and every seed renders through it.
 The likeness number is the model's own speaker encoder — the same one it
 conditions on — so `sim` is cosine(embedding(render), embedding(reference)).
+
+`spread` is the second number, and it exists because the first one cannot see
+flatness: likeness-only ranking systematically keeps the *flattest* read
+(goodsometimes, 2026-08-24 — every one of the six flattest winners in a
+38-chunk essay had a livelier take among its losing seeds, one lost on a dead
+sim tie). It is the std of voiced pitch in semitones around the median (pyin,
+60–400 Hz), the local-llm round-2 proxy for how much the read moves; it cannot
+rank *where* emphasis lands, only whether there is any.
 """
 
 from __future__ import annotations
@@ -35,6 +43,14 @@ def main() -> int:
     model = Qwen3TTSModel.from_pretrained(
         job["model"], device_map="cuda:0", dtype=torch.bfloat16, attn_implementation="sdpa"
     )
+
+    def pitch_spread(audio: np.ndarray, rate: int = 24000) -> float | None:
+        """Std of voiced f0 in semitones around its median — None under 20 voiced frames."""
+        f0 = librosa.pyin(audio, fmin=60, fmax=400, sr=rate)[0]
+        voiced = f0[~np.isnan(f0)]
+        if voiced.size < 20:
+            return None
+        return round(float(np.std(12 * np.log2(voiced / np.median(voiced)))), 2)
 
     @torch.inference_mode()
     def embed(audio: np.ndarray) -> np.ndarray:
@@ -68,6 +84,7 @@ def main() -> int:
                     "path": str(path),
                     "duration": round(len(wav) / sr, 3),
                     "sim": round(float(embed(audio) @ ref), 4),
+                    "spread": pitch_spread(audio),
                 }
             )
         except Exception as exc:  # noqa: BLE001 — reported per seed, not fatal
