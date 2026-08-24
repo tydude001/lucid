@@ -9933,3 +9933,371 @@ holds no reference clip and no path to one, and the GitHub mirror is private
 besides. The listening verdict is pinned, not answered; the preview pages are
 down and `make-listen.py` rebuilds them.
 
+## A cue is addressed by phrase, resolved against the transcript — 2026-08-23
+
+`Transcript.resolve()` is the new primitive, ported from goodsometimes'
+`assemble_longlegs.py resolve()` and kept fully separate from `find()`'s
+`_normalise` — its own contraction-aware `_phrase_tokens` so the retake-splice
+and duplicate detectors are untouched by a second tokenizer. A forward cursor
+from `after` (never revisiting earlier words on repeat calls addressing the
+same growing script), `occurrence` selection when more than one match remains,
+and an `AmbiguousPhraseError` that never picks for you. Zero exact matches
+after the cursor fall back to fuzzy — the single best-scoring n-1/n/n+1-word
+window at or above `fuzzy_floor` (0.75 default), reachable only on zero exact
+matches, and stamped `match: "fuzzy"` / `ratio: <float>` rather than disguised
+as exact; `ratio` is `None` on an exact hit, the only way a caller tells the
+two apart from the result alone.
+
+`ops._resolve_word_or_phrase` is the one place every mutator's "word_index xor
+phrase" validation and edge-picking lives, hardcoded per call site rather than
+inferred: `cue_add`/`cue_rm`/`unspoken_add`/`unspoken_rm` bind the phrase's
+first word, `vo_extend` binds its last (the word before the gap it opens),
+`music`'s `phrase_start`/`phrase_end` bind first/last independently, and
+`locate`'s phrase mode is a range with no edge to pick at all. `unspoken`
+refuses a multi-word match outright rather than picking a side — the one
+mutator where "the middle word" has no correct default. Every mutator kept
+its existing positional call sites working unchanged: `word_index` stays in
+its original positional slot with `phrase`/`after`/`occurrence` arriving as
+new keyword-only parameters (WORK-ORDERS ruling 4), so no test, CLI script or
+MCP call written before this round needed to change.
+
+A phrase-addressed entry stores its phrase as additive-optional metadata
+alongside the word index it resolved to — `word_index` stays authoritative,
+and absent means what every older manifest already meant, no schema bump.
+`cue_reresolve` re-derives every phrase-addressed cue, unspoken mark, and
+music-bed boundary against the *current* transcript and reports what moved,
+`apply=False` by default — `reframe_detect`'s own posture: propose, never
+silently rewrite. `ops.resolve_phrase` is the read-only companion (`lucid
+resolve`, MCP `resolve_phrase`); `cue_reresolve` is `lucid cue reresolve` /
+MCP `cue_reresolve`. Both registered with `@_tool()`, in `EXPECTED_TOOLS` and
+`TOOL_TO_COMMAND`, and reachable over the real stdio server.
+
+This is the piece the later features in this round build on: `hold_add`'s
+`gap_phrase`/`cue_phrase`/`asset_phrase` (§ A film-audio hold, below) all
+resolve through the same `_resolve_word_or_phrase` rather than each mutator
+growing its own phrase-matching code.
+
+## The cold open is project state — a head, sibling of the tail — 2026-08-23
+
+`HEAD_KEY` mirrors `TAIL_KEY`'s read/partial-update/reset/plan shape at the
+other end of the film, with the opposite asset rule: `asset` must be a
+registered `clip_id`, never `card:name`, because a cold open is real footage
+by definition, not a still. `_build_mlt` prepends the head's own audio+picture
+entries — with fades, `Entry.gain_db`'s new flat-level field, both keyed to
+`entry.src_in` (see § A film-audio hold below for the offset bug this
+generalization exposed) — before the `Edit`'s own segments, the mirror of
+`TAIL_KEY`'s append at the other end. `_frame_total_with_tail` is extended in
+place to fold in `_head_frames` alongside `_tail_frames` rather than renamed,
+because every docstring citation across the codebase and CLAUDE.md still
+points at that name. `_is_layered` gains `head` as its **sixth** trigger, in
+the same commit as the writer support it exists to protect — never a commit
+apart, on the "must never lag the writer" discipline the fifth trigger
+(`MUSIC_KEY`, CLAUDE.md) already established: a head recorded and exported
+through auto-editor renders without it, at exit 0.
+
+**Two clocks, ruling honored (WORK-ORDERS ruling 2).** `timeline_view`,
+`locate`, and `status` stay Edit-relative — 0 is still the `Edit`'s own first
+frame — because the web player cannot play a cold open yet and shifting a
+view call's clock would desync it from what it draws. Every one of them gains
+a top-level `head_seconds` (0.0 with no head configured) so a caller that
+*does* need render time can add it: render time = Edit time + `head_seconds`.
+`timeline_view` additionally carries a `head` field, `music`'s own reporting
+shape (the stored config plus resolved frames). Render-facing paths do their
+own offsetting rather than reading `head_seconds` blind: `add_captions`
+shifts its ASS write by `head_seconds` at its own call site (`caption_view`
+stays unshifted — it answers the same question `timeline_view` does); `verify`
+trims heard words that land before `head_seconds` (past `HEAD_TRIM_TOLERANCE`)
+and reports `head_words_trimmed` rather than silently dropping them from the
+diff.
+
+The music lane's own lead-silence pad grows by `head_frames` on top of its
+existing boundary — or a bed plays straight over the cold open at exit 0 with
+every existing check clean, since nothing before this round had ever heard of
+a head. Verified against a real `melt` render, not just the document: two
+distinct tones, Goertzel-read from two separate windows of the actual
+rendered audio, one confirming the head's own tone plays where it should and
+the other confirming the bed's lead silence now covers it.
+
+`reel` never inherits a head — `head_dropped`, `tail_dropped`'s own rule
+(CLAUDE.md § A bumper or end card is project state). CLI `lucid head` and MCP
+`head` land next to `tail` throughout, including a `vo_extend`-style plan
+shape for `head(plan=True)`.
+
+## A film-audio hold — a gap in the VO plays the clip's own clean line — 2026-08-23
+
+A hold ties three previously hand-maintained pieces into one manifest record
+and one compound op: the VO gap (`vo_extend`'s own mechanism, reused rather
+than reimplemented), the picture cue pinning the film clip's in-point, and the
+mix (leveled to the VO's own measured loudness, spliced through a fourth MLT
+audio lane). Addressed by `(clip_id, gap_word_index)`, unique — a second
+`hold_add` at the same address is refused, `cue_add`'s own "remove it first"
+shape. `src_start` and `hold_length` are resolved live and deterministically
+by `_hold_plan` from margins — `src_start = phrase_start - elapsed -
+head_margin`, so `play_at` lands exactly at `phrase_start - head_margin` every
+time, never chosen by ear the way goodsometimes' hand process picked it.
+**Refused, never clamped**, both ways: `src_start < 0` names the exact
+shortfall in seconds (elapsed, the asset's own phrase start, the head margin)
+rather than pinning to 0 — the precise v5→v6 seam bug goodsometimes shipped by
+hand, now structurally impossible — and an asset running short of
+`hold_length` names the deficit in seconds too.
+
+Each of `gap_word_index`/`cue_word_index`/`word_index_first`/`word_index_last`
+also accepts a `*_phrase` alternative through § A cue is addressed by phrase's
+machinery: `gap_phrase` binds its **last** word (`vo_extend`'s own meaning —
+the word before the gap), `cue_phrase` binds its **first** (`cue_add`'s own
+meaning), and `asset_phrase` resolves against the asset's own transcript and
+binds first-and-last together into `word_index_first`/`word_index_last` — one
+phrase, derived from the cue table, rather than four numbers copied out of a
+transcript by hand. That derivation is the one-source-of-truth this feature
+buys: hand-typed indices drift from the transcript the moment either changes;
+a phrase re-resolves.
+
+Two real defects, both caught only by rendering through `melt` and reading
+the audio back, never by trusting the document:
+
+- `energy.integrated_loudness` silently accepted `loudnorm`'s literal
+  `"-inf"` for a signal too quiet to clear EBU R128's own gate — a real
+  string ffmpeg prints that `float()` parses without complaint into an
+  infinite value reading as finite to everything downstream. A gain formula
+  built on it (`ops._hold_gain_db` → `mlt.Entry.gain_db`) carried `-inf`
+  straight into the writer's `volume` filter as a literal keyframe, measured
+  to corrupt an **entire** render's audio to digital silence, not just the
+  one entry. Now refused by name in `integrated_loudness` itself.
+- `mlt.py`'s `_fade_level` wrote every fade/gain keyframe 0-based — correct
+  only for the `src_in=0` entries every prior lane used (music, tail, an
+  unpinned head). A hold's entry always reads from deep inside its asset;
+  keyframes written 0-based on a `src_in=268` entry rendered **silent
+  throughout**, because by the time playback reaches producer frame 268 the
+  animation is long past its last defined key. Positions are now offset by
+  `entry.src_in`; every existing byte-identical test still passes because
+  every existing caller's own `src_in` was already 0.
+
+`hold_add`/`hold_rm`/`hold_ls`/`hold_check` land as ops, MCP tools and CLI
+subcommands. The bed goes **out** (not ducked) across a hold's span, gated in
+the same lane coordinates the head's own lead pad established (WORK-ORDERS
+ruling 3), with 0.7 s ramps. `_is_layered` gains holds as its **seventh**
+trigger, belt-and-suspenders alongside the existing multi-`clip_id` check (a
+real hold always splices a second `clip_id` in, which that check already
+catches) — kept anyway on the "never trust one path to cover a case it
+happens to cover today" discipline every other trigger there follows. Export,
+`timeline_view`, and `reel` all carry holds fields; `reel` drops holds it
+cannot carry forward (`holds_dropped`, the tail's own rule); `finish_report`
+gains an opt-in `holds` flag running `hold_check` against the last render.
+`lucid/finish.py` lands in this commit holding the seam-checking machinery
+(`parse_ebur128`, `loudness`, `hold_seams`, 48 kHz decode over stdlib `array`
+— no numpy in lucid) that § finish_check, finishlog, and the reviewserver
+badge (below) extends rather than duplicates, per WORK-ORDERS ruling 5.
+
+**Two defects found by code review after the feature landed, both fixed the
+same day.** `hold_add`'s mix-only update path (re-settable fields with no
+re-splice) computed `resolved_cue` from the caller's `cue_word_index`/
+`cue_phrase` but never wrote it into `merged` — so `_hold_plan` kept
+resolving against the *old* cue address while the write step patched a cue at
+the new, unrelated one: silent corruption if a cue already sat there, a
+silent no-op otherwise, and the stored hold's own `cue_word_index` never
+moved either way. Now refused the same way `word_index_first`/
+`word_index_last` already were — this call owns exactly one cue, at its
+stored address, and cannot safely re-address it without a re-splice
+(`hold_rm` then `hold_add`, or `lucid undo`). Separately, `hold_ls` already
+flagged when a hold's owned cue drifted from what `_hold_plan` resolves live
+(an unrelated `cue_rm`/`cue_add` landing on the same word), but `hold_check` —
+the op `finish_report(holds=True)` actually calls — never checked it, so a
+drifted owned cue read as `faults: 0` through the release gate. Extracted into
+`_hold_cue_drift`, shared by both ops rather than reimplemented twice, and
+folded into `hold_check`'s `faults` count alongside a seam fault. Both
+`hold_rm` and `hold_check` had shipped with no real stdio-server test and no
+CLI test exercising their branches — closed with a stdio round trip (add,
+remove, refused-on-repeat; a real hold checked end-to-end with a hand-drifted
+cue proving `cue_drift` folds into `faults`) and CLI wiring tests matching
+the existing `finish-check` pattern.
+
+## Import strips a chapter list, cues a first-look sheet, and shots get a continuity check — 2026-08-23
+
+Three pieces of import/shot hygiene, each ported from a goodsometimes
+postmortem and measured against a real affected file before being trusted,
+rather than assumed from the write-up alone.
+
+**Chapter/data-track stripping, always-on, no operator choice.**
+`media.probe` detects a movie rip's inherited chapter list on two independent
+signals, neither trusted alone: a non-empty top-level `chapters` array, or
+`-show_format`'s duration disagreeing with the real max of the video/audio
+stream durations by more than `CHAPTER_DURATION_TOLERANCE`. Confirmed
+read-only against goodsometimes' own `Source/sl-0428-elevator.mp4`, which
+carries exactly this shape — 13 of 16 `Source/` clips did, and only the
+chapters-array signal ever actually fired on the real sample; `format.duration`
+was already correct on every one of them, which is why the second signal
+exists as a backstop rather than the load-bearing check. `strip_chapters`
+mirrors `derive_single_audio`'s shape (`-map 0 -map_chapters -1 -dn -c copy`,
+plain stream copy, no re-encode) — verified against the same affected file:
+`nb_streams` 3 → 2, `chapters` 2 entries → 0, byte-identical picture and
+sound. `import_media` strips unconditionally after mixing, so the strip runs
+on the already-mixed copy when a source is both multi-mic and chaptered, and
+re-probes the most-derived file for duration. Both `media_path()` and
+`original_media_path()` now prefer `stripped` over `mixed` — corrected from
+the brief's own snippet, which had `mixed` winning despite `stripped` being
+the more-derived file. Both `_reel_media` key tuples (the linking pass and
+`reel(plan=True)`'s `would_link`) grew `"stripped"` in this same commit —
+CLAUDE.md's own warning about that tuple being `media_path()`'s preference
+chain, restated as a key added to *both* rather than one.
+
+**`contact_sheet`, built entirely on `thumbnail()`'s existing cache** — no new
+cache directory, no new manifest key, no new web route. Ten seconds at 1.5 s
+spacing by default (`FIRST_LOOK_SECONDS`/`FIRST_LOOK_INTERVAL`), riding along
+on `import_media` (`sheet=True`, `--no-sheet` to skip) so a clip's own opening
+is seen before it is cued to a shot, not discovered after — the goodsometimes
+incident this exists to stop repeating, where opening credits sat in the first
+few seconds of a clip nobody looked at before cutting into it. Deliberately
+not `reframe_sheet`'s shape: no `magick` montage, no framing rectangles,
+because a first look needs none of that and a second image-serving path would
+be an unjustified third caller of the containment `preview_path` already
+guards (CLAUDE.md). An audio-only clip returns `frames: []` rather than
+raising.
+
+**`continuity_check` ports goodsometimes' `shot_check.py`** (rewind/replay)
+and its v5 scan (short shots, film-internal-cut stubs), correcting the one gap
+the standalone script had: it read `build_shots`' raw `src_pin`, which is
+`None` for every *unpinned* cue, so it only ever checked pinned shots. This
+reads `_picture_plan`'s resolved `src_start` instead — the cursor-carried
+position `mlt.plan_picture` actually decided on — so an unpinned re-use is
+checked exactly like a pinned one. **The stored head is walked as a
+pseudo-shot before the first real one** (WORK-ORDERS ruling 6), so a body
+shot rewinding into the cold open's own footage is caught the same way a
+body-to-body rewind is, no separate flag needed — the defect class that
+shipped twice by hand is now structurally covered rather than requiring a
+`--prepend` flag nobody would remember to pass. Overrun is not a finding here:
+`mlt.plan_picture` already refuses it structurally, so a shot cannot reach
+this walk at all if it overruns its asset. Replay is reported, never refused —
+a deliberate narrative rhyme and a mistake look identical from the cue table
+alone, `attribute_speakers`/`reframe_detect`'s own precedent for surfacing a
+judgement call rather than deciding it. `stubs=True` by default costs a
+`media.scene_cuts` decode per distinct placed asset; `scene_threshold`
+defaults to `SCENE_THRESHOLD` (0.15, this repo's own pin) but stays
+caller-settable, because goodsometimes needed 0.12 on darker footage from a
+different film and hard-coding 0.15 here would have silently under-detected
+on it. `continuity_accept`/`reject`/`ls` give findings `unspoken`'s own
+fingerprinted-staleness treatment — a re-cued shot's mark is kept and
+reported `accepted_stale`, never silently re-trusted. A stub-scan failure on
+one asset is contained to that class of finding (`stub_error`), never
+dropping the free rewind/replay/short-shot findings with it — a refusal from
+either path arrives inline, never as an exception that takes the rest of the
+report down. `finish_report` gains an opt-in `continuity` flag, flagging only
+`rewind`/`stub` (replay and short_shot stay ambiguous by design, the seams
+precedent).
+
+CLI/MCP surface: `contact-sheet`, `continuity-check`/`accept`/`reject`/`ls`,
+`--no-sheet` on import, `--continuity` on `finish-report`. Real stdio-server
+tests for every new tool, including one real melt-free ffmpeg scene-cut stub
+finding and a full accept/reject/ls round trip over stdio.
+
+**One defect found by code review, closed as invalid rather than fixed.** The
+worry was that `duration_disagrees` — the chapter-detection backstop signal —
+could false-positive on ordinary A/V duration skew that has nothing to do
+with chapters. Built three synthetic containers with deliberate, non-
+`-shortest` video/audio duration skew (up to 14%, no chapters) and probed
+them directly: ffmpeg's own mp4 muxer sets `-show_format`'s duration to the
+**longer** of the two streams' own durations in every case measured, so
+`stream_reference` (the max) always equals `format_duration` and
+`duration_disagrees` never fires for this class of file — matching what the
+code's own comment already claimed from real goodsometimes footage, now
+pinned as `test_probe_tolerates_ordinary_av_duration_skew` rather than left as
+an argued comment.
+
+## A delivered file is checked against the timeline, not just a render — 2026-08-23
+
+`finish_check` generalizes goodsometimes' `verify_longlegs.py` into a lucid
+op. `final` is whatever an external mix pass produced — a cold open and/or
+holds concatenated onto a lucid render, entirely outside `export` — never a
+render this project made itself (`verify`/`check_frames`/`check_black`/
+`film_check` are the checks for that). Every number it reports is in
+**`final`'s own absolute seconds** — `locate`'s two-clock rule, the receiving
+side of it: `prepend_seconds` and each hold's `start`/`start + length`
+describe positions in the delivered file, not Edit time.
+
+**WORK-ORDERS ruling 5, landing after holds and the head so it can lean on
+both as project state.** `prepend_seconds` defaults to the stored head's own
+length (`_head_seconds`) when left unset — pass `0.0` explicitly to check a
+file with no prepend even though the project has a head configured. `holds`
+defaults to the project's stored `HOLDS_KEY` spans, resolved live against the
+current edit and offset by the resolved `prepend_seconds`
+(`_resolved_hold_spans`); an explicit list (`[]` included) overrides it,
+`film_check`'s own `reference`-argument shape.
+
+Eight steps, each reported and none individually fatal to the others —
+`hold_check`'s own stance, since this is a listening check on a file that
+already exists: (1) streams/chapters/duration via `media.stream_inventory`
+against `_frame_total_with_tail(...)/rate + prepend_seconds`; (2) loudness,
+report-only, no established target LUFS to fault against; (3) blackdetect
+called directly through `picture.blackdetect` — never `ops.check_black`,
+whose tail-frame reasoning is calibrated to an un-prepended lucid render and
+does not transfer once `final` has a cold open glued onto the front — a run
+is a fault unless it overlaps `[0, prepend_seconds)` or a declared hold's own
+span; (4) per-hold transcription and `finish.hold_seams` at every non-ducked
+hold's in/out and, when there is a prepend, the prepend-to-body join; (5) a
+windowed VO diff with every heard word overlapping the prepend or a hold span
+filtered out **before** the diff, so `final`'s own non-VO audio cannot inflate
+it with noise that is not a defect; (6) **the boundary recheck** — every
+`dropped` entry `verify.compare` reports is re-cut past its own heard-side
+neighbours (via `compare`'s new `at_heard_word` field) and re-transcribed on
+its own: close to the missing text moves it to `boundary_misses` (the windowed
+pass lost it at a stitch, recovered here, not a fault), not close leaves it in
+`missing`, a real fault — **getting this direction backwards silently turns
+every real defect into "recovered"**, so the boundary recheck's direction is
+tested both ways; (7) self-repeats via `verify.find_adjacent_repeats` over the
+same filtered heard sequence, lucid's existing tool applied to a delivered
+render's own transcript for the first time; (8) aggregate, and
+`finishlog.append` — the artifact-keyed log `lucid review serve`'s badge joins
+against by sha256.
+
+`verify.compare`'s `dropped` entries gain `at_heard_word`, symmetric with
+`repeated`'s own field — the one sanctioned literal-dict test update named in
+WORK-ORDERS. `finishlog.py` is `renderlog`'s own shape, cloned rather than
+reused because it keys by the delivered file's sha256 (a `finish_check` target
+was never produced by this project's own render pipeline, so there is no
+render-log entry to extend). `lucid review serve`'s badge joins it by sha256
+and reports a **WARN**, never a refusal — `" — no finish_check yet"` or `" —
+⚠ finish_check: N fault(s)"` beside the existing byte-identical/MISMATCH
+control badge, `finish_report`'s own "report, never gate" stance for checks
+on an artifact that already exists. CLI `finish-check`, an MCP tool, and a
+stdio round trip with a branching fake-whisper stub prove the windowed pass
+and the boundary recheck compose end to end, not just in isolation.
+
+## Two A/B review items share one player, carrying the playhead across a pick — 2026-08-23
+
+`kind="ab"` items of the same media kind (two or more) now render as one
+shared `<video>`/`<audio>` with a pick button per item, instead of independent
+sections — the with/without-music A/B goodsometimes' `serve_review.py` was
+built for, folded into lucid's own token-guarded review page rather than
+requiring a second server. A lone `"ab"` item or a mixed video/audio pair
+falls back to the ordinary per-item section unchanged (a partition-logic
+regression test pins this), and every other `kind` is untouched.
+
+The one inline script this module now emits is scoped to never see the
+review token: every `data-src`/`src`/form-`action` it touches is already
+server-rendered with `?t=` baked in, exactly like every other URL on the
+page, and the script only reads `data-src` as an opaque string to carry a
+`currentTime`/`paused` state across a `src` swap — `webui.py`'s "never thread
+a token through a JS request" reasoning, applied here even though this page
+has no cookie to protect. Because an inline script now exists,
+`Content-Security-Policy`'s `default-src 'self'` (no `'unsafe-inline'`
+carve-out) needs a `script-src` that allows it: a fresh **per-response
+nonce** (`secrets.token_urlsafe`, generated in `_send_page`, echoed into both
+the header and the one `<script nonce="...">` tag) — deliberately never the
+review token reused as a nonce, since the two are different secrets with
+different lifetimes and reusing one would tie the CSP nonce's exposure (in
+every page's HTML source) to the credential guarding every request.
+
+195 tests passed (`test_review_http.py` + `test_server_stdio.py`), ruff
+clean, at the feature's own commit. **A code-review pass found the nonce
+mechanism itself had zero coverage** — nothing asserted the header nonce
+actually matched the script tag's, and nothing proved two successive
+requests got different ones — closed with two tests doing exactly that: the
+header nonce equals the `<script nonce=...>` tag's own value and both differ
+from the review token, and two requests in a row mint different nonces.
+
+goodsometimes' `pipeline.md` § Edit gained a pointer at `lucid review add
+--kind ab` / `lucid review serve` as the newer path for a with/without-music
+pair, alongside the generalized `scripts/build_video.sh.template` (§ 06
+smaller, goodsometimes' own commit, not this repo's) — `serve_review.py`
+stays untouched and still covers a bare `Exports/` directory that is not a
+lucid project.
+

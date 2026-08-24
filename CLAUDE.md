@@ -80,6 +80,13 @@ installed package or the upstream repo, not your memory.
           a key in one and not the other hands the derived project a path
           with nothing at it. New import guards go **behind** the source
           dedup, or a retried import raises about a choice taken days ago.
+          **`"stripped"` (chapter/data-track stripping, `media_path()`'s
+          `attenuated → mixed → stripped → media` order) rides both tuples as
+          of the same commit that added the preference** — the rule this
+          bullet states, applied rather than just cited. A key added to one
+          without the other is invisible until a reel of a chaptered clip
+          resolves a path with nothing at it. HISTORY.md § Import strips a
+          chapter list.
         - **A long server message is a control that spends the pane's
           height** — this refusal renders 194px in the assets pane and took
           `#assets-list` from 129px to 0, hence `.asset-status`'s 60px cap.
@@ -516,6 +523,25 @@ installed package or the upstream repo, not your memory.
       splice is `_splice_after`, shared with `vo_extend`, and `_splice_point`
       refuses a cut word *before* the GPU is spent. HISTORY.md § `vo_synth`,
       built.
+  - **A cold open (`HEAD_KEY`) and a film-audio hold (`HOLDS_KEY`) are
+    `_is_layered`'s sixth and seventh triggers, each landed in the same
+    commit as the writer support it protects** — the "must never lag the
+    writer" rule the fifth trigger below already states, restated because two
+    more lanes now depend on it. A hold's own second `clip_id` already trips
+    the first check (`len({...clip_id}) > 1`); its trigger is kept anyway,
+    belt-and-suspenders, rather than trusting one path to keep covering a case
+    it happens to cover today. HISTORY.md § The cold open is project state,
+    § A film-audio hold.
+    - **A phrase resolved against the transcript is the one source of truth
+      for a hold's addressing — never four hand-typed word indices.**
+      `hold_add`'s `asset_phrase` resolves against the asset's *own*
+      transcript and binds first-and-last together into
+      `word_index_first`/`word_index_last`; `gap_phrase`/`cue_phrase` reuse
+      the same `_resolve_word_or_phrase` machinery every other mutator does.
+      Hand-typed indices drift the moment the transcript changes under them;
+      a phrase re-resolves. `cue_reresolve` is the batch version of the same
+      idea, for every phrase-addressed cue/mark/bed boundary at once
+      (`apply=False` default). HISTORY.md § A cue is addressed by phrase.
   - **The A2 music bed is project state too (`MUSIC_KEY`), and no field in it
     is a timeline second or a frame count** — `(clip_id, word_index_start,
     word_index_end | None)`, duration derived live through
@@ -544,6 +570,19 @@ installed package or the upstream repo, not your memory.
       a fade-out ends where the music *audibly* ends, and a fade pair the
       bed cannot hold refuses at `_music_plan` ("shorten the fades"), never
       clamps. HISTORY.md § The A2 fades and the lane, drawn.
+    - **`mlt.Entry.gain_db` (default 0.0) is the plateau a fade ramps to and
+      holds at, not always 0** — a flat, non-fading level shift reuses the
+      exact same `volume` filter rather than a second filter type (the cold
+      open's own reason for existing), and `_fade_level` still emits the
+      filter on `gain_db` alone even with no fade set. `gain_db=0.0` is
+      unity, so every caller before this field existed still gets exactly the
+      plateau it always got and their documents stay byte-identical.
+      **Every keyframe position is `entry.src_in`-offset, not 0-based** — the
+      music/tail/unpinned-head lanes all read from `src_in=0` so this was
+      invisible until a hold's entry, which always reads from deep inside its
+      asset, rendered *silent throughout* under 0-based keys: playback
+      reaches producer frame 268 long after the animation's last defined key.
+      HISTORY.md § A film-audio hold.
     - **The window sets the bed too (`POST /api/music`), and both traps in
       that are general to any editor over a projection.** A **refusal is
       sent instead of the state** — `music_error` means `state.music` is
@@ -1014,6 +1053,19 @@ installed package or the upstream repo, not your memory.
     on `timeline_time` is for *instants* only; passing it for one edge of a
     range double-counts the join between two segments. HISTORY.md § The head
     of the parity queue.
+  - **Two clocks, once a head is configured: render time = Edit time +
+    `head_seconds`.** `timeline_view`/`locate`/`status`/`caption_view` stay
+    Edit-relative on purpose (0 is still the `Edit`'s own first frame) because
+    the web player cannot play a cold open yet and shifting a view call's
+    clock would desync it — they gain a `head_seconds` field (`_head_seconds`,
+    0.0 with none) instead of shifting. A render-facing path must offset
+    itself rather than read that field blind: `add_captions` shifts by
+    `head_seconds` at its own call site, `verify` trims heard words before it
+    (`head_words_trimmed`), and `finish_check` reports in `final`'s own
+    absolute seconds throughout, `prepend_seconds` defaulting to the stored
+    head's own length. Getting a caller's clock wrong here reads as a
+    disagreement about *content*, not offset. HISTORY.md § The cold open is
+    project state.
 - **`Edit`'s addressing reads a cached `_SpanIndex`, so never mutate
   `edit.segments` in place** — assigning the attribute is what drops the index,
   and a stale one answers every lookup confidently and wrongly. All four
