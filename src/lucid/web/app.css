@@ -62,7 +62,11 @@
  *                          panels (agent.js, assets.js, properties.js),
  *                          never three columns and never two stacked panes
  *                          sharing a column's height (§ .rail-tabs)
- *   #timeline-pane          full-width strip under the workspace, ~22vh —
+ *   #timeline-pane          full-width strip under the workspace. 22vh is
+ *                          the floor, not the size: player.js's
+ *                          `balancePanes` raises `--timeline-h` by whatever
+ *                          the preview cannot use, so a 2.35:1 film gives it
+ *                          more than a 9:16 one does —
  *                          the picture in #preview-pane is the largest thing
  *                          on screen, not this strip and not the transcript.
  *
@@ -549,7 +553,17 @@
   --timeline-h: 22vh;
   --timeline-h-min: 180px;
   --track-header-w: 84px;
+  /* The floor, and the height every lane had before the pane could hand its
+     spare height over. timeline.js's `fitLaneHeight` raises this variable to
+     fill #track-lanes, up to --lane-h-max; `.lane` and `.track-header` both
+     size off it so the sticky header column cannot desync from its lanes. */
   --lane-h: 42px;
+  /* 72, not 88: the height for this comes out of the workspace row, and the
+     transcript and the rail are in it. At 88 the film's timeline took 341px
+     and left the assets list showing two clips of ten; 72 still draws a lane
+     71% taller than the flat 42px it replaced, which is what makes a
+     filmstrip frame legible, and leaves the panes above ~50px more. */
+  --lane-h-max: 72px;
   --ruler-h: 22px;
 }
 
@@ -676,6 +690,58 @@ textarea {
 input[type="number"] {
   width: 62px;
   font-family: var(--font-mono);
+}
+
+/* -- a select that looks like the rest of the chrome --------------------- *
+ *
+ * `appearance: none` plus a caret drawn from two borders on the wrapper. The
+ * export group's note below says a stripped select "means a `data:`
+ * background-image", which the CSP blocks — true of the usual recipe and not
+ * of this one: nothing here is an image, so there is nothing for
+ * `default-src 'self'` to refuse.
+ *
+ * The wrapper exists because a `<select>` cannot carry a pseudo-element of
+ * its own. `pointer-events: none` on the caret is what keeps the whole
+ * control clickable through it, and `color-scheme` (§ tokens) still governs
+ * the dropdown itself — the popup is the browser's and stays the browser's.
+ *
+ * Reusable by any future select; #export-preset deliberately still uses the
+ * native one, because inside the segmented control the shared border and the
+ * label already do this job and a second caret idiom there would be noise. */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.select-wrap > select {
+  appearance: none;
+  width: 100%;
+  padding-right: 24px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--dim);
+  border-bottom: 1.5px solid var(--dim);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* The picker sizes itself to its longest option, and a clip id plus the
+   " (no transcript)" suffix runs to 300px — a third of the bar's left half
+   spent on a control that is read at a glance. */
+#clip {
+  max-width: 210px;
 }
 
 /* -- the export control -----------------------------------------------------
@@ -976,6 +1042,26 @@ textarea {
   border-color: var(--kept);
   background: var(--wash-kept);
   color: var(--kept);
+}
+
+/* The third state, and the strip needed it because it had only two.
+ *
+ * `.chip` bare is a stated FACT ("total 5:42.3", "1920x816"); `.chip.ok` is a
+ * verdict of zero; `.chip.warn` is a finding. "framing — not scanned" is none
+ * of those — it is the absence of a measurement, because the scan decodes
+ * every placed clip and so is opt-in (CLAUDE.md § "Needs no face detector" is
+ * not "cheap"). Drawn bare it sat between two bare chips that ARE facts and
+ * read as a fourth measurement of the film, which is the blank-chip failure
+ * one register up: not "nothing to report" this time, but "reported, and
+ * fine". Drawn `.warn` it would claim a defect the op never found.
+ *
+ * So: dashed, and in the dim ink. A dashed border is the one edge treatment
+ * nothing else in the app uses, and it reads as provisional rather than as
+ * either colour — the chip is still a link to the mode that would measure it,
+ * which is the whole point of saying so. */
+.chip.unmeasured {
+  border-style: dashed;
+  color: var(--dim);
 }
 
 .chip.warn {
@@ -2347,10 +2433,35 @@ textarea {
   background: var(--panel-2);
 }
 
+/* A poster frame beside the facts, not above them (assets.js § buildClipRow).
+   The frame is fixed at 16:9 and `cover`-cropped rather than sized from the
+   clip's own aspect: this is a catalogue, and rows whose thumbnails are
+   different heights read as a broken list — the FRAMING question belongs to
+   Frame mode, which answers it against the canvas. A card row has no
+   thumbnail and its body simply takes the whole width, which the grid's
+   `auto` first track handles by collapsing to nothing. */
 .asset-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
   padding: 8px 14px;
   border-bottom: 1px solid var(--line-2);
   cursor: pointer;
+}
+
+.asset-body {
+  min-width: 0;
+}
+
+.asset-thumb {
+  width: 96px;
+  height: 54px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  background: var(--panel-2);
+  display: block;
 }
 
 .asset-row:hover {
@@ -2478,7 +2589,7 @@ textarea {
 /* -- finish view (finish.js) -------------------------------------------- *
  * Occupies rows 3–4 (workspace's row plus the timeline's) when shown, so
  * switching to Finish does not leave a blank strip where the timeline used
- * to be — both tracks are fixed lengths (22vh / 180px minimum, --timeline-h
+ * to be — both tracks are definite lengths (--timeline-h, 180px minimum
  * above), not content-sized, so they hold that height whether or not
  * #timeline-pane is present to fill it. */
 /* The run on the left, the render on the right, each scrolling on its own —
@@ -3192,7 +3303,18 @@ textarea {
      scroll instead of just growing. */
   min-width: 0;
   overflow-x: auto;
-  overflow-y: hidden;
+  /* `hidden` here CLIPPED rather than scrolled, silently. Four lanes plus the
+     ruler are 148px and this box was 143px, so the CC lane lost its bottom
+     edge on every project the film's shape — and a fifth lane (A2, whenever a
+     music bed exists) puts it 47px over. Nothing reported it: `overflow-y:
+     hidden` has no scrollbar to notice and `scrollHeight > clientHeight` is
+     not something the page-level overflow sweep looks at.
+     `scrollbar-gutter: stable` is what keeps the switch from costing anything
+     elsewhere — the gutter is reserved whether or not the bar is showing, so
+     `clientWidth` no longer changes when a lane appears, and the fit-to-window
+     px/sec computed from it cannot be invalidated by its own result. */
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* Sticky, and the one place the backdrop blur belongs: lanes scroll under it. */
@@ -3278,6 +3400,29 @@ textarea {
   --clip-fill: var(--clip-sand);
 }
 
+/* A run of cues too narrow to label, drawn as one band (timeline.js's
+   `buildCaptionRow`). Same pill, same fill, same hover as any other block —
+   this is not a different KIND of thing, it is the same cues at a zoom that
+   cannot hold their text, so it must not read as a new lane object. What it
+   adds is the internal boundaries: one hairline per cue, in the block's own
+   ink at low alpha, so the run's real shape stays visible without 178
+   borders' worth of noise. The label it carries is a count (`12 lines`), set
+   by timeline.js — never the first cue's text, which would claim the rest of
+   the band is that sentence. */
+.cc-band {
+  color: var(--clip-ink);
+}
+
+.cc-cue-tick {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--clip-edge);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 /* A2 — the music bed, mixed under the edit (timeline.js `buildMusicRow`).
    The block spans only the bed's audible stretch; the writer's silence
    padding is drawn as nothing, because that is what silence is. */
@@ -3315,7 +3460,15 @@ textarea {
   background: var(--clip-fill, var(--clip-mint));
   color: var(--clip-ink);
   overflow: hidden;
-  padding: 2px 6px;
+  /* 3px, not 6px, and the horizontal half is geometry rather than taste: a
+     border-box width can never be used below its own padding + border, so
+     `padding: 2px 6px` gave every block a 14px floor it did not ask for. On
+     the film 21 of 63 A1 segments are under 14px, so a fifth of the lane was
+     drawn wider than its own duration — and the last one spilled past the end
+     of the lane, which is what put `scrollWidth` over `clientWidth`. Halving
+     it halves the distortion (floor 8px) and costs a label nothing: text is
+     only ever drawn at LABEL_MIN_BLOCK_PX (40px) and up. */
+  padding: 2px 3px;
   font-size: 11px;
   white-space: nowrap;
 }

@@ -113,6 +113,7 @@ let lastState = null;
 let zoomMultiplier = 1; // multiplies the fit-to-window base — #zoom is 1..10
 let currentPxPerSec = 1; // cached for the per-frame playhead handler, which
 // must not pay for a full re-render 60 times a second
+let laidOutHeight = null; // ...and its clientHeight, for the observer below
 let laidOutWidth = null; // the #track-lanes clientWidth the last render() laid
 // the lanes out against — NOT a cache, a staleness check. A hidden pane
 // measures 0, and computePxPerSec falls back to 800 rather than to nothing, so
@@ -201,6 +202,11 @@ let dropGhostEl = null; // the ONE standalone node the HTML5 drag-and-drop
 
 const MIN_PX_PER_SEC = 4; // guards a zero/near-zero duration from a divide
 const LANE_H_FALLBACK = 42; // matches app.css's --lane-h if the var lookup fails
+/** Ceiling for a lane grown by `fitLaneHeight`, read from app.css so the
+ *  stylesheet stays the one place a layout metric is stated. Past it a lane
+ *  is not more legible, just bigger — the filmstrip frames are already
+ *  source-resolution and the waveform is already at full scale. */
+const LANE_H_MAX_FALLBACK = 88;
 const LABEL_MIN_PX = 70; // minimum on-screen spacing before a ruler label repeats
 const THUMB_TARGET_PX = 64; // desired on-screen width per filmstrip frame
 const THUMB_MIN_BLOCK_PX = 24; // below this a block is too narrow for even one legible frame
@@ -241,6 +247,20 @@ const THUMB_MIN_BLOCK_PX = 24; // below this a block is too narrow for even one 
  * depend on how the clips happen to be named. */
 const LABEL_MIN_BLOCK_PX = 40;
 
+/** Widest on-screen gap between two cues that still counts as one run.
+ *
+ * A *drawing* threshold, deliberately in pixels rather than seconds: it asks
+ * "would a person see daylight between these two blocks", which is a question
+ * about the zoom, not about the captions. That is what makes the coalescing
+ * in buildCaptionRow safe — it un-merges on its own as you zoom in, and at
+ * any zoom where the blocks clear LABEL_MIN_BLOCK_PX it never fires at all,
+ * so the lane's per-cue shape is always one gesture away. */
+const MERGE_GAP_PX = 3;
+
+/** Closest two drawn cue boundaries may sit inside a band before the band
+ *  stops reading as one block with divisions in it. */
+const TICK_MIN_GAP_PX = 14;
+
 //: "Nice" ruler intervals, seconds — the smallest one that keeps labels this
 //: side of LABEL_MIN_PX apart at the current zoom is picked.
 const NICE_INTERVALS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
@@ -266,6 +286,36 @@ function seekOnClick(row, pxPerSec) {
     const rect = row.getBoundingClientRect();
     ctx.player.seek((event.clientX - rect.left) / pxPerSec);
   });
+}
+
+/** Grow the lanes to fill the height the pane actually has.
+ *
+ * `--lane-h` was a flat 42px, which is right at the pane's old 198px and
+ * leaves 188px of nothing once the preview hands its unused height over
+ * (player.js § balancePanes). Dead space in the timeline is not an
+ * improvement on dead space in the preview: what the extra height is FOR is
+ * taller filmstrip frames and a waveform drawn at a scale you can read.
+ *
+ * Writes `--lane-h` rather than a per-element height on purpose — `.lane` and
+ * `.track-header` both size off that one variable, and the sticky header
+ * column desyncing from the lanes it labels is the failure this avoids by
+ * construction. Returns whether it changed anything, because the waveform is
+ * a canvas and has to be repainted at the new height by the caller. */
+function fitLaneHeight(count) {
+  const lanes = $("track-lanes");
+  if (!lanes || !count) return false;
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  const rulerH = parseFloat(style.getPropertyValue("--ruler-h")) || 22;
+  const maxH = parseFloat(style.getPropertyValue("--lane-h-max")) || LANE_H_MAX_FALLBACK;
+  const room = lanes.clientHeight - rulerH;
+  // A hidden pane measures 0 — the same trap the `mode` listener below
+  // records. Laying out against it would pin every lane to the floor.
+  if (room <= 0) return false;
+  const next = Math.max(LANE_H_FALLBACK, Math.min(maxH, Math.floor(room / count)));
+  if (Math.abs(next - laneHeightPx()) < 1) return false;
+  root.style.setProperty("--lane-h", `${next}px`);
+  return true;
 }
 
 function laneHeightPx() {
@@ -302,17 +352,72 @@ function pickInterval(pxPerSec) {
   return NICE_INTERVALS[NICE_INTERVALS.length - 1];
 }
 
+/** The duration every lane and the ruler are laid out against.
+ *
+ * `state.timeline_duration` is the Edit's own answer and is very nearly this
+ * number, but not exactly: each lane draws a different projection, and the
+ * last thing in one can end a few milliseconds past it — a segment edge
+ * quantises on its own (CLAUDE.md § A frame count comes from
+ * `autoeditor.frame_layout`), and `/api/captions` is a separate derivation
+ * whose final cue ends where the .ass ends. Laying the lanes out at
+ * `timeline_duration` and then drawing content past it is what made
+ * "fit to window" not fit: on the film the last A1 block overran by 5px and
+ * the last three cues by up to 12px, `scrollWidth` exceeded `clientWidth`,
+ * and the horizontal scrollbar that appeared took enough height off
+ * `#track-lanes` to trigger a VERTICAL one as well — which clipped the CC
+ * lane's bottom edge. Two scrollbars on a timeline that fits, from twelve
+ * pixels. Measured in a real browser; `render()` is the only caller. */
+function contentDuration(state, captions) {
+  // Every widen goes through this, and it drops anything that is not a real
+  // number rather than propagating it. `Math.max(x, undefined)` is NaN, NaN
+  // survives every subsequent Math.max, and `computePxPerSec` answers a NaN
+  // duration with the container's full width as PIXELS PER SECOND — which
+  // laid the film's lanes out 442618px wide, drew every caption block 2800px
+  // across, and threw no error at all. Cost one browser pass; the guard is
+  // the fix, not the field name that happened to be wrong (a shot carries
+  // `start` + `duration`, never `end`).
+  let end = 0.001;
+  const widen = (value) => {
+    if (Number.isFinite(value) && value > end) end = value;
+  };
+  widen(state.timeline_duration);
+  // Every segment, not `segments[segments.length - 1]`: the array is the
+  // Edit's own order and its last element is not necessarily the latest on
+  // the timeline. Taking the last one left the film's A1 lane 5px short of
+  // its own final block, which is the whole class of bug this function
+  // exists to close.
+  for (const seg of state.segments) widen(seg.timeline_end);
+  if (captions && captions.cues && captions.cues.length) {
+    widen(captions.cues[captions.cues.length - 1].end);
+  }
+  for (const shot of state.shots || []) widen(shot.start + shot.duration);
+  return end;
+}
+
 function buildRuler(duration, pxPerSec) {
   const ruler = el("div", "ruler");
-  ruler.style.width = `${Math.max(1, duration * pxPerSec)}px`;
+  const width = Math.max(1, duration * pxPerSec);
+  ruler.style.width = `${width}px`;
   const interval = pickInterval(pxPerSec);
   for (let t = 0; t <= duration + 1e-6; t += interval) {
     const tick = el("div", "ruler-tick");
     tick.style.left = `${(t * pxPerSec).toFixed(1)}px`;
     ruler.append(tick);
-    const label = el("div", "ruler-label", fmt(t));
-    label.style.left = `${(t * pxPerSec + 3).toFixed(1)}px`;
-    ruler.append(label);
+    // The tick always draws; its label draws only if it fits inside the
+    // ruler. Estimated rather than measured, because the element is not in
+    // the document yet and a layout read per tick would be a reflow per
+    // tick — JetBrains Mono at 10px is ~6.1px per character, and the text is
+    // always `m:ss.s`, so the estimate is over the real 36px, never under.
+    // Without this the last label is the widest thing in the whole scroller:
+    // on the film "5:30.0" sat at 1323px of a 1345px ruler and pushed
+    // `scrollWidth` to 1359 on its own.
+    const text = fmt(t);
+    const left = t * pxPerSec + 3;
+    if (left + text.length * 6.4 <= width) {
+      const label = el("div", "ruler-label", text);
+      label.style.left = `${left.toFixed(1)}px`;
+      ruler.append(label);
+    }
   }
   return ruler;
 }
@@ -344,24 +449,86 @@ function buildCaptionRow(captions, pxPerSec, duration) {
     return row;
   }
 
+  // Runs, not cues, and only where a cue is too narrow to say anything.
+  //
+  // The label gate below (LABEL_MIN_BLOCK_PX, shared with the clip lanes) is
+  // right — a sentence in 14px of lane draws one letter — but on its own it
+  // traded illegible text for NOTHING: on the film every one of the 178 cues
+  // is 14–16px at fit zoom, so this lane drew 178 empty bordered boxes, a
+  // barcode across the bottom of the window that reads as a lane that failed
+  // to load rather than as captions. The one thing a caption lane has to
+  // answer at a glance is *where the captions are and where they are not*,
+  // and 178 identical empty boxes answer it worse than one band does.
+  //
+  // So: consecutive cues that are each below the gate and separated by less
+  // than MERGE_GAP_PX of daylight draw as a single band, with a hairline tick
+  // at every internal cue boundary. Nothing is merged that is not adjacent,
+  // no cue is invented or dropped, and the ticks keep the real shape visible
+  // — `ops._caption_cues` is still the only thing that decides what a cue is
+  // (this function's header rule). Both halves of the test are in PIXELS, so
+  // this is a statement about the zoom rather than about the film: zoom in
+  // and the runs come apart into the per-cue blocks again, each with its text.
+  const runs = [];
   for (const cue of captions.cues) {
+    const narrow = (cue.end - cue.start) * pxPerSec < LABEL_MIN_BLOCK_PX;
+    const open = runs.length ? runs[runs.length - 1] : null;
+    const joins =
+      open && open.narrow && narrow && (cue.start - open.end) * pxPerSec < MERGE_GAP_PX;
+    if (joins) {
+      open.end = cue.end;
+      open.cues.push(cue);
+    } else {
+      runs.push({ start: cue.start, end: cue.end, cues: [cue], narrow });
+    }
+  }
+
+  for (const run of runs) {
     const block = el("div", "clip-block");
-    const blockWidth = Math.max(1, (cue.end - cue.start) * pxPerSec);
-    block.style.left = `${(cue.start * pxPerSec).toFixed(1)}px`;
+    const blockWidth = Math.max(1, (run.end - run.start) * pxPerSec);
+    block.style.left = `${(run.start * pxPerSec).toFixed(1)}px`;
     block.style.width = `${blockWidth.toFixed(1)}px`;
-    // A cue is a *sentence* in a block a few pixels wide — this lane is where
-    // the truncation is worst (all 178 of the film's cues were 14-16px at
-    // zoom 1, one letter each). Same gate as the clip lanes, same tooltip
-    // holding the whole text.
-    if (blockWidth >= LABEL_MIN_BLOCK_PX) block.textContent = cue.text;
-    block.title = `${fmt(cue.start)}–${fmt(cue.end)} · ${cue.words.length} words\n${cue.text}`;
+
+    if (run.cues.length === 1) {
+      const cue = run.cues[0];
+      // Same gate as the clip lanes, same tooltip holding the whole text.
+      if (blockWidth >= LABEL_MIN_BLOCK_PX) block.textContent = cue.text;
+      block.title = `${fmt(cue.start)}–${fmt(cue.end)} · ${cue.words.length} words\n${cue.text}`;
+    } else {
+      block.classList.add("cc-band");
+      // The count, never the first cue's text: a band spans whole sentences
+      // and labelling it with one of them claims the others are it.
+      const words = run.cues.reduce((n, c) => n + c.words.length, 0);
+      if (blockWidth >= LABEL_MIN_BLOCK_PX) block.textContent = `${run.cues.length} lines`;
+      block.title = `${fmt(run.start)}–${fmt(run.end)} · ${run.cues.length} caption lines · ${words} words\nzoom in to read them`;
+      // Internal boundaries. The first cue's own start is the band's left
+      // edge and is already drawn by the border, so ticks begin at the second
+      // — and a tick is dropped unless it clears the last DRAWN one by
+      // TICK_MIN_GAP_PX. Without that gate the band is the barcode again in
+      // miniature: 73 cues across 559px is a hairline every 7.6px, which
+      // stops reading as "these are the boundaries" and starts reading as a
+      // texture. Spaced ticks say the same thing and the count in the label
+      // says the rest.
+      let lastTick = 0;
+      for (const cue of run.cues.slice(1)) {
+        const at = (cue.start - run.start) * pxPerSec;
+        if (at - lastTick < TICK_MIN_GAP_PX) continue;
+        lastTick = at;
+        const tick = el("div", "cc-cue-tick");
+        tick.style.left = `${at.toFixed(1)}px`;
+        block.append(tick);
+      }
+    }
+
     // A CueWord (captions.py) carries text/start/end only, no transcript word
     // index — grouping is a placed, styled derivation and does not keep one.
     // Nearest-by-time against the transcript's own words is the same
-    // approximation `nearestWordAt` already makes for a lane drag, applied to
-    // a cue's start instead of a click point.
-    block.addEventListener("click", () => {
+    // approximation `nearestWordAt` already makes for a lane drag. A band
+    // resolves the click to the cue actually under it first, so clicking one
+    // still inspects that line and not the run's first.
+    block.addEventListener("click", (event) => {
       if (!ctx || !lastState || !lastState.words) return;
+      const at = run.start + (event.offsetX || 0) / pxPerSec;
+      const cue = run.cues.find((c) => at < c.end) || run.cues[run.cues.length - 1];
       const word = nearestWordAt(lastState.words, cue.start);
       if (word) ctx.emit("inspect-word", { clipId: lastState.clip_id, wordIndex: word.index });
     });
@@ -2006,7 +2173,10 @@ function render() {
     return;
   }
 
-  const duration = Math.max(state.timeline_duration, 0.001);
+  // Read before the lanes are laid out, because the width they get laid out
+  // at has to be the width of everything they will draw — see contentDuration.
+  const captions = ctx ? ctx.getCaptions() : null;
+  const duration = contentDuration(state, captions);
   const pxPerSec = computePxPerSec(duration);
   currentPxPerSec = pxPerSec;
   laidOutWidth = lanes.clientWidth; // 0 while Edit is hidden — see the declaration
@@ -2021,7 +2191,7 @@ function render() {
   // not before step 5 (CLAUDE.md; PLAN.md § The layered timeline).
   // The captions are their own read model (/api/captions) — same edit, but
   // placed, grouped and styled, and none of those three are this file's to do.
-  const captions = ctx ? ctx.getCaptions() : null;
+  // (Read above, with the duration it also feeds.)
 
   const kinds = [];
   if (state.shots || state.shots_error) kinds.push("V2"); // topmost: the picture sits over the edit's own track
@@ -2029,6 +2199,12 @@ function render() {
   kinds.push("A1"); // always — the recording has audio even for a picture clip
   if (state.music || state.music_error) kinds.push("A2"); // only with a bed recorded — never a lane `export` does not mix
   if (state.words && state.words.length) kinds.push("CC"); // captions come out of the timeline (CLAUDE.md) — any transcript is enough to try
+
+  // Before any row is built: `laneHeightPx()` and each row's own
+  // `clientHeight` are read while building, so a lane height settled
+  // afterwards would draw this pass at the previous one's scale.
+  fitLaneHeight(kinds.length);
+  laidOutHeight = lanes.clientHeight;
 
   const waveformDraws = [];
   for (const kind of kinds) {
@@ -2217,6 +2393,22 @@ export function init(passedCtx) {
   window.addEventListener("resize", () => {
     if (lastState) render();
   });
+
+  // The pane's height changes without the window's: player.js hands the
+  // preview's unused height over by writing `--timeline-h`, and that fires no
+  // `resize` at all. Without this the lanes keep the height they were built
+  // at and the pane grows a band of empty space under them — which is the
+  // dead space simply relocated, the exact thing balancePanes exists to
+  // remove. Guarded on the height the way the `mode` listener below is
+  // guarded on the width, and for the same reason: render() repaints the
+  // waveform canvas and is not free.
+  const lanesBox = $("track-lanes");
+  if (lanesBox && typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      if (!lastState) return;
+      if (lanesBox.clientHeight !== laidOutHeight) render();
+    }).observe(lanesBox);
+  }
 
   // A pane's work rides being LOOKED AT, and this is the other half of that
   // rule: `frame.js` uses this event to avoid working while hidden, and this

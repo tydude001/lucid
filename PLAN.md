@@ -779,7 +779,7 @@ step — that constraint is inherited from § Non-goals and is not revisited.
 │            │   transport under it    │  feed + composer  │
 ├────────────┴─────────────────────────┴───────────────────┤
 │ ruler · zoom                                             │  timeline
-│ V1 ▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓▓▓                                  │  ~22vh
+│ V1 ▓▓▓▓│▓▓▓▓▓▓│▓▓▓▓▓▓▓▓                                  │  ≥22vh
 │ A1 ╫╫╫╫│╫╫╫╫╫╫│╫╫╫╫╫╫╫╫                                  │
 │ CC ──────────────────────────                            │
 └──────────────────────────────────────────────────────────┘

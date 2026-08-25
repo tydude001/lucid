@@ -288,6 +288,26 @@ absent optional capability is "unavailable", never a failure, and never moves
     be wrong. The view widens when the model does, never ahead of it.
     PLAN.md § Tier 3 is the goal. The picture lane (V2) is **drawn as of step
     6**, and only because step 5 made `export` able to render it.
+    - **Every lane lays out against `timeline.contentDuration`, and every
+      widen through it is `Number.isFinite`-guarded.** Each lane is a
+      different projection, so the last thing in one can end a few ms past
+      `state.timeline_duration` and draw past its own lane. The guard is the
+      load-bearing half: `Math.max(x, undefined)` is NaN, NaN survives every
+      later `Math.max`, and `computePxPerSec` answers a NaN duration with the
+      container's whole width **as pixels per second** — 442618px-wide lanes,
+      nothing thrown. (A shot carries `start` + `duration`, never `end`.)
+    - **A `.clip-block` cannot be used narrower than its own padding +
+      border**, border-box or not, so its horizontal padding is a floor on
+      every block's drawn width — at `2px 6px` a fifth of the film's A1
+      segments were drawn wider than their duration. Keep it small; the label
+      is unaffected, since text only draws at `LABEL_MIN_BLOCK_PX` and up.
+    - **The preview's unused height goes to the timeline, and both writers
+      compute absolutely, never by delta** — `player.js` § `balancePanes`
+      sets `--timeline-h`, `fitLaneHeight` grows `--lane-h` to fill it. Both
+      run on paths a resize triggers, so a delta version ratchets and can
+      never hand height back to a height-bound frame; and neither may take
+      more than the lanes can use, or the dead space is merely relocated.
+      HISTORY.md § The five defects behind "their UI looks cleaner".
   - **The palette lives once, as `light-dark()` in `app.css`'s `:root`, and
     JS must never read a colour token.** `getPropertyValue('--x')` returns
     literal `light-dark(…)` text, which `fillStyle` **silently ignores** —
@@ -372,6 +392,24 @@ absent optional capability is "unavailable", never a failure, and never moves
         expanded at none, and expanding one at 700px put the pane itself off
         a hidden edge. Enumerate the states a probe runs in the way widths
         are already enumerated.
+      - **And neither sweep looks at height, where `overflow: hidden` clips
+        in silence** — `#track-lanes` held 148px of lanes in a 143px box and
+        the CC lane lost its bottom edge, with no scrollbar to notice.
+        `scrollHeight > clientHeight` on a clipping box is the check. It is
+        `auto` + `scrollbar-gutter: stable` now, and the gutter is the
+        load-bearing half: a scrollbar that appears changes `clientWidth`,
+        which the fit-to-window px/sec was computed from, so the layout
+        invalidates its own input.
+      - **A synthetic `MouseEvent` carries `offsetX: 0` however you set
+        `clientX`, so a pointer-offset gesture dispatched from JS silently
+        resolves as if clicked at its left edge** — six positions across a
+        caption band returned the same cue six times and read exactly like
+        broken resolution. Real CDP input at the same points logs `offsetX`
+        27 and 530. Drive these with the harness or not at all — and diff the
+        section a gesture should have changed, never the whole document: the
+        same pass had a regex matching a stale value from elsewhere in a
+        4777-character pane. HISTORY.md § The five defects behind "their UI
+        looks cleaner".
   - **An author `display:` rule outranks the UA's `[hidden] { display: none }`,
     so `el.hidden = true` does nothing on its own.** Anything this file set
     toggles by `hidden` needs a companion `[hidden]` rule or it is drawn
@@ -396,12 +434,14 @@ absent optional capability is "unavailable", never a failure, and never moves
     the first fix reached one of the two toolbars and not the other.
     - **`clampFloating` MOVES a box; it cannot SHRINK one.** A panel taller
       than its container is pinned to the top with its own buttons hanging
-      off the bottom — measured at 218px inside a 143px `overflow: hidden`
-      box, Apply landing at y 920 of a 900px viewport, where
+      off the bottom — measured at 218px inside the 143px `#track-lanes` of
+      the day, Apply landing at y 920 of a 900px viewport, where
       `elementFromPoint` returns null. Hit-testable by a synthetic `.click()`
       and by nothing a person can do, which is exactly why nothing caught it
-      first. Cap the panel's own height instead. HISTORY.md § Direct
-      manipulation on the timeline.
+      first. Cap the panel's own height instead. (That box is now `auto` and
+      grows with the pane — a taller lane stack makes this fire less often
+      and does not retire the rule.) HISTORY.md § Direct manipulation on the
+      timeline.
       - **Its sibling: a new control spends the pane's height, out of the
         list below it.** The add-footage form left `#assets-list` 126px of
         613px, so the *second* clip's own button sat outside the scroll

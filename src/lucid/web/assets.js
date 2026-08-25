@@ -239,11 +239,43 @@ function buildClipRow(clip) {
     event.dataTransfer.effectAllowed = "copy";
   });
 
+  // A poster frame, on the same route the filmstrip already uses — one more
+  // caller of `/api/thumb`, never of `preview_path()` (CLAUDE.md: adding a
+  // third caller to that is the whole hole the split exists to prevent).
+  //
+  // This pane listed ten clips as `lsblk` output — a mono id, a mono metadata
+  // line and a six-cell ✓/– grid — with no picture of the footage anywhere in
+  // it, while the timeline two panes down was already drawing thumbnails of
+  // the same files. It costs no height, and that is measured rather than
+  // hoped for (CLAUDE.md § a new control spends the pane's height): the body
+  // beside it is 153px of id/meta/facts/roles/controls, so a 54px frame fits
+  // inside the row's existing height and every clip row stays at 189px —
+  // checked in a browser against the pre-change geometry, both 189.
+  //
+  // Two seconds in, not zero: a head frame is a fade-in on about half of real
+  // footage, and `/api/thumb` snaps `at=` to its own cache interval anyway, so
+  // a nudge off the head costs nothing and is the difference between a
+  // catalogue of black rectangles and one you can read.
+  const body = el("div", "asset-body");
+  if (clip.has_video) {
+    const thumb = document.createElement("img");
+    thumb.className = "asset-thumb";
+    thumb.alt = "";
+    thumb.loading = "lazy";
+    thumb.draggable = false;
+    thumb.src = `/api/thumb/${encodeURIComponent(clip.clip_id)}?at=${Math.min(2, (clip.duration || 4) / 2).toFixed(3)}`;
+    // Media missing from disk 400s the same way a filmstrip frame does; the
+    // row still has every fact on it, so this leaves no gap and says nothing.
+    thumb.addEventListener("error", () => thumb.remove());
+    row.append(thumb);
+  }
+  row.append(body);
+
   const id = el("div", "asset-id", clip.clip_id);
   if (lastView && lastView.clip_id === clip.clip_id) {
     id.append(el("span", "hint", "  · loaded"));
   }
-  row.append(id);
+  body.append(id);
 
   const dims = clip.width && clip.height ? `${clip.width}×${clip.height}` : null;
   const meta = [
@@ -255,7 +287,7 @@ function buildClipRow(clip) {
   ]
     .filter(Boolean)
     .join(" · ");
-  row.append(el("div", "asset-meta", meta || "no probe metadata"));
+  body.append(el("div", "asset-meta", meta || "no probe metadata"));
 
   // Two columns, read across then down, and the pairing is deliberate: the
   // two stream facts, then the two index facts, then what the file can do.
@@ -279,15 +311,15 @@ function buildClipRow(clip) {
   );
   facts.append(playableFact(clip));
   facts.append(cueFact(clip.cues));
-  row.append(facts);
+  body.append(facts);
 
-  row.append(roleChips(clip));
+  body.append(roleChips(clip));
 
   // Transcribe / Attach… only make sense before a transcript exists —
   // `clip.transcript` is `ops.assets`'s own live check
   // (`project.transcript_path(clip_id).is_file()`), not something this
   // file derives.
-  if (!clip.transcript) row.append(transcribeControls(clip));
+  if (!clip.transcript) body.append(transcribeControls(clip));
 
   return row;
 }

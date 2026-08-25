@@ -20,7 +20,17 @@
       <span class="brand serif-accent">lucid</span>
       <span class="sep">/</span>
       <span id="project" class="name">…</span>
-      <select id="clip" title="clip" aria-label="active clip"></select>
+      <!-- Wrapped so app.css can draw its own caret: a bare `<select>` in the
+           top bar was a stock OS widget 300px wide, sitting between a serif
+           wordmark and a set of custom pill buttons, and it read as the one
+           unfinished control in the chrome. The wrapper is what makes
+           `appearance: none` affordable — the caret it strips comes back as a
+           CSS-drawn `::after` on the wrapper rather than as a `data:`
+           background-image, which this page's `default-src 'self'` CSP would
+           block (see the export group's own note in app.css). -->
+      <span class="select-wrap">
+        <select id="clip" title="clip" aria-label="active clip"></select>
+      </span>
       <span class="stats">
         <b id="duration">–</b> timeline
         · <b id="segcount">–</b> segments

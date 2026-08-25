@@ -268,6 +268,68 @@ function canvasSize() {
   return canvas && canvas[0] > 0 && canvas[1] > 0 ? canvas : null;
 }
 
+/** Floors for the height trade below. The workspace one is the transcript's:
+ *  below ~420px it stops being a document and becomes a viewport onto one. */
+const WORKSPACE_MIN_H = 420;
+const BALANCE_DEADBAND_PX = 8;
+
+/** Give the preview's unused height to the timeline.
+ *
+ * `#viewer` is black on purpose — it is the letterbox around the canvas — but
+ * a letterbox is only honest as far as the picture's own shape demands. A
+ * 2.35:1 film in this pane is WIDTH-bound: the frame took 712x303 of a
+ * 712x613 box, so 51% of the largest pane in the window was black, above and
+ * below a picture that could not use it. Meanwhile the timeline underneath was
+ * clipping its own bottom lane for want of five pixels.
+ *
+ * So the surplus moves. The target is computed ABSOLUTELY rather than by
+ * adding a delta each pass — `wanted` is derived from the frame's own height
+ * every time — which is what makes it idempotent: a re-run with nothing
+ * changed computes the same number and the deadband stops the write. That
+ * matters because this runs inside layoutFrame, and layoutFrame is what a
+ * resize triggers; an incremental version would ratchet the timeline taller on
+ * every resize and could never give the height back to a 9:16 project, where
+ * the frame is height-bound and there is no surplus to take.
+ *
+ * The two floors are what keep it a trade rather than a takeover, and the
+ * whole thing is skipped until the canvas is known — before that the frame is
+ * `100%` of the box and its height is not a measurement of anything. */
+function balancePanes(viewerHeight, frameHeight) {
+  const workspace = $("workspace");
+  const timeline = $("timeline-pane");
+  if (!workspace || !timeline || workspace.hidden || timeline.hidden) return;
+  const workspaceH = workspace.getBoundingClientRect().height;
+  const timelineH = timeline.getBoundingClientRect().height;
+  if (!workspaceH || !timelineH) return;
+  // Everything in the preview pane that is not the picture — its head row and
+  // the transport — measured rather than assumed, so a control added to either
+  // is accounted for without touching this.
+  const chrome = workspaceH - viewerHeight;
+  const total = workspaceH + timelineH;
+  // Capped by what the timeline can actually USE. Handing it every spare
+  // pixel just moves the dead space one pane down: its lanes grow to
+  // `--lane-h-max` (timeline.js § fitLaneHeight) and stop, so anything past
+  // that is a band of empty pane. Read off the DOM — the lane count is a
+  // data question this file must not answer for itself, since which lanes
+  // exist depends on the project (V1 only with video, A2 only with a bed).
+  const lanes = document.getElementById("track-lanes");
+  const laneCount = lanes ? lanes.querySelectorAll(".lane").length : 0;
+  let wanted = total - (frameHeight + chrome);
+  if (lanes && laneCount) {
+    const style = getComputedStyle(document.documentElement);
+    const laneMax = parseFloat(style.getPropertyValue("--lane-h-max")) || 88;
+    const rulerH = parseFloat(style.getPropertyValue("--ruler-h")) || 22;
+    const timelineChrome = timelineH - lanes.clientHeight;
+    wanted = Math.min(wanted, timelineChrome + rulerH + laneCount * laneMax);
+  }
+  const target = Math.max(
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--timeline-h-min")) || 180,
+    Math.min(wanted, total - WORKSPACE_MIN_H),
+  );
+  if (Math.abs(target - timelineH) < BALANCE_DEADBAND_PX) return;
+  document.documentElement.style.setProperty("--timeline-h", `${Math.round(target)}px`);
+}
+
 function layoutFrame() {
   if (!frame) return;
   const viewer = $("viewer");
@@ -280,6 +342,7 @@ function layoutFrame() {
     const scale = Math.min(box.width / canvas[0], box.height / canvas[1]);
     frame.style.width = `${canvas[0] * scale}px`;
     frame.style.height = `${canvas[1] * scale}px`;
+    balancePanes(box.height, canvas[1] * scale);
   }
   place(media, mediaClip);
   place(pictureVideo, pictureAsset, pictureDest);

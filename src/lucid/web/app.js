@@ -440,6 +440,7 @@ function setChip(node, text, state, title) {
   node.textContent = text;
   node.classList.toggle("warn", state === "warn");
   node.classList.toggle("ok", state === "ok");
+  node.classList.toggle("unmeasured", state === "unmeasured");
   // The chip text is short by necessity — `#bar` has overflowed at 700px
   // once already — so anything that does not fit rides the tooltip. An
   // absent `title` is removed rather than left stale from a prior bundle.
@@ -524,10 +525,14 @@ on("finish-report", (bundle) => {
     captionLabel(bundle.captions),
     flagged.has("captions") ? "warn" : null,
   );
+  // Three states, not two. `bundle.framing` is null when nobody ran the scan
+  // — a distinct thing from a scan that found nothing, and the chip has to
+  // say which (CLAUDE.md § A blank chip where a warning would go). `warn`
+  // still comes only from the op's own flag.
   setChip(
     $("truth-framing"),
     framingLabel(bundle.framing),
-    flagged.has("framing") ? "warn" : null,
+    flagged.has("framing") ? "warn" : bundle.framing ? null : "unmeasured",
     bundle.framing
       ? null
       : "Frame mode measures this — the scan decodes every placed clip (5.7s on the film), so it is not run on every change",

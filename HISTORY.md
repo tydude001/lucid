@@ -11325,3 +11325,123 @@ redrawing the container a mousedown landed in loses the trailing click — that
 is not this case, since the click lands on `#mode-tab-edit` and the rebuild is
 in the lanes, but it is close enough that a lane click was driven afterwards
 rather than reasoned about. It still seeks: 0:09.9, `.w.playing` on `render`.
+
+## The five defects behind "their UI looks cleaner" — 2026-08-25
+
+Tyler, comparing lucid against daydreamvideo.com's homepage: the timeline
+"seems to have more features" and their screenshots "look cleaner". The first
+half is not true and the second half is, and separating them took serving the
+real film rather than reading either UI.
+
+**On features the two timelines are level.** Theirs, from the homepage's own
+editor mockups: V2/V1/A1/A2, ruler, waveform, clip thumbnails, filename
+labels, `hawaii_voiceover.wav`. Ours: V2/V1/A1/CC with the same, plus zoom,
+snap, razor and follow. What is actually missing is per-lane lock/visibility
+and clip *filename* labels — both deliberately held (DAYDREAM.md § Timeline)
+— and a Templates tab. Nothing was built for this section on the strength of
+the impression; the impression was about density.
+
+**The control that settled it: the same UI on the film instead of the demo.**
+`docs/img/edit-mode.png` is `make_demo.py`'s generated footage — flat orange
+and blue `color=` sources with a burnt-in counter — and `make_demo.py`'s own
+docstring has said the whole time that "real footage screenshots better".
+Served `~/lucid-final-cut/proj` at 1400x900 and shot it, and most of the gap
+closed on the media alone. What did not close is below; every number here was
+measured in the browser, not read off the source.
+
+1. **The CC lane drew 178 blocks and every one was empty.** The label gate
+   (`LABEL_MIN_BLOCK_PX`) is right — a sentence in 14px draws one letter — but
+   it traded illegible text for nothing, and 178 empty bordered boxes read as a
+   lane that failed to load. Runs of sub-gate cues now coalesce into one band
+   with a tick at each internal boundary and the *count* as its label (never
+   the first cue's text, which would claim the rest of the band is that
+   sentence). 178 blocks → 7 bands, 0 empty, and the gaps between them are the
+   thing a caption lane is for. Both halves of the test are in **pixels**
+   (`MERGE_GAP_PX`, `TICK_MIN_GAP_PX`), so it is a statement about the zoom:
+   zoom in and the per-cue blocks come back with their text. First cut drew a
+   tick per cue and was the barcode again in miniature — 73 hairlines across
+   559px — hence the tick spacing gate.
+
+2. **51% of the largest pane was black.** A 2.35:1 film is width-bound in the
+   preview: the frame took 712x303 of a 712x613 box. `player.js`'s
+   `balancePanes` hands the surplus to the timeline, computing the target
+   **absolutely** rather than by adding a delta — it runs inside `layoutFrame`,
+   which a resize triggers, so an incremental version would ratchet on every
+   resize and could never give the height back to a 9:16 project. Preview black
+   51% → 30%, timeline 198px → 293px.
+
+   Handing it *all* the surplus was the first version and it was wrong: the
+   lanes stayed 42px and the pane grew 188px of nothing underneath them, which
+   is the dead space relocated rather than removed. So `fitLaneHeight` grows
+   `--lane-h` to fill the pane (42 → 72), and `balancePanes` caps its ask at
+   what the lanes can use. `--lane-h-max` is 72 and not 88 because the height
+   comes out of the workspace row and the transcript and rail are in it — at 88
+   the assets list showed two clips of ten.
+
+3. **`overflow-y: hidden` on `#track-lanes` was clipping, not scrolling.** Four
+   lanes plus the ruler are 148px in a 143px box, so the CC lane lost its bottom
+   edge on every project the film's shape, and a fifth lane (A2) puts it 47px
+   over. Nothing reported it: there is no scrollbar to notice and the
+   page-level sweep does not look at `scrollHeight`. Now `auto` with
+   `scrollbar-gutter: stable`, so `clientWidth` no longer moves when a lane
+   appears and the fit computed from it cannot be invalidated by its own result.
+
+4. **The assets pane had no thumbnails at all** — 25 rows, zero `img`, while
+   the timeline two panes down was drawing filmstrips of the same files. It
+   goes through `/api/thumb` (never a third caller of `preview_path()`), at 2s
+   rather than 0s because a head frame is a fade-in on about half of real
+   footage. **It costs no height, and that is measured**: the body beside it is
+   153px of id/meta/facts/roles/controls, so a 54px frame fits inside the row's
+   existing height — 189px before, 189px after, checked against the pre-change
+   geometry in the browser. A first attempt also reflowed `.asset-facts` from
+   its deliberate 2x3 pairing into a wrapped row on the assumption the row had
+   grown; the measurement said it had not, and that change was reverted.
+
+5. **The truth strip had two states for three kinds of thing.** Bare `.chip` is
+   a stated fact, `.chip.ok` a verdict of zero, `.chip.warn` a finding — and
+   "framing — not scanned" is none of them. Drawn bare it sat between `total
+   5:42.3` and `1920x816` and read as a fourth measurement of the film;
+   drawn `.warn` it would claim a defect the op never found. `.chip.unmeasured`
+   is dashed and dim: provisional, still a link to the mode that would measure
+   it. `captions: unknown` stays amber, which STUDIO.md § step 01 specifies and
+   this section is not overruling.
+
+Also: the top bar's clip picker was a stock 300px `<select>` between a serif
+wordmark and a row of custom pills. `appearance: none` plus a caret drawn from
+two borders on a `.select-wrap` — app.css's export-group note says stripping a
+select "means a `data:` background-image" that the CSP blocks, which is true of
+the usual recipe and not of this one, since nothing here is an image.
+`#export-preset` deliberately keeps the native caret: inside the segmented
+control the label and shared border already do that job.
+
+### Three traps, all of which cost a pass
+
+- **`Math.max(x, undefined)` is NaN, and NaN survives every later `Math.max`.**
+  `contentDuration` widened by `shot.end`; a shot carries `start` + `duration`
+  and has no `end`. `computePxPerSec` answers a NaN duration with the
+  container's full width **as pixels per second**, so the film's lanes laid out
+  442618px wide with every caption block 2800px across — and nothing threw. The
+  guard is the fix, not the field name: every widen goes through a
+  `Number.isFinite` check now.
+- **A border-box width can never be used below its own padding + border.**
+  `.clip-block` had `padding: 2px 6px`, giving every block a 14px floor it
+  never asked for — 21 of the film's 63 A1 segments are under 14px, so a fifth
+  of the lane was drawn wider than its duration and the last one spilled past
+  the end of the lane. Halved to 3px (floor 8px); a label is unaffected,
+  since text only draws at 40px and up.
+- **A synthetic `MouseEvent` has `offsetX: 0`, whatever `clientX` you pass it.**
+  Dispatching one at six positions across a band returned the same cue six
+  times and looked exactly like broken resolution. Real CDP input at 5%/50%/95%
+  logs `offsetX` 27 and 530 and resolves to different cues. **Verify a
+  pointer-offset gesture with real input or not at all** — and the second half
+  of that pass: the observable was wrong too, a regex matching a stale "word 18"
+  from elsewhere in a 4777-character pane. Diff the section, not the document.
+
+Verified: page-level overflow sweep and scroll-container sweep clean at 1400 /
+1200 / 980 / 800 / 700px, and at 700px with the rail expanded — the state F2's
+own measurement missed. Edit, Frame and Finish all clean; console clean; both
+themes shot. Band click resolves to the cue under the pointer at 0ms and ~120ms
+dwell. `ruff check` clean (confirmed through `rtk proxy` — the bare `[]` is the
+filter). `check_timeline_width` still holds: it asserts ruler width equals
+`#track-lanes.clientWidth`, and `scrollbar-gutter: stable` makes that identity
+more reliable rather than less.
