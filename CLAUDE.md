@@ -160,15 +160,33 @@ absent optional capability is "unavailable", never a failure, and never moves
     `-> list[ContentBlock]` both answer `is_error` from a correct body. Assert
     on the raw `CallToolResult`: `test_server_stdio`'s `Client` reads
     `content[0]`, so a tool returning only its table passes.
-  - **`shot_sheet` returns the bytes; every other sheet returns a path, which
-    the agent panel cannot open** (`--tools ""` means no Read) — so
-    `contact_sheet` and `reframe_sheet` are unreachable from it, and
-    retrofitting them is open. `contact_sheet` is the first-look filmstrip of
-    one clip's *head*, a different op that shares a shelf in `ops.py`.
-    - **Cache the frame, never the tile**: a frame is `(asset, source second)`
-      and edit-invariant, a tile carries a timeline second any cut moves.
-      Downscaled, width in the filename, JPEG out — every number behind those
-      three in HISTORY.md § The shot sheet.
+  - **`shot_sheet` and `footage_sheet` return the bytes; every other sheet
+    returns a path, which the agent panel cannot open** (`--tools ""` means no
+    Read) — so `contact_sheet` and `reframe_sheet` are unreachable from it, and
+    retrofitting them is open. The pair is timeline vs *source*: `footage_sheet`
+    browses one registered clip and needs no edit, cues or transcript, which is
+    the point — it is for footage with nothing to search. `contact_sheet` is a
+    third thing, the first-look filmstrip of one clip's *head*.
+    - **Cache the frame, never the tile**: a frame is `(asset, source second)`,
+      edit- *and* sheet-invariant, so both sheets share `SHEET_FRAMES_DIR`; a
+      tile carries a label and a timeline second any cut moves. Downscaled,
+      width in the filename, JPEG out — HISTORY.md § The shot sheet.
+    - **`footage_sheet` defaults to a fixed interval; `scenes` is opt-in**, the
+      opposite of the obvious build. A scan's yield is uncorrelated with
+      anything the caller knows (0 cuts on a 29s b-roll loop, 17 in 60s of
+      gameplay — deaths, not shots), so on the continuous takes this op is for
+      it draws one tile at exit 0, and it decodes the whole clip besides
+      (`reframe_coverage`'s rule). The interval **is** `describe.WINDOW` and
+      calls `describe.plan_windows`: deriving the split by hand put the last
+      mark past the final frame and lost a tile silently.
+    - **A luma reading is meaningless without `media.MediaInfo.bit_depth`** —
+      `signalstats` reports on the source's own scale, so a 10-bit clip reads
+      YAVG 429 against its 8-bit neighbours' 26–132 and is not brighter; divide
+      by `2**bit_depth - 1` before comparing clips. `SHEET_BLANK_MAX` is the
+      only threshold on it and answers "is anything here", never "is this
+      dark": normalised brightness is continuous 0.104→0.48 across 70 sampled
+      frames with **no** gap to pin a line to, while YMAX separates black (16)
+      from the darkest real frame (127) by 8x. HISTORY.md § The footage sheet.
 - **`claude -p` stream-json output requires `--verbose`, and the
   allow/disallow-tools flags do not gate built-in tools.** Without
   `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in

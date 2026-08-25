@@ -11089,3 +11089,123 @@ same thing, so it moved to `graphics.montage` and both call it rather than a
 second hand-built invocation drifting on gutters and background. `quality` is
 passed through only when given — for JPEG it is the quantiser and for PNG a
 zlib/filter pair, so a default would silently re-encode `reframe_sheet`'s output.
+
+## The footage sheet — a browse of material with nothing to search — 2026-08-25
+
+`shot_sheet` (above) let an agent look at the **timeline**. This is the sequel
+the note beside it asked for: `footage_sheet` looks at a **source clip**, and
+it exists for the people lucid's transcript machinery cannot help at all — a
+GoPro dump, event coverage, gameplay, ambient b-roll. No dialogue, nothing for
+a word index to address. `describe` already indexes what is visible and
+`describe-ls` searches that text, so they can *find* a moment; neither can let
+the thing choosing **look** at one, and under the agent panel's `--tools ''` a
+path is not a look. PLAN.md § The footage sheet is the design note this built.
+
+Same channel, same geometry, same cache, same `[report, Image]` return, same
+`-> Any` annotation trap. What is new is the address, and the address is the
+part the note got half wrong.
+
+### Scene cuts are the wrong default, and the reason changed under measurement
+
+The note reasoned from the film's own footage — a 3.3x spread in cut density
+across three studio clips — that a scene scan would degrade to few tiles or
+none on the long continuous takes this op is for. It flagged that as its
+weakest claim, unmeasured, because the repo had no unedited footage. It does
+now: gameplay DVR captures, a 1070s screen capture and two ambient b-roll
+loops, all under `~/TheVaultData`, all genuinely uncut.
+
+    clip              duration   candidates   cuts>=0.15   one cut every
+    waves loop            18.8s        0            0          never
+    car loop              29.3s        2            0          never
+    streamlabs            25.5s        5            2           12.8s
+    cod dvr (a)           60.2s      322            9            6.7s
+    cod dvr (b)           60.1s      149           17            3.5s
+    screen capture      1070.0s      459           38           28.2s
+    s3-reveal (film)      55.0s        -           14            3.9s
+    s2022-reveal (film)  160.1s        -           62            2.6s
+    cold-open (film)     730.1s        -           85            8.6s
+
+The claim holds, and the reason it holds is not the one that was written down.
+**Yield is not merely sparse on continuous footage — it is uncorrelated with
+anything a caller knows in advance.** Density runs 0 to 23 cuts a minute, an
+unbounded spread rather than 3.3x, because the number measures how *edited* the
+material is. The b-roll loops return literally nothing, which `media.scene_cuts`'
+own docstring already calls a correct answer, so a cut-addressed sheet of 29s of
+usable footage is one tile. And in the other direction 60s of gameplay fires 17
+times — on deaths, respawns and spectate transitions, which are content changes
+but are not shots.
+
+So `scenes` is opt-in, `interval` is the default, and `auto` never reaches for a
+scan: it also decodes the whole clip (5.07s on 60s of gameplay), which is
+`reframe_coverage`'s rule about what may not ride a default. `auto` upgrades to
+`describe` where a clip has descriptions, because then the tile and the sentence
+share one address — the pairing the note argued for.
+
+### The interval is `describe`'s own planner, called rather than matched
+
+`FOOTAGE_SHEET_INTERVAL` **is** `describe.WINDOW`, and interval mode calls
+`describe.plan_windows` instead of deriving the same split. That was first
+written by hand and the hand version was wrong in a way nothing reported: a
+60.1s clip at a 10s interval got a seventh mark at 60.1s exactly, past the last
+frame, which ffmpeg refused — **7 marks, 6 tiles, exit 0**. `plan_windows`
+already solves it (equal windows, count rounded up, no remainder), and sharing
+it buys the property the note wanted anyway: a clip sheets to the same stretches
+before and after anyone describes it. The reply carries `interval` (drawn) beside
+`interval_asked`, because 60.1s asked for 10s tiles is seven of 8.586s.
+
+### A luma reading is meaningless without the source's bit depth
+
+The note's other open question was whether darkness belongs on a tile. Measuring
+it first said no in the form proposed and then said yes in a better one.
+
+`signalstats` reports on the **source's own scale**. The film's `s4-overexposed`
+measures YAVG 429 / YMAX 927 against every 8-bit clip's 26-132 / 127-255, and it
+is not four times brighter — it is `yuv420p10le`. An absolute floor would have
+called every 10-bit clip bright and shipped looking correct. `media.MediaInfo`
+gains `bit_depth` (additive with a default of 8, the `audio_streams` /
+`has_chapters` precedent), and every tile's `luma` carries `fraction` alongside
+the raw pair.
+
+Then the threshold itself. Seventy frames sampled across the film, the unedited
+corpus and a synthesised black control: **there is no gap between "dark" and
+"normal".** Normalised YAVG runs 0.104 to 0.48 continuously — 0.15 would mark
+14% of tiles and 0.18 would mark 25%, with nothing in the data preferring
+either, and the tile the note itself misread sits at 0.160 in the middle of
+ordinary footage. A "this tile is dark" line would have been picked, not pinned.
+
+What the same sample *does* show is a clean **8x gap on YMAX**: the black
+control reads 16, the darkest real frame in the corpus reads 127, and nothing
+lands between. So the answerable question is not "is this dim" but "is there
+anything here at all", which is also the question the note actually cared about
+— a black square in a montage is indistinguishable from a frame that failed to
+extract. `SHEET_BLANK_MAX` is 0.10 of scale, 1.6x above the control and 5x below
+the darkest real frame, deliberately nearer the control because a false `blank`
+tells an agent to disregard real footage. It draws `[blank]` **on the tile**, not
+only in the reply: the two halves of the result are read by different means, and
+the sentence that stops a model inventing content for a black square has to be
+in the square.
+
+### Frames are cached once for every sheet
+
+`_shot_sheet_frame` became `_sheet_frame` under `cache/sheets/frames/<asset>/`,
+shared. A frame is `(asset, source second)` and knows nothing about which sheet
+asked for it; the shot sheet's in-point and a footage sheet's interval mark land
+on the same second constantly. Tiles and montaged pages stay per-sheet, because
+those genuinely differ — a tile carries its own sheet's label. The luma rides a
+per-frame sidecar so a cache hit still has it, and a frame whose sidecar is
+missing is re-extracted rather than reported without one.
+
+### What it reads like
+
+Verified by reading the sheets back, not by counting tiles. 60s of gameplay in 7
+tiles carries the whole arc — revived, moving through a building, killed,
+spectating, match end — with no dialogue anywhere in the clip. A 1070s capture
+pages 107 marks into 5 pages of 24, labels legible throughout. The waves loop
+draws 2 tiles under `interval` and 1 under `scenes`, which is the measurement
+above made visible.
+
+It also reproduced the note's *second* predicted defect on real material: eight
+near-identical tiles across an 80s stretch where the screen did not change. Even
+spacing spends tiles on stillness. That is the standing cost of the robust
+default, not a bug in it, and the fix if one is ever wanted is the content-aware
+address — which is what `describe` mode already is.

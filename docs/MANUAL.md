@@ -306,6 +306,46 @@ makes a re-used shot legible at a glance.
 **What it shows is a hypothesis, not a check.** Confirm anything you notice
 with something that measures — `black`, `check-frames`, `verify`, `film-check`.
 
+## Looking at footage you have not cut yet
+
+`shot-sheet` needs an edit. `footage-sheet` does not — it browses one
+registered clip's own footage, and it is for material with nothing to search:
+recordings, gameplay, event coverage, b-roll. No dialogue, no subtitles,
+nothing for a transcript to address. `describe` and `describe-ls` can already
+*find* a moment in that footage by text; this is how you look at one.
+
+```sh
+lucid -C myproject footage-sheet gopro-04              # every 10 seconds
+lucid -C myproject footage-sheet gopro-04 --page 2     # a long recording
+lucid -C myproject footage-sheet gopro-04 --interval 30
+lucid -C myproject footage-sheet gopro-04 --mode scenes
+```
+
+`--mode` picks which instants get drawn, and the default is deliberately the
+boring one:
+
+- `auto` (default) — described windows if the clip has any, otherwise the
+  interval. It never scans for cuts.
+- `interval` — every `--interval` seconds, defaulting to `describe`'s own 10s
+  window so a clip draws the same stretches before and after you describe it.
+  The stretches are equal with no remainder, so the spacing actually drawn can
+  be slightly under what you asked for; the reply reports both.
+- `describe` — one tile per described window, each row carrying that window's
+  own text. This is the pairing worth having: the tile and the sentence are
+  about the same ten seconds.
+- `scenes` — one tile per detected cut. **Rarely what you want.** On genuinely
+  continuous footage there are no cuts, so you get one tile; on gameplay it
+  fires on deaths and respawns, which are not shots. It also decodes the whole
+  clip, which costs seconds a page does not.
+
+Each row carries a `luma` reading, and a tile with nothing in it is marked
+`[blank]` on the picture itself — so a black square is never mistaken for a
+frame that failed to extract.
+
+This is the sheet read in order to *choose* footage, so the rule above binds
+hardest here: a tile is a hypothesis. `synopsis` is where you say what a clip
+**is**; a tile shows what the camera saw, which is a different fact.
+
 ## Speech overlap
 
 Before laying a clip's own audio over the VO, `speech-overlap` checks whether

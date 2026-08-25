@@ -4392,10 +4392,13 @@ should ever gate on what a model said it saw.
 
 ## The footage sheet — the design note — 2026-08-24
 
-**Nothing is built. This note stops for review.** It is the sequel to the note
-above, written the same day the sheet it depends on shipped (HISTORY.md § The
-shot sheet). Read that one first: the channel, the tile size, the paging and the
-label format are settled there and are not re-argued here.
+**Built as `footage_sheet` — what it turned into, and the two claims
+measurement overturned, are HISTORY.md § The footage sheet.** Kept for the
+reasoning, which held, and for the addressing table, which did not survive
+contact with real unedited footage and is corrected there. It is the sequel to
+the note above (HISTORY.md § The shot sheet); read that one first, since the
+channel, the tile size, the paging and the label format are settled there and
+are not re-argued here.
 
 **The question it answers** is the one lucid's wordless-footage users have and
 its own dogfood film does not. `describe` indexes what is *visible* in a clip in
@@ -4417,9 +4420,9 @@ the candidates, instead of choosing from prose about them.
 `shot_sheet` sheets **the timeline** — one tile per shot of the picture track,
 addressed through the cue table. Every part of it except the address
 generalises. What a footage sheet needs is a different answer to *which
-instants of which clip*, and nothing else: the same `_shot_sheet_frame`
-caching, the same `_shot_sheet_tile` band, the same `graphics.montage`, the
-same `[report, Image]` return.
+instants of which clip*, and nothing else: the same frame caching (now shared
+as `_sheet_frame`), the same `_sheet_tile` band, the same `graphics.montage`,
+the same `[report, Image]` return.
 
 `contact_sheet` (the first-look filmstrip, HISTORY.md § Import strips a chapter
 list) is not this and does not grow into it. Its `seconds` knob does open the
@@ -4448,10 +4451,12 @@ note is for has the opposite: long continuous takes, where a scene scan returns
 few tiles or none, and `media.scene_cuts`' own docstring already says an empty
 list is a real answer meaning one continuous shot. **A default that degrades to
 one tile on precisely the material it was built for is the wrong default.**
-This is the note's least-settled claim — it is reasoned from the measured
-spread plus the scan's own contract, and it is *not* measured on real unedited
-footage, because there is none in this repo. **Measuring it on one real
-phone or camera recording is the first thing to do before building.**
+
+**Measured 2026-08-25 on real unedited footage, and the conclusion held while
+the reasoning behind it did not.** Yield is not sparse on continuous material,
+it is *uncorrelated with anything a caller knows* — 0 cuts on a 29s b-roll
+loop, 17 in 60s of gameplay, 38 in 1070s of screen capture. The table there
+supersedes this one: HISTORY.md § The footage sheet.
 
 **Fixed interval is the robust default** — it needs no describe run, no scan
 and no cue table, and it works identically on a continuous take and a trailer.
@@ -4514,22 +4519,22 @@ something forms a hypothesis about what footage to use. Nothing may gate on it,
 and `synopsis` remains the place a human says what a clip *is* — a sheet shows
 what a camera saw, which is a different fact and not a replacement for it.
 
-### Open, for the review this note stops for
+### What the review settled
 
-- **Whether it is a mode of `shot_sheet` or its own op.** One tool with
-  `clip_id` switching it from timeline to source is fewer names; two ops are
-  two clear contracts. The lean is a separate `footage_sheet`, because the
-  paging unit differs (shots vs. seconds) and a `page` that means two things is
-  the `src_pin`/`src_start` collision again.
-- **Whether a sheet may span clips.** "Show me every clip's 30s mark" is a real
-  browse gesture and is a different address again.
-- **Whether the darkness number belongs in this note's build or the shot
-  sheet's.** It is the same gap in both — `shot_sheet` ships today discarding
-  the signalstats it already gets — and the shot sheet is where a black tile
-  is most consequential, since `check_black` is a real finding about a film.
-- **Whether a describe-window sheet should carry the description text.** It is
-  the pairing the note argues for, and it costs the tool result's text half
-  becoming large — 74 windows of prose for `cold-open`.
+- **Its own op, per the lean**, because the paging unit differs. Both sheets
+  share the frame cache, the tile band and the montage; only the address is new.
+- **The luma went into the *shared* helper, so both sheets carry it**, which was
+  the open question's own argument. What it became is not a darkness number —
+  the data has no dark/normal boundary to pin one to, and it does have a clean
+  one for "there is nothing here". HISTORY.md § The footage sheet.
+- **A describe-addressed tile carries its window's `text` in the reply and not
+  on the picture.** The band holds a line, and a description truncated to fit is
+  worse than one the caller reads whole. The cost the note worried about is
+  real and is what `page` is for: 74 windows of prose for `cold-open` arrives
+  24 at a time.
+
+Still open: **whether a sheet may span clips.** "Show me every clip's 30s mark"
+is a real browse gesture and is a different address again.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 

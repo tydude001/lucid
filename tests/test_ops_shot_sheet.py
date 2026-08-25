@@ -121,7 +121,10 @@ def test_frames_cache_under_the_asset_and_carry_the_tile_width(project: Project)
     """
     ops.shot_sheet(project.root)
 
-    cached = sorted((project.root / ops.SHOT_SHEET_DIR / "footage").glob("*.png"))
+    # Under `SHEET_FRAMES_DIR`, not this sheet's own directory: a source frame
+    # is `(asset, source second)` and knows nothing about which sheet asked
+    # for it, so `footage_sheet` and `shot_sheet` share one copy.
+    cached = sorted((project.root / ops.SHEET_FRAMES_DIR / "footage").glob("*.png"))
     assert cached, "no frame was cached under the asset"
     for frame in cached:
         assert frame.name.endswith(f"@{ops.SHOT_SHEET_TILE}.png")

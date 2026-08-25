@@ -91,3 +91,38 @@ def test_original_media_path_keeps_the_mixdown() -> None:
     }
 
     assert media.original_media_path(project, clip) == project.root / "cache/mixed/c1.mkv"
+
+
+def test_bit_depth_reads_the_field_then_the_pixel_format() -> None:
+    """A luma reading is meaningless without this, so it is pinned per format.
+
+    `signalstats` reports on the source's own scale: the film's
+    `s4-overexposed` measures YAVG 429 against its 8-bit neighbours' 26-132
+    and is 10-bit, not brighter. Every path is exercised because the regex
+    branch was dead until it was not — `bits_per_raw_sample` covered the only
+    10-bit clip in the repo, and the fallback carried a group-lookup bug that
+    no probe of real media would have reached.
+
+    `p010le`/`p016le` earn their own pattern: they are what hardware encoders
+    emit, which is phone and action-cam footage.
+    """
+    assert media._bit_depth(None) == 8
+    assert media._bit_depth({}) == 8
+    assert media._bit_depth({"pix_fmt": None}) == 8
+
+    # The field wins where ffprobe reports one.
+    assert media._bit_depth({"bits_per_raw_sample": "10", "pix_fmt": "yuv420p"}) == 10
+    # ...and a junk field falls through rather than raising.
+    assert media._bit_depth({"bits_per_raw_sample": "weird", "pix_fmt": "yuv420p10le"}) == 10
+
+    for fmt, depth in (
+        ("yuv420p", 8),
+        ("rgb24", 8),
+        ("yuv420p10le", 10),
+        ("yuva420p10le", 10),
+        ("yuv422p12be", 12),
+        ("gbrp16le", 16),
+        ("p010le", 10),
+        ("p016le", 16),
+    ):
+        assert media._bit_depth({"pix_fmt": fmt}) == depth, fmt

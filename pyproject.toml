@@ -1,6 +1,6 @@
 [project]
 name = "lucid"
-version = "0.17.0"
+version = "0.18.0"
 description = "Open-source, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
 readme = "README.md"
 license = "LicenseRef-PolyForm-Shield-1.0.0"

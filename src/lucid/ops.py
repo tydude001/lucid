@@ -4217,6 +4217,16 @@ def contact_sheet(
 #: shorter than one bucket would be drawn from a second inside a different
 #: shot, which is the one thing this sheet must never do.
 SHOT_SHEET_DIR = "cache/sheets/shots"
+FOOTAGE_SHEET_DIR = "cache/sheets/footage"
+
+#: Extracted source frames, shared by **every** sheet rather than sat under
+#: one of them. A frame is addressed `(asset, source second)` and that address
+#: knows nothing about which sheet asked for it — the shot sheet's in-point and
+#: a footage sheet's interval mark land on the same second constantly, and
+#: caching that frame twice would be paying twice to store the same picture
+#: under two names. The tiles and the montaged pages stay per-sheet, because
+#: those *do* differ: a tile carries its own sheet's label.
+SHEET_FRAMES_DIR = "cache/sheets/frames"
 
 #: Four across, and about two dozen a page. Both are the model's own image
 #: handling rather than a file-size limit: vision downscales anything past
@@ -4244,16 +4254,62 @@ SHOT_SHEET_POINTSIZE = 15
 #: the one place the artefacts would compound.
 SHOT_SHEET_QUALITY = 88
 
+#: A tile is `blank` when its brightest pixel is under this fraction of full
+#: scale — measured, and it is the *only* luma threshold here, because it is
+#: the only one the data supports. Sampling 70 frames across the film, real
+#: unedited gameplay/capture and ambient b-roll (2026-08-25) found **no gap at
+#: all** between "dark" and "normal": normalised YAVG runs 0.104 → 0.48 with
+#: nothing missing in the middle, so any "this tile is dark" line would be
+#: picked rather than pinned, and at a plausible 0.18 it would mark a quarter
+#: of every sheet. What the same sample *does* show is a clean 8x gap on YMAX
+#: — a synthesised black frame reads 16 while the darkest real frame in the
+#: corpus reads 127 — so "there is nothing in this tile" is answerable and
+#: "this tile is dim" is not. 0.10 of scale sits 1.6x above the black control
+#: and 5x below the darkest real frame, deliberately nearer the control: a
+#: false `blank` tells an agent to disregard real footage, which is the more
+#: expensive direction to be wrong in. PLAN.md § The footage sheet.
+SHEET_BLANK_MAX = 0.10
 
-def _shot_sheet_frame(project: Project, row: dict[str, Any], at: float) -> Path:
-    """Extract (or reuse) one tile's source frame for `row`.
+#: What a blank tile says on its label. It is on the picture rather than only
+#: in the reply because the reply's two halves are read by different means:
+#: whatever is looking at the sheet sees a black square, and the sentence that
+#: stops it inventing content for one has to be in the square.
+_BLANK_MARK = "[blank]"
 
-    **Keyed by `row["asset"]`, never `row["clip_id"]`.** A shot's addressing
-    clip is the transcript the cue hangs on — `"vo"` on this repo's own film —
-    and its *footage* is `asset`; reaching for `clip_id` here fetches the
-    wrong file or none at all (CLAUDE.md, and the filmstrip draft that made
-    exactly this mistake). `asset_path` is already resolved by
-    `_resolve_asset`, so nothing here re-resolves media.
+
+def _sheet_luma(stats: dict[str, float], scale: float) -> dict[str, Any]:
+    """One tile's luma, normalised so two clips can be compared.
+
+    **`signalstats` reports on the source's own scale**, so the raw numbers
+    are not comparable between an 8-bit and a 10-bit clip: the film's
+    `s4-overexposed` measures YAVG 429 against its neighbours' 26–132 and is
+    not four times brighter, it is 10-bit (`media.MediaInfo.bit_depth`).
+    `fraction` is the comparable figure; `avg`/`max` ride along raw because a
+    number ships with whatever explains it, and because they are what a
+    person re-measuring this with ffmpeg would see.
+    """
+    avg = stats.get("YAVG")
+    top = stats.get("YMAX")
+    return {
+        "avg": None if avg is None else round(avg, 2),
+        "max": None if top is None else round(top, 2),
+        "scale": scale,
+        "fraction": None if avg is None else round(avg / scale, 4),
+        "blank": top is not None and top <= scale * SHEET_BLANK_MAX,
+    }
+
+
+def _sheet_frame(
+    project: Project, *, asset: str, source: Path, at: float
+) -> tuple[Path, dict[str, Any]]:
+    """Extract (or reuse) one tile's source frame, with its luma.
+
+    **Keyed by the footage's own asset key, never an addressing clip_id.** A
+    shot's addressing clip is the transcript the cue hangs on — `"vo"` on this
+    repo's own film — and its *footage* is `asset`; reaching for `clip_id`
+    here fetches the wrong file or none at all (CLAUDE.md, and the filmstrip
+    draft that made exactly this mistake). Callers hand in an already-resolved
+    `source`, so nothing here re-resolves media.
 
     Containment is `thumbnail()`'s, deliberately without being built on it:
     the frame is written under `cache/`, never enters the manifest, and is
@@ -4280,34 +4336,55 @@ def _shot_sheet_frame(project: Project, row: dict[str, Any], at: float) -> Path:
     re-import under the same `clip_id` would be drawn as the old footage
     indefinitely — a sheet is *evidence*, so serving a stale one is worse here
     than anywhere else this cache pattern is used.
+
+    **The luma sidecar is part of the frame, not an extra**: `extract_frame`
+    measures the frame it writes in the same ffmpeg call, and a cache hit
+    would otherwise hand back a picture with its measurement thrown away. A
+    frame whose sidecar is missing is re-extracted rather than reported
+    without one — half the evidence silently is the failure this whole cache
+    is careful about. The source's bit depth is probed once per asset and
+    kept in `_source.json`, since it can only change when the media does.
     """
-    source = Path(row["asset_path"])
     # `card:` and `/` both appear in an asset key; neither may become a path
     # separator or a parent hop in the cache layout.
-    slug = re.sub(r"[^A-Za-z0-9._-]", "_", str(row["asset"]))
-    dest = project.root / SHOT_SHEET_DIR / slug
-    frame = dest / f"{round(at * 1000)}@{SHOT_SHEET_TILE}.png"
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", str(asset))
+    dest = project.root / SHEET_FRAMES_DIR / slug
+    stem = f"{round(at * 1000)}@{SHOT_SHEET_TILE}"
+    frame = dest / f"{stem}.png"
+    sidecar = dest / f"{stem}.json"
 
     stat = source.stat()
     key = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     key_path = dest / "_source.json"
     fresh = False
+    scale: float | None = None
     if key_path.is_file():
         try:
-            fresh = json.loads(key_path.read_text(encoding="utf-8")) == key
-        except (OSError, json.JSONDecodeError):
+            stored = json.loads(key_path.read_text(encoding="utf-8"))
+            fresh = all(stored.get(name) == value for name, value in key.items())
+            scale = float(stored["scale"]) if stored.get("scale") else None
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
             fresh = False
-    if fresh and frame.is_file():
-        return frame
+    if fresh and scale and frame.is_file() and sidecar.is_file():
+        try:
+            return frame, _sheet_luma(json.loads(sidecar.read_text(encoding="utf-8")), scale)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    if scale is None or not fresh:
+        scale = float(2 ** media.probe(source).bit_depth - 1)
 
     frame.parent.mkdir(parents=True, exist_ok=True)
     # The full-resolution frame is scratch, so it goes to a temporary
     # directory rather than into `cache/`. `/tmp` is safe here precisely
     # because melt is not involved — ffmpeg and magick are host binaries, and
     # it is melt's flatpak alone that cannot see it (CLAUDE.md).
-    with tempfile.TemporaryDirectory(prefix="lucid-shot-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="lucid-sheet-") as tmp:
         full = Path(tmp) / "full.png"
-        picture.extract_frame(source, at, full)
+        # The luma is measured on the frame ffmpeg is writing here, at the
+        # source's own resolution and depth — not on the downscaled tile,
+        # which magick has resampled.
+        stats = picture.extract_frame(source, at, full)
         command = [
             *graphics.magick_command(), str(full),
             "-resize", f"{SHOT_SHEET_TILE}x",
@@ -4316,15 +4393,16 @@ def _shot_sheet_frame(project: Project, row: dict[str, Any], at: float) -> Path:
         done = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
         if done.returncode != 0 or not frame.is_file():
             raise graphics.GraphicsError(
-                f"magick could not downscale the frame for {row['asset']!r}: {done.stderr[-800:]}"
+                f"magick could not downscale the frame for {asset!r}: {done.stderr[-800:]}"
             )
-    # Written after the frame, never before: a key file ahead of the thing it
-    # vouches for would mark a failed extraction fresh.
-    key_path.write_text(json.dumps(key), encoding="utf-8")
-    return frame
+    sidecar.write_text(json.dumps(stats), encoding="utf-8")
+    # Written after the frame and its sidecar, never before: a key file ahead
+    # of the things it vouches for would mark a failed extraction fresh.
+    key_path.write_text(json.dumps({**key, "scale": scale}), encoding="utf-8")
+    return frame, _sheet_luma(stats, scale)
 
 
-def _shot_sheet_tile(frame: Path, label: str, tile: Path) -> None:
+def _sheet_tile(frame: Path, label: str, tile: Path) -> None:
     """Draw one labelled tile from an extracted frame.
 
     The label rides a spliced band **below** the picture, so it can never
@@ -4411,6 +4489,7 @@ def shot_sheet(
             "tiles": [],
             "count": 0,
             "drawn": 0,
+            "blank": 0,
             "shots": 0,
             "page": page,
             "pages": 0,
@@ -4430,10 +4509,14 @@ def shot_sheet(
         at = 0.0 if row.get("is_image") else float(row.get("src_start") or 0.0)
         label = f"{row['asset']} t={row['start']:.1f}s src={at:.1f}s"
         try:
-            frame = _shot_sheet_frame(project, row, at)
+            frame, luma = _sheet_frame(
+                project, asset=row["asset"], source=Path(row["asset_path"]), at=at
+            )
+            if luma["blank"]:
+                label = f"{label} {_BLANK_MARK}"
             tile = dest_dir / "tiles" / f"{index:04d}.png"
             tile.parent.mkdir(parents=True, exist_ok=True)
-            _shot_sheet_tile(frame, label, tile)
+            _sheet_tile(frame, label, tile)
         except (picture.PictureError, graphics.GraphicsError, OSError) as exc:
             # One unreadable moment is not a reason to throw the other
             # twenty-three away — `describe_windows`' rule, for the same
@@ -4456,6 +4539,7 @@ def shot_sheet(
                 "duration": round(float(row["duration"]), 3),
                 "is_image": bool(row.get("is_image")),
                 "frame": str(frame),
+                "luma": luma,
             }
         )
 
@@ -4480,12 +4564,281 @@ def shot_sheet(
         # be counted off `tiles` because "24 tiles" silently implying 24
         # pictures is exactly the shape a partial sheet must not have.
         "drawn": len(drawn),
+        # Tiles with nothing in them. A finding about the *film* rather than
+        # about the sheet — `check_black`'s subject — and reported here only
+        # because these frames were decoded anyway.
+        "blank": sum(1 for t in tiles if t.get("luma", {}).get("blank")),
         # Every shot in the picture track, so a page of 24 out of 38 reads as
         # "there is more" rather than as the whole film.
         "shots": len(shots),
         "page": page,
         "pages": pages,
         "per_page": per_page,
+    }
+
+
+#: How a footage sheet decides which instants to draw, and why the default is
+#: not the interesting-sounding one. Measured 2026-08-25 across the film's own
+#: cut footage and, for the first time in this repo, real *unedited* material
+#: — gameplay DVR, a 1070s screen capture, two ambient b-roll loops:
+#:
+#:     clip              duration   cuts>=0.15   one cut every
+#:     waves loop            18.8s        0            never
+#:     car loop              29.3s        0            never
+#:     cod dvr               60.1s       17             3.5s
+#:     capture             1070.0s       38            28.2s
+#:     s2022-reveal (film)  160.1s       62             2.6s
+#:
+#: **A scene scan's yield is uncorrelated with anything a caller knows in
+#: advance.** Cut density spans 0 to 23 a minute — not the 3.3x spread the
+#: film alone showed but an unbounded one, because it measures how *edited*
+#: the material is. On the continuous takes this sheet exists for it returns
+#: nothing at all, which `media.scene_cuts`' own contract says is a correct
+#: answer and which makes a sheet of zero tiles; on 60s of gameplay it fires
+#: 17 times at deaths and respawns, which are not shots. So `scenes` stays
+#: opt-in, and the default is the address that yields the same tiles-per-
+#: minute on every clip alive. PLAN.md § The footage sheet.
+FOOTAGE_SHEET_MODES = ("auto", "interval", "describe", "scenes")
+
+#: The default interval **is** `describe`'s window, and deliberately the same
+#: number rather than a second one that happens to be near it. It makes the
+#: two addresses commensurable: `interval` is what `describe` would have
+#: indexed had anyone run it, so a clip sheets to the same tiles before and
+#: after being described, and a page means the same span of footage either
+#: way. A separate constant here would drift from `describe.WINDOW` the first
+#: time one of them was tuned.
+FOOTAGE_SHEET_INTERVAL = dsc.WINDOW
+
+
+def _footage_marks(
+    project: Project,
+    clip: dict[str, Any],
+    source: Path,
+    *,
+    mode: str,
+    interval: float,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    """Which source seconds this clip gets a tile at, and how they were chosen.
+
+    Returns the mode actually used, the marks, and whatever the choosing cost
+    or noticed. `auto` prefers describe windows and falls back to the
+    interval; it never reaches for `scenes`, because a scan is the one address
+    here that decodes the whole clip and a default must not do that
+    (`reframe_coverage`'s rule, and `frame.js`'s breach of it).
+    """
+    duration = float(clip["duration"])
+    described = [d for d in _descriptions(project) if d["clip_id"] == clip["clip_id"]]
+    notes: dict[str, Any] = {"described_windows": len(described)}
+
+    if mode == "auto":
+        mode = "describe" if described else "interval"
+
+    if mode == "describe":
+        if not described:
+            raise ProjectError(
+                f"clip {clip['clip_id']!r} has no descriptions to sheet — run "
+                f"`lucid describe {clip['clip_id']}` first, or ask for "
+                "--mode interval, which needs nothing"
+            )
+        described.sort(key=lambda d: d["src_start"])
+        # The middle of the window, not its start: a description is about the
+        # whole 10s and its first frame is the one most likely to still be the
+        # previous window's subject.
+        marks = [
+            {
+                "at": min(duration, (float(d["src_start"]) + float(d["src_end"])) / 2),
+                "src_start": round(float(d["src_start"]), 3),
+                "src_end": round(float(d["src_end"]), 3),
+                "text": d["text"],
+            }
+            for d in described
+        ]
+        return mode, marks, notes
+
+    if mode == "scenes":
+        started = time.monotonic()
+        cuts = media.scene_cuts(source)
+        notes["scan_seconds"] = round(time.monotonic() - started, 2)
+        notes["candidates"] = len(cuts)
+        at = [c["src_time"] for c in cuts if c["score"] >= SCENE_THRESHOLD]
+        # The head is not a cut and is always the start of a shot, so without
+        # it a clip's opening is the one stretch a cut-addressed sheet never
+        # draws — and on a continuous take it would be the only tile there is.
+        marks = [{"at": 0.0}] + [{"at": t} for t in at if t > 0.0]
+        return mode, marks, notes
+
+    # `describe`'s own planner, called rather than re-derived: equal windows
+    # with the count rounded up, so there is never a remainder. That is what
+    # makes the two addresses commensurable — a clip sheets to the same
+    # stretches before and after anyone describes it — and it is also what
+    # keeps the last mark off the end of the file. Deriving the same split by
+    # hand put a 7th mark on a 60.1s clip at 60.1s exactly, which is past the
+    # last frame, and ffmpeg refused it: 7 marks, 6 tiles, at exit 0.
+    marks = [
+        {
+            "at": (start + end) / 2,
+            "src_start": round(start, 3),
+            "src_end": round(end, 3),
+        }
+        for start, end in dsc.plan_windows(duration, window=interval)
+    ]
+    return mode, marks, notes
+
+
+def footage_sheet(
+    path: Path | str,
+    clip_id: str,
+    *,
+    mode: str = "auto",
+    interval: float = FOOTAGE_SHEET_INTERVAL,
+    page: int = 0,
+    per_page: int = SHOT_SHEET_PER_PAGE,
+    out: str | None = None,
+) -> dict[str, Any]:
+    """One labelled tile per moment of a clip's own footage — a browse, not a cut.
+
+    PLAN.md § The footage sheet. `shot_sheet` sheets the **timeline**, which
+    is addressed through the cue table and so exists only once there is an
+    edit. This sheets a **source clip**, and the question it answers belongs
+    to the people lucid's transcript machinery cannot help at all: a GoPro
+    dump, event coverage, gameplay — no dialogue, nothing for a word index to
+    address. `describe` already indexes what is visible and `describe-ls`
+    searches that text, so they can *find* a moment; what neither can do is
+    let the thing choosing **look** at it. The find is a text match and the
+    confirm was a path, which under the agent panel's `--tools ''` is no
+    confirm at all.
+
+    That gap is measured rather than supposed: against 25 human picks the
+    description index agreed 2 times and the clips' own filenames 3
+    (HISTORY.md § Choosing the b-roll). The conclusion drawn then — that a
+    better `describe` prompt is the wrong fix and a reader should choose —
+    points here once a reader can see.
+
+    **`interval` is the default address and `scenes` is opt-in**, which is the
+    opposite of the obvious build; `FOOTAGE_SHEET_MODES` carries the
+    measurement. `auto` upgrades to `describe` where a clip has descriptions,
+    because then a tile and a description share one address and the sheet's
+    two halves are about the same 10 seconds — the pairing this whole op is
+    for. It never picks `scenes`: that address decodes the entire clip.
+
+    **A reading is an opinion, not a check** — `reframe_sheet`'s standing rule,
+    and it binds hardest here, because this sheet's whole purpose is to inform
+    a *choice* of footage. Nothing gates on a tile. `synopsis` remains where a
+    person says what a clip **is**, which is a different fact from what a
+    camera saw and is not replaced by one.
+    """
+    if per_page < 1:
+        raise ProjectError(f"a page holds at least one tile, not {per_page}")
+    if page < 0:
+        raise ProjectError(f"page is counted from 0, not {page}")
+    if mode not in FOOTAGE_SHEET_MODES:
+        raise ProjectError(f"mode is one of {', '.join(FOOTAGE_SHEET_MODES)}, not {mode!r}")
+    if interval <= 0:
+        raise ProjectError(f"an interval is a positive number of seconds, not {interval}")
+
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    if not clip.get("has_video"):
+        raise ProjectError(
+            f"clip {clip_id!r} has no video track, so there is nothing to look "
+            "at — a sheet draws pictures, not dialogue. Its words are what "
+            "`transcribe` indexes."
+        )
+    # `media_path`, never `preview_path`: a proxy is downscaled and a sheet
+    # drawn off one shows a preview encode and calls it the footage. That
+    # split is the containment and this must not become its third caller
+    # (CLAUDE.md).
+    source = media.media_path(project, clip)
+
+    used, marks, notes = _footage_marks(
+        project, clip, source, mode=mode, interval=float(interval)
+    )
+
+    pages = max(1, ceil(len(marks) / per_page)) if marks else 0
+    window = marks[page * per_page : (page + 1) * per_page]
+
+    tiles: list[dict[str, Any]] = []
+    drawn: list[Path] = []
+    dest_dir = project.root / FOOTAGE_SHEET_DIR / re.sub(r"[^A-Za-z0-9._-]", "_", clip_id)
+    for offset, mark in enumerate(window):
+        index = page * per_page + offset
+        at = float(mark["at"])
+        label = f"{clip_id} src={at:.1f}s"
+        try:
+            frame, luma = _sheet_frame(project, asset=clip_id, source=source, at=at)
+            if luma["blank"]:
+                label = f"{label} {_BLANK_MARK}"
+            tile = dest_dir / "tiles" / f"{index:04d}.png"
+            tile.parent.mkdir(parents=True, exist_ok=True)
+            _sheet_tile(frame, label, tile)
+        except (picture.PictureError, graphics.GraphicsError, OSError) as exc:
+            # `describe_windows`' rule: one unreadable moment is not a reason
+            # to throw the other twenty-three away. A sheet is evidence, and
+            # partial evidence beats none.
+            tiles.append({"index": index, "label": label, "src": round(at, 3), "error": str(exc)})
+            continue
+        drawn.append(tile)
+        entry = {
+            "index": index,
+            "label": label,
+            "clip_id": clip_id,
+            "src": round(at, 3),
+            "frame": str(frame),
+            "luma": luma,
+        }
+        # A describe-addressed tile carries the window it was cut from and the
+        # sentence about it, which is the address the two halves share. The
+        # text is *not* drawn on the tile: it is a sentence, the band holds a
+        # line, and a truncated description is worse than none.
+        for key in ("src_start", "src_end", "text"):
+            if key in mark:
+                entry[key] = mark[key]
+        tiles.append(entry)
+
+    sheet: Path | None = None
+    if drawn:
+        sheet = graphics.montage(
+            drawn,
+            Path(out).expanduser() if out else dest_dir / f"page{page}.jpg",
+            columns=SHOT_SHEET_COLUMNS,
+            tile_width=SHOT_SHEET_TILE,
+            quality=SHOT_SHEET_QUALITY,
+        )
+
+    return {
+        "project": str(project.root),
+        "clip_id": clip_id,
+        "sheet": None if sheet is None else str(sheet),
+        # What was asked for and what was done are different fields, because
+        # `auto` resolves to one of the others and a caller reading back only
+        # its own argument cannot tell which sheet it got.
+        "mode": used,
+        "asked": mode,
+        # The spacing actually drawn, beside the one asked for — the same
+        # mode/asked shape, and for the same reason. `plan_windows` divides
+        # the clip into equal stretches rather than leaving a remainder, so a
+        # 60.1s clip asked for 10s tiles gets seven of 8.586s. Reporting only
+        # the request would describe a sheet nobody drew.
+        "interval": (
+            round(marks[1]["src_start"] - marks[0]["src_start"], 3)
+            if used == "interval" and len(marks) > 1
+            else round(float(clip["duration"]), 3)
+            if used == "interval"
+            else None
+        ),
+        "interval_asked": round(float(interval), 3) if used == "interval" else None,
+        "duration": round(float(clip["duration"]), 3),
+        "tiles": tiles,
+        "count": len(tiles),
+        "drawn": len(drawn),
+        "blank": sum(1 for t in tiles if t.get("luma", {}).get("blank")),
+        # Every mark in the clip, so a page of 24 out of 107 reads as "there
+        # is more" rather than as the whole recording.
+        "marks": len(marks),
+        "page": page,
+        "pages": pages,
+        "per_page": per_page,
+        **notes,
     }
 
 

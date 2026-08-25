@@ -84,6 +84,15 @@ class MediaInfo:
     #: chapter-track reference resolves. Defaulted like `audio_streams` so a
     #: hand-built `MediaInfo` elsewhere still means what it always meant.
     has_chapters: bool = False
+    #: Bits per luma sample — 8 for `yuv420p`, 10 for `yuv420p10le`. It is
+    #: here because **ffmpeg's `signalstats` reports on the source's own
+    #: scale, so a luma reading is meaningless without it**: the film's
+    #: `s4-overexposed` measures YAVG 429 / YMAX 927 against every 8-bit
+    #: clip's 26–132 / 127–255, which is a different number system and not a
+    #: brighter picture (measured 2026-08-25). Anything comparing luma across
+    #: clips divides by `2**bit_depth - 1` first. Defaulted to 8 like the two
+    #: fields above, so a hand-built `MediaInfo` still means what it meant.
+    bit_depth: int = 8
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -124,6 +133,42 @@ def _ffprobe(media: Path, *args: str) -> dict[str, Any]:
 #: (safe zones, brightness bbox — "trust neither alone"), for a muxer that
 #: computes container duration differently than this box's ffmpeg does.
 CHAPTER_DURATION_TOLERANCE = 0.05
+
+
+#: `yuv420p10le` and friends — the depth is a suffix on the planar name.
+_PIX_FMT_DEPTH = re.compile(r"p(\d{1,2})(?:[bl]e)?$")
+#: `p010le` / `p016le`, where the whole name *is* the depth, zero-padded to
+#: three digits. Worth its own pattern rather than left to
+#: `bits_per_raw_sample`: these are what hardware encoders emit, which is
+#: phone and action-cam footage — exactly what `footage_sheet` is for.
+_PIX_FMT_PACKED = re.compile(r"^p(\d{3})(?:[bl]e)?$")
+
+
+def _bit_depth(video: dict[str, Any] | None) -> int:
+    """Bits per luma sample, from ffprobe's own field or the pixel format.
+
+    Several signals because none is always there: `bits_per_raw_sample` is
+    absent on plenty of streams, and a planar pixel format only names its
+    depth when it is not 8 (`yuv420p` against `yuv420p10le`). 8 is the answer
+    when nothing says otherwise, which is what an unadorned
+    `yuv420p`/`rgb24`/`gray` means — and it is the safe direction to be wrong
+    in, since under-reporting the scale reads a frame as *brighter* than it is
+    and no caller here acts on brightness except to say a tile is empty.
+    """
+    if video is None:
+        return 8
+    raw = video.get("bits_per_raw_sample")
+    if raw:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    fmt = str(video.get("pix_fmt") or "")
+    for pattern in (_PIX_FMT_DEPTH, _PIX_FMT_PACKED):
+        found = pattern.search(fmt)
+        if found:
+            return int(found[1])
+    return 8
 
 
 def probe(path: Path | str) -> MediaInfo:
@@ -207,6 +252,7 @@ def probe(path: Path | str) -> MediaInfo:
         vfr=bool(fps and avg and abs(fps - avg) / fps > 0.01),
         audio_streams=sum(1 for s in streams if s.get("codec_type") == "audio"),
         has_chapters=has_chapters,
+        bit_depth=_bit_depth(video),
     )
 
 

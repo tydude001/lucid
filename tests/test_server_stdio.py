@@ -121,6 +121,7 @@ EXPECTED_TOOLS = {
     "thumbnail",
     "contact_sheet",
     "shot_sheet",
+    "footage_sheet",
     "finish_report",
 }
 
@@ -487,6 +488,7 @@ TOOL_TO_COMMAND = {
     "thumbnail": "thumbnail",
     "contact_sheet": "contact-sheet",
     "shot_sheet": "shot-sheet",
+    "footage_sheet": "footage-sheet",
     "finish_report": "finish-report",
 }
 
@@ -3473,6 +3475,77 @@ def test_shot_sheet_pages_and_refuses_a_bad_page_size(
     # an answer, and `pages` beside it says what the real range was.
     assert out["past"]["count"] == 0 and out["past"]["sheet"] is None
     assert out["past"]["pages"] == 2
+
+
+@needs_ffmpeg
+@needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_footage_sheet_returns_the_image_and_needs_no_edit(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """A clip's own footage, sheeted with no timeline, no cues and no transcript.
+
+    That is the whole difference from `shot_sheet`, and it is the audience:
+    someone with a recording and nothing to search has no edit yet, so a tool
+    that needs one is a tool they cannot reach. Only `init` and `import_media`
+    run here — deliberately no `seed_timeline`, no `attach_transcript`, no
+    `cue_add`.
+
+    Asserted on the raw `CallToolResult` for the same reason `shot_sheet`'s
+    twin is: `Client` reads `content[0]`, so a tool that returned only its
+    table would pass, and the `ImageContent` block is the entire feature.
+    """
+    _audio, _transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage, duration=12.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        raw = await session.call_tool(
+            "footage_sheet",
+            {"path": str(project), "clip_id": clip["clip_id"], "interval": 5.0},
+        )
+        return {
+            "is_error": raw.is_error,
+            "kinds": [type(block).__name__ for block in raw.content],
+            "mime": [
+                getattr(block, "mime_type", None)
+                for block in raw.content
+                if type(block).__name__ == "ImageContent"
+            ],
+            "bytes": [
+                len(block.data) for block in raw.content if type(block).__name__ == "ImageContent"
+            ],
+            "report": json.loads(raw.content[0].text),
+            "clip": clip["clip_id"],
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"] is False
+    assert "ImageContent" in out["kinds"], f"no image came back: {out['kinds']}"
+    assert out["mime"] == ["image/jpeg"]
+    assert out["bytes"][0] > 0
+
+    report = out["report"]
+    # 12s at a 5s ask is three equal windows of 4s, never two of 5 and a 2s
+    # runt — `plan_windows`' rule, shared rather than re-derived.
+    assert report["marks"] == 3
+    assert report["drawn"] == 3
+    assert report["mode"] == "interval" and report["asked"] == "auto"
+    assert report["interval"] == 4.0 and report["interval_asked"] == 5.0
+    assert report["sheet"].endswith(".jpg")
+    assert [t["clip_id"] for t in report["tiles"]] == [out["clip"]] * 3
+
+    # Every tile carries its luma, and nothing here is blank: `testsrc` is a
+    # colour chart. A sheet that called it blank would be telling an agent to
+    # disregard the only footage in the project.
+    assert report["blank"] == 0
+    assert all(t["luma"]["blank"] is False for t in report["tiles"])
+    assert all(t["luma"]["scale"] == 255.0 for t in report["tiles"])
 
 
 @needs_ffmpeg

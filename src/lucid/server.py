@@ -2369,6 +2369,62 @@ def shot_sheet(
     return [report, Image(path=report["sheet"])]
 
 
+# `-> Any` for the reason spelled out above `shot_sheet`: a concrete return
+# annotation makes the SDK validate an `Image` against a JSON output schema
+# and the tool answers `is_error` from a correct body.
+@_tool()
+def footage_sheet(
+    path: str,
+    clip_id: str,
+    mode: str = "auto",
+    interval: float = ops.FOOTAGE_SHEET_INTERVAL,
+    page: int = 0,
+    per_page: int = ops.SHOT_SHEET_PER_PAGE,
+    out: str | None = None,
+) -> Any:
+    """Look at a clip's own footage — one labelled tile per moment, as an image.
+
+    **This is the tool to call to see what is *in* some footage**, as opposed
+    to `shot_sheet`, which shows the picture track of an edit that already
+    exists. Use it on material with no dialogue to search — recordings,
+    gameplay, event coverage, b-roll — where `describe`/`describe-ls` can find
+    a moment by text but cannot show you one. Like `shot_sheet`, the bytes
+    come back in the reply, so you can actually see it.
+
+    `mode` picks which instants get drawn:
+
+    - `auto` (default) — describe windows if the clip has any, otherwise the
+      interval. Never scans for cuts.
+    - `interval` — every `interval` seconds. The robust default: it needs no
+      describe run and no scan, and it yields the same tiles per minute on a
+      continuous take and on a trailer.
+    - `describe` — one tile per described window, each row carrying the
+      window's own `text`. This is the pairing worth having: the tile and the
+      sentence are about the same ten seconds.
+    - `scenes` — one tile per detected cut. **Opt-in on purpose.** Measured on
+      real unedited footage it either returns nothing (a continuous take has
+      no cuts, which is a correct answer and an empty sheet) or fires on
+      things that are not shots at all; it also decodes the whole clip, which
+      costs seconds a page does not.
+
+    `page` walks a long recording — a 1070s clip at the default interval is
+    107 tiles. Each row carries `luma`, and a tile with nothing in it is
+    marked `[blank]` on the picture itself, so a black square is never
+    mistaken for a frame that failed to extract.
+
+    **What you see here is a hypothesis, not a check** — and this is the sheet
+    where that matters most, because it is read in order to *choose* footage.
+    `synopsis` is where a person says what a clip is; a tile shows what the
+    camera saw, which is a different fact.
+    """
+    report = ops.footage_sheet(
+        path, clip_id, mode=mode, interval=interval, page=page, per_page=per_page, out=out
+    )
+    if not report.get("sheet"):
+        return report
+    return [report, Image(path=report["sheet"])]
+
+
 @_tool()
 def thumbnail(
     path: str, clip_id: str, at: float, interval: float = ops.THUMB_INTERVAL

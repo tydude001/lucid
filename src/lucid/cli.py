@@ -886,6 +886,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--out", help="where to write the montage (default cache/sheets/shots/page<N>.jpg)"
     )
 
+    p_footage_sheet = sub.add_parser(
+        "footage-sheet",
+        help="one labelled tile per moment of a clip's own footage — a browse of "
+        "material with nothing to search, not a look at an edit",
+    )
+    p_footage_sheet.add_argument("clip_id", help="which registered clip to look at")
+    p_footage_sheet.add_argument(
+        "--mode",
+        choices=ops.FOOTAGE_SHEET_MODES,
+        default="auto",
+        help="which instants to draw (default auto: describe windows if the clip "
+        "has any, else the interval — never scenes, which decodes the whole clip)",
+    )
+    p_footage_sheet.add_argument(
+        "--interval",
+        type=float,
+        default=ops.FOOTAGE_SHEET_INTERVAL,
+        help=f"seconds between tiles in interval mode (default "
+        f"{ops.FOOTAGE_SHEET_INTERVAL}, which is describe's own window)",
+    )
+    p_footage_sheet.add_argument(
+        "--page", type=int, default=0, help="which page of tiles, counted from 0"
+    )
+    p_footage_sheet.add_argument(
+        "--per-page",
+        type=int,
+        default=ops.SHOT_SHEET_PER_PAGE,
+        help=f"tiles per page (default {ops.SHOT_SHEET_PER_PAGE})",
+    )
+    p_footage_sheet.add_argument(
+        "--out",
+        help="where to write the montage (default cache/sheets/footage/<clip>/page<N>.jpg)",
+    )
+
     p_preview = sub.add_parser(
         "preview", help="resolve one preview asset and say whether a browser will play it"
     )
@@ -2236,6 +2270,20 @@ def _cmd_shot_sheet(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_footage_sheet(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.footage_sheet(
+            args.project,
+            args.clip_id,
+            mode=args.mode,
+            interval=args.interval,
+            page=args.page,
+            per_page=args.per_page,
+            out=args.out,
+        )
+    )
+
+
 def _cmd_preview(args: argparse.Namespace) -> int:
     return _emit(ops.preview_source(args.project, args.asset))
 
@@ -2805,6 +2853,7 @@ _COMMANDS = {
     "thumbnail": _cmd_thumbnail,
     "contact-sheet": _cmd_contact_sheet,
     "shot-sheet": _cmd_shot_sheet,
+    "footage-sheet": _cmd_footage_sheet,
     "preview": _cmd_preview,
     "web": _cmd_web,
     "open": _cmd_open,
