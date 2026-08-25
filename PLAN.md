@@ -322,9 +322,9 @@ left. The conclusion survives because it was always the load-bearing one, but
   track goes back as one labelled grid. Both claims it turned on were measured
   before anything was built (§ The agent contact sheet), and the build found
   the third: every other sheet here returns a *path*, which is unreachable
-  under `--tools ""`. HISTORY.md § The shot sheet. **What stays open is
-  everything that is not the timeline** — source footage for a project with no
-  dialogue to address is § The footage sheet, unbuilt. Note the neighbouring
+  under `--tools ""`. HISTORY.md § The shot sheet. Source footage for a project
+  with no dialogue to address followed as `footage_sheet` (HISTORY.md § The
+  footage sheet). Note the neighbouring
   questions this does *not* answer: an MP4 for the human, and the web preview
   (tier 2, built — HISTORY.md § The preview/timeline web UI), which is for a
   person and never made an agent able to look.

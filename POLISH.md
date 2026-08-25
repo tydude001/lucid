@@ -410,8 +410,8 @@ previous completes.
 
 Shipped as `shot_sheet` — see HISTORY.md § The shot sheet — the agent gets the
 picture back, not a path to one. The design note it stopped for is PLAN.md
-§ The agent contact sheet; its sequel, § The footage sheet, is unbuilt and is
-what now stops for review.
+§ The agent contact sheet; its sequel shipped as `footage_sheet` — HISTORY.md
+§ The footage sheet.
 
 **Why.** PLAN.md § Open questions, *Preview delivery in tier 1* — the oldest
 still-open question: **an agent cannot watch the film it edited.** `verify`
