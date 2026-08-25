@@ -11263,6 +11263,8 @@ re-measures, so the script nudges the viewport and then asserts the ruler
 matches the pane rather than trusting it. The defect itself is not fixed here —
 it is CLAUDE.md's "a pane's work rides being looked at" from the other side, and
 `app.js`'s `setMode` already emits the event a fix would listen to.
+**Fixed the same day** — § The timeline re-measures when Edit is looked at,
+which is the listener this paragraph predicted.
 
 What replaced the hand capture is `scripts/capture_screenshots.py`: build the
 demo project, replay `docs/DEMO.md`'s own walkthrough as `PROJECT_STEPS`, serve
@@ -11280,3 +11282,46 @@ The route had been written down in prose in `.claude/skills/verify-live/`
 since the last round, and the session that recaptured for the workspace
 redesign still did not follow it. Prose beside a harness is not a mechanism;
 the script is.
+
+## The timeline re-measures when Edit is looked at — 2026-08-25
+
+The defect § The screenshots stopped being captured by hand found and filed.
+`computePxPerSec` reads `#track-lanes`'s `clientWidth` **or 800**, and a hidden
+pane measures 0, so any render landing while Edit is not the visible mode laid
+every lane out against a width no pane has. Coming back never re-measured:
+`hidden` flips, layout happens, and the lanes keep the geometry they were built
+with. The film drew a third short inside a 1316px pane with `zoom` still
+reading 1 — right enough to look deliberate, and wrong at every scale a gesture
+converts through.
+
+Two ordinary things trigger it, and neither is a mode switch: a
+`project-changed` (the render job's own completion is one) and the `resize`
+listener, both of which fire regardless of which mode is in front. That is why
+a plain Edit → Frame → Edit round trip does **not** reproduce it, and why the
+first hand-reduction went looking in the mode switch.
+
+The fix is the other half of a rule this repo already had. `frame.js` uses
+`setMode`'s `mode` event to avoid working while hidden; `timeline.js` now uses
+the same event to *redo* work it could only do wrongly while hidden. It is
+guarded on the width rather than fired on every switch — `render()` rebuilds
+every lane and repaints the waveform canvas, and paying that to redraw what is
+already correct is how a fix becomes the next complaint. `laidOutWidth` is the
+width the last `render()` laid out against, and it is a staleness check, not a
+cache.
+
+**The probe was proved able to fail before it was believed.** Stashing the fix
+and re-running reported `ruler=800 lanes=1316` and `ruler=800 lanes=1016` on
+the two paths; restoring it reported `match` on both. Then the states the first
+pass had not enumerated: four widths (1024/1200/1400/1600, all matching), both
+dwells (0ms and ~120ms), and the collapsed rail — which turns out not to move
+the lane at all, the timeline spanning the window rather than the workspace, so
+that one is a state ruled out rather than a state covered. Console clean across
+the switch, the page-level overflow sweep clean, and the scroller sweep
+reporting exactly the one `#track-lanes` CLAUDE.md says Edit should have.
+
+One thing worth keeping: **a rebuild replaces every node in the lane, and the
+mode switch that triggers it is itself a click.** The gesture rule here is that
+redrawing the container a mousedown landed in loses the trailing click — that
+is not this case, since the click lands on `#mode-tab-edit` and the rebuild is
+in the lanes, but it is close enough that a lane click was driven afterwards
+rather than reasoned about. It still seeks: 0:09.9, `.w.playing` on `render`.

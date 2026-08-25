@@ -113,6 +113,14 @@ let lastState = null;
 let zoomMultiplier = 1; // multiplies the fit-to-window base — #zoom is 1..10
 let currentPxPerSec = 1; // cached for the per-frame playhead handler, which
 // must not pay for a full re-render 60 times a second
+let laidOutWidth = null; // the #track-lanes clientWidth the last render() laid
+// the lanes out against — NOT a cache, a staleness check. A hidden pane
+// measures 0, and computePxPerSec falls back to 800 rather than to nothing, so
+// a render that lands while Edit is not the visible mode draws every lane
+// against a width no pane has. Nothing re-measures on the way back in:
+// `hidden` flips, layout happens, and the lanes keep the geometry they were
+// built with. Comparing against this on the `mode` event is what catches it —
+// see init()'s subscription.
 let followPlayhead = true; // F5, default ON per the contract — index.html's
 // own #follow-playhead ships with its 'on' class already applied so there is
 // no flash of the wrong state before this file's init() runs; this variable
@@ -2001,6 +2009,7 @@ function render() {
   const duration = Math.max(state.timeline_duration, 0.001);
   const pxPerSec = computePxPerSec(duration);
   currentPxPerSec = pxPerSec;
+  laidOutWidth = lanes.clientWidth; // 0 while Edit is hidden — see the declaration
   lanes.append(buildRuler(duration, pxPerSec));
 
   const clip = state.clips.find((c) => c.clip_id === state.clip_id) || {};
@@ -2207,6 +2216,28 @@ export function init(passedCtx) {
 
   window.addEventListener("resize", () => {
     if (lastState) render();
+  });
+
+  // A pane's work rides being LOOKED AT, and this is the other half of that
+  // rule: `frame.js` uses this event to avoid working while hidden, and this
+  // file uses it to redo work it could only do wrongly while hidden.
+  //
+  // `computePxPerSec` reads #track-lanes's clientWidth **or 800**, and a
+  // hidden pane measures 0 — so any render that lands while Edit is not the
+  // visible mode lays every lane out at 800px. Two ordinary things do that:
+  // a `project-changed` (the render job's own completion is one) and the
+  // `resize` listener above, both of which fire regardless of mode. Coming
+  // back to Edit never re-measured, so the film drew a third short inside a
+  // 1316px pane with `zoom` still reading 1 — right enough to look
+  // deliberate, and wrong at every scale a gesture converts through.
+  //
+  // Guarded on the width rather than fired on every mode switch: render()
+  // rebuilds every lane and repaints the waveform canvas, and paying that to
+  // redraw what is already correct is how a fix becomes the next complaint.
+  ctx.on("mode", (mode) => {
+    if (mode !== "edit" || !lastState) return;
+    const lanesNow = $("track-lanes");
+    if (lanesNow && lanesNow.clientWidth !== laidOutWidth) render();
   });
 
   // The lanes are CSS and repaint themselves, but the waveform is a canvas

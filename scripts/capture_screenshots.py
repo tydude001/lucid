@@ -28,6 +28,11 @@ survive a reload.
 The last step is a check, not a courtesy: `--check` measures mean luma across
 the set and refuses a spread wide enough to read as two themes. That is the
 check a recapture has now twice not run.
+
+Deterministic in composition, not byte-for-byte: `frame-mode.png` comes out
+identical run to run, and `edit-mode.png` does not, because the agent card
+quotes the render's own content-hashed output filename. A `git diff` on that
+one file after a recapture is expected and is not drift.
 """
 
 from __future__ import annotations
@@ -332,27 +337,35 @@ def click_at(x: int, y: int, dwell: int = 120) -> None:
     cdp("dragxy", str(x), str(y), str(x), str(y), str(dwell))
 
 
-def rebuild_timeline() -> int:
-    """Nudge the viewport so the timeline re-measures, and say how wide it came out.
+def check_timeline_width() -> tuple[int, int]:
+    """The timeline must be laid out against the pane it is in — and this asserts it.
+
+    It is a regression test as much as a capture step, and the repo has no
+    other one: there is no JS test harness, so this is where the defect
+    § The timeline re-measures when Edit is looked at is held down.
 
     `computePxPerSec` reads `#track-lanes`'s `clientWidth` **or 800**, and a
-    hidden pane measures 0 — so a `project-changed` landing while Edit is not
-    the visible mode rebuilds every lane at the 800px fallback, and coming back
-    to Edit does not re-measure. The render this script drives from Finish is
-    exactly such an event, which is how the first automated capture came out
-    with a timeline 800px wide in a 1316px pane: the film drawn shorter than it
-    is, every block at the wrong scale. A resize is what re-measures.
+    hidden pane measures 0, so any render landing while Edit is not the visible
+    mode used to lay every lane out at the 800px fallback — and the render this
+    script drives from Finish is exactly such an event. That is how the first
+    automated capture came out with a timeline 800px wide inside a 1316px pane:
+    the film drawn a third short, every block at the wrong scale, `zoom` still
+    reading 1. `timeline.js` re-measures on the `mode` event now; if this ever
+    fails again, that listener is what regressed.
     """
-    cdp("viewport", "1400", "901")
-    time.sleep(0.4)
-    cdp("viewport", "1400", "900")
-    time.sleep(0.6)
-    return int(
+    width = int(
         evaluate(
             '(() => Math.round(document.querySelector(".ruler")?.getBoundingClientRect().width || 0))()'
         )
         or 0
     )
+    lanes = int(evaluate('(() => document.querySelector("#track-lanes").clientWidth)()') or 0)
+    if not lanes or width != lanes:
+        raise CaptureError(
+            f"the timeline drew {width}px in a {lanes}px pane — it is on "
+            "computePxPerSec's 800 fallback, so switching to Edit did not re-measure"
+        )
+    return width, lanes
 
 
 def seek_timeline(seconds: float) -> str:
@@ -407,13 +420,7 @@ def capture_edit(out: Path, seconds: float = 9.9) -> Path:
     cdp("viewport", "1400", "900")
     cdp("click", "#mode-tab-edit", "120")
     time.sleep(0.6)
-    width = rebuild_timeline()
-    lanes = int(evaluate('(() => document.querySelector("#track-lanes").clientWidth)()') or 0)
-    if width < lanes - 4:
-        raise CaptureError(
-            f"the timeline drew {width}px in a {lanes}px pane — it is still on "
-            "computePxPerSec's 800 fallback, so the resize did not re-measure"
-        )
+    width, lanes = check_timeline_width()
     # The rail is one pane with three tab panels, and the render's completion
     # card is on the agent one. `setRailTab` is the only thing that moves the
     # selection, so this is a click and not an attribute.

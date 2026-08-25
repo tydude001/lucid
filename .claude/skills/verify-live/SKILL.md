@@ -78,6 +78,13 @@ What it encodes, and what to keep true if you change it:
   — HISTORY.md § The screenshots stopped being captured by hand. A scroll
   container is measured by its `scrollHeight`: `#frame-rows` is one, so its
   box says nothing about how much is in it.
+- **`check_timeline_width` is a regression test, not a capture step.** The
+  repo has no JS test harness, so the assertion that the ruler matches
+  `#track-lanes` is the only thing holding down HISTORY.md § The timeline
+  re-measures when Edit is looked at — a render landing while Edit is hidden
+  used to lay every lane out at `computePxPerSec`'s 800px fallback, and the
+  render this script drives from Finish is exactly such an event. If it ever
+  fails again, `timeline.js`'s `mode` listener is what regressed.
 - **Edit's highlighted word is `.w.playing`, the playhead's, not `.w.sel`** —
   clicking a word to seek raises the `.selection-toolbar` over the transcript
   and Escape does not lower it (`refreshToolbar` hides on a null selection,
