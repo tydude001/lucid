@@ -324,7 +324,10 @@ left. The conclusion survives because it was always the load-bearing one, but
   the third: every other sheet here returns a *path*, which is unreachable
   under `--tools ""`. HISTORY.md § The shot sheet. Source footage for a project
   with no dialogue to address followed as `footage_sheet` (HISTORY.md § The
-  footage sheet). Note the neighbouring
+  footage sheet), and the other two sheets were retrofitted 2026-08-25 —
+  where the finding was that returning the bytes is only half of it, since a
+  sheet drawn for a person arrives downscaled past its own labels (HISTORY.md
+  § The two sheets an agent could not see). Note the neighbouring
   questions this does *not* answer: an MP4 for the human, and the web preview
   (tier 2, built — HISTORY.md § The preview/timeline web UI), which is for a
   person and never made an agent able to look.

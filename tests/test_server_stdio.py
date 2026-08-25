@@ -3550,6 +3550,143 @@ def test_footage_sheet_returns_the_image_and_needs_no_edit(
 
 @needs_ffmpeg
 @needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_contact_sheet_returns_the_image_itself_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The first look, as a picture rather than as seven paths.
+
+    `import_media` already made these frames — what this tool adds is that
+    the caller can *see* them, which is the whole reason the incident behind
+    `FIRST_LOOK_SECONDS` happened: nobody looked at the clip's own head.
+    Asserted on the raw `CallToolResult`, because `Client` reads `content[0]`
+    and a tool returning only its table would pass that just as happily.
+    """
+    _audio, _transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage, duration=12.0)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        raw = await session.call_tool(
+            "contact_sheet", {"path": str(project), "clip_id": clip["clip_id"]}
+        )
+        return {
+            "is_error": raw.is_error,
+            "kinds": [type(block).__name__ for block in raw.content],
+            "mime": [
+                getattr(block, "mime_type", None)
+                for block in raw.content
+                if type(block).__name__ == "ImageContent"
+            ],
+            "bytes": [
+                len(block.data) for block in raw.content if type(block).__name__ == "ImageContent"
+            ],
+            "report": json.loads(raw.content[0].text),
+            "clip": clip["clip_id"],
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"] is False
+    assert "ImageContent" in out["kinds"], f"no image came back: {out['kinds']}"
+    assert out["mime"] == ["image/jpeg"]
+    assert out["bytes"][0] > 0
+
+    report = out["report"]
+    assert report["clip_id"] == out["clip"]
+    assert report["sheet"].endswith(".jpg")
+    # The frames themselves stay where the filmstrip route serves them from —
+    # the montage is drawn from those, never a second extraction.
+    assert all("/cache/thumbs/" in frame["path"] for frame in report["frames"])
+
+
+@needs_ffmpeg
+@needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_reframe_sheet_pages_come_back_as_an_image(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The retrofit this tool existed without: a framing review an agent can see.
+
+    Its unpaged montage is the whole project at review resolution — on the
+    film ~4700px tall — and vision downscales anything past ~1568 on its long
+    edge, so handing that back would deliver the rects and labels resampled
+    away. A page is drawn to the width that reads back verbatim; asking for
+    the whole thing (`per_page: null`) still returns a PNG's *path*, which is
+    correct for a person and is deliberately not an image here.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        for word in (0, 2):
+            await client.call(
+                "cue_add",
+                path=str(project),
+                clip_id=vo["clip_id"],
+                word_index=word,
+                asset=clip["clip_id"],
+            )
+        raw = await session.call_tool(
+            "reframe_sheet", {"path": str(project), "per_page": 1, "page": 0}
+        )
+        whole = await session.call_tool("reframe_sheet", {"path": str(project), "per_page": None})
+        return {
+            "is_error": raw.is_error,
+            "kinds": [type(block).__name__ for block in raw.content],
+            "mime": [
+                getattr(block, "mime_type", None)
+                for block in raw.content
+                if type(block).__name__ == "ImageContent"
+            ],
+            "bytes": [
+                len(block.data) for block in raw.content if type(block).__name__ == "ImageContent"
+            ],
+            "report": json.loads(raw.content[0].text),
+            "whole_kinds": [type(block).__name__ for block in whole.content],
+            "whole": json.loads(whole.content[0].text),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"] is False
+    assert "ImageContent" in out["kinds"], f"no image came back: {out['kinds']}"
+    assert out["mime"] == ["image/jpeg"]
+    assert out["bytes"][0] > 0
+
+    report = out["report"]
+    assert report["sheet"].endswith("page0.jpg")
+    assert report["drawn"] == 1 and report["count"] == 2 and report["pages"] == 2
+    assert [row["row"] for row in report["rows"]] == [0]
+
+    # Unpaged is a person's file, so it comes back as a path and no picture —
+    # the one case where returning bytes would be the wrong answer.
+    assert "ImageContent" not in out["whole_kinds"]
+    assert out["whole"]["sheet"].endswith("sheet.png")
+    assert out["whole"]["per_page"] is None
+
+
+@needs_ffmpeg
+@needs_ffprobe
 def test_synopsis_and_broll_brief_over_the_wire(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:

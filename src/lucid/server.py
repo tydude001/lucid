@@ -2271,13 +2271,18 @@ def continuity_ls(path: str) -> dict[str, Any]:
     return ops.continuity_ls(path)
 
 
+# `-> Any` for the reason spelled out above `shot_sheet` below: a concrete
+# return annotation makes the SDK validate an `Image` against a JSON output
+# schema, and the tool then answers `is_error` from a perfectly correct body.
 @_tool()
 def reframe_sheet(
     path: str,
     out: str | None = None,
     moments: list[float] | None = None,
     extremes: bool = False,
-) -> dict[str, Any]:
+    page: int = 0,
+    per_page: int | None = ops.REFRAME_SHEET_PER_PAGE,
+) -> Any:
     """Draw every placement's framing window on its own source frames.
 
     **A framing decision is unreviewable without this.** The hand-framed
@@ -2316,8 +2321,21 @@ def reframe_sheet(
     stretch with no face in any probe says so rather than reporting extremes it
     does not have. It costs the detector and minutes of decoding, so it is off
     by default, and it is refused alongside `moments`.
+
+    **A page of rows comes back as an image, like `shot_sheet`.** Six windows
+    at a time by default, drawn to the width vision reads back verbatim; the
+    whole project in one montage is `per_page: null`, which returns a PNG's
+    *path* for a person to open and is unreadable here. `row` keeps its
+    project-wide number on every page, so it is the same window `reframe
+    --src-start` addresses. Under `extremes` the detector only probes the page
+    you asked for.
     """
-    return ops.reframe_sheet(path, out=out, moments=moments, extremes=extremes)
+    report = ops.reframe_sheet(
+        path, out=out, moments=moments, extremes=extremes, page=page, per_page=per_page
+    )
+    if not report.get("sheet") or per_page is None:
+        return report
+    return [report, Image(path=report["sheet"])]
 
 
 # `-> Any` is load-bearing and is not laziness. The SDK builds an output
@@ -2339,11 +2357,13 @@ def shot_sheet(
 ) -> Any:
     """Look at the picture track — one labelled tile per shot, as an image.
 
-    **This is the tool to call to see what the film looks like.** Every other
-    sheet lucid draws returns a *path*, and this server's own agent runs under
-    `--tools ''` with no way to open one, so `contact_sheet`'s frames and
-    `reframe_sheet`'s montage are both unreachable from here. This one returns
-    the sheet's bytes alongside the table, so the picture arrives in the reply.
+    **This is the tool to call to see what the film looks like** — the picture
+    track of the edit as it stands. Its neighbours answer different questions
+    with the same kind of picture: `footage_sheet` browses one registered
+    clip's own material, `contact_sheet` looks at a clip's first ten seconds,
+    and `reframe_sheet` reviews framing windows a page at a time. All four
+    hand the bytes back, because this server's agent runs under `--tools ''`
+    and can open no path at all.
 
     One tile per shot, at the exact source second that shot reads from, four
     across and about two dozen a page — the measured ceiling before vision
@@ -2441,22 +2461,37 @@ def thumbnail(
     return ops.thumbnail(path, clip_id, at, interval=interval)
 
 
+# `-> Any` for the reason spelled out above `shot_sheet`.
 @_tool()
 def contact_sheet(
     path: str,
     clip_id: str,
     seconds: float = ops.FIRST_LOOK_SECONDS,
     interval: float = ops.FIRST_LOOK_INTERVAL,
-) -> dict[str, Any]:
-    """A handful of cached frames from a clip's own head — the first look.
+) -> Any:
+    """Look at a clip's own head — the first look, as an image.
 
-    Built entirely on `thumbnail()`'s cache — no new cache location, no new
-    manifest key, no new web route. `import_media` calls this automatically
-    (`sheet=True` by default); call it directly to regenerate one after a
-    re-import, or to look further than the default ten seconds/1.5s spacing.
-    An audio-only clip returns `frames: []`, not a refusal.
+    **The sheet to call before cueing anything to a clip you have not seen.**
+    Two shots of the film were cued to a clip's own head and got 4.5s of
+    "BASED ON THE NOVEL BY THOMAS HARRIS" over black, because nobody had
+    looked at its first seconds. Ten seconds at 1.5s spacing by default, each
+    tile labelled with the source second it is.
+
+    The frames come from `thumbnail()`'s cache — no new cache location, no new
+    manifest key, no new web route — and the montage of them comes back here
+    as bytes, since this server's agent runs under `--tools ''` and cannot
+    open a path. `import_media` makes the frames for every clip it registers,
+    so this is usually a cache hit; call it to *see* them, to look further
+    than ten seconds, or to redraw after a re-import.
+
+    An audio-only clip returns `frames: []` and no sheet, not a refusal — the
+    same "nothing to look at is not a failure" as `check_frames`. A box
+    without `magick` returns the frames and a `sheet_error`.
     """
-    return ops.contact_sheet(path, clip_id, seconds=seconds, interval=interval)
+    report = ops.contact_sheet(path, clip_id, seconds=seconds, interval=interval)
+    if not report.get("sheet"):
+        return report
+    return [report, Image(path=report["sheet"])]
 
 
 @_tool()

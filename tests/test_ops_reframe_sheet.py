@@ -520,3 +520,105 @@ def test_extremes_refuses_before_decoding_when_there_is_no_detector(
     )
     with pytest.raises(faces.FaceError, match="no LUCID_FACE here"):
         ops.reframe_sheet(project.root, extremes=True)
+
+
+@needs_tools
+def test_a_page_is_rows_and_keeps_the_project_wide_row_numbers(project: Project) -> None:
+    """Paging is what makes this sheet reachable by something that can only
+    see bytes, and the rule it must not break is addressing: `row` is the
+    number a reader takes back to `reframe --src-start`, so page 1's first row
+    is row 1 and never row 0 again."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.cue_add(project.root, "vo", 1, "clipa")
+
+    whole = ops.reframe_sheet(project.root)
+    first = ops.reframe_sheet(project.root, per_page=1, page=0)
+    second = ops.reframe_sheet(project.root, per_page=1, page=1)
+
+    assert [row["row"] for row in whole["rows"]] == [0, 1]
+    assert [row["row"] for row in first["rows"]] == [0]
+    assert [row["row"] for row in second["rows"]] == [1]
+    # `count` stays the project's windows on every page — a reader that took
+    # it for "what I am looking at" would report a film reviewed off one row.
+    assert first["count"] == second["count"] == whole["count"] == 2
+    assert first["drawn"] == second["drawn"] == 1
+    assert first["pages"] == second["pages"] == 2
+    assert first["page"] == 0 and second["page"] == 1
+    assert first["per_page"] == 1 and whole["per_page"] is None
+
+
+@needs_tools
+def test_a_page_is_a_jpeg_and_the_whole_project_is_still_a_png(project: Project) -> None:
+    """The two callers want different files. A person opens the montage, so
+    unpaged stays the PNG at `SHEET_TILE_WIDTH` it has always been; a page is
+    handed back as bytes in a tool result, where the shot sheet's measurement
+    applies — JPEG, inside `SHEET_PAGE_WIDTH`, or vision downscales the rects
+    and the labels away."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+
+    whole = ops.reframe_sheet(project.root)
+    paged = ops.reframe_sheet(project.root, per_page=1, page=0)
+
+    assert whole["sheet"].endswith("sheet.png")
+    assert paged["sheet"].endswith("page0.jpg")
+    assert Path(paged["sheet"]).is_file()
+
+
+@needs_tools
+def test_a_page_past_the_end_draws_nothing_and_says_so(project: Project) -> None:
+    """`montage` raises on an empty tile list, correctly — so the page walk
+    has to stop at `pages` rather than discovering the end as an exception."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+
+    past = ops.reframe_sheet(project.root, per_page=1, page=9)
+
+    assert past["sheet"] is None
+    assert past["rows"] == []
+    assert past["drawn"] == 0
+    assert past["count"] == 1 and past["pages"] == 1
+
+
+@needs_tools
+def test_a_page_only_draws_its_own_tiles(project: Project) -> None:
+    """The page is sliced before a frame is extracted, not after the montage
+    — under `extremes` the unsliced version pays the face detector for the
+    whole project to draw six rows of it."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.cue_add(project.root, "vo", 1, "clipa")
+
+    paged = ops.reframe_sheet(project.root, per_page=1, page=0)
+
+    drawn = sorted(Path(p).name for p in Path(paged["sheet"]).parent.glob("*.png"))
+    assert drawn and all(name.startswith("000-") for name in drawn), drawn
+
+
+def test_paging_arguments_are_refused_before_anything_decodes(project: Project) -> None:
+    with pytest.raises(ProjectError, match="at least one row"):
+        ops.reframe_sheet(project.root, per_page=0)
+    with pytest.raises(ProjectError, match="counted from 0"):
+        ops.reframe_sheet(project.root, page=-1)
+
+
+@needs_tools
+def test_the_sheet_wipes_its_own_tiles_and_not_the_shared_frame_cache(project: Project) -> None:
+    """It writes flat into `cache/sheets/` and every other sheet keeps a
+    subdirectory of it — `SHEET_FRAMES_DIR` above all, the frame cache shared
+    by every sheet there is. An `rmtree` of the whole directory threw that
+    away on each framing review, and the only symptom was the next
+    `shot_sheet` silently re-extracting frames it already had."""
+    ops.cue_add(project.root, "vo", 0, "clipa")
+    ops.reframe_sheet(project.root)
+
+    sibling = project.sheet_dir / "frames" / "clipa"
+    sibling.mkdir(parents=True, exist_ok=True)
+    (sibling / "1000@384.png").write_bytes(b"cached frame")
+    # A tile from a wider earlier run, which this one will not rewrite by name.
+    leftover = project.sheet_dir / "999-0-0.15.png"
+    leftover.write_bytes(b"an old row")
+
+    ops.reframe_sheet(project.root)
+
+    assert (sibling / "1000@384.png").read_bytes() == b"cached frame"
+    # Its own tiles are still swept — 39 rows of the real film is ~120 MB of
+    # them, so accumulating is the other way to be wrong here.
+    assert not leftover.exists()

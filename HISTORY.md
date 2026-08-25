@@ -11445,3 +11445,89 @@ dwell. `ruff check` clean (confirmed through `rtk proxy` — the bare `[]` is th
 filter). `check_timeline_width` still holds: it asserts ruler width equals
 `#track-lanes.clientWidth`, and `scrollbar-gutter: stable` makes that identity
 more reliable rather than less.
+
+## The two sheets an agent could not see — 2026-08-25
+
+`shot_sheet` and `footage_sheet` hand their bytes back; `contact_sheet` and
+`reframe_sheet` handed back a *path*, and the agent panel runs `claude
+--tools ''` with no way to open one. That gap was named the day the shot sheet
+shipped (§ The shot sheet) and left unscoped, because "return the image too"
+is only the first half of it: **what makes a sheet readable is not that the
+bytes arrive, it is the scale they arrive at**, and neither of these two was
+drawn at a scale that survives the trip.
+
+**The control, measured before believing the claim.** The whole-project
+framing montage of the film — 39 windows, three moments each — is
+**1278x7215, 40.1 MiB of PNG**. Vision downscales anything past ~1568px on its
+long edge, so what an agent would have received is that sheet at **278x1568**:
+tiles 92px wide, every label a smear, every framing rect a hairline. Read back
+to be sure rather than argued from the numbers. So the retrofit for
+`reframe_sheet` is not "return the montage", it is **paging**, and the unit is
+the **row** — a row is one window, and a window is the thing being judged, so
+a page that split one across its edge would be handing back two half-answers
+about one rect. Six rows of three is 18 tiles at 512 wide: `page0.jpg` of the
+film measures **1554x1344**, within a pixel or two of the 25-tile shot sheet
+that reads back verbatim, and it does — every `0 cold-open @3.06s
+0,0,1920,816` legible, every rect drawn.
+
+**A page is cheaper, not merely smaller, and that is why the slice happens
+before the decoding.** This sheet extracts a frame per tile with no shared
+cache behind it, and under `extremes` it probes each stretch with the face
+detector; slicing the montage at the end would have paid for the whole project
+to show six rows of it. Page 0 of the film draws in **14.0s against 92.5s** for
+the unpaged sheet. Unpaged is unchanged and is still the default in `ops` and
+on the CLI — a PNG at `SHEET_TILE_WIDTH` is what a person opens on a phone,
+and it is `webui.py`'s call too, so Frame mode's filmstrip still reads the
+whole project's rows. The MCP tool is the one caller that pages by default, and
+asking it for `per_page: null` returns the path and **no image**, which is the
+one case where handing back bytes would be the wrong answer.
+
+**`row` keeps its project-wide number on every page.** It is the number a
+reader takes back to `reframe --src-start`, and page-local numbering would
+have made page 2 name windows that are not the ones it drew. `count` stays the
+project's window count for the same reason — a reader that took it for "what I
+am looking at" would report a film's framing reviewed off six rows of it — and
+`drawn` is the page.
+
+**The first look was the simpler half and it is where the reading earned its
+keep.** `contact_sheet`'s frames are `thumbnail()`'s, and the montage is drawn
+from those rather than from a second extraction, so nothing decodes twice and
+the frames stay exactly where `webui._send_thumb` serves them. The first
+version was correct in every mechanical way and **illegible**: `_sheet_tile`
+draws its label at `SHOT_SHEET_POINTSIZE` against whatever scale the picture is
+at, so labelling a full-resolution 1920px thumbnail and letting `montage`
+shrink it to 384 put the type in at a fifth of its size. Seven perfect frames,
+seven unreadable captions, and every test green — `_sheet_frame`'s callers
+never hit it because their frames are cached already downscaled. `_sheet_tile`
+takes an optional `width` now and resizes before splicing the band;
+`tests/test_ops_contact_sheet.py` pins every tile at the width it is montaged
+at, which is the mechanical half of a defect only a reading found.
+
+What the redrawn sheet says about `cold-open` is the incident that motivates
+the tool, on the film's own footage: **the first six seconds are the title
+card**, and the first frame of real material is at src 7.5s. That is
+`FIRST_LOOK_SECONDS`' own reason for existing (`sl-0428-elevator.mp4`, 4.5s of
+credits over black), and it is now visible to the caller that does the cueing.
+
+**`import_media` asks for no montage, and that is not a cost decision.** An
+import reply cannot carry an image — the pane that reads one draws the thumbs
+themselves — so a montage drawn there is a picture nobody is in a position to
+see. The caller that can see one asks for it, and the frames are already
+cached, so asking is a cache hit plus one magick run. The two absences are
+distinguished on purpose, `finish_report`'s `framing` precedent: `sheet: null`
+is *asked for and there was nothing to draw* (an audio-only clip), while the
+key being **absent** is *nobody asked*.
+
+**And drawing the sheets side by side on one project found a defect neither of
+them owns.** `reframe_sheet` writes flat into `cache/sheets/` — which is where
+`webui._send_reframe_tile` serves from — and it opened by `rmtree`-ing that
+whole directory. Every other sheet keeps a *subdirectory* of it, including
+`SHEET_FRAMES_DIR`, the frame cache § The shot sheet describes as shared by
+every sheet there is. So each framing review silently threw away every cached
+frame, and the only symptom was the next `shot_sheet` re-extracting frames it
+already had — correct output, paid for twice. The wipe stays (39 rows of this
+film is ~120 MB of tiles) and is now files-only.
+
+What is left of the wiki row this closes half of: the two sheets nobody has run
+on a real job, and whether a sheet may span clips (PLAN.md § The footage
+sheet).

@@ -851,7 +851,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_sheet_cmd = sub.add_parser(
         "contact-sheet",
-        help="a handful of cached frames from a clip's own head (cached, built on thumbnail)",
+        help="a clip's own head, as labelled frames plus one montage of them — "
+        "the look before anything is cued to footage nobody has seen",
     )
     p_sheet_cmd.add_argument("clip_id")
     p_sheet_cmd.add_argument(
@@ -865,6 +866,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=ops.FIRST_LOOK_INTERVAL,
         help=f"spacing between frames (default {ops.FIRST_LOOK_INTERVAL})",
+    )
+    p_sheet_cmd.add_argument(
+        "--no-montage",
+        action="store_true",
+        help="frames only, no combined sheet — what `import` itself asks for, "
+        "since the frames are already served by the window's own thumb route",
     )
 
     p_shot_sheet = sub.add_parser(
@@ -1576,6 +1583,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "instead of at fixed fractions — the worst moment is one of the ends. Needs "
         "the face detector and minutes of decoding",
     )
+    p_sheet.add_argument(
+        "--page", type=int, default=0, help="which page of rows, counted from 0"
+    )
+    p_sheet.add_argument(
+        "--per-page",
+        type=int,
+        default=None,
+        help="windows per page (default: all of them, in one PNG for a person to "
+        f"open — the MCP tool pages at {ops.REFRAME_SHEET_PER_PAGE} instead, because "
+        "it hands the bytes to something that reads a downscaled label as no label). "
+        "A page is also cheaper: only its own frames are extracted and probed",
+    )
 
     p_verify = sub.add_parser(
         "verify", help="transcribe a render and diff it against the timeline"
@@ -2260,7 +2279,13 @@ def _cmd_thumbnail(args: argparse.Namespace) -> int:
 
 def _cmd_contact_sheet(args: argparse.Namespace) -> int:
     return _emit(
-        ops.contact_sheet(args.project, args.clip_id, seconds=args.seconds, interval=args.interval)
+        ops.contact_sheet(
+            args.project,
+            args.clip_id,
+            seconds=args.seconds,
+            interval=args.interval,
+            montage=not args.no_montage,
+        )
     )
 
 
@@ -2641,7 +2666,14 @@ def _cmd_continuity_ls(args: argparse.Namespace) -> int:
 def _cmd_reframe_sheet(args: argparse.Namespace) -> int:
     moments = [float(part) for part in args.moments.split(",")] if args.moments else None
     return _emit(
-        ops.reframe_sheet(args.project, out=args.out, moments=moments, extremes=args.extremes)
+        ops.reframe_sheet(
+            args.project,
+            out=args.out,
+            moments=moments,
+            extremes=args.extremes,
+            page=args.page,
+            per_page=args.per_page,
+        )
     )
 
 

@@ -3,9 +3,11 @@
 goodsometimes' own incident (`ideas/lambs-longlegs.md`, "v3"): two shots used
 `sl-0428-elevator.mp4` from its own head — 4.5s of opening-credits text over
 black — because nobody had looked at the clip's own first seconds before
-cueing it. This is that first look, built entirely on `thumbnail()`'s own
-cache (`cache/thumbs/<clip_id>/`) — no new cache location, no new manifest
-key, no new web route.
+cueing it. This is that first look: the frames are built entirely on
+`thumbnail()`'s own cache (`cache/thumbs/<clip_id>/`) — no new cache
+location, no new manifest key, no new web route — and one montage of them
+lands beside every other sheet, because the caller that most needs to look
+(the agent panel, `--tools ''`) cannot open a path.
 
 Fixture setup follows `tests/test_ops_reframe_sheet.py`: real ffmpeg-decoded
 media on disk, registered by hand (no ffprobe needed to give a project a
@@ -149,6 +151,80 @@ def test_an_audio_only_clip_returns_no_frames_rather_than_raising(project: Proje
     assert result == {
         "clip_id": "vo",
         "frames": [],
+        # Named rather than absent: `sheet: None` is "asked for and there was
+        # nothing to draw", which is what a caller reading this branch needs
+        # to tell apart from `montage=False`, where the key is not there.
+        "sheet": None,
         "interval": ops.FIRST_LOOK_INTERVAL,
         "reason": "no video track",
     }
+
+
+needs_magick = pytest.mark.skipif(
+    shutil.which("magick") is None, reason="the montage is drawn by ImageMagick"
+)
+
+
+@needs_ffmpeg
+@needs_magick
+def test_the_frames_are_montaged_into_one_labelled_sheet(project: Project) -> None:
+    """The frames are the first look; the montage is how a caller that cannot
+    open a path gets to see them. It is drawn from the thumbnails already
+    made, so nothing is decoded twice, and it lands under `cache/sheets/`
+    beside every other sheet rather than in the filmstrip's own cache."""
+    result = ops.contact_sheet(project.root, "clipa")
+
+    sheet = Path(result["sheet"])
+    assert sheet.is_file() and sheet.suffix == ".jpg"
+    assert sheet.parent == project.root / ops.FIRST_LOOK_DIR / "clipa"
+    assert "sheet_error" not in result
+    # One tile per frame — a sheet short of a frame is a first look that
+    # quietly skipped a second of the head it exists to show.
+    assert len(list(sheet.parent.glob("*.png"))) == len(result["frames"])
+
+
+@needs_ffmpeg
+def test_no_montage_leaves_the_key_out_rather_than_setting_it_null(project: Project) -> None:
+    """`finish_report`'s `framing` rule: unasked is not a measured nothing.
+    `import_media` asks for no montage, so its record must not be readable as
+    "a sheet was drawn and there was nothing in it"."""
+    result = ops.contact_sheet(project.root, "clipa", montage=False)
+
+    assert "sheet" not in result
+    assert result["frames"]
+
+
+@needs_ffmpeg
+def test_import_asks_for_the_frames_and_not_the_montage(project: Project, tmp_path: Path) -> None:
+    """An import reply cannot carry an image, and the pane that reads one
+    draws the thumbs themselves — so the montage would be a picture nobody is
+    in a position to see."""
+    footage = tmp_path / "another.mp4"
+    _video(footage, 3.0)
+
+    record = ops.import_media(project.root, str(footage), clip_id="another")
+
+    assert "sheet" not in record["contact_sheet"]
+    assert record["contact_sheet"]["frames"]
+
+
+@needs_ffmpeg
+@needs_magick
+def test_a_tile_is_labelled_at_the_width_it_is_montaged_at(project: Project) -> None:
+    """The defect a reading found and no assertion had: the band is drawn at
+    `SHOT_SHEET_POINTSIZE` against whatever scale the picture is at, so
+    labelling a full-resolution thumbnail and letting `montage` shrink it
+    afterwards puts the label in at a fifth of its size. Every tile came back
+    with a legible picture and an illegible smear under it."""
+    ops.contact_sheet(project.root, "clipa")
+
+    tiles = sorted((project.root / ops.FIRST_LOOK_DIR / "clipa").glob("*.png"))
+    assert tiles
+    widths = {
+        subprocess.run(
+            ["magick", "identify", "-format", "%w", str(tile)],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        for tile in tiles
+    }  # fmt: skip
+    assert widths == {str(ops.SHEET_PAGE_WIDTH // ops.SHOT_SHEET_COLUMNS)}

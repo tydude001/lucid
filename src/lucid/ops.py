@@ -197,7 +197,12 @@ def import_media(
     )
     if sheet and record.get("has_video"):
         try:
-            record = {**record, "contact_sheet": contact_sheet(path, record["clip_id"])}
+            record = {
+                **record,
+                # No montage: an import reply cannot carry an image, and the
+                # pane that reads this draws the thumbs themselves.
+                "contact_sheet": contact_sheet(path, record["clip_id"], montage=False),
+            }
         except Exception as exc:  # noqa: BLE001 — best-effort, never fails the import
             record = {**record, "contact_sheet_error": str(exc)}
     return record
@@ -4160,6 +4165,52 @@ def thumbnail(
 FIRST_LOOK_SECONDS = 10.0
 FIRST_LOOK_INTERVAL = 1.5
 
+#: Where the first look's labelled tiles and its montage land — beside every
+#: other sheet under `cache/sheets/`, and deliberately **not** in
+#: `cache/thumbs/`. The frames stay `thumbnail()`'s and none are drawn twice;
+#: what lands here is a *tile*, which carries a label, and a montage of
+#: several of them. Neither is a filmstrip frame, and `webui._send_thumb`
+#: must never grow a way to serve one.
+FIRST_LOOK_DIR = "cache/sheets/first"
+
+
+def _first_look_montage(project: Project, clip_id: str, frames: list[dict[str, Any]]) -> Path:
+    """Montage a first look's frames into one labelled sheet, and return it.
+
+    Drawn from the thumbnails `contact_sheet` has already made rather than
+    from a second extraction: the picture is the same either way, and the one
+    thing the tile adds is a label saying which second it is. Labels are
+    **source** seconds — a clip's head has no timeline to be at, and this
+    sheet is looked at before anything is cued to the clip at all.
+
+    Its own directory is wiped each time rather than accumulating, because a
+    first look is regenerated with different `seconds`/`interval` and a stale
+    tile from a wider run would montage into the middle of a narrower one.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", str(clip_id))
+    dest = project.root / FIRST_LOOK_DIR / slug
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    tiles: list[Path] = []
+    for index, frame in enumerate(frames):
+        tile = dest / f"{index:03d}.png"
+        _sheet_tile(
+            Path(frame["path"]),
+            f"{clip_id} src={float(frame['src_time']):.1f}s",
+            tile,
+            # Labelled at the width it will be montaged at, never at the
+            # thumbnail's own: see `_sheet_tile`.
+            width=SHEET_PAGE_WIDTH // SHOT_SHEET_COLUMNS,
+        )
+        tiles.append(tile)
+    return graphics.montage(
+        tiles,
+        dest / "sheet.jpg",
+        columns=SHOT_SHEET_COLUMNS,
+        tile_width=SHEET_PAGE_WIDTH // SHOT_SHEET_COLUMNS,
+        quality=SHOT_SHEET_QUALITY,
+    )
+
 
 def contact_sheet(
     path: Path | str,
@@ -4167,6 +4218,7 @@ def contact_sheet(
     *,
     seconds: float = FIRST_LOOK_SECONDS,
     interval: float = FIRST_LOOK_INTERVAL,
+    montage: bool = True,
 ) -> dict[str, Any]:
     """A handful of cached frames from a clip's head — the first look.
 
@@ -4179,13 +4231,20 @@ def contact_sheet(
     `cache/thumbs/<clip_id>/` layout `thumbnail()` already writes and
     `webui._send_thumb` already serves.
 
-    **Not `reframe_sheet`'s shape on purpose.** That one draws framing
-    rectangles with `magick` and combines tiles into one montage PNG behind
-    its own hardened route, because the whole point is reviewing a *crop
-    decision*. A first look needs none of that: it is N ordinary thumbnails,
-    already servable through the existing route, and a second image-serving
-    path here would be an unjustified third caller of exactly the kind
-    CLAUDE.md warns `preview_path`'s own containment against.
+    **The frames are the sheet; the montage is how a caller that cannot open
+    a path gets to see them.** `frames` is unchanged and is still N ordinary
+    thumbnails served through the route that already existed — a second
+    image-*serving* path here would be the unjustified third caller CLAUDE.md
+    warns `preview_path`'s containment against. What `montage=True` adds is
+    one labelled JPEG under `cache/sheets/`, drawn from those same thumbnails
+    and drawn nowhere near the manifest, because the MCP tool hands its
+    *bytes* back and the agent panel (`--tools ''`) can open nothing else.
+
+    **`import_media` asks for `montage=False`, and that is not a cost
+    decision.** Its reply is a record, read by a person through the web pane
+    that draws the thumbs; nothing in an import reply can carry an image, so
+    a montage drawn there would be a picture nobody is in a position to see.
+    The caller that can see one asks for it, and asking again is one call.
 
     An audio-only clip returns `frames: []` rather than raising — there is
     nothing to sheet, and that is not a failure, matching `check_frames`'s
@@ -4197,6 +4256,7 @@ def contact_sheet(
         return {
             "clip_id": clip_id,
             "frames": [],
+            "sheet": None,
             "interval": interval,
             "reason": "no video track",
         }
@@ -4208,7 +4268,18 @@ def contact_sheet(
     while at <= span + 1e-6:
         frames.append(thumbnail(path, clip_id, at, interval=interval))
         at += interval
-    return {"clip_id": clip_id, "frames": frames, "interval": interval}
+
+    report: dict[str, Any] = {"clip_id": clip_id, "frames": frames, "interval": interval}
+    if not montage or not frames:
+        return report
+    try:
+        report["sheet"] = str(_first_look_montage(project, clip_id, frames))
+    except (graphics.GraphicsError, OSError) as exc:
+        # Best-effort and never raised: the frames *are* the first look, and a
+        # box without `magick` should lose the picture rather than the sheet.
+        report["sheet"] = None
+        report["sheet_error"] = str(exc)
+    return report
 
 
 #: Where `shot_sheet` writes. Beside `reframe_sheet`'s own tiles under
@@ -4238,6 +4309,13 @@ SHEET_FRAMES_DIR = "cache/sheets/frames"
 SHOT_SHEET_TILE = 384
 SHOT_SHEET_COLUMNS = 4
 SHOT_SHEET_PER_PAGE = 24
+
+#: The same measurement read as a *page* rather than as a tile: four 384px
+#: tiles across is 1552px, which is what reads back verbatim. A sheet whose
+#: grid is not four wide divides this budget instead of keeping the tile and
+#: letting the page grow past the ceiling — a wider page is not a bigger
+#: picture, it is the same picture downscaled with its labels.
+SHEET_PAGE_WIDTH = 1536
 
 #: The label band under each tile, and the type in it. `-splice` puts this
 #: *below* the frame rather than over it, so a label never covers picture —
@@ -4402,7 +4480,7 @@ def _sheet_frame(
     return frame, _sheet_luma(stats, scale)
 
 
-def _sheet_tile(frame: Path, label: str, tile: Path) -> None:
+def _sheet_tile(frame: Path, label: str, tile: Path, *, width: int | None = None) -> None:
     """Draw one labelled tile from an extracted frame.
 
     The label rides a spliced band **below** the picture, so it can never
@@ -4410,9 +4488,20 @@ def _sheet_tile(frame: Path, label: str, tile: Path) -> None:
     percent escapes: an asset called `50%-crop` would otherwise be read as a
     format string, and magick's own answer to an unknown escape is to emit
     something rather than to fail.
+
+    **`width` resizes the frame *before* the band is spliced, and a caller
+    handing in a full-resolution frame needs it.** The type is drawn at
+    `SHOT_SHEET_POINTSIZE` against whatever scale the picture is at, so
+    labelling a 1920px frame and letting `montage` shrink it to 384 draws the
+    label at a fifth of its intended size — measured on the first look, where
+    every tile came back with an illegible smear under it and the picture
+    itself was perfect. `_sheet_frame`'s callers hand in frames already cached
+    at `SHOT_SHEET_TILE`, so they pass nothing here and their tiles do not
+    move.
     """
     command = [
         *graphics.magick_command(), str(frame),
+        *(("-resize", f"{width}x") if width else ()),
         "-background", "black", "-gravity", "south",
         "-splice", f"0x{SHOT_SHEET_BAND}",
         "-fill", "white", "-pointsize", str(SHOT_SHEET_POINTSIZE),
@@ -7124,6 +7213,14 @@ SHEET_MOMENTS = (0.15, 0.5, 0.85)
 #: Tile width in the montage. The sheet is read on a phone (auto-memory:
 #: review by served page), so three across at this width is a legible row.
 SHEET_TILE_WIDTH = 420
+#: Rows per page when this sheet is drawn for a caller that can only see
+#: bytes. **Rows, not tiles**, because a row is one window and a window is the
+#: unit being judged — a page that split one across its edge would be handing
+#: back two half-answers about the same rect. Six rows of three moments is 18
+#: tiles inside `SHEET_PAGE_WIDTH`, the same footprint as the 25-tile shot
+#: sheet that reads back verbatim. Unpaged (`per_page=None`) is unchanged: the
+#: whole project at `SHEET_TILE_WIDTH` as a PNG, which is what a person opens.
+REFRAME_SHEET_PER_PAGE = 6
 #: The window, drawn on the source frame. Red because nothing in this footage
 #: is, and thick enough to read once the tile is 420px wide.
 SHEET_STROKE = "#ff3b3b"
@@ -7456,6 +7553,8 @@ def reframe_sheet(
     out: str | None = None,
     moments: Sequence[float] | None = None,
     extremes: bool = False,
+    page: int = 0,
+    per_page: int | None = None,
 ) -> dict[str, Any]:
     """Draw every placement's framing window on its own source frames.
 
@@ -7505,9 +7604,30 @@ def reframe_sheet(
     `moments` overrides where inside each window's stretch it samples, as
     fractions — and is refused alongside `extremes`, which is what replaces
     them rather than something they tune.
+
+    **`per_page` is what makes this sheet reachable by an agent, and it
+    changes two things at once on purpose.** Unpaged — the default, and every
+    call written before this existed — it is the whole project montaged at
+    `SHEET_TILE_WIDTH` as a PNG, which is what a person opens on a phone. Ask
+    for a page and it becomes a JPEG inside `SHEET_PAGE_WIDTH`, because the
+    caller is `server.reframe_sheet` handing the bytes back in a tool result:
+    a montage of this film's 79 windows is ~4700px tall, and vision downscales
+    anything past ~1568 on its long edge — so the unpaged sheet does not
+    merely arrive large, it arrives with its rects and labels resampled away.
+    A page is also **cheaper rather than merely smaller**: this sheet extracts
+    a frame per tile with no shared cache behind it, and under `extremes` it
+    probes with the face detector, so both are now bounded by the page rather
+    than by the project.
+
+    `page` is counted from 0 and rows keep their project-wide numbers, so
+    `row` on page 2 still names the same window `reframe --src-start` would.
     """
     project = Project.open(path)
     resolution = _mlt_resolution(project)
+    if per_page is not None and per_page < 1:
+        raise ProjectError(f"a page holds at least one row, not {per_page}")
+    if page < 0:
+        raise ProjectError(f"page is counted from 0, not {page}")
     if extremes and moments is not None:
         raise ProjectError(
             "moments are fractions of the clock and extremes are where the "
@@ -7534,8 +7654,18 @@ def reframe_sheet(
     tiles: list[Path] = []
     rows: list[dict[str, Any]] = []
     dest_dir = project.sheet_dir
-    shutil.rmtree(dest_dir, ignore_errors=True)
     dest_dir.mkdir(parents=True, exist_ok=True)
+    # **Files only, never the tree.** This op writes flat into `cache/sheets/`
+    # (`webui._send_reframe_tile` serves from exactly that level), but every
+    # other sheet keeps a *subdirectory* of it — `SHEET_FRAMES_DIR` most of
+    # all, which is the frame cache the docstring calls shared by every sheet.
+    # An `rmtree` here threw all of that away on each framing review: the next
+    # `shot_sheet` re-extracted every frame it already had, silently and
+    # correctly. The wipe itself stays — 39 rows of this film is ~120 MB of
+    # tiles, so leaving them to accumulate is the other way to be wrong.
+    for stale in dest_dir.iterdir():
+        if stale.is_file():
+            stale.unlink()
 
     # One entry per window a placement shows, in the order it shows them. The
     # split is the whole coverage fix: sampling the placement asks about the
@@ -7576,7 +7706,21 @@ def reframe_sheet(
             stop = next_edge if next_edge is not None else stretch_end
             stretches.append((placement, edge, stop, len(edges), next_edge))
 
-    probed = _sheet_extremes(stretches, at) if extremes else {}
+    # Sliced **before** the detector and before a single frame is extracted:
+    # paging that only cropped the montage would still pay for the whole
+    # project, which on this film is minutes of decoding under `extremes`.
+    count = len(stretches)
+    if per_page is None:
+        pages = 1 if count else 0
+        start = 0
+        drawn_rows = stretches
+    else:
+        pages = max(1, ceil(count / per_page)) if count else 0
+        start = page * per_page
+        drawn_rows = stretches[start : start + per_page]
+    # Keyed by position within the page, while `row` below stays the window's
+    # project-wide number — the number a reader takes back to `reframe`.
+    probed = _sheet_extremes(drawn_rows, at) if extremes else {}
     # The montage is a fixed grid (`-tile {columns}x`), so every row has to
     # emit the same tile count or the rows after a short one shift into its
     # gap (SHEET_PICKS's own reasoning). A sliding row needs at least its two
@@ -7584,7 +7728,8 @@ def reframe_sheet(
     # any project that has one.
     columns = SHEET_PICKS if extremes else len(at)
 
-    for row, (placement, begin, stretch_end, crossed, next_edge) in enumerate(stretches):
+    for offset, (placement, begin, stretch_end, crossed, next_edge) in enumerate(drawn_rows):
+        row = start + offset
         entry = placement["reframe"]
         source = entry.source if entry is not None else None
         sliding = _is_sliding(entry, next_edge)
@@ -7634,7 +7779,7 @@ def reframe_sheet(
             # In extremes mode the picks *are* the samples; a stretch with no
             # geometry to be extreme against still gets its fractions, so
             # every window is drawn either way.
-            chosen = probed.get(row, {}).get("picks") or [
+            chosen = probed.get(offset, {}).get("picks") or [
                 {
                     "src_time": begin + (stretch_end - begin) * moment,
                     "subject_x": None,
@@ -7751,37 +7896,60 @@ def reframe_sheet(
                 # says "no face in N probes" rather than reporting extremes it
                 # does not have — an unsupported claim of evidence is the same
                 # failure as a refused window read as a centre crop.
-                "probe": probed.get(row, {}).get("probe"),
-                "probes": probed.get(row, {}).get("probes"),
-                "located": probed.get(row, {}).get("located"),
+                "probe": probed.get(offset, {}).get("probe"),
+                "probes": probed.get(offset, {}).get("probes"),
+                "located": probed.get(offset, {}).get("located"),
                 # Read beside `worst_offset`, never after it: an offset off a
                 # multi-face frame is the weighted centre of two subjects and
                 # can be large with the shot's own face well inside the crop.
-                "multi_face": probed.get(row, {}).get("multi_face"),
-                "subject_min": probed.get(row, {}).get("subject_min"),
-                "subject_max": probed.get(row, {}).get("subject_max"),
+                "multi_face": probed.get(offset, {}).get("multi_face"),
+                "subject_min": probed.get(offset, {}).get("subject_min"),
+                "subject_max": probed.get(offset, {}).get("subject_max"),
                 # The worst the window is off across every probe, not only the
                 # drawn ones. This is the number a sheet gets sorted by.
-                "worst_offset": probed.get(row, {}).get("worst_offset"),
+                "worst_offset": probed.get(offset, {}).get("worst_offset"),
                 "samples": samples,
             }
         )
 
-    sheet = graphics.montage(
-        tiles,
-        Path(out).expanduser() if out else dest_dir / "sheet.png",
-        columns=columns,
-        tile_width=SHEET_TILE_WIDTH,
-    )
+    sheet: Path | None = None
+    if tiles:
+        if per_page is None:
+            sheet = graphics.montage(
+                tiles,
+                Path(out).expanduser() if out else dest_dir / "sheet.png",
+                columns=columns,
+                tile_width=SHEET_TILE_WIDTH,
+            )
+        else:
+            # A JPEG inside the page budget, `shot_sheet`'s reasoning: these
+            # bytes travel base64 in a tool result, and a tile wider than the
+            # budget divided by the grid buys nothing but a downscale later.
+            sheet = graphics.montage(
+                tiles,
+                Path(out).expanduser() if out else dest_dir / f"page{page}.jpg",
+                columns=columns,
+                tile_width=max(1, SHEET_PAGE_WIDTH // columns),
+                quality=SHOT_SHEET_QUALITY,
+            )
 
     return {
         "project": str(project.root),
         "canvas": f"{resolution[0]}x{resolution[1]}",
-        "sheet": str(sheet),
+        "sheet": None if sheet is None else str(sheet),
         "rows": rows,
+        # A page past the end draws nothing and says so, rather than raising
+        # out of `montage` about tiles nobody asked it to draw.
+        "page": page,
+        "pages": pages,
+        "per_page": per_page,
         # A row is a window shown, so this is no longer the placement count —
         # the two differ by exactly the windows the old sampling could miss.
-        "count": len(rows),
+        # Every window in the project, not the page's — a paged reader that
+        # took `count` for "what I am looking at" would report a film's
+        # framing reviewed off six rows of it. `drawn` is the page.
+        "count": count,
+        "drawn": len(rows),
         "placements": len(placements),
         # Where the tiles came from. `moments` is null under `extremes`, so
         # nothing reading this table can report fractions a run never used.

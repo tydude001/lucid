@@ -459,6 +459,7 @@ lucid -C myproject reframe cold-open --reset        # back to the centre
 lucid -C myproject reframe-detect                   # propose a window per shot
 lucid -C myproject reframe-sheet                    # every window, drawn, for review
 lucid -C myproject reframe-sheet --extremes         # ...drawn where the subject is extreme
+lucid -C myproject reframe-sheet --per-page 6 --page 0   # a page at a time, and cheaper
 lucid -C myproject reframe-coverage                 # seconds framed for an earlier shot
 ```
 
