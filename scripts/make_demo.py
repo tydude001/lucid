@@ -207,7 +207,14 @@ def build_project(root: Path, media: Path) -> None:
         [*lucid, "-C", str(root), "seed", "vo"],
     ]
     for step in steps:
-        print("  $", " ".join(step[2:] if step[:2] == lucid[:2] else step))
+        # Echoed as the command `docs/DEMO.md` prints, not as the argv this
+        # runs: the interpreter prefix is how lucid is reached without an
+        # activated venv, and printing `step[2:]` left the line starting
+        # `lucid.cli init …`, which is not a command anybody can type. Caught
+        # on the first fresh-checkout dry run, which is what that rehearsal is
+        # for (HISTORY.md § The closed-loop trial).
+        shown = ["lucid", *step[len(lucid):]] if step[: len(lucid)] == lucid else step
+        print("  $", " ".join(shown))
         _run(step)
 
 
