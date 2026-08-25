@@ -41,41 +41,57 @@ node cdp.mjs shot out.png
 
 ## Capturing the README screenshots
 
-They are dark, all three, and the theme is **seeded before the page loads,
-never toggled after it** — `theme.js` is the one classic script in `<head>`
-and applies `data-theme` before paint, so a toggle afterwards is a repaint the
-two canvases only follow via its `lucid:theme` event. Seeding means
-`localStorage`, which needs the origin, so it is goto, set, goto:
+**Do not drive this by hand — run `scripts/capture_screenshots.py`.** It has
+drifted three times, and the cause was the same each time: the theme seed, the
+viewport and the demo project's state were re-derived from memory and one of
+them got forgotten. The script is this section's prose turned into code, and
+it ends with the check that would have caught every one of those rounds.
 
 ```sh
-node cdp.mjs goto http://127.0.0.1:8793/
-node cdp.mjs eval '(() => localStorage.setItem("lucid.theme", "dark"))()'
-node cdp.mjs goto http://127.0.0.1:8793/    # now data-theme="dark" before paint
+uv run python scripts/capture_screenshots.py          # build, serve, render, shoot
+uv run python scripts/capture_screenshots.py --reuse  # keep the demo project
+uv run python scripts/capture_screenshots.py --keep   # leave the page up to poke at
 ```
 
-**Confirm the seed took, and then confirm the set agrees.** `#theme` reading
-`☾` says the attribute is set; only mean luma across the three says they read
-as one theme, and it is the check a recapture has twice not run. Two of the
-shots are mostly dark b-roll and Frame's sheet is mostly empty page, so a
-whole-set spread near 100 is a light capture wearing dark footage —
-HISTORY.md § The screenshots went back to dark.
+What it encodes, and what to keep true if you change it:
 
-Each shot's state, and the order that gets all three from one page:
+- **The theme is seeded before the page loads, never toggled after it.**
+  `theme.js` is the one classic script in `<head>` and applies `data-theme`
+  before paint, so a toggle afterwards is a repaint the two canvases only
+  follow via its `lucid:theme` event. Seeding means `localStorage`, which
+  needs the origin, so it is goto, set, goto — `seed_dark`, which then
+  asserts on `data-theme` rather than trusting the write.
+- **Confirm the seed took, and then confirm the set agrees.** `#theme`
+  reading `☾` says the attribute is set; only mean luma across the set says
+  they read as *one theme*, which is `check_set` and is the check a recapture
+  twice did not run. The shots are mostly dark b-roll on a mostly dark page,
+  so a wide spread is a light capture wearing dark footage — HISTORY.md § The
+  screenshots went back to dark.
+- **Render once from Finish** (`#finish-render`). That one SSE stream fills
+  both Finish's stage report *and* the Edit agent pane's completion card — the
+  card is `handleRenderEvent`, not an agent run, so no `claude -p` is needed.
+  It does not survive a reload, so the theme is seeded **before** rendering.
+- **Frame is shot at its own content height, not at 900.** `fit_viewport`
+  measures `#frame-view` and resizes twice, because the first resize reflows
+  what it measured. Captured flat at 1400x900 the pane came out 44% dead
+  black, which beside a full Edit shot reads as a different, emptier product
+  — HISTORY.md § The screenshots stopped being captured by hand. A scroll
+  container is measured by its `scrollHeight`: `#frame-rows` is one, so its
+  box says nothing about how much is in it.
+- **Edit's highlighted word is `.w.playing`, the playhead's, not `.w.sel`** —
+  clicking a word to seek raises the `.selection-toolbar` over the transcript
+  and Escape does not lower it (`refreshToolbar` hides on a null selection,
+  and the only gesture that nulls one is a mousedown outside any `.w`). The
+  script seeks the `<video>` directly, which leaves the playhead highlight and
+  no toolbar.
 
-- Render once from Finish (`#finish-render`). That one SSE stream fills both
-  Finish's stage report *and* the Edit agent pane's completion card — the card
-  is `handleRenderEvent`, not an agent run, so no `claude -p` is needed. It
-  does not survive a reload, so seed the theme **before** rendering.
-- **Finish** at `viewport 1400 1100`: click `Watch` (the player is not in the
-  page until then), seek the `<video>`, then `#finish-view`'s own `scrollTop`
-  to the bottom so the report sits above the picture.
-- **Frame** at 1400x900: `#frame-build-sheet`, then wait on `shot #` appearing
-  — a sheet takes seconds and the pane is honestly empty before it.
-- **Edit** at 1400x900: the highlighted word is `.w.playing`, the playhead's,
-  **not `.w.sel`** — clicking a word to seek raises the `.selection-toolbar`
-  over the transcript and Escape does not lower it. Seek from the ruler, or
-  clear with a `dragxy` on transcript whitespace, which is the gesture
-  `handleMouseDown` actually listens for.
+Finish mode is no longer in the README — the Edit shot's agent pane already
+draws the same Export-complete card off the same stream — so the script does
+not shoot it. It still *drives* the render from Finish, because that is what
+fills the Edit card. If it comes back, the two things the old capture had to
+relearn: the player is not in the page until `Watch` is clicked, and
+`#finish-view` is its own scroll container, so the report sits above the
+picture at its own `scrollTop`, not the window's.
 
 ## What it will not do for you
 

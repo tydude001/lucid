@@ -133,11 +133,6 @@ with the reasoning behind each behaviour.
   it against what the timeline should play, which catches the one defect
   nothing else can: a retake still in the picture. `frames`, `film-check`,
   `black` and `spots` cover the picture side.
-
-  ![Finish mode: the per-stage report — export, caption burn, frame count
-  agrees, audio verify at 0.971 similarity — beside the finished file playing
-  in the page with its burnt captions, and the truth strip down to no
-  flags](docs/img/finish-mode.png)
 - **B-roll by description** — `describe` writes what is visible in each
   ~10-second window of footage; reading it back *is* the search, and a cue
   table addressed by word index lays clips and cards over the voiceover.

@@ -11209,3 +11209,74 @@ near-identical tiles across an 80s stretch where the screen did not change. Even
 spacing spends tiles on stillness. That is the standing cost of the robust
 default, not a bug in it, and the fix if one is ever wanted is the content-aware
 address — which is what `describe` mode already is.
+
+## The screenshots stopped being captured by hand — 2026-08-25
+
+Tyler read the README as "some dark mode, some light mode" for the second
+time. The first reading (§ The screenshots went back to dark, five days
+earlier) was right and the set was recaptured dark. This one was not: measured,
+all three were dark and agreeing — chrome pixel-identical between Edit and
+Frame at RMSE 0, 1-4% of pixels above half luma, means 41 / 39 / 27. **Nothing
+in the theme had drifted.** What had was everything around it, and the answer
+was to stop capturing them by hand rather than to recapture them a fourth time.
+
+The one genuinely light thing in the set is `--primary-fill`, which is
+`light-dark(near-black, near-white)` — so the single primary button per screen
+is a white pill on a dark page, and it lands somewhere different in each shot.
+That is the palette working as written, and it is the most likely thing a
+reader is seeing.
+
+Three findings, in the order they were worth acting on.
+
+**Frame mode was 44% dead black.** Its content stopped at y=501 of 900 and the
+rest was empty pane. Beside a full Edit shot that reads as a different, emptier
+product, and it is what dragged its mean to 27 against the others' 39-41 —
+a spread that is *itself* the "these are not one set" signal, just not the one
+named. It is now shot at its own content height (521px), and `content_height`
+is where the measuring lesson lives: walking every descendant answers the
+*pane* height, because `.frame-body` and both of its columns are
+`flex: 1 1 auto` and all three end exactly at the view's bottom edge. Skipping
+anything that ends within 2px of that edge leaves the content, and a column
+with more content than fits still pushes a child past the edge, so it grows
+the shot rather than being cropped. Reading the columns' `scrollHeight`
+instead does **not** work: with content shorter than the box it reports the
+box, which is how the first automated attempt "fitted" 938px onto a 503px
+sheet.
+
+**Finish mode was redundant with the hero.** One render fills two panes — the
+Edit shot's agent card and Finish's stage report are the same SSE stream — so
+the README carried the same export/verify/frame-count payload twice, in a shot
+whose caption promised a third thing. It is dropped. The script still drives
+the render *from* Finish, because that is what fills the Edit card.
+
+**And the capture found a real defect.** `computePxPerSec` reads
+`#track-lanes`'s `clientWidth` **or 800**, and a hidden pane measures 0 — so a
+`project-changed` that lands while Edit is not the visible mode rebuilds every
+lane at the 800px fallback, and switching back to Edit does not re-measure. The
+render this script drives from Finish is exactly such an event, which is how
+the first automated capture came out with a timeline 800px wide inside a 1316px
+pane: the film drawn a third short, every block at the wrong scale, `zoom` still
+reading 1. A plain Edit -> Frame -> Edit round trip does **not** reproduce it;
+it needs a project change to land while the pane is hidden. Reduced to one
+`lucid reframe` run against a served project with Frame in front. A resize
+re-measures, so the script nudges the viewport and then asserts the ruler
+matches the pane rather than trusting it. The defect itself is not fixed here —
+it is CLAUDE.md's "a pane's work rides being looked at" from the other side, and
+`app.js`'s `setMode` already emits the event a fix would listen to.
+
+What replaced the hand capture is `scripts/capture_screenshots.py`: build the
+demo project, replay `docs/DEMO.md`'s own walkthrough as `PROJECT_STEPS`, serve
+it, seed the theme before paint, render once from Finish, shoot both modes,
+and check the set. Three of its steps are assertions rather than actions,
+because each is something a previous round got wrong silently — `seed_dark`
+reads `data-theme` back instead of trusting the `localStorage` write;
+`capture_edit` refuses if the agent pane is not showing "Export complete",
+which is what the README's caption claims and what a reload destroys; and
+`check_set` refuses a mean-luma spread over 30. The final set is 40 and 33,
+spread 7, against the 23 of the dark hand-captured set and the 97 of the light
+one.
+
+The route had been written down in prose in `.claude/skills/verify-live/`
+since the last round, and the session that recaptured for the workspace
+redesign still did not follow it. Prose beside a harness is not a mechanism;
+the script is.
