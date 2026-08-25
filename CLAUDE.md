@@ -160,40 +160,32 @@ absent optional capability is "unavailable", never a failure, and never moves
     `-> list[ContentBlock]` both answer `is_error` from a correct body. Assert
     on the raw `CallToolResult`: `test_server_stdio`'s `Client` reads
     `content[0]`, so a tool returning only its table passes.
-  - **All four sheets return the bytes now, and the one that still returns a
-    path does it deliberately.** The agent panel's `--tools ""` means no Read,
-    so a path is unreachable there — `contact_sheet` and `reframe_sheet` were
-    retrofitted 2026-08-25. Each answers a different question: `shot_sheet` is
-    the *timeline's* picture track, `footage_sheet` browses one registered
-    clip's own *source* and needs no edit, cues or transcript, `contact_sheet`
-    is the first look at one clip's *head*, and `reframe_sheet` reviews
-    framing windows. HISTORY.md § The two sheets an agent could not see.
-    - **`reframe_sheet` pages by ROW, and `per_page=None` is a path on
-      purpose.** Unpaged is the whole project as a PNG at `SHEET_TILE_WIDTH` —
-      1278x7215 on the film, which vision downscales to 278x1568 and delivers
-      with every label a smear — so it is what a person opens and what
-      `webui.py` calls, never what an agent gets. A row is one window, so a
-      page never splits one. The slice happens **before** any decoding or face
-      probing (14.0s a page against 92.5s unpaged), and `row`/`count` stay
-      project-wide: a page-local `row` would name a window `reframe
-      --src-start` does not.
+  - **All four sheets return the bytes; `reframe_sheet` unpaged is the one
+    path, deliberately.** The agent panel's `--tools ""` means no Read, so a
+    path is unreachable there. Each answers a different question:
+    `shot_sheet` is the *timeline's* picture track, `footage_sheet` browses
+    one registered clip's own *source* and needs no edit, cues or transcript,
+    `contact_sheet` is the first look at one clip's *head*, `reframe_sheet`
+    reviews framing windows. HISTORY.md § The two sheets an agent could not
+    see.
+    - **`reframe_sheet` pages by ROW** — a row is one window, so a page never
+      splits the thing being judged — and slices **before** decoding or face
+      probing, so a page is cheaper and not merely smaller. `row`/`count` stay
+      project-wide; unpaged (`per_page=None`) is the whole project as a PNG
+      for a person, is what `webui.py` calls, and is 4.6x past the long edge
+      vision keeps, so it must never be what an agent gets.
     - **A tile's label is drawn at whatever scale its picture is at**, so
       `_sheet_tile` on a full-resolution frame plus a downscaling `montage`
-      draws the type at a fifth of its size — seven perfect frames with seven
-      unreadable captions, every test green, because `_sheet_frame`'s own
-      callers hand in frames already cached at `SHOT_SHEET_TILE`. Pass
-      `width=`, and judge a new sheet by *reading it back*, never by the fact
-      that magick exited 0.
+      sets the type at a fifth of its size — seven perfect frames, seven
+      unreadable captions, every test green. Pass `width=`, and **judge a new
+      sheet by reading it back**, never by magick's exit code.
     - **`reframe_sheet` writes flat into `cache/sheets/` and sweeps FILES,
-      never the tree** — every other sheet keeps a subdirectory of that
-      directory, `SHEET_FRAMES_DIR` included, so its old `rmtree` threw the
-      shared frame cache away on every framing review and the only symptom
-      was the next sheet re-extracting frames it already had. The flat level
-      is load-bearing: `webui._send_reframe_tile` serves from exactly it.
-    - **`import_media` asks `contact_sheet` for no montage**, because an
-      import reply cannot carry an image and its pane draws the thumbs itself.
-      `sheet: null` means asked-and-nothing-to-draw; the key **absent** means
-      nobody asked (`finish_report`'s `framing` precedent).
+      never the tree**: every other sheet keeps a subdirectory of it,
+      `SHEET_FRAMES_DIR` included, and `webui._send_reframe_tile` serves from
+      exactly that flat level.
+    - **`import_media` asks `contact_sheet` for no montage** — an import
+      reply cannot carry an image. `sheet: null` is asked-and-nothing-to-draw;
+      the key *absent* is nobody asked (`finish_report`'s `framing`).
     - **Cache the frame, never the tile**: a frame is `(asset, source second)`,
       edit- *and* sheet-invariant, so both sheets share `SHEET_FRAMES_DIR`; a
       tile carries a label and a timeline second any cut moves. Downscaled,
