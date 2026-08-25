@@ -1,7 +1,7 @@
 /* lucid's workspace UI — app shell + design system.
  *
  * PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace, § Layout.
- * The look is DAYDREAM.md § The design system, specified — warm paper, three
+ * The look is docs/plans/DAYDREAM.md § The design system, specified — warm paper, three
  * type voices, pastel timeline. One stylesheet, no framework, no build step.
  * This file is CLOSED to the pane modules that fill in transcript.js /
  * timeline.js / agent.js: they render into the classes documented below
@@ -25,7 +25,7 @@
  *                  which a hand-rolled palette swap does not.
  *
  * The palette is Daydream's warm paper (HSL triplets verbatim from
- * DAYDREAM.md § Tokens). **The warmth is the look** — it lives in the
+ * docs/plans/DAYDREAM.md § Tokens). **The warmth is the look** — it lives in the
  * surfaces; the accents underneath stay functional, not brand: one blue for
  * selection and the playhead, green for kept/ok, red for cut/destructive,
  * amber for the partial and suspect states.
@@ -41,7 +41,7 @@
  * light theme and paints black-on-black in the dark one; it was caught in a
  * real browser, not by a test.
  *
- * Type is three voices (DAYDREAM.md § Typography), vendored as woff2 beside
+ * Type is three voices (docs/plans/DAYDREAM.md § Typography), vendored as woff2 beside
  * this file — no CDN, which the `default-src 'self'` CSP requires anyway:
  *   --font-sans    Geist Sans — UI and body
  *   --font-serif   Source Serif 4 — the accent voice, italic, one phrase at
@@ -56,7 +56,7 @@
  *
  * Layout skeleton (see index.html):
  *   #bar                  top bar: brand/project left, Export/Undo/theme
- *                         right (DAYDREAM.md § Workspace shell)
+ *                         right (docs/plans/DAYDREAM.md § Workspace shell)
  *   #workspace             grid: transcript-pane | preview-pane | rail-pane
  *                          — the third track is ONE pane with three tab
  *                          panels (agent.js, assets.js, properties.js),
@@ -137,7 +137,7 @@
  *                           `:is(button,input,select,textarea):focus-visible`
  *                           rule does not match a <span>
  *   .pause                   an inline `[N.Ns]` pause marker, drawn only when
- *                          `word.pause_after` is present (DAYDREAM.md §
+ *                          `word.pause_after` is present (docs/plans/DAYDREAM.md §
  *                          Transcript document); resolves to the word index
  *                          it trails, never an index of its own
  *     .pause.gone             its pause no longer plays — struck through,
@@ -262,7 +262,7 @@
  *                                 spawns fresh (pane-head, top right)
  *   .agent-thumbs                   the Helpful/Not-helpful row after a
  *                                 successful turn — telemetry only, nothing
- *                                 reads it back yet (DAYDREAM.md § Agent panel)
+ *                                 reads it back yet (docs/plans/DAYDREAM.md § Agent panel)
  *   .mention-popover / .mention-item / .mention-item.active
  *                                    the @-mention completion list, anchored
  *                                 to .agent-composer (not caret-precise —
@@ -382,7 +382,7 @@
  *                            existing .pane-head and shows only in the one
  *                            state that needs it: narrow AND expanded.
  *
- * Motion is austere by instruction (DAYDREAM.md § Motion): a spinner, a
+ * Motion is austere by instruction (docs/plans/DAYDREAM.md § Motion): a spinner, a
  * cursor, an accordion. **Do not import marketing motion into the tool** — in
  * the app, the moving element is the edit itself.
  */
@@ -489,7 +489,7 @@
   --primary-fill: light-dark(hsl(48 12% 12%), hsl(48 20% 92%));
   --primary-ink: light-dark(hsl(48 27% 98%), hsl(48 12% 10%));
 
-  /* Timeline pastels, low saturation (DAYDREAM.md § Component language).
+  /* Timeline pastels, low saturation (docs/plans/DAYDREAM.md § Component language).
      Which lane gets which is set on the .lane-* modifier, never on a block. */
   --clip-lavender: light-dark(hsl(258 46% 88%), hsl(258 22% 32%));
   --clip-powder: light-dark(hsl(205 54% 86%), hsl(205 26% 30%));
@@ -508,7 +508,7 @@
   --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* 0.5rem everywhere (DAYDREAM.md § Tokens). --radius-xs is the exception
+  /* 0.5rem everywhere (docs/plans/DAYDREAM.md § Tokens). --radius-xs is the exception
      with a reason: a 8px radius on a 36px-tall clip block reads as a pill,
      not a clip. */
   --radius: 0.5rem;
@@ -615,7 +615,7 @@ body {
 }
 
 /* One emphasised phrase, and it carries the brand. Not a decoration to
-   sprinkle: DAYDREAM.md § Typography is explicit that it is one per heading. */
+   sprinkle: docs/plans/DAYDREAM.md § Typography is explicit that it is one per heading. */
 .serif-accent {
   font-family: var(--font-serif);
   font-style: italic;
@@ -1805,7 +1805,7 @@ textarea {
 }
 
 /* An inline pause marker — the mono voice, since it is reading as a number,
-   not a word (DAYDREAM.md § Typography). */
+   not a word (docs/plans/DAYDREAM.md § Typography). */
 .pause {
   display: inline-block;
   margin: 0 2px;
@@ -2097,7 +2097,7 @@ textarea {
   gap: 10px;
 }
 
-/* A bordered rounded bubble per entry, hairline on paper (DAYDREAM.md §
+/* A bordered rounded bubble per entry, hairline on paper (docs/plans/DAYDREAM.md §
    Component language) — the left edge is who said it. */
 .agent-entry {
   padding: 9px 11px;
@@ -2259,7 +2259,7 @@ textarea {
   justify-content: flex-end;
 }
 
-/* Muted mono keyboard hints in the composer (DAYDREAM.md § Component
+/* Muted mono keyboard hints in the composer (docs/plans/DAYDREAM.md § Component
    language) — the row's first child, so it sits left of the buttons. */
 .agent-composer-row .hint {
   margin-right: auto;
@@ -2648,7 +2648,7 @@ textarea {
 
 /* `.asset-row`'s selectable-row-with-highlight precedent, and
    `.picker-badge`'s `--cut`/`--wash-cut` pairing for a refusal — a preset a
-   project cannot honour is a hard fact (STUDIO.md: "shows its message AND
+   project cannot honour is a hard fact (docs/plans/STUDIO.md: "shows its message AND
    the fix", never a soft warning), so it borrows `.bad`'s tokens rather than
    `.warn`'s. */
 .finish-preset-card {
@@ -3804,7 +3804,7 @@ dialog#shortcuts-sheet::backdrop {
   border-color: var(--cut);
 }
 
-/* -- picker page (DAYDREAM.md § Multi-project) ----------------------------
+/* -- picker page (docs/plans/DAYDREAM.md § Multi-project) ----------------------------
  * `picker.html` is a separate page, not a workspace pane — served instead
  * of `index.html` while `lucid web --root` has no project open yet
  * (webui.py's `Handler._route_picker`). `body.picker` overrides the
@@ -3966,7 +3966,7 @@ body.picker {
   text-align: center;
 }
 
-/* -- the first-run card (POLISH.md § Step 06) -----------------------------
+/* -- the first-run card (docs/plans/POLISH.md § Step 06) -----------------------------
  * create → import → transcribe → seed, one live control at a time with the
  * finished steps folded to a single line each. The folding is the layout
  * rule, not a flourish: four expanded controls is a card taller than the

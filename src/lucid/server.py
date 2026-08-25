@@ -9,7 +9,7 @@ Note the SDK is v2 — `MCPServer` from `mcp.server`. There is no `FastMCP` and
 no `mcp.server.fastmcp` module, whatever your priors say.
 
 stdio is the default transport and every existing client spawns the server
-that way; HTTP is opt-in (`lucid mcp --transport http`, DAYDREAM.md § MCP
+that way; HTTP is opt-in (`lucid mcp --transport http`, docs/plans/DAYDREAM.md § MCP
 over HTTP) for the day something needs to drive an already-running project
 from outside. Its guard mirrors `webui.py`'s discipline exactly — see
 `_LoopbackGuard` and `_serve_http` below — because an HTTP MCP server carries

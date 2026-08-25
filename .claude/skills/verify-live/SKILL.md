@@ -1,12 +1,12 @@
 ---
 name: verify-live
-description: Drive lucid's web UI in a real headless browser over CDP — clicks with dwell and hit-testing, drags, viewport overflow probes, console capture, canvas readback. Use whenever a UI change has to be verified the way STUDIO.md requires, rather than through DOM stubs or the HTTP tests.
+description: Drive lucid's web UI in a real headless browser over CDP — clicks with dwell and hit-testing, drags, viewport overflow probes, console capture, canvas readback. Use whenever a UI change has to be verified the way docs/plans/STUDIO.md requires, rather than through DOM stubs or the HTTP tests.
 ---
 
 # verify-live
 
 `tests/test_webui_http.py` speaks HTTP to a real socket and proves routing.
-It cannot prove a gesture works. STUDIO.md's bar for every UI item is the
+It cannot prove a gesture works. docs/plans/STUDIO.md's bar for every UI item is the
 real project in a real browser, every click driven at **0ms and ~120ms**
 dwell — a rule that exists because a fix once read green at 0ms and was dead
 in the hand (HISTORY.md § The dwell-timing lesson).

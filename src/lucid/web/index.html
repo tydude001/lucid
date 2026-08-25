@@ -75,7 +75,7 @@
           hidden
         />
         <!-- The one filled button on the page, and it sits at the right end
-             (DAYDREAM.md § Workspace shell). -->
+             (docs/plans/DAYDREAM.md § Workspace shell). -->
         <button id="export" class="primary" title="render a watermark-free MP4 in the window">
           Export
         </button>
@@ -107,7 +107,7 @@
       <button id="theme" type="button" title="theme">◐</button>
     </header>
 
-    <!-- Studio reshape step 01 (STUDIO.md): a mode-tab row plus the truth
+    <!-- Studio reshape step 01 (docs/plans/STUDIO.md): a mode-tab row plus the truth
          strip, both rendered NOW so the shell does not reflow again when
          Frame (step 03) turns live — only its own `disabled` drops off this
          button. Both #mode-tabs and #truth-strip are pure shell chrome,
@@ -128,7 +128,7 @@
            endpoint. Every chip draws ONLY what the op returned; nothing here
            is re-derived. A warning chip is a link to the mode that explains
            it — Finish for every flag through step 01, Frame for the two
-           framing flags added in step 03 (STUDIO.md § step 01, § step 03). -->
+           framing flags added in step 03 (docs/plans/STUDIO.md § step 01, § step 03). -->
       <div id="truth-strip" class="truth-strip" aria-label="film state">
         <a id="truth-duration" class="chip truth-chip" href="#" data-mode-link="finish"></a>
         <a id="truth-canvas" class="chip truth-chip" href="#" data-mode-link="finish"></a>
@@ -414,7 +414,7 @@
       </div>
     </section>
 
-    <!-- Studio reshape step 03 (STUDIO.md): the Frame view — `frame.js`
+    <!-- Studio reshape step 03 (docs/plans/STUDIO.md): the Frame view — `frame.js`
          owns everything inside it (coverage chips, the sheet/detect job
          triggers and their live progress, one row per window drawn from
          the sheet's own tiles), this file only owns the static shell. The
@@ -532,7 +532,7 @@
          standing in the timeline.
 
          Compiled 2026-08-24 by reading the four keydown handlers rather than
-         from memory (POLISH.md § Step 05): player.js's window listener,
+         from memory (docs/plans/POLISH.md § Step 05): player.js's window listener,
          transcript.js's handleTranscriptKeyDown, timeline.js's two toolbar
          inputs, agent.js's composer. Before that pass the sheet listed
          player.js's bindings and nothing else — eleven of the twenty rows

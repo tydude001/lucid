@@ -11,7 +11,7 @@ PLAN.md so the plan stays a plan. Three rules:
 - References to "the roadmap" and its numbered items cite the roadmap as it
   stood on that date; the roadmap now lives at PLAN.md § Direction and order.
 - The living layer is elsewhere: design and order in [PLAN.md](PLAN.md), the
-  parity program in [DAYDREAM.md](DAYDREAM.md), guardrails in
+  parity program in [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md), guardrails in
   [CLAUDE.md](CLAUDE.md), status in the wiki's Open items table.
 
 ## First milestones — all seven ran — 2026-08-07
@@ -1893,10 +1893,10 @@ them does not attribute them to it.
 
 ## The look pass, head of the Daydream parity queue — 2026-08-08
 
-The item DAYDREAM.md § Build order named first and gated on nothing: warm
+The item docs/plans/DAYDREAM.md § Build order named first and gated on nothing: warm
 tokens in light **and** dark, vendored fonts, the three type voices, the
 pastel timeline, top-bar parity. The palette is Daydream's own HSL triplets,
-copied verbatim from DAYDREAM.md § Tokens — the system, not the assets; the
+copied verbatim from docs/plans/DAYDREAM.md § Tokens — the system, not the assets; the
 name, logo and copy are not taken and every typeface involved is OFL.
 
 ### The theme mechanism, and why there is no second palette
@@ -1976,8 +1976,8 @@ paper and inverting to near-white on the dark theme.
 
 ### What the look pass did not include
 
-The small items DAYDREAM.md § Build order lists as riding it are **not** done:
-model label, per-turn thumbs, `@`-mentions, inline pause markers, `restore`,
+The small items docs/plans/DAYDREAM.md § Build order lists as riding it are **not**
+done: model label, per-turn thumbs, `@`-mentions, inline pause markers, `restore`,
 export presets. Two are more than cosmetic and want their own step —
 `restore` is a real op needing CLI + MCP parity and a `plan` echo, and pause
 markers have the duration-inflation rule to respect (a gap computed from word
@@ -1996,15 +1996,15 @@ disagree with the CLI.
 
 The six § The look pass did not include, built as one pass: model label,
 per-turn thumbs, `@`-mentions, inline pause markers, `restore`, export presets.
-DAYDREAM.md § Build order had them as the queue's head "gated on nothing", and
-four of them were exactly that. The two it had already flagged as more than
+docs/plans/DAYDREAM.md § Build order had them as the queue's head "gated on nothing",
+and four of them were exactly that. The two it had already flagged as more than
 cosmetic each cost a design decision, and a third — export presets, filed as
 "cheap, anytime" — turned out to be the one with a wall behind it.
 
 ### `restore` — the removed ranges were never stored
 
-DAYDREAM.md specified this as "`Edit` stores its removed ranges, so un-removing
-a *specific* range is a real op". **It does not store them.** `Edit` is an
+docs/plans/DAYDREAM.md specified this as "`Edit` stores its removed ranges, so
+un-removing a *specific* range is a real op". **It does not store them.** `Edit` is an
 ordered list of surviving `Segment`s and nothing else, so the first job was
 deriving what is missing rather than reading it. `Edit.gaps(clip_id, duration)`
 walks that clip's merged segments against its registered length and returns the
@@ -2044,8 +2044,8 @@ so the sliver comes back too.
 ### Pause markers, and the one gap computation
 
 `[N.Ns]` between word spans, from `ops._gap_after` — which `_paragraphs`'
-opportunistic silence arm now calls too, because DAYDREAM.md asked for both to
-be derived from the same place and two gap computations is how they drift. The
+opportunistic silence arm now calls too, because docs/plans/DAYDREAM.md asked for both
+to be derived from the same place and two gap computations is how they drift. The
 duration rule (CLAUDE.md) is the whole reason the field is safe: whisper
 inflates the *end* of the word following a swallowed retake, and a later `end`
 can only shrink a gap measured to the next word's `start`. A bad transcript
@@ -2068,10 +2068,10 @@ the flag always meant.
 
 ### Export presets, and the preset that is not there
 
-Filed as "an afternoon". The afternoon was real; the costing was not. DAYDREAM.md
-says presets "map onto `ops.export`'s existing arguments as named bundles", and
-`export` had no resolution or quality arguments to bundle — it took `output`,
-`export_format` and `fps`.
+Filed as "an afternoon". The afternoon was real; the costing was not.
+docs/plans/DAYDREAM.md says presets "map onto `ops.export`'s existing arguments as named
+bundles", and `export` had no resolution or quality arguments to bundle — it took
+`output`, `export_format` and `fps`.
 
 `youtube` and `web` ship. Both are bundles over the same four consumer keys
 `picture.RENDER_ARGS` already hardcodes (`vcodec`/`crf`/`preset`/`acodec`), and
@@ -2088,8 +2088,8 @@ is a caller mistake rather than a legitimate no-op.
 9:16 is mechanically producible on the single-source path — `-res` was run and
 a real 320x240 clip came back as 608x1080, confirmed with ffprobe — but only as
 the 16:9 frame pillarboxed, never a filled or reframed vertical video. The
-latter is DAYDREAM.md § Aspect swap, deferred on purpose because it touches the
-project model, both render paths and the preview letterbox. On the melt path a
+latter is docs/plans/DAYDREAM.md § Aspect swap, deferred on purpose because it touches
+the project model, both render paths and the preview letterbox. On the melt path a
 resolution override is refused outright for the memory reason above, so a 9:16
 preset could not have been offered consistently across the two writers even as a
 pillarbox. Shipping a platform's name over a quiet letterbox is the
@@ -2111,8 +2111,8 @@ project skips them and says so in `notes`.
 
 ### The panel cosmetics, and the one that was not
 
-Model label, thumbs, `@`-mentions, plus `Start New Task`, which DAYDREAM.md said
-"needs only the affordance" and nearly did. None added a tool, widened the
+Model label, thumbs, `@`-mentions, plus `Start New Task`, which docs/plans/DAYDREAM.md
+said "needs only the affordance" and nearly did. None added a tool, widened the
 allowlist, or gave the subprocess a new path to the project — PLAN.md § The
 agent panel, in mechanism did not move.
 
@@ -2205,7 +2205,7 @@ the marker keeps its selection with four words selected.
 ### What this leaves
 
 The parity queue's head is clear. `tiktok-reels` is the one named thing that did
-not ship and it is blocked on DAYDREAM.md § Aspect swap, not on effort.
+not ship and it is blocked on docs/plans/DAYDREAM.md § Aspect swap, not on effort.
 Filmstrip thumbnails, clip filename labels, and snap/link/lock toggles are still
 open on their own gates (§ The look pass). The next ranked item is caption
 styling.
@@ -2350,8 +2350,8 @@ hev1) is not decodable in a browser here"* where it used to draw black.
 
 ## Caption styling, second in the Daydream parity queue — 2026-08-09
 
-The gap DAYDREAM.md § Captions named: lucid generated timeline-mapped captions
-but the look was an *argument*, so nothing persisted it, nothing previewed it,
+The gap docs/plans/DAYDREAM.md § Captions named: lucid generated timeline-mapped
+captions but the look was an *argument*, so nothing persisted it, nothing previewed it,
 and "restyle, then keep editing" had no answer. The fix is the separation that
 section specified — **a caption-style object in the project, and caption
 content derived** — which makes regenerate-preserving-style true by
@@ -2491,7 +2491,7 @@ invalidation, fixed here by accident of needing the same thing.
 
 - **Per-word animation** — the pop/scale/slide Daydream applies to a
   highlighted word. Karaoke is a colour fill and nothing here moves a glyph;
-  DAYDREAM.md § Captions always parked this as an export question, and it is
+  docs/plans/DAYDREAM.md § Captions always parked this as an export question, and it is
   the same construction question the one-word-at-a-time highlight raises.
 - **No styling UI.** The agent restyles and the window renders it — which is
   the parity target, but it does mean there is no colour picker. `/api/captions`
@@ -3950,7 +3950,7 @@ Nothing at 16:9 could have noticed — the box is 7 either way.
 
 ## The caption animation nobody wanted — 2026-08-10
 
-DAYDREAM.md § Captions had one gap left: Daydream lights one word at a time
+docs/plans/DAYDREAM.md § Captions had one gap left: Daydream lights one word at a time
 and pops it, lucid sweeps a `\k` fill and moves no glyph. It was costed, the
 costing found the recorded blocker wrong, the four candidate looks were
 rendered on the real film, and **Tyler watched them and picked the fill lucid
@@ -3959,7 +3959,7 @@ PLAN.md § Per-word caption animation; what belongs here is the dated verdict
 and the two things the exercise is worth keeping for.
 
 **The blocker was a category error, which is a shape this repo had not seen.**
-PLAN.md, DAYDREAM.md and `captions.py`'s own `Preset` docstring all said the
+PLAN.md, docs/plans/DAYDREAM.md and `captions.py`'s own `Preset` docstring all said the
 feature — and the single-word highlight it shares a construction with — needed
 one Dialogue event per word. That build makes lucid own text layout, because
 an event holding one word cannot know where libass put the others. Measured:
@@ -7425,7 +7425,7 @@ older project with no `review` key still opening clean through
 ## The window learning to place a cue — 2026-08-13
 
 PLAN.md § The completion queue, item 10: the third b-roll entry point,
-drag-select on the timeline (DAYDREAM.md's "right-click-drag on the timeline
+drag-select on the timeline (docs/plans/DAYDREAM.md's "right-click-drag on the timeline
 selects a range"). Its premise was already settled by measurement
 (§ The gap that was never on the timeline, below): 85–87% of drags land
 directly on a word, the rest are inter-word silence with a 0.54s median gap,
@@ -7551,7 +7551,7 @@ the note authorized, not the cut.
 
 ## The multi-project picker, built — 2026-08-17
 
-DAYDREAM.md § Multi-project, the parity long tail's last item, ranked "late,
+docs/plans/DAYDREAM.md § Multi-project, the parity long tail's last item, ranked "late,
 small": `lucid web` serves one project per process, and `make_server`
 (`webui.py`) baked that in as a class attribute plus one bus/agent/render/
 proxy job on the server object, with a comment naming the reason —
@@ -7909,7 +7909,7 @@ half needed the backend shapes to exist first.
 violation — `lucid info` read the manifest directly, bypassing `ops`
 entirely; CLI-only, recorded in `CLI_ONLY`. `ops.CLIP_ROLES = ("voiceover",
 "footage")` and `ops.clip_role(path, clip_id, role=None, *, reset=False)`
-are DAYDREAM.md's transcribe-me/index-me role split, whose gate cleared when
+are docs/plans/DAYDREAM.md's transcribe-me/index-me role split, whose gate cleared when
 indexing shipped: stored as an additive `"role"` key on the clip's own
 record, **no schema bump** (the `interp`/`caption_style`/`tail` precedent —
 absent means undeclared, which is what every older manifest already meant).
@@ -8315,7 +8315,7 @@ would actually have hit.
 
 ## The truth strip and Finish mode — 2026-08-17
 
-STUDIO.md § Step 01, built and verified against the shipped cut rather than a
+docs/plans/STUDIO.md § Step 01, built and verified against the shipped cut rather than a
 scratch project.
 
 `ops.finish_report` composes; it derives nothing new. `duration` is `status`'s
@@ -8368,7 +8368,7 @@ report-only:
   landscape. The refusal draws on the preset's own card, with its fix, and
   nowhere else.
 - **A seam count.** 40 of them in the film, a property of the recording,
-  unchanged by anything the window can do. STUDIO.md forbids inventing a
+  unchanged by anything the window can do. docs/plans/STUDIO.md forbids inventing a
   nearness rule for "seams near a kept edge," so the total is reported under
   `seams` and flagged nowhere.
 - **An unstyled project's unknown burn state.** Nothing to burn, nothing to
@@ -8434,7 +8434,7 @@ project's 410.96s.
 
 ## Direct manipulation on the timeline — 2026-08-17
 
-STUDIO.md § Step 02, built. Drag-trim, razor select-a-range, snap,
+docs/plans/STUDIO.md § Step 02, built. Drag-trim, razor select-a-range, snap,
 drag-from-assets onto V2, and agent plans drawn as struck words with
 Apply/Dismiss. Every gesture posts to an op that already existed; nothing in
 JS computes an edit. `gesture` replaces the old single-purpose `cueDrag` as
@@ -8445,7 +8445,7 @@ only three nodes a live gesture ever draws are standalone overlays
 `updateGestureOverlay` is `updateSelectionHighlight` widened to all three,
 same discipline.
 
-Two of STUDIO.md's own claims did not survive reading the code, which is
+Two of docs/plans/STUDIO.md's own claims did not survive reading the code, which is
 what "verify first" is for:
 
 - `POST /api/cut-time` already existed as `/api/cut-at`, calling
@@ -8513,7 +8513,7 @@ lesson, again), each fixed here.
 
 ## Frame mode — 2026-08-17
 
-STUDIO.md § Step 03, built. The reframe instrument becomes a view: coverage
+docs/plans/STUDIO.md § Step 03, built. The reframe instrument becomes a view: coverage
 chips lead, then one row per window, drawn from the sheet's own tiles via
 `GET /api/reframe/tile/<name>`, never a canvas rendering of a rect over a
 `<video>` frame. `GET /api/reframe/coverage` reads `reframe_coverage`
@@ -8535,7 +8535,7 @@ scan runs. Uncaught inside `ReframeDetectJob._run`'s `try/except EXPECTED`,
 it would have propagated out of the worker thread with no handler: no error
 event published, `_finish()` never reached, `_running` latched `True`
 forever, and the view stuck spinning on an SSE event that could not arrive —
-the exact failure STUDIO.md's own verify list names and forbids for this
+the exact failure docs/plans/STUDIO.md's own verify list names and forbids for this
 step. Caught now; the refusal, which names both paths it looked in for an
 interpreter, draws in the view instead.
 
@@ -8559,7 +8559,7 @@ for either (`cache/sheets` is wiped every run), and it has no action that
 reliably drives it to zero — a static rect over a moving subject has an
 irreducible worst moment, unlike `stale_seconds` and `steps`.
 
-This is a deliberate deviation from STUDIO.md's line about framing flags
+This is a deliberate deviation from docs/plans/STUDIO.md's line about framing flags
 joining the truth strip: the chip links to Frame, which measures the number
 from its own coverage endpoint where the answer is the point, rather than
 showing a figure that is either six seconds stale or six seconds late.
@@ -8595,7 +8595,7 @@ cuts…" now, and clear to the real chip text only on the job's `done` event.
 
 ## Home, and the come-back-later step — 2026-08-17
 
-STUDIO.md § Step 04, built. `lucid open [--root DIR | -C PATH]` binds an
+docs/plans/STUDIO.md § Step 04, built. `lucid open [--root DIR | -C PATH]` binds an
 ephemeral port, prints the URL, then tries to open a window — in that order,
 because the second half is allowed to fail. Resolution is `$LUCID_BROWSER`
 (taken literally, no existence check), then a chromium-family binary on PATH
@@ -8764,7 +8764,7 @@ The stale 410s project still reports `agrees: false` at **74.726s**.
 
 ## The Studio reshape's own walk, end to end — 2026-08-18
 
-STUDIO.md § Cross-cutting sets a definition of done for the reshape as a
+docs/plans/STUDIO.md § Cross-cutting sets a definition of done for the reshape as a
 whole, separate from any step's: *the walk that produced the audit — footage
 in, exported film out, captions burned, framing reviewed — completes in the
 window, the truth strip's flag count reaches zero by actions taken there, and
@@ -9193,7 +9193,7 @@ bed, and `tail.fade` is still a picture transition nobody has costed.
 
 ## Import and transcribe became window operations — 2026-08-18
 
-STUDIO.md's definition of done had one line left unmet since the reshape's
+docs/plans/STUDIO.md's definition of done had one line left unmet since the reshape's
 own walk: "import and transcribe are still not window mutations, so
 'footage in' holds only through the agent pane." Both are now `POST` routes
 with progress, and `attach-transcript` — the non-ASR sibling, which needs no
@@ -9839,7 +9839,7 @@ own — and § The idea opens on the work instead of the competitor: editing is
 finding the parts worth keeping, that work is turning into a conversation, and
 the products built on it so far are desktop apps around a metered cloud
 service. The primitive table and everything below it are untouched. One
-Daydream link survives, in the Documentation list, labelling DAYDREAM.md as
+Daydream link survives, in the Documentation list, labelling docs/plans/DAYDREAM.md as
 "the feature map drawn from Daydream, the closest commercial product" — the
 file is named for it and an unexplained filename would be worse.
 
@@ -10342,7 +10342,7 @@ changes visibly.
 
 ## `lucid doctor` — six binaries, and the sentence after the ✗ — 2026-08-24
 
-POLISH.md § Step 01. lucid depends on six external programs and the repo's
+docs/plans/POLISH.md § Step 01. lucid depends on six external programs and the repo's
 own record is a catalogue of the ways they fail *silently*: melt prints
 `Failed to load` and exits 0; PyPI's `auto-editor` is a stale 29.x fork of a
 different program under the same name, whose multi-source render degrades to
@@ -10389,7 +10389,7 @@ the same dict the MCP tool returns. Optional entries never move the exit code.
 
 ## Manifest-aware undo — a snapshot is a pair — 2026-08-24
 
-POLISH.md § Step 03. `Project.snapshot()` copied `project.otio` and
+docs/plans/POLISH.md § Step 03. `Project.snapshot()` copied `project.otio` and
 `restore()` put it back, which covered cuts and nothing else. Most authoring
 state stopped living in the timeline some time ago: the cue table, framing
 rects, the music bed, the caption style, head/tail/holds, unspoken marks and
@@ -10444,7 +10444,7 @@ asserted over a real SSE connection rather than assumed.
 
 ## The VFR probe — measured, and reported rather than flagged — 2026-08-24
 
-POLISH.md § Step 04. PLAN.md § Open questions has held a lean about variable
+docs/plans/POLISH.md § Step 04. PLAN.md § Open questions has held a lean about variable
 frame rate since the beginning — probe it, record it, don't transcode — and it
 was unverified. Every dogfood recording here is controlled; a stranger's first
 clip is a phone or a screen recording, and VFR is where naive cut math breaks.
@@ -10489,7 +10489,7 @@ has a name on the record instead of being a mystery.
 
 ## The shortcut sheet grew the three panes it never listed — 2026-08-24
 
-POLISH.md § Step 05 planned a `?` overlay from scratch. Reading the code
+docs/plans/POLISH.md § Step 05 planned a `?` overlay from scratch. Reading the code
 first — the plan's own rule, and its own line numbers say "a lead, never a
 fact" — found the overlay already shipped: a native `<dialog>` opened by `?`
 through the pane bus, closed by Escape, by its × and by a backdrop click,
@@ -10541,7 +10541,7 @@ scroll container is measured against its own `clientWidth`.
 
 ## Home's first run — create, import, transcribe, seed, on the page — 2026-08-24
 
-POLISH.md § Step 06. A fresh `lucid web --root` over an empty directory said
+docs/plans/POLISH.md § Step 06. A fresh `lucid web --root` over an empty directory said
 "no lucid projects found under this root" and stopped. That is only actionable
 if you already know the CLI, which is the exact gap this plan exists to close.
 
@@ -10606,7 +10606,7 @@ ran was never filled in.
 
 ## The agent contact sheet — the channel measured, nothing built — 2026-08-24
 
-POLISH.md § Step 07, which is the one step in that plan that ships a design
+docs/plans/POLISH.md § Step 07, which is the one step in that plan that ships a design
 note and stops. The note is PLAN.md § The agent contact sheet — the design
 note; what belongs here is what the measurements said, because two of them
 overturned the recorded lean.
@@ -10647,7 +10647,7 @@ gate on what a model said it saw.
 
 ## The demo project — footage generated, nothing vendored — 2026-08-24
 
-POLISH.md § Step 02. The README quickstart opened with "import VO.wav", which
+docs/plans/POLISH.md § Step 02. The README quickstart opened with "import VO.wav", which
 assumes a voiceover with retakes lying around. Most people do not have one,
 and that assumption is the whole distance between reading about lucid and
 using it.
@@ -10707,7 +10707,7 @@ decisions before the repo goes public" row.
 
 ## The version caught up — 0.15.0 — 2026-08-24
 
-POLISH.md's seven steps, all in one day. What became callable: `lucid doctor`
+docs/plans/POLISH.md's seven steps, all in one day. What became callable: `lucid doctor`
 and its MCP tool (the first op that takes no project), `POST /api/create` and
 `POST /api/seed` on the web UI, and `finish_report`'s `sources` section. What
 changed underneath without being new: a snapshot is a pair now, so
@@ -11336,7 +11336,7 @@ real film rather than reading either UI.
 editor mockups: V2/V1/A1/A2, ruler, waveform, clip thumbnails, filename
 labels, `hawaii_voiceover.wav`. Ours: V2/V1/A1/CC with the same, plus zoom,
 snap, razor and follow. What is actually missing is per-lane lock/visibility
-and clip *filename* labels — both deliberately held (DAYDREAM.md § Timeline)
+and clip *filename* labels — both deliberately held (docs/plans/DAYDREAM.md § Timeline)
 — and a Templates tab. Nothing was built for this section on the strength of
 the impression; the impression was about density.
 
@@ -11402,8 +11402,8 @@ measured in the browser, not read off the source.
    5:42.3` and `1920x816` and read as a fourth measurement of the film;
    drawn `.warn` it would claim a defect the op never found. `.chip.unmeasured`
    is dashed and dim: provisional, still a link to the mode that would measure
-   it. `captions: unknown` stays amber, which STUDIO.md § step 01 specifies and
-   this section is not overruling.
+   it. `captions: unknown` stays amber, which docs/plans/STUDIO.md § step 01 specifies
+and    this section is not overruling.
 
 Also: the top bar's clip picker was a stock 300px `<select>` between a serif
 wordmark and a row of custom pills. `appearance: none` plus a caret drawn from
@@ -11631,7 +11631,7 @@ different address was the obvious edit and is the wrong one: **this file
 records what was measured, and a believable fake makes it claim a run against a
 machine nobody dialed.** CLAUDE.md § Conventions now states that rule.
 Deliberately left: `~/lucid-*` and `~/TheVaultData` (`$HOME`-relative, naming
-no user and no host), the bare hostname where PLAN.md and DAYDREAM.md name a
+no user and no host), the bare hostname where PLAN.md and docs/plans/DAYDREAM.md name a
 homelab box in a decision record, `192.168.1.50` (illustrative, matching the
 test that uses it), the `pyproject.toml` author line, and `scratch/`, which is
 gitignored and confirmed absent from a fresh clone.

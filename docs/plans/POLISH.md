@@ -1,7 +1,7 @@
 # lucid — the polish plan: user-friendly, finished, useful to strangers
 
 Provenance: a recommendation review on 2026-08-24, after the Studio reshape's
-definition of done was met (STUDIO.md — footage in, film out, terminal never
+definition of done was met (docs/plans/STUDIO.md — footage in, film out, terminal never
 required) and PLAN.md § The completion queue closed its last item. The finding
 that frames this plan: **the editing core and the workspace are complete, and
 every remaining gap is between "works for Tyler" and "works for anyone."**
@@ -451,7 +451,7 @@ The note must answer, with measurements where the repo doesn't have them:
 
 - **Frame mode used in anger** — usage, not code. The next real video's
   framing round runs through Frame mode instead of the CLI sheet; its defect
-  list gets found the way every pane's was (STUDIO.md § Open questions notes
+  list gets found the way every pane's was (docs/plans/STUDIO.md § Open questions notes
   it has not been used in anger).
 - **The publish decisions** (Scream-frame screenshots, HISTORY.md's tailnet
   exposure) — Tyler's calls, tracked in the wiki. Step 02 dissolves the

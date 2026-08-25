@@ -27,7 +27,7 @@
  * the two panes are wired through `ctx`, never importing each other
  * (PLAN.md § Files, and why they split).
  *
- * This file also owns "footage in" as a window operation (STUDIO.md's
+ * This file also owns "footage in" as a window operation (docs/plans/STUDIO.md's
  * unmet definition-of-done): the "add footage" form (`POST /api/import`),
  * and per-clip Transcribe (`POST /api/transcribe`) / Attach… (`POST
  * /api/transcript/attach`). The first two are ProxyJob-shaped one-slot
@@ -81,7 +81,7 @@ let refreshSeq = 0; // guards against an in-flight /api/assets fetch from an
 
 //: ops.CLIP_ROLES, echoed rather than imported — there is no shared module
 //: between the Python ops layer and this file, and the set is small and
-//: stable (DAYDREAM.md § Import roles + assets pane: "voiceover" vs
+//: stable (docs/plans/DAYDREAM.md § Import roles + assets pane: "voiceover" vs
 //: "footage"). A role this pane does not recognise cannot reach here in the
 //: first place — `clip_role` refuses anything outside the tuple before it
 //: ever writes.

@@ -1,7 +1,7 @@
 """Inline pause markers — `[N.Ns]` gaps rendered between word spans.
 
 `ops._gap_after` is the one place both `_paragraphs`' opportunistic break and
-`_word_placements`' `pause_after` field read a gap from (CLAUDE.md, DAYDREAM.md
+`_word_placements`' `pause_after` field read a gap from (CLAUDE.md, docs/plans/DAYDREAM.md
 § Transcript document: "derive both from the same place"). These are pure
 unit tests over `_gap_after` and `_word_placements` — no I/O — mirroring
 tests/test_ops_paragraphs.py's style and construction helpers. Wire-level

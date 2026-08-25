@@ -7,8 +7,8 @@ order of work. Decisions that get made move out of "Open questions" into
 The other layers are elsewhere and this file cites rather than restates them:
 competitor and dependency research in [PRIOR-ART.md](PRIOR-ART.md); the dated
 record of what shipped and what the evidence said in [HISTORY.md](HISTORY.md);
-the Daydream parity program in [DAYDREAM.md](DAYDREAM.md); status in the
-wiki's Open items table.
+the Daydream parity program in [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md); status
+in the wiki's Open items table.
 
 ## Tier 1 MVP — headless MCP server
 
@@ -458,8 +458,8 @@ prevent. It gets its own note, after a watch of a card-heavy cut.
 (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
 pinned cue). The note inverted the item's own framing and was right to: the
 indexing half everyone assumed was the cloud-shaped risk is local and resident,
-while the *placement* half DAYDREAM.md counted as already-coming did not exist
-— a cue could not name a moment inside its asset, because `mlt.plan_picture`
+while the *placement* half docs/plans/DAYDREAM.md counted as already-coming did not
+exist — a cue could not name a moment inside its asset, because `mlt.plan_picture`
 picks that by a consumption cursor. So footage is described, searched by
 reading, and now placed by a cue carrying an in-point that refuses rather than
 rewinds.
@@ -503,8 +503,8 @@ the recording, not the model — 74–85% overlap, no seam to duck into
 ### Next — the Daydream parity queue
 
 The whole parity plan — observed product, design system, per-feature notes,
-non-imports — is [DAYDREAM.md](DAYDREAM.md). Ranking, governed by the layered
-timeline being the enabler and the look pass being gated on nothing:
+non-imports — is [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). Ranking, governed by
+the layered timeline being the enabler and the look pass being gated on nothing:
 
 1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass),
    and so are the six small items that were to ride it and didn't
@@ -517,8 +517,8 @@ timeline being the enabler and the look pass being gated on nothing:
    event, it is two style fields over the one event `to_ass` already writes —
    and then all four treatments were rendered on the real film and Tyler
    chose the `\k` fill lucid already writes. **This rung is done, and lucid
-   diverges from Daydream here by choice** (DAYDREAM.md § What parity does not
-   import).
+   diverges from Daydream here by choice** (docs/plans/DAYDREAM.md § What parity does
+not    import).
    Then 3. **motion graphics + templates**, then
 4. **b-roll by description** — **all three build steps shipped 2026-08-09**
    (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
@@ -562,8 +562,8 @@ timeline being the enabler and the look pass being gated on nothing:
    the producer's own clock, the preview places per shot, and
    `reframe_sheet` is how any of it gets reviewed. **What is left is the
    framing itself** — 25 placements on the film, against the 15 hand numbers
-   as a control — and then the detector. DAYDREAM.md § Aspect swap carries the
-   detector numbers. **The control is ported and rendered, 2026-08-10**
+   as a control — and then the detector. docs/plans/DAYDREAM.md § Aspect swap carries
+the    detector numbers. **The control is ported and rendered, 2026-08-10**
    (HISTORY.md § The framing control): the approved numbers are source-
    addressed project state, they reproduce the approved framing through a real
    `melt` render, and they are a test. **All 25 placements are framed as of
@@ -1010,7 +1010,7 @@ guesses:
   `POST /api/open` is a one-way bind, the first project picked becomes the
   process's project for the rest of its life, so two projects at once still
   means two processes exactly as `-C` always required. HISTORY.md § The
-  multi-project picker, built; DAYDREAM.md § Multi-project.
+  multi-project picker, built; docs/plans/DAYDREAM.md § Multi-project.
 * **Video, and the codec wall under it.** *Answered in part, 2026-08-09 — the
   picture is verified against real footage now (HISTORY.md § The preview
   picture layer), and the wall turned out not to stand in front of this
@@ -1231,14 +1231,14 @@ Neither blocks steps 1–6. The layered timeline ships without the duck.
 The parity direction (Tyler, 2026-08-08: lucid copies Daydream's full feature
 set and look/feel), the observed product, the design-system spec, the
 feature-by-feature map against shipped code, and the build order are one
-document: [DAYDREAM.md](DAYDREAM.md). The constraints that bind every parity
-item are lucid's own and live where they always did: § Non-goals, the web-UI
-conventions (no lane `export` cannot produce — CLAUDE.md), and § The
+document: [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). The constraints that bind
+every parity item are lucid's own and live where they always did: § Non-goals, the
+web-UI conventions (no lane `export` cannot produce — CLAUDE.md), and § The
 property everything below defends.
 
 ## Motion graphics and templates — the design note — 2026-08-09
 
-The costed note DAYDREAM.md § Motion graphics + templates and § Next ask for
+The costed note docs/plans/DAYDREAM.md § Motion graphics + templates and § Next ask for
 before any build. **The finding that shapes it: motion graphics need no new
 timeline mechanism at all.** The Scream assembly's 13 cards already are motion
 graphics minus the motion — PNGs in `assets/cards/`, cued by `(clip_id,
@@ -1383,7 +1383,7 @@ unmeasured slot, and the footer sits in the platform UI band. Animation is
 still parked behind it.
 
 No properties pane and no styling UI: the agent authors and the window
-renders, which is the parity target DAYDREAM.md states. Two things stay
+renders, which is the parity target docs/plans/DAYDREAM.md states. Two things stay
 deliberately unanswered — whether the existing Scream cards get regenerated at
 1920x816 (Tyler's call on a watch, and the wiki row already carries it), and
 per-word caption animation, which shares "one Dialogue event per word" with
@@ -1391,9 +1391,9 @@ nothing here and neither blocks this nor is blocked by it.
 
 ## B-roll by description — the design note — 2026-08-09
 
-The costed note DAYDREAM.md § B-roll by description and § Next ask for before
+The costed note docs/plans/DAYDREAM.md § B-roll by description and § Next ask for before
 any build. **The finding that shapes it inverts the item's own framing.**
-DAYDREAM.md says lucid "has the placement substrate coming (cues) and one
+docs/plans/DAYDREAM.md says lucid "has the placement substrate coming (cues) and one
 primitive (`spot_frames`)" and lacks indexing and search, with the indexing
 half being the part that must not be copied blind because Daydream's metering
 implies cloud inference.
@@ -1477,7 +1477,7 @@ was not what it was assumed to be.
    dial — **0.1 → 118 cuts, 0.2 → 50, 0.3 → 5**. So **fixed windows are the
    default**, and scene detection is only ever allowed to *subdivide* one.
 
-6. **The homebase encoder service is not relevant compute.** DAYDREAM.md put
+6. **The homebase encoder service is not relevant compute.** docs/plans/DAYDREAM.md put
    port 8765 on the checklist as possibly-relevant. It is vaultmedia's ffmpeg
    transcoder — zero inference, no model of any kind. Struck from this item;
    it is, however, relevant to a *different* open one, the preview proxy
@@ -1590,9 +1590,9 @@ with it:
 
 ## Aspect swap — the design note — 2026-08-09
 
-The small note DAYDREAM.md § Aspect swap and § Next ask for before any build.
-**The finding that shapes it inverts which half is hard.** DAYDREAM.md records
-the multi-source side as the blocker — "the melt path cannot take a resolution
+The small note docs/plans/DAYDREAM.md § Aspect swap and § Next ask for before any build.
+**The finding that shapes it inverts which half is hard.** docs/plans/DAYDREAM.md
+records the multi-source side as the blocker — "the melt path cannot take a resolution
 at all until HISTORY.md § 4's memory-growth combination is isolated — so a real
 9:16 needs an answer on the multi-source side, not just a flag on the other
 one" — and `ops.export` and `picture.render` both carry the same reading.
@@ -1622,14 +1622,14 @@ the ones lucid actually uses.
    declaring it in the `<profile>` is a different mechanism and always was.
    `ops.export`'s refusal of a caller-supplied `resolution` on the melt path
    is still correct — widening the consumer remains unmeasured — but the
-   inference DAYDREAM.md drew from it, that 9:16 is therefore unreachable
+   inference docs/plans/DAYDREAM.md drew from it, that 9:16 is therefore unreachable
    there, is not.
 
 2. **A swapped profile pillarboxes, and the geometry is exact.** Sampled
    pixels rather than exit codes: the content band is **459 of 1920 rows**,
    x 236..845 — the source scaled by 1080/1920 = 0.5625 (419→236, 1503→845),
    to the pixel. **76% of the frame is black bar.** So melt at a swapped
-   profile produces precisely what auto-editor's `-res` produces (DAYDREAM.md
+   profile produces precisely what auto-editor's `-res` produces (docs/plans/DAYDREAM.md
    § Export presets, measured 320x240 → 608x1080). **Both paths can already
    make 9:16 pixels and neither reframes** — resolution was never the missing
    piece on either one.
@@ -1644,7 +1644,7 @@ the ones lucid actually uses.
    centre the overflow) hung on the source producer fills the frame: content
    spans y **0..1919** and x **83..1079**, against the pillarbox's 459-row
    band. No new mechanism, no new dependency, no consumer change — `mlt.py`
-   already writes `qtblend` for compositing. DAYDREAM.md's "mechanically
+   already writes `qtblend` for compositing. docs/plans/DAYDREAM.md's "mechanically
    modest after the MLT writer exists" is right, about the path it called hard.
    - **The filter has to go on every node, not every resource.** The probe
      matched **two** nodes for one file, because `mlt.py` writes one node per
@@ -1976,7 +1976,7 @@ script's own body size.
 
 ## Per-word caption animation — the design note — 2026-08-10
 
-The last named gap on DAYDREAM.md § Captions: lucid generates and styles
+The last named gap on docs/plans/DAYDREAM.md § Captions: lucid generates and styles
 timeline-mapped captions, but the highlight is `\k`'s left-to-right fill and
 nothing moves a glyph. The row costs it as two things sharing one construction
 question — *"both want one Dialogue event per word rather than one per line,
@@ -2117,7 +2117,7 @@ record of a road not taken rather than a plan.** The four are kept at
 + metric-neutral vertical pop), served by `serve.py` on :8791.
 
 **This is a deliberate divergence from Daydream, not an unbuilt row**, and
-DAYDREAM.md § Captions now says so. Daydream lights one word at a time and
+docs/plans/DAYDREAM.md § Captions now says so. Daydream lights one word at a time and
 moves it; lucid sweeps and does not. The measurement is what makes that a
 choice rather than a limitation — findings 1 and 2 say either could ship for
 about a day's work, so nobody needs to re-derive the cost to reopen it.
@@ -2215,7 +2215,7 @@ Checked, live, on this box: it is up, and it is the wrong tool twice over.
    and not in the Chromium/Firefox `lucid web` actually runs against). Its
    output would fail `playability()` and show the same black.
 
-DAYDREAM.md § B-roll by description already struck this service off that
+docs/plans/DAYDREAM.md § B-roll by description already struck this service off that
 item's checklist for having no inference in it, and redirected it here. It is
 now struck here too, for a different reason, and the note is: **grow our
 own.** One `subprocess.run(["ffmpeg", ...])` in the `energy.attenuate` idiom.
@@ -2341,7 +2341,7 @@ reel is: copy the project, `cut_by_time` the head and the tail, `canvas`, and
 control any reel feature has to beat**, and it should be built as a test
 before anything cleverer is designed. **What it produces is not yet watchable,
 and that is a framing problem rather than a reel one** — the centre crop
-mis-frames a subject in most of the seconds that hold one (DAYDREAM.md
+mis-frames a subject in most of the seconds that hold one (docs/plans/DAYDREAM.md
 § Aspect swap), so a reel built on it would be correct-pixels-wrong-video.
 
 What is genuinely absent is one level up: **a reel is a derived project, and
@@ -2368,7 +2368,7 @@ narration plus synopsis handed out, spans written back through `cut_by_time`.
 **Do not build a ranker.** That is the measurement that already exists.
 
 **The second reading** is Daydream's timeline gesture — *"right-click-drag on
-the timeline selects a range"* (DAYDREAM.md:102-104), the third b-roll entry
+the timeline selects a range"* (docs/plans/DAYDREAM.md:102-104), the third b-roll entry
 point beside the agent prompt and the transcript selection. That is UI-only
 *if* one premise holds: that a timeline range translates to the word-index /
 `src_start` pair `cue_add` needs. `timeline.js:344-361` already draws a
@@ -2395,7 +2395,7 @@ the timeline.
 ### Music — the headline is that it has nowhere to live
 
 Daydream places music as short accent blocks on its own **A2** lane
-(DAYDREAM.md:92-104), imported under a distinct role. lucid has no such lane
+(docs/plans/DAYDREAM.md:92-104), imported under a distinct role. lucid has no such lane
 and cannot grow one cheaply, for a reason already on the record.
 
 `Edit`'s own docstring: *"One track. A/V are linked… there is no way to cut
@@ -2435,9 +2435,10 @@ that is not the binding one. HISTORY.md § The three served answers.
 
 ### A default font — the premise is dead on measurement
 
-The row reads as "port Daydream's caption/template fonts" — DAYDREAM.md:196-209
-names Inter Tight and Poppins, deferred there as *"irrelevant until the
-graphics work"*, a clause that expired when cards and caption styling shipped.
+The row reads as "port Daydream's caption/template fonts" —
+docs/plans/DAYDREAM.md:196-209 names Inter Tight and Poppins, deferred there as
+*"irrelevant until the graphics work"*, a clause that expired when cards
+and caption styling shipped.
 
 **Measured on this box, 2026-08-10: none of them are installed, and neither is
 lucid's own default.** `fc-match "DejaVu Sans"` → Noto Sans; `fc-match "Inter
@@ -3060,8 +3061,8 @@ is the case where a split is legal and may still be the worse picture.
 ## The vertical card layout — the design note — 2026-08-11
 
 The last unbuilt piece of § Motion graphics and templates, and the one thing
-between the vertical cut and a card-heavy watch. DAYDREAM.md § Motion graphics
-states the gap as *"one line of `graphics.py`: `view_height = round(
+between the vertical cut and a card-heavy watch. docs/plans/DAYDREAM.md § Motion
+graphics states the gap as *"one line of `graphics.py`: `view_height = round(
 TEMPLATE_WIDTH * height / width)` keeps the design grid 1920 wide always, so a
 1080-wide canvas renders every template at 0.5625 while the frame grows 1.78x
 taller"*, and concludes that a vertical layout is a per-aspect template
@@ -3533,7 +3534,7 @@ is.
 
 ## The A2 music lane — the design note — 2026-08-17
 
-STUDIO.md § Step 05: the only step in the reshape that touches the model, so
+docs/plans/STUDIO.md § Step 05: the only step in the reshape that touches the model, so
 it stops here rather than becoming code. Everything below was measured, not
 reasoned about — a hand-built two-audio-track MLT document, rendered through
 the real `melt` (resolved via `picture.melt_command()`/`display_env()`, staged
@@ -4245,7 +4246,7 @@ it.
 
 ## The agent contact sheet — the design note — 2026-08-24
 
-POLISH.md § Step 07. **Built as `shot_sheet` — what it turned into, and the
+docs/plans/POLISH.md § Step 07. **Built as `shot_sheet` — what it turned into, and the
 three things this note got wrong, are HISTORY.md § The shot sheet.** Kept for
 the measurements and the reasoning, both of which held.
 
@@ -4541,7 +4542,7 @@ is a real browse gesture and is a different address again.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 
-Provenance: a full review of HISTORY.md, DAYDREAM.md, the design notes above,
+Provenance: a full review of HISTORY.md, docs/plans/DAYDREAM.md, the design notes above,
 the goodsometimes pipeline, and both decision files
 (`~/lucid-approvals/decisions.json`, `~/lucid-watch/decisions.json`), made the
 day the essay (v8) and its teaser were declared done. The finding that frames
@@ -4811,7 +4812,7 @@ The order was adopted 2026-08-12.
       filmstrip backend, and its panes; § The multi-project picker, built;
       § MCP over HTTP, built.
 
-Corrected the same day, found by the same review: DAYDREAM.md's two stale
+Corrected the same day, found by the same review: docs/plans/DAYDREAM.md's two stale
 rows (b-roll's "nothing is built"; aspect swap's "none has been reviewed").
 The goodsometimes side of the review — the teaser workflow absent from
 `pipeline.md`, the unrecorded 3:00 Shorts cap, `branding.md`'s stale

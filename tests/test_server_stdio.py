@@ -127,7 +127,7 @@ EXPECTED_TOOLS = {
 
 #: The undo depth a project has the moment it is seeded, before anyone edits
 #: it. `import_media` and `seed_timeline` each write the manifest, and a
-#: manifest write is a snapshot now (POLISH.md § Step 03) — most authoring
+#: manifest write is a snapshot now (docs/plans/POLISH.md § Step 03) — most authoring
 #: state lives there, so undo had to cover it. "Nothing has been edited yet"
 #: is therefore this number rather than zero. Named once, so a change in what
 #: setup does is explained in one place instead of eight.
@@ -239,7 +239,7 @@ def test_doctor_takes_no_arguments_over_stdio() -> None:
 def test_a_manifest_only_mutation_undoes_over_the_wire(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
-    """The hole POLISH.md § Step 03 closes, asserted through the real server.
+    """The hole docs/plans/POLISH.md § Step 03 closes, asserted through the real server.
 
     A cue touches no `project.otio` at all, so the timeline-only undo covered
     cuts and nothing a gesture in the window can now do. Over the wire because
@@ -6834,7 +6834,7 @@ def test_a_head_delays_the_music_beds_own_lead_silence(visible_tmp: Path) -> Non
 
 # -- export presets --------------------------------------------------------
 #
-# DAYDREAM.md § Export presets maps YouTube/Web/Custom onto ops.export as
+# docs/plans/DAYDREAM.md § Export presets maps YouTube/Web/Custom onto ops.export as
 # named bundles. TikTok-Reels joined them with PLAN.md § Aspect swap step 5,
 # once a filled 9:16 render existed to make the name honest — and it is the
 # one preset that *checks* rather than only encoding, because the shape a

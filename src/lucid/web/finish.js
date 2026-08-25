@@ -115,7 +115,7 @@ function renderPresets(bundle) {
     card.classList.toggle("selected", key === selectedPresetKey);
     card.append(el("div", "finish-preset-name", PRESET_LABELS[key] || key));
     if (!ok) {
-      // STUDIO.md: a refusing preset shows its message AND the fix — the
+      // docs/plans/STUDIO.md: a refusing preset shows its message AND the fix — the
       // op's own refusal text already states the fix inline (`lucid canvas
       // …`), so displaying it verbatim satisfies both halves at once.
       card.append(el("div", "finish-preset-message", message));

@@ -16,8 +16,8 @@ reshaped as list-and-detail, and the pane-header sentences demoted out of the
 chrome. Where the two mockups disagree about layout, the later one is what
 shipped; the truth strip, the mode tabs and the direct-manipulation rules
 below are untouched by it. HISTORY.md § The workspace redesign. This is the one document for that work;
-DAYDREAM.md § Build order is superseded by § Build order here wherever the two
-conflict (they mostly do not — this plan is *how the window works*, Daydream
+docs/plans/DAYDREAM.md § Build order is superseded by § Build order here wherever the
+two conflict (they mostly do not — this plan is *how the window works*, Daydream
 parity was *what the window contains*).
 
 **Why**, in one paragraph, so a fresh session doesn't have to re-derive it:
@@ -511,7 +511,7 @@ already had; what changed is that it is now a decision rather than a deferral.
 - **No clip filename labels on V1 blocks.** Every other surface names a block
   by `clip_id`, and a second name for the same thing is how two surfaces stop
   agreeing. Revisit when drag-trim makes a block something you look at for
-  longer than a click — DAYDREAM.md § Timeline holds the reasoning.
+  longer than a click — docs/plans/DAYDREAM.md § Timeline holds the reasoning.
 - **`lucid open` gets no tray or launcher presence.** Nothing here depends on
   it, and PLAN.md § Not a desktop app, and the reasoning is on file already
   carries the argument. `lucid open` stays a command that serves a page and

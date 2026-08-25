@@ -184,13 +184,14 @@ offer, because it can't be run here at all.
 Re-surveyed in full for the parity decision — every page, the three CSS bundles, all sixteen
 homepage videos frame-sampled through ffmpeg, the docs via their Mintlify markdown mirror. The
 observed product anatomy, the workflows, and the design system live in
-[DAYDREAM.md](DAYDREAM.md) (capture method and its one limit in that file's § How this was
-captured). What the pass adds as *competitor* evidence: the homepage retitled to "AI Video Editor
-for Claude Code & Codex" ("for Mac" survives only on `/download`), still macOS-only, so the Linux
-asymmetry stands; the in-app chat is Claude Code/Codex itself as a subprocess on the user's own
-sign-in — the mechanism lucid's agent panel chose independently a day earlier (PLAN.md § The agent
-panel, in mechanism); and the MCP tool schema remains unpublished — workflow prose only, no tool
-list, unchanged from the entry above.
+[docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md) (capture method and its one limit in
+that file's § How this was captured). What the pass adds as *competitor* evidence: the
+homepage retitled to "AI Video Editor for Claude Code & Codex" ("for Mac" survives only
+on `/download`), still macOS-only, so the Linux asymmetry stands; the in-app chat is
+Claude Code/Codex itself as a subprocess on the user's own sign-in — the mechanism
+lucid's agent panel chose independently a day earlier (PLAN.md § The agent panel, in
+mechanism); and the MCP tool schema remains unpublished — workflow prose only, no
+tool list, unchanged from the entry above.
 
 ## NLE handoff on Linux has a ceiling
 

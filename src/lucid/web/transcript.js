@@ -137,7 +137,7 @@
  *                        the shell owns #toast, so emit rather than reach
  *                        for the element directly.
  *   'agent-plan'            {tool, input, payload} — emitted by agent.js
- *                        (STUDIO.md Step 02 item 6) when a `tool_result`
+ *                        (docs/plans/STUDIO.md Step 02 item 6) when a `tool_result`
  *                        lands for a `cut_by_transcript`/`cut_by_time` call
  *                        whose tool_use had `plan: true`. `tool` is the bare
  *                        tool name, `input` is that tool_use's own `input`
@@ -307,7 +307,7 @@ function buildSelectionToolbar() {
 }
 
 /**
- * STUDIO.md Step 02 item 6 — a persistent banner (same re-append-not-rebuild
+ * docs/plans/STUDIO.md Step 02 item 6 — a persistent banner (same re-append-not-rebuild
  * discipline as `toolbarEl`) offering Apply/Dismiss over the agent's last
  * plan-mode cut proposal. `#agent-plan-banner` needs its own
  * `[hidden]{display:none}` companion rule (builder 2 / app.css) — the same
@@ -446,7 +446,7 @@ function paintSelection() {
   }
 }
 
-/* -- agent plans (STUDIO.md Step 02 item 6) --------------------------------
+/* -- agent plans (docs/plans/STUDIO.md Step 02 item 6) --------------------------------
  *
  * `agentPlan.payload` is a cut-family op's own return value — the word
  * indices below are read straight off it, never re-derived: CLAUDE.md's rule

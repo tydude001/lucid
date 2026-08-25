@@ -468,7 +468,7 @@ function captionLabel(captions) {
  * raise, joined — the `captionLabel` precedent one line up: a small local
  * formatter, no decision. `worst_offset` is deliberately not read here or
  * anywhere in this file — it has no reliable-to-zero fix, so it is not a
- * flag (STUDIO.md § step 03 / § Cross-cutting: a flag must be something the
+ * flag (docs/plans/STUDIO.md § step 03 / § Cross-cutting: a flag must be something the
  * window can fix). */
 function framingLabel(framing) {
   // `null` means the op was not asked to measure — distinct from a measured
@@ -497,7 +497,7 @@ function framingLabel(framing) {
 on("finish-report", (bundle) => {
   // A chip warns when the op raised a flag of that kind, and never because
   // this file looked at the numbers and formed an opinion — the strip draws
-  // what an op returned (STUDIO.md § Cross-cutting). The earlier version
+  // what an op returned (docs/plans/STUDIO.md § Cross-cutting). The earlier version
   // warned the canvas chip whenever any preset refused, which lit permanently
   // on every 16:9 film for refusing `tiktok-reels`, and warned the caption
   // chip on `burned !== "yes"`, which lit permanently on a project that has
@@ -553,7 +553,7 @@ on("finish-report", (bundle) => {
   );
 });
 
-/* -- session restore and save (STUDIO.md Step 04, contract § E) -----------
+/* -- session restore and save (docs/plans/STUDIO.md Step 04, contract § E) -----------
  *
  * `cache/session.json` — playhead, zoom, timeline scroll, pane collapse,
  * mode, selection. Cache, never manifest: `/api/session` touches no file

@@ -1,6 +1,6 @@
 """`ops.info`, `ops.clip_role`, `ops.assets`, `ops.properties`, `ops.thumbnail`.
 
-The backend half of the three remaining parity items (DAYDREAM.md § Import
+The backend half of the three remaining parity items (docs/plans/DAYDREAM.md § Import
 roles + assets pane, § Properties pane): an assets catalogue that lists both
 halves of the cue vocabulary, a properties composer, and a cached filmstrip
 frame primitive. Real ffmpeg/ffprobe throughout, following the rest of the

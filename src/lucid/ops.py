@@ -2241,7 +2241,7 @@ def cue_reresolve(
     }
 
 
-#: Daydream's own split (DAYDREAM.md § Import roles + assets pane):
+#: Daydream's own split (docs/plans/DAYDREAM.md § Import roles + assets pane):
 #: "voiceover" for footage that becomes the transcript-as-document,
 #: "footage" for what `describe` indexes for b-roll search.
 CLIP_ROLES = ("voiceover", "footage")
@@ -3040,7 +3040,7 @@ def finish_report(
 ) -> dict[str, Any]:
     """The truth strip's own numbers, and the Finish mode report behind it.
 
-    **Composes only**, `properties`'s own precedent (STUDIO.md § Step 01):
+    **Composes only**, `properties`'s own precedent (docs/plans/STUDIO.md § Step 01):
     every field is another read-only op's whole return, or a plain
     filter/membership-test/sum over one — no new derivation, no new
     subprocess, no new arithmetic. In particular the preset/canvas
@@ -3063,7 +3063,7 @@ def finish_report(
     restated), and what the *last render* did about burning: `"unknown"`
     with no render log at all or a log whose last run never records a `burn`
     stage, `"yes"`/`"no"` off that stage's own `outcome`. This is the one
-    field STUDIO.md is emphatic about: a manifest can say captions are
+    field docs/plans/STUDIO.md is emphatic about: a manifest can say captions are
     configured while nothing on disk was ever burned, and this is the field
     that stops that from reading as clean.
 
@@ -3332,11 +3332,11 @@ def finish_report(
     #     every 16:9 film for as long as it stays 16:9, so flagging it says the
     #     film is wrong for having chosen landscape. The refusal is drawn where
     #     it can be acted on — on the preset's own card, with its fix
-    #     (STUDIO.md § Step 01, mockup screen 04 callout 1) — never here.
+    #     (docs/plans/STUDIO.md § Step 01, mockup screen 04 callout 1) — never here.
     #   * **A seam count is a property of the recording**, not of the edit: 40
     #     of them in the film, unchanged by anything the window can do. The
     #     warning-class question is how many sit near a *kept* edge, and
-    #     STUDIO.md forbids inventing a nearness rule for it, so the total is
+    #     docs/plans/STUDIO.md forbids inventing a nearness rule for it, so the total is
     #     reported under `seams` and flagged nowhere.
     #   * **An unstyled project has no burn to confirm.** `burned: "unknown"`
     #     is still reported for one — honesty about the render log costs
@@ -3482,7 +3482,7 @@ PARAGRAPH_MIN_WORDS = 40
 PARAGRAPH_GAP_MIN_WORDS = 15
 PARAGRAPH_GAP_SILENCE = 0.75
 
-#: Daydream's own threshold (DAYDREAM.md § Transcript document — "theirs
+#: Daydream's own threshold (docs/plans/DAYDREAM.md § Transcript document — "theirs
 #: show down to 0.4s"). Below it a gap renders as nothing, which is the
 #: correct reading of an ordinary breath, not a state to hide.
 PAUSE_MARKER_MIN = 0.4
@@ -4067,7 +4067,7 @@ def thumbnail(
     """One filmstrip frame for `clip_id`, at the source time nearest `at`.
 
     **Deliberately addressed in source time, not by index or by timeline
-    position.** DAYDREAM.md's filmstrip lane is "drawn through the edit the
+    position.** docs/plans/DAYDREAM.md's filmstrip lane is "drawn through the edit the
     same way the waveform maps timeline->source slices" — the caller (a
     timeline lane walking `Edit`'s segments) already has a source second in
     hand, and this is the primitive it needs from there (CLAUDE.md: reloading
@@ -5176,7 +5176,7 @@ def cut_by_transcript(
     that no longer qualifies is a safe no-op. `Transcript.span` stops at the
     last word's own `end`, so without this the trailing pause survives as
     audible dead air even after the words either side of it are cut — this is
-    what makes "cutting a phrase cuts its trailing pause" (DAYDREAM.md §
+    what makes "cutting a phrase cuts its trailing pause" (docs/plans/DAYDREAM.md §
     Transcript document) true rather than merely cosmetic. Only the `cut`
     branch reads it: `keep` already discards everything outside its ranges,
     including any trailing pause, so there is nothing separate to swallow.
@@ -6325,7 +6325,7 @@ DEFAULT_EXPORT_FPS = 30.0
 MLT_EXPORT_FORMATS = {"kdenlive", "mlt"}
 
 
-#: Named export bundles (DAYDREAM.md § Export presets). Each maps to values
+#: Named export bundles (docs/plans/DAYDREAM.md § Export presets). Each maps to values
 #: for the same four consumer keys `picture.RENDER_ARGS` already hardcodes —
 #: `vcodec`/`crf`/`preset`/`acodec` — because those four, together, are the
 #: combination HISTORY.md § 4 measured as memory-safe on the melt path;
@@ -6426,7 +6426,7 @@ def _resolve_preset(
     behavior-preserving default (`picture.RENDER_ARGS`, no `-res`).
 
     `"custom"` is not a fixed bundle — it means "apply `resolution` and leave
-    quality at the `youtube`-equivalent default" (DAYDREAM.md's literal
+    quality at the `youtube`-equivalent default" (docs/plans/DAYDREAM.md's literal
     "resolution + quality" would mean accepting raw vcodec/crf/preset/acodec
     values from a caller, which widens the melt consumer to combinations
     HISTORY.md § 4 never measured; narrowed here on purpose). It requires

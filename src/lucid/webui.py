@@ -292,7 +292,7 @@ _STATIC_TYPES = {
     ".svg": "image/svg+xml",
     # The three type voices, vendored beside the stylesheet rather than
     # fetched from a CDN — which the `default-src 'self'` CSP would refuse
-    # anyway (DAYDREAM.md § Typography). Flat names, because `_send_static`
+    # anyway (docs/plans/DAYDREAM.md § Typography). Flat names, because `_send_static`
     # serves a filename and never a path.
     ".woff2": "font/woff2",
 }
@@ -431,7 +431,7 @@ _SCAN_SKIP_NAMES = frozenset({".git", ".venv", "venv", "node_modules", "__pycach
 
 
 def scan_projects(root: Path) -> list[dict[str, Any]]:
-    """Find lucid projects under `root` (DAYDREAM.md § Multi-project).
+    """Find lucid projects under `root` (docs/plans/DAYDREAM.md § Multi-project).
 
     A project is a directory holding `lucid.json` (`Project.MANIFEST_NAME`)
     directly — not a directory containing one somewhere inside it, which
@@ -542,7 +542,7 @@ def _scan_one(path: Path) -> dict[str, Any]:
         # matching a sentence is how a message reword becomes a silent
         # behaviour change (CLAUDE.md, `media.MultiAudioError`'s own reason
         # for carrying `streams`). No fifth status — the four outcomes this
-        # scan reports are unchanged (POLISH.md § Step 06).
+        # scan reports are unchanged (docs/plans/POLISH.md § Step 06).
         entry["seeded"] = (path / TIMELINE_NAME).is_file()
         return entry
     entry["status"] = "ok"
@@ -791,7 +791,7 @@ class AgentSession:
         #: kills a live proc — never unconditionally, or it would wrongly
         #: swallow a *genuine* future crash report after an earlier no-op
         #: reset. Consumed once, by `_pump_stdout`'s silent-exit branch, so a
-        #: deliberate `reset()` (item 4, DAYDREAM.md § Agent panel) does not
+        #: deliberate `reset()` (item 4, docs/plans/DAYDREAM.md § Agent panel) does not
         #: also surface as a synthetic `error_no_output` result event.
         self._suppress_next_exit_report = False
 
@@ -1071,7 +1071,7 @@ def _run_checks(project_root: Path, output: Path, has_video: bool) -> dict[str, 
 
 
 class RenderJob:
-    """One render at a time per server (PLAN.md § Finishing, STUDIO.md § Step 01).
+    """One render at a time per server (PLAN.md § Finishing, docs/plans/STUDIO.md § Step 01).
 
     Runs the finishing pipeline — `export` → optional `burn` (add_captions)
     → `check_frames` → `verify`, the last two derived from `_run_checks`
@@ -1288,7 +1288,7 @@ class RenderJob:
 
         # -- burn ----------------------------------------------------------
         # `burn is None` means "apply the project's own default": on when a
-        # caption style is configured, off otherwise — STUDIO.md's rule.
+        # caption style is configured, off otherwise — docs/plans/STUDIO.md's rule.
         # `burn is True`/`burn is False` overrides it explicitly either way.
         should_burn = (
             ops.CAPTION_STYLE_KEY in project.read_manifest() if burn is None else burn
@@ -1448,7 +1448,7 @@ class ProxyJob:
 
 
 class ReframeSheetJob:
-    """One sheet generation at a time per server (STUDIO.md § Step 03, Frame mode).
+    """One sheet generation at a time per server (docs/plans/STUDIO.md § Step 03, Frame mode).
 
     `ProxyJob`'s exact shape: the lock, the plain `_running` flag, everything
     that can raise (`Project.open`) resolved on the request thread before the
@@ -1512,13 +1512,13 @@ class ReframeSheetJob:
 
 
 class ReframeDetectJob:
-    """One detect pass at a time per server (STUDIO.md § Step 03, Frame mode).
+    """One detect pass at a time per server (docs/plans/STUDIO.md § Step 03, Frame mode).
 
     `ProxyJob`'s exact shape. **`apply` is not a parameter of `.start()` at
     all** — it is hard-coded `False` in the call to `ops.reframe_detect`,
     enforced here at the job layer (and again at the HTTP layer, in
     `_handle_reframe_detect_start`, which refuses even a hand-crafted
-    request naming the key) — the one flag STUDIO.md is explicit about:
+    request naming the key) — the one flag docs/plans/STUDIO.md is explicit about:
     "`apply` stays off — it proposes, the sheet judges."
 
     This job always needs `LUCID_FACE` — `ops.reframe_detect` raises
@@ -1590,7 +1590,7 @@ class ReframeDetectJob:
 
 
 class ImportJob:
-    """One import at a time per server (STUDIO.md § Cross-cutting: footage in
+    """One import at a time per server (docs/plans/STUDIO.md § Cross-cutting: footage in
     becomes a window operation, not a CLI-only step).
 
     `ProxyJob`'s exact shape: the lock, the plain `_running` flag, everything
@@ -1721,7 +1721,7 @@ class ImportJob:
 
 
 class TranscribeJob:
-    """One transcription at a time per server (STUDIO.md § Cross-cutting).
+    """One transcription at a time per server (docs/plans/STUDIO.md § Cross-cutting).
 
     `ProxyJob`'s exact shape. Wraps `ops.transcribe`, the ASR-driven sibling
     of `attach_transcript` — this is a job because whisper on real footage is
@@ -1810,7 +1810,7 @@ class SeedJob:
     **This is the one existing op that had no window route at all**, which
     made a freshly created project a dead end in the picker: `ops.status`
     refuses a project with no timeline, so the scan classifies it `error`
-    and nothing in the page could take it forward (POLISH.md § Step 06).
+    and nothing in the page could take it forward (docs/plans/POLISH.md § Step 06).
 
     Unlike transcribe, this one *does* move `project.otio` and the manifest,
     so `_revision()` sees it and `project-changed` fires on its own. The
@@ -2512,7 +2512,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_agent_new_task(self) -> None:
         """`POST /api/agent/new-task {}` — kill the live subprocess so the
-        next prompt starts a fresh conversation (DAYDREAM.md § Agent panel,
+        next prompt starts a fresh conversation (docs/plans/DAYDREAM.md § Agent panel,
         item 4: "needs only the affordance" — `AgentSession.reset()` and
         `send()`'s existing lazy respawn already do the rest).
 
@@ -3262,7 +3262,7 @@ def _attach_transcript(root: str, payload: dict[str, Any]) -> dict[str, Any]:
 def _agent_thumb(root: str, payload: dict[str, Any]) -> dict[str, Any]:
     """`POST /api/agent/thumbs` — append one rating to `Project.thumbs_path`.
 
-    DAYDREAM.md § Agent panel, item 2: "useful only if something reads it;
+    docs/plans/DAYDREAM.md § Agent panel, item 2: "useful only if something reads it;
     build the log, defer any use." So this is telemetry, not an `ops`
     mutation — no CLI subcommand, matching the existing precedent that
     `/api/agent`, `/api/agent/stop`, `/api/render` and `/api/render/stop`
@@ -3389,7 +3389,7 @@ def _bind_singletons(server: ThreadingHTTPServer, project_root: Path) -> None:
     loudly (`AttributeError` in tests, refused by `do_POST`/`_route` in
     production) rather than reading a stale project's job.
 
-    This is the whole answer to DAYDREAM.md § Multi-project's "a second
+    This is the whole answer to docs/plans/DAYDREAM.md § Multi-project's "a second
     project would need a second everything here": it does not get one.
     `--root` lets a process defer *which* project these belong to, but only
     ever binds one — a second project open at once still means a second
@@ -3453,7 +3453,7 @@ def make_picker_server(
     token: str | None = None,
     allowed_hosts: frozenset[str] | Sequence[str] = _LOOPBACK_NAMES,
 ) -> ThreadingHTTPServer:
-    """Build a server over a `--root` scan (DAYDREAM.md § Multi-project).
+    """Build a server over a `--root` scan (docs/plans/DAYDREAM.md § Multi-project).
 
     Opens nothing: a scan can find a project at an old schema or with a
     broken manifest (`scan_projects`), and `Project.open` must never migrate
@@ -3735,7 +3735,7 @@ def open_studio(path: Path | str | None = None, *, root: Path | str | None = Non
     `make_picker_server` rather than adding a mode to `serve`/`serve_root`,
     so neither function's signature or existing callers/tests are touched.
     Port is hardcoded `0` — always ephemeral, never configurable, per
-    STUDIO.md's own wording; there is no `--host`/`--port` here the way
+    docs/plans/STUDIO.md's own wording; there is no `--host`/`--port` here the way
     `lucid web` has them.
 
     `-C` (`path`) opens straight into that project; `--root` opens Home.

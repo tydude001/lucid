@@ -221,8 +221,8 @@ states that rule. Left deliberately, each with a reason:
 
 - `~/lucid-*` and `~/TheVaultData` — `$HOME`-relative, naming no user and no
   host, and cited throughout CLAUDE.md's conventions.
-- the bare hostname in PLAN.md and DAYDREAM.md, where it names a homelab box in
-  a decision record rather than a reachable address, and rewriting it would
+- the bare hostname in PLAN.md and docs/plans/DAYDREAM.md, where it names a homelab box
+in   a decision record rather than a reachable address, and rewriting it would
   drift four prose lines for no gain now that the MagicDNS form is gone.
 - `192.168.1.50` in HISTORY.md — an illustrative RFC1918 address, matching the
   test that uses it, not this node's.

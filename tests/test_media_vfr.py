@@ -1,4 +1,4 @@
-"""The VFR probe, and the measurement behind its tolerance — POLISH.md § Step 04.
+"""The VFR probe, and the measurement behind its tolerance — docs/plans/POLISH.md § Step 04.
 
 Phone and screen recordings are often variable frame rate, and VFR is where
 naive cut math breaks. The recorded lean (PLAN.md § Open questions, *Variable

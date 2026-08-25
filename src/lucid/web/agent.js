@@ -28,7 +28,7 @@
  *     actually is (dimensions, duration) plus the four verification checks,
  *     because success here is what ffprobe said, not that the job finished
  *     (PLAN.md § Finishing);
- *   - `agent-plan` on the shared bus (STUDIO.md Step 02 item 6): when a
+ *   - `agent-plan` on the shared bus (docs/plans/STUDIO.md Step 02 item 6): when a
  *     tool_result lands for a `cut_by_transcript`/`cut_by_time` call whose
  *     matching tool_use had `plan: true`, this file parses the tool's own
  *     JSON reply and emits `{tool, input, payload}` VERBATIM — transcript.js
@@ -51,7 +51,7 @@ import { $, el, fmt } from "./dom.js";
 let ctx = null;
 let busy = false;
 
-// The model chip in the composer hint (item 1, DAYDREAM.md § Agent panel).
+// The model chip in the composer hint (item 1, docs/plans/DAYDREAM.md § Agent panel).
 // Set once per subprocess lifetime from the stream-json `system`/`init`
 // event's own `model` field — never guessed, and never regressed by a
 // malformed event. `AgentSession.send()` reuses the live subprocess across
@@ -213,7 +213,7 @@ function addStep(block) {
   currentProgress.append(step);
   // `name`/`input` are carried alongside the checklist bookkeeping so the
   // matching tool_result can tell whether this was a plan-mode cut-family
-  // call (STUDIO.md Step 02 item 6) — the checklist itself never reads them.
+  // call (docs/plans/STUDIO.md Step 02 item 6) — the checklist itself never reads them.
   if (block?.id) pendingSteps.set(block.id, { step, label, name: block?.name, input: block?.input });
 }
 
@@ -259,7 +259,7 @@ function handleAssistantOrUser(data) {
       // typing; it is never re-shown as a prompt (the composer already
       // echoed what the person actually sent).
       //
-      // STUDIO.md Step 02 item 6: a successful cut_by_transcript/cut_by_time
+      // docs/plans/STUDIO.md Step 02 item 6: a successful cut_by_transcript/cut_by_time
       // call made with plan:true is a proposal, not a finished edit — it
       // gets drawn on the transcript rather than only logged. The payload is
       // handed to transcript.js VERBATIM (CLAUDE.md: the page renders ops'
@@ -284,7 +284,7 @@ function handleAssistantOrUser(data) {
 
 // -- per-turn thumbs (item 2) -----------------------------------------------
 //
-// DAYDREAM.md: "useful only if something reads it; build the log, defer any
+// docs/plans/DAYDREAM.md: "useful only if something reads it; build the log, defer any
 // use." So this only appends a rating to Project.thumbs_path via
 // /api/agent/thumbs — nothing here reads it back. One standalone feed row per
 // successful turn rather than trying to locate "the" bubble for that turn: a

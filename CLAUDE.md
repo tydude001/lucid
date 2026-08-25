@@ -7,14 +7,19 @@ order. The competitor/dependency survey behind those decisions is in
 evidence said — including the first real video's findings — is
 [HISTORY.md](HISTORY.md). The Daydream parity plan — the product observed,
 its design system, the feature map and its build order — is
-[DAYDREAM.md](DAYDREAM.md). The Studio reshape — the workspace reorganized
-around Home/Edit/Frame/Finish with direct manipulation and the truth strip —
-is [STUDIO.md](STUDIO.md), which supersedes DAYDREAM.md § Build order where
-they conflict. The post-reshape polish plan — doctor, the demo project,
-manifest-aware undo, and the rest of the works-for-anyone gap — is
-[POLISH.md](POLISH.md); all seven of its steps shipped 2026-08-24 and each
-carries a pointer to the HISTORY.md section that records it. The workspace
-redesign that followed — one tabbed rail instead of two side columns, Frame
+[docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). The Studio reshape — the
+workspace reorganized around Home/Edit/Frame/Finish with direct manipulation
+and the truth strip — is [docs/plans/STUDIO.md](docs/plans/STUDIO.md), which
+supersedes docs/plans/DAYDREAM.md § Build order where they conflict. The
+post-reshape polish plan — doctor, the demo project, manifest-aware undo, and
+the rest of the works-for-anyone gap — is
+[docs/plans/POLISH.md](docs/plans/POLISH.md); all seven of its steps shipped
+2026-08-24 and each carries a pointer to the HISTORY.md section that records
+it. **A closed plan lives in `docs/plans/` when the code cites it and in
+`~/lucid-archive/plans/` when it does not** — these three are cited from 100
+comments across `src/`, `tests/` and `scripts/`, which is the only reason they
+are still in the repo. The workspace redesign that followed — one tabbed rail
+instead of two side columns, Frame
 and Finish as list-and-detail, and the pane headers demoted out of the
 chrome — is HISTORY.md § The workspace redesign; it has no plan document of
 its own, because it was drawn as mockups, approved, and built in one pass.

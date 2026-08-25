@@ -81,12 +81,12 @@ CARDS_DIR = "assets/cards"
 #: first tail was set — so it is not in `_SUBDIRS` either, and `ops._tail_silence`
 #: creates it on demand the way `reframe_sheet` creates `SHEET_DIR`.
 TAIL_DIR = "cache/tail"
-#: Per-turn thumbs-up/down log for the agent panel (DAYDREAM.md § Agent
+#: Per-turn thumbs-up/down log for the agent panel (docs/plans/DAYDREAM.md § Agent
 #: panel) — one JSON line per rating. Lives under `cache/` because it is
 #: derived telemetry, not part of the edit: nothing here is authoritative for
 #: the timeline or the manifest, and `_revision()` in webui.py never stats it.
 THUMBS_LOG = "cache/agent_thumbs.jsonl"
-#: One JSON line per finished render pipeline run (STUDIO.md § Step 01) — the
+#: One JSON line per finished render pipeline run (docs/plans/STUDIO.md § Step 01) — the
 #: `THUMBS_LOG` precedent exactly: cache because it is derived telemetry, not
 #: part of the edit. No manifest key names it and `_revision()` never stats
 #: it, so a render never counts as a project mutation.
@@ -217,7 +217,7 @@ class Snapshot:
     style, head/tail/holds, unspoken marks and card records are all manifest
     keys that touch no `project.otio` at all — so an undo that restored only
     the timeline covered cuts and nothing a gesture in the window can now do
-    (POLISH.md § Step 03).
+    (docs/plans/POLISH.md § Step 03).
 
     Either half may be absent, and the two absences mean different things:
 

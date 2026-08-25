@@ -1,4 +1,4 @@
-"""`ops.finish_report` — STUDIO.md § Step 01's truth-strip composer.
+"""`ops.finish_report` — docs/plans/STUDIO.md § Step 01's truth-strip composer.
 
 Built by hand, the same no-ffmpeg pattern `test_ops_shots.py` uses: a real
 `Project`, a hand-written `Edit` with a genuine cut gap, and a registered
@@ -178,7 +178,7 @@ def test_finish_report_unknown_burn_flags_only_once_a_style_exists(project: Proj
     """The captionless-film failure is a *styled* project whose render never
     burned. An unstyled one has nothing to burn, so its unknown burn state is
     reported and not flagged — a flag no action can clear is a count that can
-    never reach zero, which is the thing STUDIO.md's definition of done needs.
+    never reach zero, which is the thing docs/plans/STUDIO.md's definition of done needs.
     """
     _with_one_pinned_cue(project)
 

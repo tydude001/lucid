@@ -3,7 +3,7 @@
 
 The README quickstart assumes you have a voiceover with retakes lying around.
 Most people do not, and a demo you can run in two minutes is the difference
-between reading about lucid and using it (POLISH.md § Step 02).
+between reading about lucid and using it (docs/plans/POLISH.md § Step 02).
 
 **Everything here is generated, and that is the design.** The repo carries no
 media at all: the voiceover is synthesised from a script written a few lines

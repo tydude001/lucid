@@ -1,4 +1,4 @@
-"""Manifest-aware undo — POLISH.md § Step 03.
+"""Manifest-aware undo — docs/plans/POLISH.md § Step 03.
 
 `snapshot()` copied `project.otio` and `restore()` put it back, which covered
 cuts and nothing else. Most authoring state stopped living in the timeline

@@ -6,7 +6,7 @@ this is derived telemetry, not part of the edit — nothing here is
 authoritative for the timeline or the manifest, `_revision()` in webui.py
 never stats it, and a render pipeline run is not a project mutation. It
 exists so `ops.finish_report` can answer "did the last render actually burn
-captions in" without re-running or re-parsing anything — STUDIO.md § Step 01
+captions in" without re-running or re-parsing anything — docs/plans/STUDIO.md § Step 01
 is explicit that an absent log is a warning (`captions.burned == "unknown"`),
 never an error and never a reason to guess.
 

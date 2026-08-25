@@ -52,7 +52,7 @@ goes in there too — the assets pane imports a clip and transcribes it, so the
 first three commands above have a window equivalent and the terminal is never
 required. Riding all three is the truth strip —
 `lucid finish-report` made ambient, so a film that would ship wrong says so
-while you edit. STUDIO.md is the design.
+while you edit. docs/plans/STUDIO.md is the design.
 
 ## Multi-mic recordings
 

@@ -612,7 +612,7 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state, withFilmstrip) 
     }
     // Drag-trim handles on **both** lanes this function draws, because V1 and
     // A1 are the same `state.segments` shown twice and a trim on either
-    // resolves to the same `cut_by_time` span. STUDIO.md says "V1 block
+    // resolves to the same `cut_by_time` span. docs/plans/STUDIO.md says "V1 block
     // edges", and taking that literally put the gesture out of reach of
     // exactly the projects lucid exists for: V1 is built only when the
     // displayed clip `has_video` (see render()), so a VO-driven essay — the
@@ -2464,7 +2464,7 @@ export function update(state) {
   render();
 }
 
-// -- session restore accessors (STUDIO.md Step 04, contract § E) -----------
+// -- session restore accessors (docs/plans/STUDIO.md Step 04, contract § E) -----------
 //
 // Four small getters/setters, added for `app.js`'s session restore/save and
 // nothing else — no other caller exists yet. Each setter reuses the exact

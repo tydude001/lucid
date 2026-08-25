@@ -39,7 +39,7 @@ pre-seeded project quietly measures the back half of it.
 
 Two rules about what this writes. It never touches a real project — the media
 and the project are generated under the work directory, `make_demo.py`'s own
-footage, regenerable and licence-free (POLISH.md § Step 02). And every run
+footage, regenerable and licence-free (docs/plans/POLISH.md § Step 02). And every run
 keeps its whole event stream (`events.jsonl`), because the failure list this
 produces has to be re-readable months later without re-running anything.
 """

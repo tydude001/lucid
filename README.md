@@ -187,15 +187,34 @@ not a regression.
 
 ## Documentation
 
+Start with the manual; the rest is here because lucid's reasoning is part of
+what it ships.
+
 - [docs/MANUAL.md](docs/MANUAL.md) — every command, with the rationale.
+- [docs/DEMO.md](docs/DEMO.md) — the whole loop in two minutes, on footage
+  the repo generates.
+
+**Live — what lucid is and what it learned.**
+
 - [PLAN.md](PLAN.md) — architecture, stack decisions, open questions.
-- [PRIOR-ART.md](PRIOR-ART.md) — the survey of what else exists in this space
-  and what lucid does that they don't.
 - [HISTORY.md](HISTORY.md) — the dated record of what shipped and what the
   evidence said, first real video included.
-- [DAYDREAM.md](DAYDREAM.md) — the feature map drawn from
-  [Daydream](https://www.daydreamvideo.com), the closest commercial product;
-  [STUDIO.md](STUDIO.md) — the workspace design.
+- [PRIOR-ART.md](PRIOR-ART.md) — the survey of what else exists in this space
+  and what lucid does that they don't.
+- [NEXT.md](NEXT.md) — the three directions after the queues closed, ranked.
+- [TRIAL.md](TRIAL.md) — an agent cutting a video end to end, unattended and
+  scored, plus the queue its failures became.
+
+**Shipped plans — [docs/plans/](docs/plans).** Each was built to completion; they
+are kept because the design reasoning and the measurements behind it are cited
+throughout the code, not because any work is outstanding.
+
+- [DAYDREAM.md](docs/plans/DAYDREAM.md) — the feature map drawn from
+  [Daydream](https://www.daydreamvideo.com), the closest commercial product.
+- [STUDIO.md](docs/plans/STUDIO.md) — the Home/Edit/Frame/Finish workspace,
+  which supersedes the Daydream build order where the two conflict.
+- [POLISH.md](docs/plans/POLISH.md) — the works-for-anyone pass: doctor, the
+  demo project, manifest-aware undo.
 
 ## License
 

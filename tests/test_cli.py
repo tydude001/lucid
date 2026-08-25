@@ -119,7 +119,7 @@ def test_open_refuses_both_dash_c_and_root(
 
 def test_open_parses_root_with_no_host_or_port_flags() -> None:
     """`open` is deliberately narrower than `web`: no `--host`/`--port`/
-    `--open`/`--verbose` — the port is always ephemeral, per STUDIO.md's own
+    `--open`/`--verbose` — the port is always ephemeral, per docs/plans/STUDIO.md's own
     wording — so `--root` is the only flag it should accept."""
     from lucid.cli import _build_parser
 

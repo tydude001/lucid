@@ -13,7 +13,7 @@ table, never in this file** (root conventions § Knowledge stores).
 Every queue the project has is closed. The Daydream parity queue: closed
 (PLAN.md § Next — the Daydream parity queue, final entry). The completion
 queue from the Scream video: all ten items closed (PLAN.md § The completion
-queue). POLISH.md: all seven steps shipped 2026-08-24. The workspace
+queue). docs/plans/POLISH.md: all seven steps shipped 2026-08-24. The workspace
 redesign and its density pass shipped through 2026-08-25 (HISTORY.md § The
 workspace redesign; § The five defects behind "their UI looks cleaner").
 
@@ -70,7 +70,7 @@ the failure list as the queue that follows this file.
 The repo is one scrub away from publishable. Licence, the short README
 front door, generated demo media, `lucid doctor`, scripted screenshots —
 the works-for-anyone gap was closed deliberately over the last two weeks
-(POLISH.md, all seven steps). What is left, per the wiki row *publish
+(docs/plans/POLISH.md, all seven steps). What is left, per the wiki row *publish
 decisions before the repo goes public*:
 
 - **The exposure scrub** — HISTORY.md carries 7 lines with the tailnet

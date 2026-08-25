@@ -1,6 +1,6 @@
 # Vendored typefaces
 
-The three type voices of DAYDREAM.md § Typography, shipped inside the package
+The three type voices of docs/plans/DAYDREAM.md § Typography, shipped inside the package
 rather than fetched at load time. That is not a preference: this server sends
 `default-src 'self'`, so a CDN `<link>` would be refused and the page would
 silently fall back to a system font.

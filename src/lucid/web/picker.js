@@ -9,7 +9,7 @@
  * to join. It still goes through `api()` (api.js) for the same reason every
  * pane does: one place that knows a mutation needs `application/json`.
  *
- * It also owns the **first run** (POLISH.md § Step 06): create → open →
+ * It also owns the **first run** (docs/plans/POLISH.md § Step 06): create → open →
  * import → transcribe → seed, one control at a time, ending in a jump to
  * the workspace. That flow lives here and not in the workspace because a
  * project with no timeline cannot be drawn there — `ops.status` refuses
@@ -163,7 +163,7 @@ function card(entry) {
   return row;
 }
 
-/* -- the first run (POLISH.md § Step 06) ------------------------------------
+/* -- the first run (docs/plans/POLISH.md § Step 06) ------------------------------------
  *
  * Four steps, and the control for each one appears only when the step before
  * it has finished: name → footage → transcribe → seed. That ordering is not

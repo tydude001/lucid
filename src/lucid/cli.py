@@ -985,7 +985,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="use this access token instead of minting one (remote serving only)",
     )
     p_web.add_argument("--verbose", action="store_true", help="log every request, media ranges included")
-    # Serves a picker over a scan instead of one fixed project (DAYDREAM.md §
+    # Serves a picker over a scan instead of one fixed project (docs/plans/DAYDREAM.md §
     # Multi-project). Mutually exclusive with -C in practice, checked in
     # `_cmd_web` rather than here because -C is a *global* flag shared with
     # every other subcommand and always carries a value by the time a

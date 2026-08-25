@@ -42,7 +42,7 @@ pytestmark = needs_ffprobe
 
 #: The undo depth a project has the moment it is seeded, before anyone edits
 #: it. `import_media` and `seed_timeline` each write the manifest, and a
-#: manifest write is a snapshot now (POLISH.md § Step 03) — most authoring
+#: manifest write is a snapshot now (docs/plans/POLISH.md § Step 03) — most authoring
 #: state lives there, so undo had to cover it. "Nothing has been edited yet"
 #: is therefore this number rather than zero. Named once, so a change in what
 #: setup does is explained in one place instead of eight.
@@ -939,7 +939,7 @@ def test_restore_of_a_clip_with_no_material_left_comes_back_as_a_message_not_a_t
 
 def test_api_cut_through_pause_removes_the_trailing_pause(tmp_path: Path) -> None:
     """The shared `project` fixture's words are all 0.1s apart — too tight
-    for a marker (CLAUDE.md/DAYDREAM.md's 0.4s threshold) — so this builds
+    for a marker (CLAUDE.md / docs/plans/DAYDREAM.md's 0.4s threshold) — so this builds
     its own project with one wide gap: words 3 and 4 sit 2.1s apart instead.
 
     A baseline cut of words 2-3 leaves that 2.1s of dead air playing before
@@ -1090,7 +1090,7 @@ def test_waveform_on_an_unknown_clip_is_a_message_not_a_crash(server: str) -> No
 # -- assets, properties, roles ----------------------------------------------
 #
 # The three backend items behind the assets pane and properties inspector
-# (DAYDREAM.md § Import roles + assets pane, § Properties pane): a catalogue
+# (docs/plans/DAYDREAM.md § Import roles + assets pane, § Properties pane): a catalogue
 # of everything a cue can point at, a composed detail view, and the role
 # toggle each clip carries in the catalogue.
 
@@ -1156,7 +1156,7 @@ def test_properties_word_index_without_clip_id_is_refused(server: str) -> None:
 
 # -- finish mode: GET /api/finish --------------------------------------------
 #
-# STUDIO.md § Step 01 — `ops.finish_report` composed entirely from existing
+# docs/plans/STUDIO.md § Step 01 — `ops.finish_report` composed entirely from existing
 # ops. This is the same discipline `test_properties_*` above applies to
 # `/api/properties`: prove the route is actually reachable over a real
 # socket and answers with the documented top-level shape, not that
@@ -1200,7 +1200,7 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
 
 # -- filmstrip thumbnails -----------------------------------------------------
 #
-# DAYDREAM.md's filmstrip lane: a cached frame per source instant, addressed
+# docs/plans/DAYDREAM.md's filmstrip lane: a cached frame per source instant, addressed
 # the way the timeline lane will address it — a clip and a source second.
 
 
@@ -1327,7 +1327,7 @@ def test_undoing_a_manifest_only_mutation_moves_the_revision(
     """A cue undo puts back a manifest and never touches `project.otio`, so an
     open window has to hear about it the same way a restyle does. `_revision`
     watches the manifest's mtime and the snapshot count, and this is the claim
-    that both halves of the restore reach it (POLISH.md § Step 03)."""
+    that both halves of the restore reach it (docs/plans/POLISH.md § Step 03)."""
     ops.cue_add(project, clip_id="vo", word_index=3, asset="card:title")
     _, before = _json(f"{server}/api/view")
 
@@ -1520,7 +1520,7 @@ def test_a_mutating_request_must_be_json(server: str) -> None:
 def test_a_non_loopback_host_cannot_mutate_either(server: str) -> None:
     # A routed mutation from a good Host, for contrast with the refusal
     # below. It used to be chosen because there was nothing to undo; the
-    # fixture's own import and seed are undoable now (POLISH.md § Step 03),
+    # fixture's own import and seed are undoable now (docs/plans/POLISH.md § Step 03),
     # so what it demonstrates is a 200 rather than a 400 — the point of the
     # test is the 403 that follows.
     status, _ = _post(f"{server}/api/undo", {})
@@ -2675,7 +2675,7 @@ def test_render_on_an_empty_timeline_is_refused_before_a_job_starts(
 
 # -- footage in: /api/import, /api/transcribe, /api/transcript/attach ------
 #
-# STUDIO.md § Cross-cutting: "footage in" becomes a window operation.
+# docs/plans/STUDIO.md § Cross-cutting: "footage in" becomes a window operation.
 # `ImportJob`/`TranscribeJob` are `ProxyJob`'s exact shape (one slot, request-
 # thread validation before the slot is claimed, a dedicated `*BusyError`
 # -> 409, completion published on the bus `/api/events` already serves), so
@@ -2852,7 +2852,7 @@ def test_a_multi_mic_refusal_reaches_the_window_as_a_count(
 
 def test_import_of_a_missing_source_is_400_not_a_job(server: str, tmp_path: Path) -> None:
     """Resolved on the request thread — a bad path is a 400, never a job
-    that starts only to fail (decision #2 in STUDIO.md's build order)."""
+    that starts only to fail (decision #2 in docs/plans/STUDIO.md's build order)."""
     missing = tmp_path / "nope.wav"
     status, payload = _post(f"{server}/api/import", {"source": str(missing)})
     assert status == 400
@@ -3015,7 +3015,7 @@ def test_transcript_attach_rejects_a_bad_host(server: str) -> None:
 
 # -- multi-project: the picker over a --root scan --------------------------
 #
-# DAYDREAM.md § Multi-project. `webui.scan_projects` and the picker-mode
+# docs/plans/DAYDREAM.md § Multi-project. `webui.scan_projects` and the picker-mode
 # routes it feeds (`Handler._route_picker`, `Handler._handle_open`) — see
 # webui.py's own docstrings for the design (a picker binds this process to
 # at most one project, permanently, deferring `make_server`'s own binding
@@ -3105,7 +3105,7 @@ def test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone(
     assert "seed" in entries[str(unseeded)]["error"]
     # Which kind of `error` this is, as data rather than as a sentence to
     # match: the picker offers to finish an un-seeded project and must never
-    # offer that for a genuinely broken one (POLISH.md § Step 06).
+    # offer that for a genuinely broken one (docs/plans/POLISH.md § Step 06).
     assert entries[str(unseeded)]["seeded"] is False
     # And the healthy project alongside it still lists normally.
     assert entries[str(project)]["status"] == "ok"
@@ -3200,7 +3200,7 @@ def test_open_refuses_a_second_different_project(
     assert view["clip_id"] == "vo"
 
 
-# -- the first run: create, then seed (POLISH.md § Step 06) ----------------
+# -- the first run: create, then seed (docs/plans/POLISH.md § Step 06) ----------------
 
 
 def test_create_makes_a_project_under_the_root_and_open_binds_it(
@@ -4204,7 +4204,7 @@ def test_reframe_detect_accepted_returns_a_job_id_and_completes_on_the_stream(
 
         found = _next_topic_event(events, "reframe-detect", payload["job_id"])
         assert found["status"] == "done"
-        # The one flag STUDIO.md is explicit about: `apply` never reaches the
+        # The one flag docs/plans/STUDIO.md is explicit about: `apply` never reaches the
         # op as True from this route, no matter what — this call sent no body
         # key for it at all, and the job still hard-codes it.
         assert seen["apply"] is False
@@ -4272,7 +4272,7 @@ def test_reframe_detect_endpoint_requires_json_content_type(server: str) -> None
 def test_reframe_detect_missing_face_detector_reports_as_an_error_event_and_frees_the_slot(
     server: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The failure STUDIO.md's contract names and forbids: `FaceError` must
+    """The failure docs/plans/STUDIO.md's contract names and forbids: `FaceError` must
     be in `webui.EXPECTED`, or this raises inside the worker thread with no
     handler — no error event, `_finish()` never runs, the slot latches busy
     forever. Pinned here rather than trusted from the source read."""
