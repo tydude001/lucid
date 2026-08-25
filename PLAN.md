@@ -316,21 +316,18 @@ left. The conclusion survives because it was always the load-bearing one, but
   **What is still open is normalising at NLE export**, where frame-exactness
   actually matters and where a recorded `vfr` is what a future step would key
   off; nothing has been built for it, deliberately.
-- **Preview delivery in tier 1. Designed 2026-08-24 and awaiting review — see
-  § The agent contact sheet — the design note.** The consumer here is an agent,
-  and an agent cannot watch an MP4. The note measures the two claims this
-  question turned on: the image channel works end to end (an MCP tool result
-  reaches the model through `claude -p --tools ""`, verified by reading burnt-in
-  text back), and per-shot in-points beat the ±0.5s-around-each-cut lean this
-  bullet used to record. Nothing is built. The original lean, kept for the
-  record: a contact sheet of frames at ±0.5s around
-  each cut boundary, which a vision model can actually check. Cheap to render;
-  video-use independently ships decision-point composites (filmstrip +
-  waveform), which validates the idea and removes its uniqueness. An MP4 for
-  the human and a web preview (tier 2, built — HISTORY.md § The preview/timeline web UI)
-  are separate questions — don't conflate them, and building the second did
-  not answer this one: the page is for a person, and an agent still cannot
-  watch it.
+- **Preview delivery in tier 1. Answered 2026-08-24: `shot_sheet`, and this
+  question is closed.** The consumer is an agent and an agent cannot watch an
+  MP4; what it can do is receive an image in a tool result, so the picture
+  track goes back as one labelled grid. Both claims it turned on were measured
+  before anything was built (§ The agent contact sheet), and the build found
+  the third: every other sheet here returns a *path*, which is unreachable
+  under `--tools ""`. HISTORY.md § The shot sheet. **What stays open is
+  everything that is not the timeline** — source footage for a project with no
+  dialogue to address is § The footage sheet, unbuilt. Note the neighbouring
+  questions this does *not* answer: an MP4 for the human, and the web preview
+  (tier 2, built — HISTORY.md § The preview/timeline web UI), which is for a
+  person and never made an agent able to look.
 - **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than lucid
   uses.** Single-track cut-and-concat maps in both directions on real material
   (milestones 3–5), and v3 turns out to express the three things this bullet
@@ -4245,18 +4242,9 @@ it.
 
 ## The agent contact sheet — the design note — 2026-08-24
 
-**Built 2026-08-24 as `shot_sheet` — HISTORY.md § The shot sheet.** This note
-is kept as written, for the measurements and the reasoning; what the build
-changed is recorded there, and three things did change. The name (`contact_sheet`
-was taken by the per-clip first look), the sheet's format (JPEG, measured 4.3x
-smaller than PNG for labels that read identically), and the finding that
-reframes the whole feature: **every other sheet lucid draws returns a path, and
-the agent panel has no Read to open one with.** Two of this note's open
-questions are answered by the build — the tool returns the path *and* the image,
-so a person can open what the agent looked at; and the CLI half is
-`lucid shot-sheet`, the same op with two deliveries. The rest stay open.
-
-POLISH.md § Step 07. **Nothing is built. This note stops for review.**
+POLISH.md § Step 07. **Built as `shot_sheet` — what it turned into, and the
+three things this note got wrong, are HISTORY.md § The shot sheet.** Kept for
+the measurements and the reasoning, both of which held.
 
 **The question it answers** is the oldest one still open here (§ Open
 questions, *Preview delivery in tier 1*): an agent can *listen* to what it
@@ -4266,8 +4254,8 @@ self-check loop for the product's whole thesis. A person opens the window and
 watches; an agent has no window and cannot watch an MP4.
 
 Everything below was measured on 2026-08-24 against the real film
-(`~/lucid-work/polish-ui/proj`, the 5:36 Scream essay, 38 shots of which 25
-are video) rather than reasoned about, because the two load-bearing claims —
+(`~/lucid-work/ui-polish-check/proj`, the 5:36 Scream essay, 38 shots of which
+25 are video) rather than reasoned about, because the two load-bearing claims —
 that an image can reach the model at all, and that a label survives being one
 tile of twenty-five — are both the kind this repo has been wrong about before.
 

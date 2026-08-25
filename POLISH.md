@@ -406,22 +406,12 @@ previous completes.
 
 ---
 
-## Step 07 — the agent contact sheet (design note first — stops for review)
+## Step 07 — the agent contact sheet
 
-**Built 2026-08-24 as `shot_sheet`** — HISTORY.md § The shot sheet. The name
-moved because `contact_sheet` was already the per-clip first-look filmstrip;
-everything else shipped as the note describes. What the build added to it: the
-tool must be annotated `-> Any` or the SDK's output-schema validation refuses
-the image, and **every other sheet lucid draws returns a path**, which the
-agent panel cannot open — so retrofitting the image return to `contact_sheet`
-and `reframe_sheet` is the open follow-up. The sequel note, PLAN.md § The
-footage sheet, is unbuilt and stops for review in this step's place.
-
-Note written — see PLAN.md § The agent contact sheet — the design note.
-Two of its questions were answered by measurement rather than argued: the image
-channel works end to end (`claude -p --tools ""` puts an MCP tool's
-`ImageContent` in front of the model — verified by reading burnt-in text back),
-and the ±0.5s-around-each-cut lean loses to per-shot in-points on this film.
+Shipped as `shot_sheet` — see HISTORY.md § The shot sheet — the agent gets the
+picture back, not a path to one. The design note it stopped for is PLAN.md
+§ The agent contact sheet; its sequel, § The footage sheet, is unbuilt and is
+what now stops for review.
 
 **Why.** PLAN.md § Open questions, *Preview delivery in tier 1* — the oldest
 still-open question: **an agent cannot watch the film it edited.** `verify`

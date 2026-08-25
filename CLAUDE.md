@@ -154,32 +154,21 @@ absent optional capability is "unavailable", never a failure, and never moves
   `mcp.server.mcpserver.utilities.types.Image`. **A reading is an opinion, not
   a check**: `reframe_sheet`'s precedent, and nothing in lucid gates on what a
   model said it saw. PLAN.md § The agent contact sheet.
-  - **A tool that returns one is annotated `-> Any`, and the obvious
-    annotation silently returns no picture.** The SDK builds an output schema
-    from a concrete return type and validates the return against it; an
-    `Image` is not JSON, so `-> list[Any]` comes back `is_error` with
-    *Unable to serialize unknown type* and `-> list[ContentBlock]` with 13
-    validation errors, from a tool body that is perfectly correct. Only `Any`
-    and no annotation at all work. `shot_sheet` is the one caller and a test
-    pins it against the raw `CallToolResult` — the suite's `Client` helper
-    reads `content[0]`, so a tool that returned only its table would pass.
-    HISTORY.md § The shot sheet.
-  - **`shot_sheet` returns the bytes; every other sheet returns a path, and a
-    path is unreachable from the agent panel** (`--tools ""` means no Read).
-    So `contact_sheet`'s frames and `reframe_sheet`'s montage are invisible to
-    the caller that most wants them — retrofitting the same return is open,
-    not done. `contact_sheet` is the *first-look filmstrip of one clip's head*
-    and is not this; the names are one letter apart in intent and the two live
-    together in `ops.py` for that reason.
-    - **What is cached is the frame, not the tile.** A source frame is
-      `(asset, source second)` and no edit invalidates one; a tile carries
-      `t=`, its timeline second, which every upstream cut moves — caching the
-      labelled tile hands back a correct picture under a stale time. Cached
-      already downscaled with the width in the filename, because caching what
-      `extract_frame` writes cost **18 MB of full-resolution PNG per page to
-      make a 311 KiB sheet**. The sheet is JPEG for the same reason it is
-      paged: it travels base64 in the tool result, and PNG is 4.3x the bytes
-      for labels that read identically.
+  - **A tool returning one is annotated `-> Any`, and the obvious annotation
+    silently returns no picture.** A concrete return type makes the SDK build
+    an output schema and validate an `Image` against it, so `-> list[Any]` and
+    `-> list[ContentBlock]` both answer `is_error` from a correct body. Assert
+    on the raw `CallToolResult`: `test_server_stdio`'s `Client` reads
+    `content[0]`, so a tool returning only its table passes.
+  - **`shot_sheet` returns the bytes; every other sheet returns a path, which
+    the agent panel cannot open** (`--tools ""` means no Read) — so
+    `contact_sheet` and `reframe_sheet` are unreachable from it, and
+    retrofitting them is open. `contact_sheet` is the first-look filmstrip of
+    one clip's *head*, a different op that shares a shelf in `ops.py`.
+    - **Cache the frame, never the tile**: a frame is `(asset, source second)`
+      and edit-invariant, a tile carries a timeline second any cut moves.
+      Downscaled, width in the filename, JPEG out — every number behind those
+      three in HISTORY.md § The shot sheet.
 - **`claude -p` stream-json output requires `--verbose`, and the
   allow/disallow-tools flags do not gate built-in tools.** Without
   `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in
