@@ -111,12 +111,10 @@ build window before the September format decisions.
 
 ## The order, grouped by who can act
 
-**Agent-actionable now, in order:**
-
-1. Design and run the unattended agent-edit trial on the demo project;
-   score it; turn the failures into an evidenced queue.
-2. The publish scrub and the fresh-checkout dry run, delivered as a diff —
-   nothing pushed, per standing rules.
+**Agent-actionable:** both of these ran the same day, and what they produced
+replaces them — the trial's evidence and the seven-item queue it became are
+[TRIAL.md](TRIAL.md), and the scrub and dry run are TRIAL.md § The publish
+rehearsal. That queue is now the agent-actionable list.
 
 **Tyler's, time-sensitive first:**
 

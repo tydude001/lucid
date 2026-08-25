@@ -562,20 +562,16 @@ absent optional capability is "unavailable", never a failure, and never moves
   refuses a mean-luma spread over 30, and `check_timeline_width` is the repo's
   only regression test for the defect below. HISTORY.md § The screenshots
   stopped being captured by hand.
-- **An unattended agent edit is measured by `scripts/agent_trial.py`, and it
+- **An unattended agent edit is measured by `scripts/agent_trial.py`, which
   imports the panel's flags from `webui.py` rather than restating them** —
   `_agent_bin`, `_AGENT_ALLOWED_TOOLS`, `_AGENT_DISALLOWED_TOOLS`, and the same
-  interpreter-plus-`-m lucid.cli` config. A trial that retypes them is free to
-  drift into measuring a client nobody runs. Two rules it holds to: the brief
-  names the goal and never the steps (a brief listing the commands measures
-  the brief's author), and the project starts at `lucid init` with nothing else
-  (a pre-seeded project measures the back half of the loop). **`--control`
-  meets the same brief by script and is scored by the identical `score()`** —
-  not for comparison, but so a check that is wrong about lucid cannot be read
-  as a failing agent. **Two agents in one project is possible and neither
-  lucid nor `claude` will say so**: `claude` is spawned into its own session,
-  so killing the harness leaves the agent editing — hence the PID lock, and
-  hence TRIAL.md queue item 4. HISTORY.md § The closed-loop trial.
+  interpreter-plus-`-m lucid.cli` config; a trial that retypes them can drift
+  into measuring a client nobody runs. Its own rules (goal-not-steps brief,
+  `lucid init` start, `--control`) are in its docstring. **Two agents in one
+  project is possible and neither lucid nor `claude` will say so** — `claude`
+  is spawned into its own session, so killing a harness leaves the agent
+  editing, and `write_manifest` is last-writer-wins. TRIAL.md queue item 4;
+  HISTORY.md § The closed-loop trial.
 - `ruff check` is the lint gate. **Never run `ruff format`** — there is no
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
@@ -586,8 +582,7 @@ absent optional capability is "unavailable", never a failure, and never moves
   `100.x.y.z`, `<host>.<tailnet>.ts.net`, `fd7a:115c:a1e0::…`, `/home/<user>/…`
   — because HISTORY.md is a record of what was measured, and substituting a
   different-but-believable address makes it claim a run against a machine
-  nobody dialed. The elision is the honest edit; the substitution is a lie
-  that reads as tidy. Placeholders that *are* fictional belong in tests, where
+  nobody dialed. Placeholders that *are* fictional belong in tests, where
   they are the input rather than the report (`tests/test_webui_http.py`'s
   `_TAILNET_HOST`). `~/lucid-*` working paths stay as they are: they name no
   user and no host. HISTORY.md § The closed-loop trial, § The publish
