@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.utilities.types import Image
 from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -2317,6 +2318,55 @@ def reframe_sheet(
     by default, and it is refused alongside `moments`.
     """
     return ops.reframe_sheet(path, out=out, moments=moments, extremes=extremes)
+
+
+# `-> Any` is load-bearing and is not laziness. The SDK builds an output
+# schema from a concrete return annotation and then validates the return
+# against it — and an `Image` is not JSON, so `-> list[Any]` comes back as
+# `is_error: true` with "Unable to serialize unknown type", while the tool
+# body is perfectly correct. `-> list[ContentBlock]` fails the same way, with
+# 13 validation errors. Measured over a real stdio server, 2026-08-24: `Any`
+# and no annotation at all are the two that work, and `Any` is the one that
+# matches this file. The trap is that the obvious build — annotate it like
+# every other tool here — produces a tool that looks written and never
+# returns a picture.
+@_tool()
+def shot_sheet(
+    path: str,
+    page: int = 0,
+    per_page: int = ops.SHOT_SHEET_PER_PAGE,
+    out: str | None = None,
+) -> Any:
+    """Look at the picture track — one labelled tile per shot, as an image.
+
+    **This is the tool to call to see what the film looks like.** Every other
+    sheet lucid draws returns a *path*, and this server's own agent runs under
+    `--tools ''` with no way to open one, so `contact_sheet`'s frames and
+    `reframe_sheet`'s montage are both unreachable from here. This one returns
+    the sheet's bytes alongside the table, so the picture arrives in the reply.
+
+    One tile per shot, at the exact source second that shot reads from, four
+    across and about two dozen a page — the measured ceiling before vision
+    downscales the sheet and takes the labels with it. Each tile is labelled
+    `asset t=<timeline second>s src=<source second>s`, and `page` walks a
+    longer film.
+
+    `asset` on a row is the *footage*; `clip_id` is the transcript the cue is
+    addressed against, which on a voiceover project is the VO and not
+    anything you can see. Read `asset`.
+
+    Drawn from the same projection `export` renders, so a plan that refuses
+    comes back as `shots_error` with no sheet rather than a picture of a film
+    that will not render.
+
+    **What you see here is a hypothesis, not a check.** Nothing downstream
+    reads a verdict formed off this sheet — confirm one with an op that
+    measures (`check_frames`, `verify`, `black`, `reframe_coverage`).
+    """
+    report = ops.shot_sheet(path, page=page, per_page=per_page, out=out)
+    if not report.get("sheet"):
+        return report
+    return [report, Image(path=report["sheet"])]
 
 
 @_tool()

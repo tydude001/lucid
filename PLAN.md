@@ -4245,6 +4245,17 @@ it.
 
 ## The agent contact sheet — the design note — 2026-08-24
 
+**Built 2026-08-24 as `shot_sheet` — HISTORY.md § The shot sheet.** This note
+is kept as written, for the measurements and the reasoning; what the build
+changed is recorded there, and three things did change. The name (`contact_sheet`
+was taken by the per-clip first look), the sheet's format (JPEG, measured 4.3x
+smaller than PNG for labels that read identically), and the finding that
+reframes the whole feature: **every other sheet lucid draws returns a path, and
+the agent panel has no Read to open one with.** Two of this note's open
+questions are answered by the build — the tool returns the path *and* the image,
+so a person can open what the agent looked at; and the CLI half is
+`lucid shot-sheet`, the same op with two deliveries. The rest stay open.
+
 POLISH.md § Step 07. **Nothing is built. This note stops for review.**
 
 **The question it answers** is the oldest one still open here (§ Open
@@ -4390,6 +4401,147 @@ should ever gate on what a model said it saw.
   `renders/` to a second reader, which `GET /api/output` was deliberately kept
   narrow about (§ Open questions, *Should the workspace play its own output*).
   Parked here rather than decided.
+
+## The footage sheet — the design note — 2026-08-24
+
+**Nothing is built. This note stops for review.** It is the sequel to the note
+above, written the same day the sheet it depends on shipped (HISTORY.md § The
+shot sheet). Read that one first: the channel, the tile size, the paging and the
+label format are settled there and are not re-argued here.
+
+**The question it answers** is the one lucid's wordless-footage users have and
+its own dogfood film does not. `describe` indexes what is *visible* in a clip in
+10s windows and `describe-ls` searches that text, so someone with a GoPro dump,
+event coverage or gameplay — no dialogue, no subtitles, nothing for the
+transcript to address — can already find a moment. What they cannot do is
+**look at it**. The find is a text match; the confirm is a path they open by
+hand, and for an agent under `--tools ''` there is no hand.
+
+That gap is measured, not supposed: **against 25 human picks, the description
+index agreed 2 times and the clips' own filenames 3** (§ Choosing the b-roll).
+The conclusion drawn then was that a better `describe` prompt is the wrong fix
+and a reader should choose. `shot_sheet` now makes a reader able to *see*. So
+the same conclusion points somewhere new: let the thing that chooses look at
+the candidates, instead of choosing from prose about them.
+
+### What is already built, and what is missing
+
+`shot_sheet` sheets **the timeline** — one tile per shot of the picture track,
+addressed through the cue table. Every part of it except the address
+generalises. What a footage sheet needs is a different answer to *which
+instants of which clip*, and nothing else: the same `_shot_sheet_frame`
+caching, the same `_shot_sheet_tile` band, the same `graphics.montage`, the
+same `[report, Image]` return.
+
+`contact_sheet` (the first-look filmstrip, HISTORY.md § Import strips a chapter
+list) is not this and does not grow into it. Its `seconds` knob does open the
+window past the default ten, but it samples a clip's *head* at a fixed spacing
+— a first look, not a browse — and it returns **paths**, which is exactly the
+wall this note exists to get past. Widening it into a browse would mean giving
+it an address, a montage and an image return, at which point it is this note's
+op wearing the other one's name.
+
+### The addressing options, measured on real clips
+
+Three candidates. Measured on the film's own footage, 2026-08-24, whole-clip
+scans at `SCENE_THRESHOLD` 0.15:
+
+| clip | duration | scene scan | cuts ≥0.15 | 10s windows |
+|---|---|---|---|---|
+| `s3-reveal` | 55.0s | 1.0s | 14 | 6 |
+| `s2022-reveal` | 160.1s | 3.6s | 62 | 17 |
+| `cold-open` | 730.1s | 14.2s | 85 | 74 |
+
+**Scene cuts are the wrong default, and the table is why.** Cut count tracks
+how *edited* the material is, not how long it is: `s2022-reveal` is 160s with a
+cut every 2.6s, `cold-open` is 730s with one every 8.6s — a 3.3x density spread
+inside one film. All of this footage is cut studio material. The audience this
+note is for has the opposite: long continuous takes, where a scene scan returns
+few tiles or none, and `media.scene_cuts`' own docstring already says an empty
+list is a real answer meaning one continuous shot. **A default that degrades to
+one tile on precisely the material it was built for is the wrong default.**
+This is the note's least-settled claim — it is reasoned from the measured
+spread plus the scan's own contract, and it is *not* measured on real unedited
+footage, because there is none in this repo. **Measuring it on one real
+phone or camera recording is the first thing to do before building.**
+
+**Fixed interval is the robust default** — it needs no describe run, no scan
+and no cue table, and it works identically on a continuous take and a trailer.
+Its cost is that it is blind to content, which the prototype below shows.
+
+**Describe windows are the *right* unit when they exist**, because then a tile
+and a description share one address — `(clip_id, src_start, src_end)` — so a
+`describe-ls` hit has a picture and the sheet has text. That is the pairing
+this whole note is for, and it should be the mode chosen automatically when a
+clip has descriptions rather than a flag someone remembers.
+
+### The prototype, and the two defects it found
+
+A 24-tile evenly-spaced sheet of `s2022-reveal` (160s, so 6.7s apart), built
+from `shot_sheet`'s own helpers and **read back**: 265 KiB, entirely legible,
+and the whole scene's arc readable at a glance. Two real defects, both visible
+only because it was looked at rather than counted:
+
+- **A dark tile is ambiguous, and the first reading of it was wrong.** The
+  `src=123.4s` tile reads as nearly black, and the note first recorded that as
+  a sampling defect — an instant that landed on nothing. Measuring it says
+  otherwise: **YAVG 40.7 and YMAX 137**, against 60.3 and 165 four seconds
+  earlier, so it is real underexposed content and the tile is correct. The
+  neighbour at 124.5s measures the same, so it is a dark *passage*, not an
+  unlucky instant. What is defective is the *reading* — this is the repo's
+  standing trap arriving in a new place (§ The auto-framing detector: a black
+  source reads exactly like a black bar), now with a vision model as the thing
+  being fooled. The fix is not to reject the sample. It is that **darkness
+  must arrive as a number rather than be left to the eye**, and
+  `picture.extract_frame` already returns the signalstats this sheet throws
+  away: a tile that says `dark` beside its label cannot be misread as an
+  empty frame.
+- **A fixed interval is content-blind in both directions.** The 90.0/96.7/103.4s
+  tiles are three samples of one scene and setup — much the same information
+  three times — on a clip whose 62 cuts mean there was plenty else to show.
+  Even spacing spends tiles on stillness and skips past fast cutting.
+
+Both point the same way: **the interval should be the fallback, and the
+content-aware address preferred where one exists.** Neither is a reason to
+sheet less; they are reasons the address matters — and the first is a reason
+the *label* carries more than a timestamp.
+
+### Cost, and what it is not
+
+Extraction dominates and it is already measured: ~0.3s a frame, ~8s for a cold
+24-tile page, ~1s warm. A scene scan adds the table's own column and is the
+only new cost — 14.2s on a 730s clip, which is why it cannot be the default and
+must never ride a path something calls on every change (`reframe_coverage`'s
+own rule, and the `frame.js` breach of it).
+
+Containment is unchanged and non-negotiable: frames resolve through
+`media.media_path()`, cache under `cache/`, never the manifest. **No third
+caller of `media.preview_path()`** — a proxy is downscaled, and a footage sheet
+drawn off one would be showing the agent a preview encode and calling it the
+footage.
+
+And the standing rule holds hardest here, because this sheet's whole purpose is
+to inform a *choice*: **a reading is an opinion, not a check.** A tile is how
+something forms a hypothesis about what footage to use. Nothing may gate on it,
+and `synopsis` remains the place a human says what a clip *is* — a sheet shows
+what a camera saw, which is a different fact and not a replacement for it.
+
+### Open, for the review this note stops for
+
+- **Whether it is a mode of `shot_sheet` or its own op.** One tool with
+  `clip_id` switching it from timeline to source is fewer names; two ops are
+  two clear contracts. The lean is a separate `footage_sheet`, because the
+  paging unit differs (shots vs. seconds) and a `page` that means two things is
+  the `src_pin`/`src_start` collision again.
+- **Whether a sheet may span clips.** "Show me every clip's 30s mark" is a real
+  browse gesture and is a different address again.
+- **Whether the darkness number belongs in this note's build or the shot
+  sheet's.** It is the same gap in both — `shot_sheet` ships today discarding
+  the signalstats it already gets — and the shot sheet is where a black tile
+  is most consequential, since `check_black` is a real finding about a film.
+- **Whether a describe-window sheet should carry the description text.** It is
+  the pairing the note argues for, and it costs the tool result's text half
+  becoming large — 74 windows of prose for `cold-open`.
 
 ## The completion queue — what the Scream video left — 2026-08-12
 

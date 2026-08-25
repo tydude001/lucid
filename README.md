@@ -141,6 +141,10 @@ with the reasoning behind each behaviour.
 - **B-roll by description** — `describe` writes what is visible in each
   ~10-second window of footage; reading it back *is* the search, and a cue
   table addressed by word index lays clips and cards over the voiceover.
+- **An agent that can look at the cut** — `shot-sheet` draws the whole picture
+  track as one labelled grid, and over MCP it returns the *image*, so an agent
+  can see what it edited rather than reason about a path it cannot open. What
+  it shows is a hypothesis; the checks above are what settle one.
 - **Cards** — five SVG templates rasterised at the project's own canvas,
   recorded so a canvas change re-authors them instead of stretching them.
 - **Reframing** — per-shot source-pixel crop windows for aspect changes,

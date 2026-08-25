@@ -48,7 +48,7 @@ import shlex
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -121,6 +121,74 @@ def magick_command() -> list[str]:
         "the SVG. Install ImageMagick, or set LUCID_MAGICK to a command that "
         "runs it."
     )
+
+
+#: Inherited unchanged from `reframe_sheet`'s own inline call, which is the
+#: larger of the two callers — it montages a tile per framing window (58 on the
+#: vertical cut) where a shot sheet montages one page.
+MONTAGE_TIMEOUT = 600
+
+
+def montage(
+    tiles: Sequence[Path | str],
+    out: Path | str,
+    *,
+    columns: int,
+    tile_width: int,
+    background: str = "#222",
+    gutter: int = 3,
+    quality: int | None = None,
+) -> Path:
+    """Combine `tiles` into one grid image at `out`, and return it.
+
+    The format is `out`'s own suffix, which is how the two callers differ:
+    `reframe_sheet` writes a PNG for a person to open, and `shot_sheet` a JPEG
+    because its bytes travel base64 inside an MCP tool result.
+
+    One copy, two callers — `reframe_sheet`'s framing tiles and `shot_sheet`'s
+    picture-track tiles. It was `reframe_sheet`'s inline argv until the second
+    caller arrived; a second hand-built `montage` invocation is how the two
+    would drift into disagreeing about gutters and background, which is the
+    difference between "these two tiles are one shot" and "these two tiles are
+    adjacent", read off a picture.
+
+    `-geometry {width}x+{g}+{g}` is the whole layout: it scales each tile to a
+    common width and gives it a gutter, which is what stops two dark tiles
+    from running together into one apparent frame. A grid is `{columns}x` with
+    the row count left to magick, so a short last row is a short row rather
+    than a stretched one.
+
+    `quality` is passed through only when given, because it does not mean one
+    thing across formats — for JPEG it is the quantiser, for PNG it is a
+    zlib/filter pair — so a default here would silently re-encode the callers
+    that write PNG. Omitted, magick's own default stands and an existing
+    caller's bytes do not move.
+
+    Trusts magick's exit code, which this module's docstring establishes is
+    safe here and is not safe for melt — and checks the file exists anyway,
+    because "did it write the thing" is a question about the file.
+    """
+    if not tiles:
+        raise GraphicsError("nothing to montage — no tiles were drawn")
+    if columns < 1:
+        raise GraphicsError(f"a montage needs at least one column, got {columns}")
+
+    sheet = Path(out).expanduser()
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        *magick_command(), "montage", *[str(tile) for tile in tiles],
+        "-tile", f"{columns}x",
+        "-geometry", f"{tile_width}x+{gutter}+{gutter}",
+        "-background", background,
+        *(["-quality", str(quality)] if quality is not None else []),
+        str(sheet),
+    ]  # fmt: skip
+    done = subprocess.run(
+        command, capture_output=True, text=True, timeout=MONTAGE_TIMEOUT, check=False
+    )
+    if done.returncode != 0 or not sheet.exists():
+        raise GraphicsError(f"magick could not montage the sheet: {done.stderr[-800:]}")
+    return sheet
 
 
 def _families(declaration: str) -> list[str]:

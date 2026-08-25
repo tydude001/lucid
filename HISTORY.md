@@ -10985,3 +10985,107 @@ ids and their panels, exactly one `aria-selected="true"` in the static markup,
 the 928px breakpoint, and the `.rail-panel[hidden]` override. `.rail-panel`
 joins the load-bearing-selector list — losing that rule does not hide
 anything, it draws all three panels on top of each other.
+
+## The shot sheet — the agent can look at the film — 2026-08-24
+
+PLAN.md § The agent contact sheet, built. That note measured the channel and
+stopped for review; this is what shipped behind it, and what changed on the way.
+
+**The oldest open question in PLAN.md is closed.** *Preview delivery in tier 1*
+had been open since the first plan: an agent can *listen* to what it made —
+`verify` reads a render back through whisper and diffs it against the timeline
+— and it could not *look* at it. `shot_sheet` is the look. One labelled tile per
+shot of the picture track, four across, ~24 a page, and the MCP tool returns the
+sheet's **bytes** as `ImageContent` beside the table.
+
+**Every other sheet lucid draws returns a path, and a path is not an image.**
+This is the finding the note did not have, and it reframes the feature. The
+agent panel runs `claude --tools ''`, so lucid's MCP tools are the whole surface
+and there is no Read: `contact_sheet`'s frame list and `reframe_sheet`'s montage
+are both, structurally, invisible to the one caller that most wants them. What
+makes this tool different is not that it draws — it is that it hands the bytes
+back. Retrofitting the same return to the other two is a real follow-up and is
+deliberately not in this commit.
+
+**`contact_sheet` was already taken**, by the per-clip first-look filmstrip that
+shipped the day before (§ Import strips a chapter list). Hence `shot_sheet`,
+which is also the more accurate name: it sheets the shots. The two sit next to
+each other in `ops.py` so whoever meets one name finds the other.
+
+### The trap: the obvious build returns no picture
+
+**`-> Any` on the tool is load-bearing and is not laziness.** The SDK builds an
+output schema from a concrete return annotation and then validates the return
+against it — and an `Image` is not JSON. Measured over a real stdio server:
+
+| return annotation | result |
+|---|---|
+| `-> list[Any]` | `is_error: true`, *Unable to serialize unknown type* |
+| `-> list[ContentBlock]` | `is_error: true`, 13 validation errors |
+| *(none)* | works |
+| `-> Any` | works |
+
+So annotating it the way every other tool in `server.py` is annotated produces a
+tool that reads as correct, registers, advertises a schema, and never returns a
+picture. `-> Any` is the one that both works and matches the file. A test pins
+it by asserting on the raw `CallToolResult` rather than through the suite's
+`Client` helper, which reads `content[0]` and would pass just as happily on a
+tool that returned only its table.
+
+### What the sheet found, on the first read of it
+
+Read back at 24 tiles of the film: every label legible, and two things visible
+without being asked for. The `cold-open t=0.0s src=0.0s` tile is a black
+**SCREAM** title card rather than live action — the note's own probe volunteered
+the same finding, independently. And `cold-open` appears at five different
+source seconds (0.0, 20.4, 27.1, 31.5, 42.0), which is one clip cut into five
+pieces, legible as such at a glance.
+
+### Two measurements moved the build off the note
+
+- **The sheet is JPEG.** As PNG the same 24-tile grid is 1.32 MiB; at quality
+  88 it is 311 KiB, for labels and faces that read identically. It travels
+  base64 inside every tool result, so this is a payload decision, not a picture
+  one — 4.3x. The *tiles* stay PNG, since they are montaged and generational
+  JPEG on text is the one place artefacts compound.
+- **The frame cache is downscaled, and the width is in the filename.** The
+  first build cached what `picture.extract_frame` writes — full 1920x816 PNGs,
+  ~1 MiB each — and then shrank each to 384 for its tile: **18 MB of cache to
+  make a 311 KiB sheet**, per page. Caching at tile width takes one page to
+  3.2 MB. The width rides the filename so that changing `SHOT_SHEET_TILE`
+  misses the cache rather than silently upscaling yesterday's smaller frames.
+
+**What is cached is the frame, not the tile**, and that split is the design
+rather than an optimisation. A source frame is addressed `(asset, source
+second)` and no edit can invalidate one; a tile carries `t=`, its *timeline*
+second, which every upstream cut moves. Caching the labelled tile would hand
+back a correct picture under a stale time. Cold page 8.2s, warm 1.0s.
+
+### The standing traps, obeyed
+
+**`asset` is the footage; `clip_id` is the cue's addressing transcript.** On
+this film every one of the 38 shots has `clip_id: "vo"` — an audio-only file —
+so a tile drawn off `clip_id` would have had nothing to show, on every shot of
+the whole project. Both ride each row, because a caller holding only one of them
+cannot tell it made the mistake, and a test named for it uses an audio-only VO
+with real footage so the two can never coincide.
+
+Drawn from `_picture_plan` and never `build_shots`: the raw projection would
+draw a shot `export` refuses. A refusing plan comes back as `shots_error` with
+no sheet — `timeline_view`'s policy — because raising would make the agent's own
+look at the film indistinguishable from lucid being broken. A card is tiled at
+`src=0.0` since a still is held, not played. One unreadable moment is reported
+against its own tile and the other twenty-three are still drawn, which is
+`describe_windows`' rule for the same reason: partial evidence beats none.
+
+**A reading is an opinion, not a check** — `reframe_sheet`'s precedent, and the
+reason this closes the question without opening a worse one. Nothing downstream
+reads a verdict formed off this sheet.
+
+### `graphics.montage`, one copy
+
+`reframe_sheet` had the `magick montage` argv inline; `shot_sheet` needed the
+same thing, so it moved to `graphics.montage` and both call it rather than a
+second hand-built invocation drifting on gutters and background. `quality` is
+passed through only when given — for JPEG it is the quantiser and for PNG a
+zlib/filter pair, so a default would silently re-encode `reframe_sheet`'s output.

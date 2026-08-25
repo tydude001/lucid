@@ -120,6 +120,7 @@ EXPECTED_TOOLS = {
     "properties",
     "thumbnail",
     "contact_sheet",
+    "shot_sheet",
     "finish_report",
 }
 
@@ -485,6 +486,7 @@ TOOL_TO_COMMAND = {
     "properties": "properties",
     "thumbnail": "thumbnail",
     "contact_sheet": "contact-sheet",
+    "shot_sheet": "shot-sheet",
     "finish_report": "finish-report",
 }
 
@@ -3322,6 +3324,155 @@ def test_continuity_check_accept_reject_ls_round_trip_over_the_wire(
         f["word_index"] for f in out["restored"]["findings"] if f["kind"] == "rewind"
     }
     assert accepted_word in restored_words
+
+
+@needs_ffmpeg
+@needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_shot_sheet_returns_the_image_itself_over_the_wire(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """The whole point of this tool: the reply carries the picture, not a path.
+
+    Asserted against the raw `CallToolResult` rather than through `Client`,
+    which reads `content[0]` and would pass just as happily on a tool that
+    returned only its table. The agent panel runs `claude --tools ''`, so a
+    path in the reply is unreachable there — an `ImageContent` block is the
+    entire feature, and a test that never looks for one cannot tell the
+    difference.
+
+    It also pins the return annotation. `-> Any` on the tool is load-bearing:
+    a concrete one makes the SDK build an output schema, and validating an
+    `Image` against it fails with `is_error` and a serialization message from
+    a tool body that is perfectly correct.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "cue_add",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            word_index=0,
+            asset=clip["clip_id"],
+        )
+        raw = await session.call_tool("shot_sheet", {"path": str(project)})
+        return {
+            "is_error": raw.is_error,
+            "kinds": [type(block).__name__ for block in raw.content],
+            "mime": [
+                getattr(block, "mime_type", None)
+                for block in raw.content
+                if type(block).__name__ == "ImageContent"
+            ],
+            "bytes": [
+                len(block.data)
+                for block in raw.content
+                if type(block).__name__ == "ImageContent"
+            ],
+            "report": json.loads(raw.content[0].text),
+            "vo": vo["clip_id"],
+            "clip": clip["clip_id"],
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"] is False
+    assert "ImageContent" in out["kinds"], f"no image came back: {out['kinds']}"
+    assert out["mime"] == ["image/jpeg"]
+    assert out["bytes"][0] > 0
+
+    report = out["report"]
+    assert report["shots_error"] is None
+    assert report["count"] == 1 and report["shots"] == 1
+    assert report["sheet"].endswith(".jpg")
+
+    # The standing trap in this projection: a shot's addressing clip is the
+    # transcript the cue hangs on — here the *audio-only* VO — and its footage
+    # is `asset`. A tile drawn off `clip_id` would have nothing to show.
+    (tile,) = report["tiles"]
+    assert tile["asset"] == out["clip"]
+    assert tile["clip_id"] == out["vo"]
+    assert tile["asset"] != tile["clip_id"]
+    assert tile["label"].startswith(out["clip"])
+
+
+@needs_ffmpeg
+@needs_ffprobe
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_shot_sheet_pages_and_refuses_a_bad_page_size(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    """Paging is addressed by shot index, and a page past the end is empty.
+
+    `pages` is what tells a caller there is more film than one reply holds —
+    without it, a first page of a long edit reads as the whole picture track,
+    which is the same silent-truncation shape CLAUDE.md keeps naming.
+    """
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo = await client.call("import_media", path=str(project), source=str(audio))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "attach_transcript",
+            path=str(project),
+            clip_id=vo["clip_id"],
+            transcript_path=str(transcript),
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo["clip_id"], remove_silences=False
+        )
+        for word in (0, 2, 4):
+            await client.call(
+                "cue_add",
+                path=str(project),
+                clip_id=vo["clip_id"],
+                word_index=word,
+                asset=clip["clip_id"],
+            )
+        first = await client.call("shot_sheet", path=str(project), per_page=2, page=0)
+        second = await client.call("shot_sheet", path=str(project), per_page=2, page=1)
+        past = await client.call("shot_sheet", path=str(project), per_page=2, page=9)
+        return {"first": first, "second": second, "past": past}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["first"]["shots"] == 3
+    assert out["first"]["pages"] == 2
+    assert out["first"]["count"] == 2
+    assert out["second"]["count"] == 1
+
+    # Indices are absolute over the picture track, not per page — a caller
+    # cross-referencing a tile against `shots` needs one numbering.
+    assert [t["index"] for t in out["first"]["tiles"]] == [0, 1]
+    assert [t["index"] for t in out["second"]["tiles"]] == [2]
+
+    # Past the end draws nothing rather than raising: "there is no page 9" is
+    # an answer, and `pages` beside it says what the real range was.
+    assert out["past"]["count"] == 0 and out["past"]["sheet"] is None
+    assert out["past"]["pages"] == 2
 
 
 @needs_ffmpeg

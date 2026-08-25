@@ -867,6 +867,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"spacing between frames (default {ops.FIRST_LOOK_INTERVAL})",
     )
 
+    p_shot_sheet = sub.add_parser(
+        "shot-sheet",
+        help="one labelled tile per shot of the picture track, as a montage — what the "
+        "agent looks at (MCP returns the image itself; here you get its path)",
+    )
+    p_shot_sheet.add_argument(
+        "--page", type=int, default=0, help="which page of tiles, counted from 0"
+    )
+    p_shot_sheet.add_argument(
+        "--per-page",
+        type=int,
+        default=ops.SHOT_SHEET_PER_PAGE,
+        help=f"tiles per page (default {ops.SHOT_SHEET_PER_PAGE}; past ~24 the sheet "
+        "is downscaled by vision and the labels go with it)",
+    )
+    p_shot_sheet.add_argument(
+        "--out", help="where to write the montage (default cache/sheets/shots/page<N>.jpg)"
+    )
+
     p_preview = sub.add_parser(
         "preview", help="resolve one preview asset and say whether a browser will play it"
     )
@@ -2211,6 +2230,12 @@ def _cmd_contact_sheet(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_shot_sheet(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.shot_sheet(args.project, page=args.page, per_page=args.per_page, out=args.out)
+    )
+
+
 def _cmd_preview(args: argparse.Namespace) -> int:
     return _emit(ops.preview_source(args.project, args.asset))
 
@@ -2779,6 +2804,7 @@ _COMMANDS = {
     "waveform": _cmd_waveform,
     "thumbnail": _cmd_thumbnail,
     "contact-sheet": _cmd_contact_sheet,
+    "shot-sheet": _cmd_shot_sheet,
     "preview": _cmd_preview,
     "web": _cmd_web,
     "open": _cmd_open,

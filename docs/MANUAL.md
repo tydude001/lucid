@@ -282,6 +282,30 @@ lucid preview clip-id                        # will a browser play this, and if 
 lucid proxy clip-id                          # make it playable in the window
 ```
 
+## Looking at the picture track
+
+`shot-sheet` draws one labelled tile per shot — the whole picture track as a
+grid, each tile showing the exact source second that shot reads from, four
+across and about two dozen a page. It is how you see what the film *looks*
+like without rendering or scrubbing it, and it is the one tool built for an
+agent to use: over MCP it returns the sheet's **bytes**, so the picture arrives
+in the reply, where every other sheet here returns a path.
+
+```sh
+lucid -C myproject shot-sheet                # the picture track, drawn
+lucid -C myproject shot-sheet --page 1       # the rest of a longer film
+lucid -C myproject shot-sheet --out /tmp/look.jpg
+```
+
+Each tile is labelled `asset t=<timeline second>s src=<source second>s`. Read
+`asset` — the *footage* — and not `clip_id`, which is the transcript the cue is
+addressed against and on a voiceover project is the VO itself. A clip used
+three times shows three tiles at three different `src=` values, which is what
+makes a re-used shot legible at a glance.
+
+**What it shows is a hypothesis, not a check.** Confirm anything you notice
+with something that measures — `black`, `check-frames`, `verify`, `film-check`.
+
 ## Speech overlap
 
 Before laying a clip's own audio over the VO, `speech-overlap` checks whether

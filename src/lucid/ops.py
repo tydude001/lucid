@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from itertools import pairwise
-from math import gcd, hypot
+from math import ceil, gcd, hypot
 from pathlib import Path
 from typing import Any
 
@@ -4211,6 +4211,284 @@ def contact_sheet(
     return {"clip_id": clip_id, "frames": frames, "interval": interval}
 
 
+#: Where `shot_sheet` writes. Beside `reframe_sheet`'s own tiles under
+#: `cache/sheets/`, and **not** under `cache/thumbs/`: a thumbnail is snapped
+#: to a `THUMB_INTERVAL` bucket, and a shot's in-point is exact. A shot
+#: shorter than one bucket would be drawn from a second inside a different
+#: shot, which is the one thing this sheet must never do.
+SHOT_SHEET_DIR = "cache/sheets/shots"
+
+#: Four across, and about two dozen a page. Both are the model's own image
+#: handling rather than a file-size limit: vision downscales anything past
+#: ~1568px on its long edge, and a downscaled sheet is a downscaled *label*.
+#: Measured 2026-08-24 — 25 tiles at 384 wide is 1552x1313, read back with
+#: every label of the bottom row verbatim; the same grid at 320 also reads,
+#: so 384 is the measured ceiling rather than a guess at one. PLAN.md § The
+#: agent contact sheet.
+SHOT_SHEET_TILE = 384
+SHOT_SHEET_COLUMNS = 4
+SHOT_SHEET_PER_PAGE = 24
+
+#: The label band under each tile, and the type in it. `-splice` puts this
+#: *below* the frame rather than over it, so a label never covers picture —
+#: the measured reason `magick montage` beat `ffmpeg xstack`, whose
+#: `drawtext` burns over the image.
+SHOT_SHEET_BAND = 34
+SHOT_SHEET_POINTSIZE = 15
+
+#: The sheet is JPEG, and that is a payload decision rather than a picture
+#: one: it travels base64 inside every tool result, and the same 24-tile grid
+#: is 1.32 MiB as PNG against 311 KiB at this quality — 4.3x, for labels and
+#: faces that read identically (measured by reading one back, 2026-08-24).
+#: The *tiles* stay PNG: they are montaged, and generational JPEG on text is
+#: the one place the artefacts would compound.
+SHOT_SHEET_QUALITY = 88
+
+
+def _shot_sheet_frame(project: Project, row: dict[str, Any], at: float) -> Path:
+    """Extract (or reuse) one tile's source frame for `row`.
+
+    **Keyed by `row["asset"]`, never `row["clip_id"]`.** A shot's addressing
+    clip is the transcript the cue hangs on — `"vo"` on this repo's own film —
+    and its *footage* is `asset`; reaching for `clip_id` here fetches the
+    wrong file or none at all (CLAUDE.md, and the filmstrip draft that made
+    exactly this mistake). `asset_path` is already resolved by
+    `_resolve_asset`, so nothing here re-resolves media.
+
+    Containment is `thumbnail()`'s, deliberately without being built on it:
+    the frame is written under `cache/`, never enters the manifest, and is
+    reached by `media.media_path` for nothing — `preview_path` is not called
+    and must never be, because a proxy is downscaled and a sheet drawn off
+    one would be showing the agent a preview encode and calling it the film.
+
+    **What is cached is the frame, not the tile**, and the split is the point:
+    a source frame is addressed `(asset, source second)` and no edit can
+    invalidate one, while a tile carries `t=` — its *timeline* second — which
+    every upstream cut moves. Caching the labelled tile would hand back a
+    correct picture under a stale time.
+
+    It is cached already downscaled, and the width is in the filename. Full
+    frames are what the first build stored, and one page of this film cost 18
+    MB of 1920x816 PNGs to make a 311 KiB sheet; keying on the width means
+    changing `SHOT_SHEET_TILE` misses the cache rather than silently
+    upscaling yesterday's smaller frames.
+
+    Staleness is `thumbnail()`'s scheme rather than a second one: one
+    `_source.json` per asset holding the resolved media's size and mtime, so
+    replacing a clip's footage invalidates every one of its frames at once and
+    each is re-extracted only when something next asks for it. Without it a
+    re-import under the same `clip_id` would be drawn as the old footage
+    indefinitely — a sheet is *evidence*, so serving a stale one is worse here
+    than anywhere else this cache pattern is used.
+    """
+    source = Path(row["asset_path"])
+    # `card:` and `/` both appear in an asset key; neither may become a path
+    # separator or a parent hop in the cache layout.
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", str(row["asset"]))
+    dest = project.root / SHOT_SHEET_DIR / slug
+    frame = dest / f"{round(at * 1000)}@{SHOT_SHEET_TILE}.png"
+
+    stat = source.stat()
+    key = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    key_path = dest / "_source.json"
+    fresh = False
+    if key_path.is_file():
+        try:
+            fresh = json.loads(key_path.read_text(encoding="utf-8")) == key
+        except (OSError, json.JSONDecodeError):
+            fresh = False
+    if fresh and frame.is_file():
+        return frame
+
+    frame.parent.mkdir(parents=True, exist_ok=True)
+    # The full-resolution frame is scratch, so it goes to a temporary
+    # directory rather than into `cache/`. `/tmp` is safe here precisely
+    # because melt is not involved — ffmpeg and magick are host binaries, and
+    # it is melt's flatpak alone that cannot see it (CLAUDE.md).
+    with tempfile.TemporaryDirectory(prefix="lucid-shot-") as tmp:
+        full = Path(tmp) / "full.png"
+        picture.extract_frame(source, at, full)
+        command = [
+            *graphics.magick_command(), str(full),
+            "-resize", f"{SHOT_SHEET_TILE}x",
+            str(frame),
+        ]  # fmt: skip
+        done = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+        if done.returncode != 0 or not frame.is_file():
+            raise graphics.GraphicsError(
+                f"magick could not downscale the frame for {row['asset']!r}: {done.stderr[-800:]}"
+            )
+    # Written after the frame, never before: a key file ahead of the thing it
+    # vouches for would mark a failed extraction fresh.
+    key_path.write_text(json.dumps(key), encoding="utf-8")
+    return frame
+
+
+def _shot_sheet_tile(frame: Path, label: str, tile: Path) -> None:
+    """Draw one labelled tile from an extracted frame.
+
+    The label rides a spliced band **below** the picture, so it can never
+    cover the thing it names. `%` is doubled because `-annotate` interprets
+    percent escapes: an asset called `50%-crop` would otherwise be read as a
+    format string, and magick's own answer to an unknown escape is to emit
+    something rather than to fail.
+    """
+    command = [
+        *graphics.magick_command(), str(frame),
+        "-background", "black", "-gravity", "south",
+        "-splice", f"0x{SHOT_SHEET_BAND}",
+        "-fill", "white", "-pointsize", str(SHOT_SHEET_POINTSIZE),
+        "-annotate", "+0+8", label.replace("%", "%%"),
+        str(tile),
+    ]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    if done.returncode != 0 or not tile.is_file():
+        raise graphics.GraphicsError(f"magick could not draw the tile for {label!r}: {done.stderr[-800:]}")
+
+
+def shot_sheet(
+    path: Path | str,
+    *,
+    page: int = 0,
+    per_page: int = SHOT_SHEET_PER_PAGE,
+    out: str | None = None,
+) -> dict[str, Any]:
+    """One labelled tile per shot of the picture track — what an agent looks at.
+
+    PLAN.md § The agent contact sheet. The question it answers is the oldest
+    one open in this repo: an agent can already *listen* to what it made
+    (`verify` reads a render back through whisper and diffs it against the
+    timeline) and it could not *look* at it. A person opens the window and
+    watches; an agent has no window and cannot watch an MP4.
+
+    **Every other sheet here returns paths, and a path is not an image.** The
+    agent panel runs `claude` with `--tools ''`, so lucid's MCP tools are the
+    entire surface it has and it cannot Read a file — which means
+    `contact_sheet`'s frame list and `reframe_sheet`'s montage are both
+    invisible to the one caller that most needs them. What makes this one
+    different is not the drawing, it is that the MCP tool hands the *bytes*
+    back as `ImageContent` (`server.shot_sheet`); this function's own return
+    is the labelled index of what is in the picture, and the picture is the
+    other half of the reply.
+
+    **Tiles are per-shot in-points, not frames around each cut.** The
+    recorded lean was ±0.5s around every cut boundary and measurement argues
+    against it: the boundaries an agent can enumerate are the *VO's* — 62 of
+    them on the film — and the picture does not change at a VO cut unless a
+    cue lands there, so that sheet is 124 near-duplicate tiles of mostly the
+    same frame. `shots` is already the projection through `mlt.plan_picture`
+    and carries exactly what a tile needs.
+
+    Drawn from `_picture_plan`, never `build_shots` — the two disagree, and
+    the raw projection would draw a shot `export` refuses (CLAUDE.md). A plan
+    that refuses comes back as `shots_error` with no sheet, `timeline_view`'s
+    policy: the caller is told why rather than handed a picture of a film
+    that will not render.
+
+    **A reading is an opinion, not a check.** `reframe_sheet`'s precedent
+    holds here exactly: this draws evidence and decides nothing, nothing
+    downstream gates on what a model said it saw, and a hypothesis formed off
+    a tile is confirmed with an op that measures.
+    """
+    if per_page < 1:
+        raise ProjectError(f"a page holds at least one tile, not {per_page}")
+    if page < 0:
+        raise ProjectError(f"page is counted from 0, not {page}")
+
+    project = Project.open(path)
+    rate = _export_fps(_clips_by_id(project))
+    try:
+        shots, _ = _picture_plan(project, rate)
+    except _PICTURE_REFUSALS as exc:
+        # `timeline_view`'s policy, and the reason it is right here too: a
+        # refusing plan is a real editorial state (someone cut the line a
+        # picture hung on), and raising would make the agent's own look at
+        # the film indistinguishable from lucid being broken.
+        return {
+            "project": str(project.root),
+            "sheet": None,
+            "shots_error": str(exc),
+            "tiles": [],
+            "count": 0,
+            "drawn": 0,
+            "shots": 0,
+            "page": page,
+            "pages": 0,
+            "per_page": per_page,
+        }
+
+    pages = max(1, ceil(len(shots) / per_page)) if shots else 0
+    window = shots[page * per_page : (page + 1) * per_page]
+
+    tiles: list[dict[str, Any]] = []
+    drawn: list[Path] = []
+    dest_dir = project.root / SHOT_SHEET_DIR
+    for offset, row in enumerate(window):
+        index = page * per_page + offset
+        # A still is held, not played: it has no playhead, so there is one
+        # frame to show and `src_start` on it means nothing.
+        at = 0.0 if row.get("is_image") else float(row.get("src_start") or 0.0)
+        label = f"{row['asset']} t={row['start']:.1f}s src={at:.1f}s"
+        try:
+            frame = _shot_sheet_frame(project, row, at)
+            tile = dest_dir / "tiles" / f"{index:04d}.png"
+            tile.parent.mkdir(parents=True, exist_ok=True)
+            _shot_sheet_tile(frame, label, tile)
+        except (picture.PictureError, graphics.GraphicsError, OSError) as exc:
+            # One unreadable moment is not a reason to throw the other
+            # twenty-three away — `describe_windows`' rule, for the same
+            # reason: the sheet is evidence, and partial evidence beats none.
+            tiles.append({"index": index, "label": label, "asset": row["asset"], "error": str(exc)})
+            continue
+        drawn.append(tile)
+        tiles.append(
+            {
+                "index": index,
+                "label": label,
+                # `asset` is the footage; `clip_id` is the cue's addressing
+                # transcript. Both ride the row because reading the wrong one
+                # is this projection's standing trap, and a caller that has
+                # only one of them cannot tell it made the mistake.
+                "asset": row["asset"],
+                "clip_id": row["clip_id"],
+                "start": round(float(row["start"]), 3),
+                "src_start": round(at, 3),
+                "duration": round(float(row["duration"]), 3),
+                "is_image": bool(row.get("is_image")),
+                "frame": str(frame),
+            }
+        )
+
+    sheet: Path | None = None
+    if drawn:
+        sheet = graphics.montage(
+            drawn,
+            Path(out).expanduser() if out else dest_dir / f"page{page}.jpg",
+            columns=SHOT_SHEET_COLUMNS,
+            tile_width=SHOT_SHEET_TILE,
+            quality=SHOT_SHEET_QUALITY,
+        )
+
+    return {
+        "project": str(project.root),
+        "sheet": None if sheet is None else str(sheet),
+        "shots_error": None,
+        "tiles": tiles,
+        "count": len(tiles),
+        # Tiles on this page that actually carry a picture. It is `count`
+        # minus the ones that failed, and it is reported rather than left to
+        # be counted off `tiles` because "24 tiles" silently implying 24
+        # pictures is exactly the shape a partial sheet must not have.
+        "drawn": len(drawn),
+        # Every shot in the picture track, so a page of 24 out of 38 reads as
+        # "there is more" rather than as the whole film.
+        "shots": len(shots),
+        "page": page,
+        "pages": pages,
+        "per_page": per_page,
+    }
+
+
 #: Cards are written as PNG by every path that makes one, but a person can
 #: drop any still into `assets/cards/`, and the preview shows it as an <img>.
 _PREVIEW_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"})
@@ -7136,18 +7414,12 @@ def reframe_sheet(
             }
         )
 
-    sheet = Path(out).expanduser() if out else dest_dir / "sheet.png"
-    sheet.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        *graphics.magick_command(), "montage", *[str(tile) for tile in tiles],
-        "-tile", f"{columns}x",
-        "-geometry", f"{SHEET_TILE_WIDTH}x+3+3",
-        "-background", "#222",
-        str(sheet),
-    ]  # fmt: skip
-    done = subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
-    if done.returncode != 0 or not sheet.exists():
-        raise graphics.GraphicsError(f"magick could not montage the sheet: {done.stderr[-800:]}")
+    sheet = graphics.montage(
+        tiles,
+        Path(out).expanduser() if out else dest_dir / "sheet.png",
+        columns=columns,
+        tile_width=SHEET_TILE_WIDTH,
+    )
 
     return {
         "project": str(project.root),
