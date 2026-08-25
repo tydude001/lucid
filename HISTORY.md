@@ -7812,9 +7812,8 @@ found, and it will bite again on anything else driven by CDP.
 
 The first fix for defect (1) above was `setTimeout(render, 0)` — defer the
 rebuild one tick so the native click has already fired against the old DOM.
-It passed the CDP harness. A dwell probe
-(`/home/<user>/.claude/jobs/c23505b8/tmp/dwell/dwell_probe.py`) measured what
-it actually bought:
+It passed the CDP harness. A scratch dwell probe (the harness that replaced
+it is `.claude/skills/verify-live/`) measured what it actually bought:
 
 | dwell between mousePressed and mouseReleased | seeks? |
 |---|---|
@@ -9698,7 +9697,7 @@ from this node.
   which shows `LISTEN 100.x.y.z:8733` and nothing on `0.0.0.0`. It reads
   `tailscale status --json` for two different answers: the address to bind, and
   every name a client may present, which includes the MagicDNS name because a
-  phone typing `homebase` and a phone dialing `100.x.y.z` are one session
+  phone typing `<host>` and a phone dialing `100.x.y.z` are one session
   to the operator and two different `Host:` headers here. The root dot
   `DNSName` reports is stripped in both places that see it — a browser never
   sends it, and a name that only matches with it refuses every real client. It
@@ -9722,7 +9721,7 @@ Measured against the real server on this box (`lucid -C … web --tailscale
 --port 8733`, dialed at `http://100.x.y.z:8733`), not only against the
 tests: no token 403, wrong token 403, `?t=` 200 with the cookie in the
 response, cookie alone 200, `Host: <host>.<tailnet>.ts.net` 200,
-`Host: homebase` 200, `Host: evil.example.com` with a good token 403, a media
+`Host: <host>` 200, `Host: evil.example.com` with a good token 403, a media
 Range 206 with the cookie and 403 without, `POST /api/cut-at` 200 with the
 cookie and 403 without, and a form-encoded body still refused for being
 form-encoded. Then the same URL in headless Chrome: the app boots, `console`
@@ -11531,3 +11530,121 @@ film is ~120 MB of tiles) and is now files-only.
 What is left of the wiki row this closes half of: the two sheets nobody has run
 on a real job, and whether a sheet may span clips (PLAN.md § The footage
 sheet).
+
+## The closed-loop trial — an agent cut a video unattended — 2026-08-25
+
+Every measurement lucid has made so far has been of a *piece*: a tool, a sheet,
+a check. The product's central claim — that an agent can cut a video through
+word-addressed tools and pictures in tool results — had never been measured as
+a whole (NEXT.md § 1). It has now. **The agent met the brief: 9 of 9 checks,
+31 turns, 30 tool calls over 22 distinct tools, one refusal, four images, 184s,
+$1.31 on Opus 5.** The queue its failures became is [TRIAL.md](TRIAL.md); this
+section is what shipped and what the evidence said.
+
+**The instrument is `scripts/agent_trial.py`, and the three flags that make it
+the *shipped* client are imported from `webui.py`, never retyped** —
+`_agent_bin`, `_AGENT_ALLOWED_TOOLS`, `_AGENT_DISALLOWED_TOOLS`, plus the same
+generated one-server config naming this interpreter with `-m lucid.cli` rather
+than the name `lucid`. A trial that restated them would be free to drift into
+measuring a client nobody runs. It is a script and not a test because what it
+measures costs real money and minutes, and its output is evidence rather than a
+gate.
+
+**The brief names the goal and never the steps**, `make_demo.SCRIPT`'s own rule
+for the same reason: a brief listing the commands measures the brief's author.
+And the project starts at `lucid init` with nothing else — no import, no
+transcript, no seeded timeline — because "import to export" is the loop, and a
+pre-seeded project quietly measures its back half.
+
+**The control is the load-bearing half, and it was built before the result was
+believed.** `--control` meets the identical brief by script (`docs/DEMO.md`'s
+own commands plus the caption burn) and is scored by the identical `score()`:
+9 of 9, 11.6s, no money. It is not there for comparison. It is there because a
+check that fails on the agent *because the check is wrong about lucid* reads
+exactly like a check that fails because the agent is — so every check in the
+table has been seen to pass on a known-good edit.
+
+Three things the run itself taught, each a defect in the instrument found by
+running it:
+
+- **`start_new_session=True` cuts both ways, and the second way cost a whole
+  run.** It is what lets a timeout `killpg` the MCP server along with `claude`
+  — and it also means the agent no longer dies with the harness. The first
+  run's parent was killed; its agent went on calling tools for minutes, the
+  second run's `prepare` deleted and re-initialised the project underneath it,
+  and the second agent then found three cues in a project it had just watched
+  be created and reported it in its own prose. A run that reads like an agent
+  hallucinating a cue table, and is in fact two agents in one project.
+  `hold_lock` is a PID file written before anything is generated or removed.
+  **That fixes the instrument and not the product** — lucid itself notices no
+  second writer, which is TRIAL.md's queue item 4.
+- **A refused check is not a failed one.** The first score reported
+  `verify_similarity` as a red FAIL whose detail was a CUDA out-of-memory
+  traceback — a second job held the GPU — beside an agent whose own two
+  `verify` calls had read 34/34 at similarity 1.0. `check_frames` and `verify`
+  now report **unsettled** when the op refuses, which is `lucid doctor`'s rule
+  ("an absent capability is unavailable, never a failure") applied one layer
+  out. Lucid's own message was already right; the consumer was wrong.
+- **`output` means two different things one tool apart.** On `export` it is the
+  render; on `add_captions` it is the **subtitle file**. Reading it blind
+  counted a `.ass` as a delivered video — "3 of 3 claimed paths on disk", one
+  of them not a picture. The keys are read per tool now.
+
+What the agent did that the walkthrough does not: it seeded with silence
+removal **off** and made exactly one cut, reading "nothing else that the
+narrator meant to say" as a reason not to let auto-editor find its own; it hung
+three shots rather than two, one per surviving sentence; it pinned the third 6s
+into the blue clip so the two blue shots draw different material rather than
+replaying the head; and it escalated to `verify --windowed` unprompted, naming
+the reason (a single pass collapses an immediate repeat, so a surviving retake
+can read clean).
+
+**And it answers the sheet question for the client the image retrofit was built
+for.** Four images came back inside tool results and all four were used: the
+b-roll was identified from its contact sheets (*"plain colour cards with a
+burnt-in timecode… no depicted subject, so the choice is structural"*), which
+is what made it hang picture by sentence rather than by subject, and the
+delivered frames read back as *"BLUE 0/1/3, then RUST, then BLUE 6/7/9/10"* —
+the `src_start` pin confirmed from the picture rather than from the shot table.
+Nothing gated on a reading. The wiki row asking whether the tiles answer the
+question on *real* footage is untouched; this answers the other half.
+
+**The retrofit stopped one tool short, and the agent's workaround is the
+evidence.** With no way to look at a finished file, it imported its own render
+back into the project as a clip called `delivered` and drew *that* with
+`footage_sheet` — then said, unprompted, that it would remove the clip if lucid
+had a tool for it. The tool it wanted exists: `spot_frames` samples any
+`target` file into PNGs and returns their **paths**, which is unreachable under
+`--tools ''`. That is § The two sheets an agent could not see, still standing
+one tool over. TRIAL.md queue item 2.
+
+### The publish rehearsal, same day
+
+Both agent-doable items of NEXT.md § 2 ran.
+
+**The exposure scrub is applied — nine edits in HISTORY.md, and every one is an
+elision rather than a substitution.** The tailnet IPv4 in three places, the
+IPv6 suffix, the MagicDNS name and the short host name in two each, and two
+absolute `/home/<user>` paths, now written `100.x.y.z`,
+`<host>.<tailnet>.ts.net`, `fd7a:115c:a1e0::…`. Swapping in a plausible
+different address was the obvious edit and is the wrong one: **this file
+records what was measured, and a believable fake makes it claim a run against a
+machine nobody dialed.** CLAUDE.md § Conventions now states that rule.
+Deliberately left: `~/lucid-*` and `~/TheVaultData` (`$HOME`-relative, naming
+no user and no host), the bare hostname where PLAN.md and DAYDREAM.md name a
+homelab box in a decision record, `192.168.1.50` (illustrative, matching the
+test that uses it), the `pyproject.toml` author line, and `scratch/`, which is
+gitignored and confirmed absent from a fresh clone.
+
+**The fresh-checkout dry run passes, and found one defect.** Clone to a clean
+directory, `uv sync`, `doctor`, `make_demo.py --build`, then every command in
+`docs/DEMO.md` steps 3–6. **Every number the walkthrough prints still holds on
+a checkout that is not this one**: 47 words, 4 segments, `removed` 4.7 planned
+and 4.8 padded, `duration_after` 11.866, shots `0.00 + 9.66 blue` /
+`9.66 + 2.21 rust`, 286 frames through melt over 3 sources, `verify` 0.971 with
+34 of 34, `frames` agrees at delta 0. The defect is small and exactly the class
+a rehearsal exists to catch: `make_demo.py --build` echoed its steps as
+`$ lucid.cli init …`, an argv slice rather than a command anybody can type.
+Fixed by echoing the command `docs/DEMO.md` prints. The suite runs on that
+checkout too — **1921 passed, nothing skipped, 10m27s**, the five
+melt-rendering tests included.

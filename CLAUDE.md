@@ -24,8 +24,11 @@ walkthrough that was README.md's body is
 became a short newcomer-facing front door; nothing was deleted in the move.
 The two-minute demo a stranger runs first is [docs/DEMO.md](docs/DEMO.md), on
 media `scripts/make_demo.py` **generates** — the repo vendors none, so there
-is no licence question and nothing to keep in step with an upstream.
-Open-item status lives in the wiki, not here.
+is no licence question and nothing to keep in step with an upstream. The three
+directions after every queue closed, ranked, are [NEXT.md](NEXT.md); the first
+of them ran the same day and its evidence and failure queue are
+[TRIAL.md](TRIAL.md) — an agent cutting a video end to end, unattended,
+scored. Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
@@ -559,10 +562,36 @@ absent optional capability is "unavailable", never a failure, and never moves
   refuses a mean-luma spread over 30, and `check_timeline_width` is the repo's
   only regression test for the defect below. HISTORY.md § The screenshots
   stopped being captured by hand.
+- **An unattended agent edit is measured by `scripts/agent_trial.py`, and it
+  imports the panel's flags from `webui.py` rather than restating them** —
+  `_agent_bin`, `_AGENT_ALLOWED_TOOLS`, `_AGENT_DISALLOWED_TOOLS`, and the same
+  interpreter-plus-`-m lucid.cli` config. A trial that retypes them is free to
+  drift into measuring a client nobody runs. Two rules it holds to: the brief
+  names the goal and never the steps (a brief listing the commands measures
+  the brief's author), and the project starts at `lucid init` with nothing else
+  (a pre-seeded project measures the back half of the loop). **`--control`
+  meets the same brief by script and is scored by the identical `score()`** —
+  not for comparison, but so a check that is wrong about lucid cannot be read
+  as a failing agent. **Two agents in one project is possible and neither
+  lucid nor `claude` will say so**: `claude` is spawned into its own session,
+  so killing the harness leaves the agent editing — hence the PID lock, and
+  hence TRIAL.md queue item 4. HISTORY.md § The closed-loop trial.
 - `ruff check` is the lint gate. **Never run `ruff format`** — there is no
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
   changed.
+- **A reachable identifier in the docs is elided, never swapped for a
+  plausible one.** The tailnet address, MagicDNS name, IPv6 suffix and
+  absolute `/home/<user>` paths that a measurement quoted are written
+  `100.x.y.z`, `<host>.<tailnet>.ts.net`, `fd7a:115c:a1e0::…`, `/home/<user>/…`
+  — because HISTORY.md is a record of what was measured, and substituting a
+  different-but-believable address makes it claim a run against a machine
+  nobody dialed. The elision is the honest edit; the substitution is a lie
+  that reads as tidy. Placeholders that *are* fictional belong in tests, where
+  they are the input rather than the report (`tests/test_webui_http.py`'s
+  `_TAILNET_HOST`). `~/lucid-*` working paths stay as they are: they name no
+  user and no host. HISTORY.md § The closed-loop trial, § The publish
+  rehearsal.
 - **The version is a hand-typed literal in two places and is bumped
   deliberately, never derived.** `pyproject.toml` and `lucid/__init__.py`,
   held together by `tests/test_version.py` — a VCS-derived or
