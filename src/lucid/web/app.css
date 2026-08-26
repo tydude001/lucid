@@ -258,6 +258,13 @@
  *                                 `position: relative` anchors .mention-popover
  *   #agent-model                    the model chip in the composer hint —
  *                                 empty until the first `system`/`init` event
+ *   #agent-model-select              which model the *next* spawn runs as —
+ *                                 a preference (cache/session.json), not
+ *                                 authored content, and distinct from
+ *                                 #agent-model above: this can read "Opus 5"
+ *                                 while the chip still says the live
+ *                                 subprocess is on the default, until the
+ *                                 next prompt reconciles them
  *   #agent-new-task                 kills the live subprocess, next prompt
  *                                 spawns fresh (pane-head, top right)
  *   .agent-thumbs                   the Helpful/Not-helpful row after a

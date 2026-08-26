@@ -232,6 +232,22 @@ absent optional capability is "unavailable", never a failure, and never moves
     draws the init event's `mcp_servers` when lucid is not connected, because
     the next thing that breaks this will break it silently too. HISTORY.md
     § The agent panel had no tools at all.
+  - **`--model` bakes into `claude -p`'s argv at spawn, so there is no way to
+    hot-swap a running turn's model.** `#agent-model-select` (`agent.js`)
+    rides it along with every `POST /api/agent {prompt, model}` rather than a
+    side-channel setter; `AgentSession.send` is what decides whether it
+    actually changed anything — a difference from the model already baked
+    into a live subprocess kills it exactly the way "New Task" does (same
+    `_suppress_next_exit_report` dance) and the respawn below picks it up,
+    while the ordinary path (same model, or the first turn) touches nothing
+    extra. Never validated against a fixed list, the canvas/framing
+    overrides' own reasoning: `claude`'s own accepted model names change out
+    from under any list lucid would keep, so a wrong one surfaces as
+    `claude`'s own refusal. **The choice is `cache/session.json`, never the
+    manifest** — it is a preference about this webui's own chat tool, not
+    authored film content, and the manifest's undo/snapshot machinery has no
+    business gaining an entry every time someone picks a different model.
+    HISTORY.md § The agent panel got a model selector.
 - **OTIO's edit algorithms are C++ only.** `overwrite`/`insert`/`trim`/`slice`/
   `ripple`/`roll`/… have no Python bindings; `opentimelineio.algorithms` gives
   you only trimming, flattening, and transition expansion. Cutting means

@@ -184,6 +184,25 @@ def _write_pid_recording_stub(path: Path, pid_file: Path, canned: dict[str, Any]
     path.chmod(0o755)
 
 
+def _write_pid_and_argv_stub(
+    path: Path, pid_file: Path, argv_file: Path, canned: dict[str, Any]
+) -> None:
+    """`_write_pid_recording_stub` plus `_write_agent_stub`'s own argv
+    capture, combined: a model change has to be proven on both axes at
+    once — a genuinely new process (the PID) that actually got the new
+    `--model` (the argv) rather than the old one respawned unchanged.
+    """
+    script = (
+        "#!/usr/bin/env bash\n"
+        f'echo "$$" >> {shlex.quote(str(pid_file))}\n'
+        f"printf '%s\\n' \"$@\" > {shlex.quote(str(argv_file))}\n"
+        f"echo {shlex.quote(json.dumps(canned))}\n"
+        "cat > /dev/null\n"
+    )
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o755)
+
+
 # -- the read model -------------------------------------------------------
 
 
@@ -1689,6 +1708,62 @@ def test_agent_prompt_requires_a_prompt(server: str) -> None:
     assert "prompt" in payload["error"]
 
 
+def test_agent_prompt_rejects_a_non_string_model(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent", {"prompt": "hi", "model": 5})
+    assert status == 400
+    assert "model" in payload["error"]
+
+
+def test_agent_prompt_rejects_an_empty_model(server: str) -> None:
+    status, payload = _post(f"{server}/api/agent", {"prompt": "hi", "model": ""})
+    assert status == 400
+    assert "model" in payload["error"]
+
+
+def test_agent_prompt_with_a_model_passes_it_through_to_the_spawned_argv(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`model` is a free string, never validated against a fixed list — the
+    same `ops.py` reasoning as the canvas/framing overrides: `claude`'s own
+    accepted model names change out from under any list lucid would keep, so
+    a wrong one is `claude`'s own refusal to report, not lucid's to guess at.
+    """
+    argv_file = tmp_path / "argv.txt"
+    stub = tmp_path / "agent-stub.sh"
+    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    status, _ = _post(f"{server}/api/agent", {"prompt": "hi", "model": "claude-opus-5"})
+    assert status == 202
+    deadline = time.time() + 5
+    while time.time() < deadline and not argv_file.exists():
+        time.sleep(0.05)
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+    assert "--model" in argv
+    assert argv[argv.index("--model") + 1] == "claude-opus-5"
+
+
+def test_agent_prompt_without_a_model_omits_the_flag(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Absent means `claude`'s own default — the flag must not appear at
+    all, not appear with an empty value, or every prompt before this field
+    existed would render differently.
+    """
+    argv_file = tmp_path / "argv.txt"
+    stub = tmp_path / "agent-stub.sh"
+    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    status, _ = _post(f"{server}/api/agent", {"prompt": "hi"})
+    assert status == 202
+    deadline = time.time() + 5
+    while time.time() < deadline and not argv_file.exists():
+        time.sleep(0.05)
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+    assert "--model" not in argv
+
+
 def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
     server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2084,6 +2159,102 @@ def test_new_task_mid_turn_does_not_leak_a_synthetic_error_event(
         # No error_no_output (or any) result event should follow the kill.
         with pytest.raises(TimeoutError):
             next(events)
+    finally:
+        conn.close()
+
+
+def test_changing_the_model_mid_conversation_kills_the_subprocess_and_respawns(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--model` bakes into `claude -p`'s argv at spawn — there is no way to
+    hot-swap a running turn's model — so `AgentSession.send`'s own
+    stale-process check is what makes picking a different model actually
+    take effect: kill the live subprocess and let the existing lazy-respawn
+    machinery start a genuinely new one, the same proof
+    `test_new_task_kills_the_running_subprocess_and_the_next_prompt_spawns_a_fresh_one`
+    makes for an explicit New Task, reused here for an implicit one.
+    """
+    pid_file = tmp_path / "pids.txt"
+    argv_file = tmp_path / "argv.txt"
+    canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+    stub = tmp_path / "agent-stub.sh"
+    _write_pid_and_argv_stub(stub, pid_file, argv_file, canned)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "first"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned
+
+        pids_after_first = pid_file.read_text(encoding="utf-8").split()
+        assert len(pids_after_first) == 1
+        argv = argv_file.read_text(encoding="utf-8").splitlines()
+        assert "--model" not in argv  # first turn used the default
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "second", "model": "claude-opus-5"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned
+
+        pids_after_second = pid_file.read_text(encoding="utf-8").split()
+        assert len(pids_after_second) == 2
+        assert pids_after_second[0] != pids_after_second[1]
+        argv = argv_file.read_text(encoding="utf-8").splitlines()
+        assert "--model" in argv
+        assert argv[argv.index("--model") + 1] == "claude-opus-5"
+    finally:
+        conn.close()
+
+
+def test_sending_the_same_model_again_reuses_the_live_subprocess(
+    server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary path — same model as last turn — must touch nothing
+    extra: no kill, no respawn, the live subprocess just gets a second line
+    on its stdin the way any other multi-turn conversation would.
+    """
+    pid_file = tmp_path / "pids.txt"
+    canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
+    stub = tmp_path / "agent-stub.sh"
+    _write_pid_recording_stub(stub, pid_file, canned)
+    monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
+
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=5)
+    try:
+        conn.request("GET", "/api/events")
+        resp = conn.getresponse()
+        events = _sse_events(resp)
+        next(events)  # the initial project-changed
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "first", "model": "claude-sonnet-5"})
+        assert status == 202
+        event, data = next(events)
+        assert event == "agent"
+        assert data == canned
+
+        status, _ = _post(f"{server}/api/agent", {"prompt": "second", "model": "claude-sonnet-5"})
+        assert status == 202
+
+        # The stub blocks on stdin after its one canned line, so a respawn
+        # (a second invocation) is the only way a second PID could appear —
+        # poll briefly rather than a fixed sleep, since there is nothing else
+        # to wait on.
+        deadline = time.time() + 1.0
+        while time.time() < deadline and len(pid_file.read_text(encoding="utf-8").split()) < 2:
+            time.sleep(0.05)
+        pids = pid_file.read_text(encoding="utf-8").split()
+        assert len(pids) == 1, "same model must reuse the live subprocess, not respawn"
     finally:
         conn.close()
 

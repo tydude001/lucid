@@ -556,9 +556,15 @@ on("finish-report", (bundle) => {
 /* -- session restore and save (docs/plans/STUDIO.md Step 04, contract § E) -----------
  *
  * `cache/session.json` — playhead, zoom, timeline scroll, pane collapse,
- * mode, selection. Cache, never manifest: `/api/session` touches no file
- * `_revision` watches, so it never fires `project-changed` and this file
- * never has to guard against its own save round-tripping into a reload.
+ * mode, selection, the agent's chosen model. Cache, never manifest:
+ * `/api/session` touches no file `_revision` watches, so it never fires
+ * `project-changed` and this file never has to guard against its own save
+ * round-tripping into a reload. `agent_model` belongs here rather than in
+ * the manifest for the same reason the rest of this list does — it is a
+ * preference about this webui's own chat tool, not authored film content,
+ * and the manifest's undo/snapshot machinery (CLAUDE.md: most manifest
+ * writes are authoring state) has no business gaining an entry every time
+ * someone picks a different model.
  *
  * `restoring` blocks the save heartbeat from firing while step 2-7 below
  * apply a saved value — each of those calls (setMode, a dataset write,
@@ -584,6 +590,7 @@ function sessionSnapshot() {
     rail_tab: railTab,
     mode: getMode(),
     selection: sel && view ? { clip_id: view.clip_id, indices: sel.indices } : null,
+    agent_model: agent.getSelectedModel() || null,
   };
 }
 
@@ -615,6 +622,7 @@ async function restoreSession() {
     // panel is showing decides what has a box at all. An unknown or absent
     // value is ignored by setRailTab, leaving index.html's default.
     if (session.rail_tab != null) setRailTab(session.rail_tab);
+    if (session.agent_model) agent.setSelectedModel(session.agent_model);
     // Zoom before scroll: zoom changes the scrollable width scroll_left
     // addresses.
     if (session.zoom != null) timeline.setZoom(session.zoom);

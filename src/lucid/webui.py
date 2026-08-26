@@ -785,6 +785,11 @@ class AgentSession:
         self._lock = threading.Lock()
         self._proc: subprocess.Popen[str] | None = None
         self._mcp_config_path: Path | None = None
+        #: The model baked into the live subprocess's own argv, `None` for
+        #: "let `claude` choose its own default" — set from `send()`'s own
+        #: `model` argument, never read anywhere else, because `_spawn()` is
+        #: the only thing that needs it.
+        self._model: str | None = None
         #: Set only by `close()`'s kill branch, and only when it actually
         #: kills a live proc — never unconditionally, or it would wrongly
         #: swallow a *genuine* future crash report after an earlier no-op
@@ -853,6 +858,16 @@ class AgentSession:
             "--permission-mode",
             "manual",
         ]
+        if self._model:
+            # Absent means `claude`'s own default, exactly what every prompt
+            # before this flag existed got — never validated against a fixed
+            # list here, the same reasoning as `ops.py`'s framing/canvas
+            # overrides: `claude`'s own accepted model names change out from
+            # under any list lucid would keep, so a wrong value surfaces as
+            # `claude`'s own refusal (an exit with nothing on stdout, caught
+            # by `_pump_stdout`'s silent-exit report below) rather than
+            # lucid's guess getting in the way of the one closer to the truth.
+            argv += ["--model", self._model]
         proc = subprocess.Popen(
             argv,
             cwd=str(self.project_root),
@@ -942,7 +957,27 @@ class AgentSession:
             {"type": "result", "subtype": "error_no_output", "result": detail},
         )
 
-    def send(self, prompt: str) -> None:
+    def send(self, prompt: str, model: str | None = None) -> None:
+        """Write one user turn to the live subprocess, spawning it if needed.
+
+        `--model` bakes into `claude -p`'s argv at spawn — there is no way to
+        hot-swap a running turn's model — so `model` is compared against
+        `self._model`, the value already baked into any live subprocess. A
+        difference kills it exactly the way `reset()`/"New Task" does (same
+        `_suppress_next_exit_report` dance, so the kill does not also surface
+        as a synthetic `error_no_output`), and the respawn below picks up the
+        new value. The ordinary path — same model as last turn, or the first
+        turn of a fresh session — touches nothing extra.
+        """
+        stale_proc: subprocess.Popen[str] | None = None
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None and model != self._model:
+                stale_proc, self._proc = self._proc, None
+                self._suppress_next_exit_report = True
+            self._model = model
+        if stale_proc is not None:
+            stale_proc.kill()
+            stale_proc.wait(timeout=5)
         with self._lock:
             if self._proc is None or self._proc.poll() is not None:
                 self._proc = self._spawn()
@@ -2469,23 +2504,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _handle_agent_prompt(self) -> None:
-        """`POST /api/agent {"prompt": ...}` — 202, the work happens on the stream.
+        """`POST /api/agent {"prompt": ..., "model": optional}` — 202, the
+        work happens on the stream.
 
         The reply is an acknowledgement, not a result: what the agent does
         arrives as `agent` events on `/api/events`, the same feed a person's
-        own cut lands in (PLAN.md § Where the cut controls go).
+        own cut lands in (PLAN.md § Where the cut controls go). `model` rides
+        the same call rather than a side-channel setter — `AgentSession.send`
+        is what decides whether it actually changed anything.
         """
         try:
             payload = _json_body(self)
             prompt = payload.get("prompt")
             if not isinstance(prompt, str) or not prompt.strip():
                 raise WebUIError("'prompt' is required")
+            model = payload.get("model")
+            if model is not None and (not isinstance(model, str) or not model.strip()):
+                raise WebUIError("'model' must be a non-empty string or null")
         except WebUIError as exc:
             self._fail(HTTPStatus.BAD_REQUEST, str(exc))
             return
         agent: AgentSession = self.server.agent  # type: ignore[attr-defined]
         try:
-            agent.send(prompt)
+            agent.send(prompt, model=model)
         except OSError as exc:
             # A spawn that never happened (`claude` not on PATH, a dead
             # LUCID_AGENT_BIN) puts nothing on `/api/events` to clear the

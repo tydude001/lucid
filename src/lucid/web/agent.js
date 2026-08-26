@@ -10,8 +10,12 @@
  * What this file draws, and nothing more (CLAUDE.md: the web UI draws and it
  * plays, it never decides):
  *
- *   - a composer that POSTs {prompt} to /api/agent, and a Stop control that
- *     POSTs to /api/agent/stop (PLAN.md § The agent panel, in mechanism);
+ *   - a composer that POSTs {prompt, model} to /api/agent, and a Stop
+ *     control that POSTs to /api/agent/stop (PLAN.md § The agent panel, in
+ *     mechanism) — `model` is the #agent-model-select value; the server
+ *     (`AgentSession.send`) decides whether it actually changed anything,
+ *     this file only decides whether to draw a "starting fresh" notice
+ *     first, off its own record of what the live subprocess is running;
  *   - the `agent` SSE stream (stream-json passthrough) turned into a
  *     Daydream-style tool-progress list — consecutive tool_use blocks chain
  *     into one running checklist ("Reading transcript" → "Editing
@@ -65,6 +69,55 @@ function setModel(model) {
   currentModel = model;
   const chip = $("agent-model");
   if (chip) chip.textContent = ` · ${model}`;
+}
+
+// The #agent-model-select value — "" for "let claude choose its own
+// default", else a model id. Distinct from `currentModel` above, which is
+// what the *live* subprocess actually reports running: the two can differ
+// (picking a new value here does nothing to a live subprocess until the next
+// prompt is sent) and are reconciled by `spawnedModel` below, not by
+// comparing these two directly — `currentModel` is claude's own resolved
+// name for "Default" (e.g. "claude-sonnet-5"), not the empty string this
+// holds for the same choice.
+let selectedModel = "";
+
+// The model value actually sent with the most recent prompt this browser
+// tab has POSTed, or `null` before the first one. Used only to decide
+// whether *this tab's* next Send is a model change worth announcing in the
+// feed before the server silently restarts the conversation to honour it
+// (AgentSession.send's own stale-process check) — not a record of what any
+// other tab or a since-restarted server is actually running.
+let spawnedModel = null;
+
+export function getSelectedModel() {
+  return selectedModel;
+}
+
+/** Restore a saved model choice into the `<select>` (Studio Step 04's
+ * session contract, item E) — never called from a live change, only from
+ * `restoreSession()`, so it never needs to touch `spawnedModel`.
+ */
+export function setSelectedModel(model) {
+  selectedModel = typeof model === "string" ? model : "";
+  const select = $("agent-model-select");
+  if (select) select.value = selectedModel;
+}
+
+/** Shared by "New Task" and a mid-conversation model switch — both start a
+ * fresh agent process and must leave nothing on screen claiming a
+ * conversation the new process has no memory of.
+ */
+function resetForNewSession(message) {
+  currentProgress = null;
+  pendingSteps.clear();
+  renderSlots.clear();
+  currentModel = null;
+  const chip = $("agent-model");
+  if (chip) chip.textContent = "";
+  setBusy(false);
+  closeMention();
+  feedEl().textContent = "";
+  append(el("p", "pane-placeholder", message));
 }
 
 // -- feed plumbing ---------------------------------------------------------
@@ -714,11 +767,28 @@ export function init(passedCtx) {
 
   const composer = $("agent-composer");
   const promptBox = $("agent-prompt");
+  const modelSelect = $("agent-model-select");
+
+  modelSelect.addEventListener("change", () => {
+    selectedModel = modelSelect.value;
+  });
 
   composer.addEventListener("submit", async (event) => {
     event.preventDefault();
     const prompt = promptBox.value.trim();
     if (!prompt || busy) return;
+    // The server bakes `--model` in at spawn and cannot hot-swap it — a
+    // change here is about to silently restart the live conversation
+    // (AgentSession.send's own stale-process check) unless this is the
+    // first prompt this tab has sent, so say so before it happens rather
+    // than leaving a stale feed under the new reply.
+    if (spawnedModel !== null && selectedModel !== spawnedModel) {
+      resetForNewSession(
+        `Model changed to ${modelSelect.selectedOptions[0]?.textContent || "the default"} — ` +
+          "the previous conversation was cleared.",
+      );
+    }
+    spawnedModel = selectedModel;
     append(entry("agent-entry--user", prompt));
     promptBox.value = "";
     closeProgress(null); // a fresh prompt starts a fresh checklist, not a continuation
@@ -726,7 +796,7 @@ export function init(passedCtx) {
     closeMention();
     setBusy(true);
     try {
-      await ctx.api("/api/agent", { prompt });
+      await ctx.api("/api/agent", { prompt, model: selectedModel || null });
     } catch (err) {
       append(entry("agent-entry--system bad", err.message));
       setBusy(false);
@@ -798,21 +868,9 @@ export function init(passedCtx) {
       ctx.emit("toast", err.message);
       return;
     }
-    currentProgress = null;
-    pendingSteps.clear();
-    renderSlots.clear();
-    currentModel = null;
-    const chip = $("agent-model");
-    if (chip) chip.textContent = "";
-    setBusy(false);
-    closeMention();
-    feedEl().textContent = "";
-    append(
-      el(
-        "p",
-        "pane-placeholder",
-        "New task — the previous conversation was cleared. The next prompt starts a fresh agent process.",
-      ),
+    spawnedModel = null;
+    resetForNewSession(
+      "New task — the previous conversation was cleared. The next prompt starts a fresh agent process.",
     );
   });
 

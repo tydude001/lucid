@@ -865,9 +865,9 @@ timeline-space envelope is ever computed, and a cut needs no recompute.
 #### The agent panel, in mechanism
 
 ```
-POST /api/agent      {prompt}     → 202, work happens on the stream
-POST /api/agent/stop              → interrupt the running turn
-GET  /api/events                  → SSE: agent deltas, tool calls, project-changed
+POST /api/agent      {prompt, model: optional} → 202, work happens on the stream
+POST /api/agent/stop                            → interrupt the running turn
+GET  /api/events                                → SSE: agent deltas, tool calls, project-changed
 ```
 
 One subprocess per server, spawned lazily:
@@ -885,8 +885,14 @@ claude -p --verbose --input-format stream-json --output-format stream-json
        --allowedTools 'mcp__lucid__*'
        --disallowedTools Bash Write Edit WebFetch WebSearch
        --permission-mode manual
+       [--model <model>]  # only when the composer's #agent-model-select asked for one
 # cwd=<project root>, set on the Popen, not by a flag
 ```
+
+`--model` bakes in at spawn — no live hot-swap — so a request naming a
+different model than the live subprocess's own kills and respawns it, the
+same suppressed-exit mechanics as "New Task". HISTORY.md § The agent panel
+got a model selector.
 
 `--verbose` is not optional either, and not for logging: 2.1.226 refuses
 `--print --output-format=stream-json` without it — errors and **exits 0**

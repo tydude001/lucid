@@ -11749,3 +11749,77 @@ Registered as `list_media` / `lucid list-media <source_dir>`. `source_dir` is
 deliberately **not** a `_tool()` selector, `import_media`'s own `source`
 precedent — it names where footage lives, not a project, so confining it
 would refuse the one thing this tool exists to reach.
+
+## The agent panel got a model selector — 2026-08-26
+
+The chip beside the composer (item 1, docs/plans/DAYDREAM.md § Agent panel) has always
+been read-only — whatever model the live `claude -p` subprocess happened to
+resolve to, echoed back from its own `system`/`init` event. Nothing ever told
+the subprocess which one to run as. Asked whether that gap should be closed,
+the answer was yes, and where the choice should live was the one open
+question worth resolving before writing code.
+
+**The choice is `cache/session.json`, not the manifest.** The instinct going
+in was to store it the `CANVAS_KEY`/`CAPTION_STYLE_KEY` way — additive,
+manifest, survives a reload — but that shape is for *authored film content*,
+and `Project.write_manifest`'s default is to snapshot every write (manifest-
+aware undo, item 3). A model preference is neither: it is this webui's own
+chat-tool setting, and putting it in the manifest would mean picking Opus
+instead of Sonnet lands an undo-stack entry. `cache/session.json` already
+exists for exactly this shape of fact — playhead, zoom, scroll, pane-expand,
+mode, selection, none of it authored, all of it per-viewer convenience — so
+`agent_model` joins that list instead of opening a new one.
+
+**`--model` bakes into `claude -p`'s argv at spawn, and there is no live
+hot-swap.** `AgentSession.send(prompt, model=...)` compares the incoming
+value against `self._model`, the value already baked into any live
+subprocess. Equal (the ordinary case: same model as last turn, or the first
+turn of a fresh session) touches nothing extra. Different, with a live
+subprocess, kills it — the exact `_suppress_next_exit_report` dance
+`reset()`/"New Task" already uses, so the kill does not also surface as a
+synthetic `error_no_output` — and the existing lazy-respawn branch
+(`self._proc is None or self._proc.poll() is not None`) picks up the new
+value on the very next line. No second endpoint: `model` rides
+`POST /api/agent`'s existing payload alongside `prompt`, because the
+alternative — a side-channel `/api/agent/model` setter pushed on page
+load — would either kill a live conversation on every reload that happened
+to restore a different stored value, or leave the dropdown lying about what
+is actually running. Never validated against a fixed list, the
+canvas/framing overrides' own reasoning restated for a third surface:
+`claude`'s own accepted model names change out from under any list lucid
+would keep, so a bad one is `claude`'s own refusal to report (an exit with
+nothing on stdout, already caught by `_pump_stdout`'s silent-exit path)
+rather than lucid's guess getting in the way of the one closer to the truth.
+
+**The frontend owns a second piece of state past what the server needs**,
+`spawnedModel` in `agent.js` — the model this browser tab's own most recent
+prompt was actually sent with, distinct from `selectedModel` (the dropdown's
+live value) and from `currentModel` (the chip's value, `claude`'s own
+resolved name for "Default", not the empty string the dropdown uses for the
+same choice). Comparing `selectedModel` against `currentModel` directly does
+not work — "Default" only equals "claude-sonnet-5" some of the time, and
+never as strings — so `spawnedModel` is what lets the Send handler know,
+*before* posting, whether the server is about to silently restart the
+conversation to honour a change: if so, it clears the feed itself
+(`resetForNewSession`, factored out of what was only "New Task"'s body) with
+a "Model changed…" notice, rather than leaving a person's new reply
+appended under a conversation the freshly-spawned process has no memory of.
+A page reload resets `spawnedModel` to `null`, which is deliberate: the
+first send after a reload never announces a change even if the restored
+selection differs from whatever a *different* tab last set server-side —
+multi-tab editing of one project is already an unsupported shape (the
+trial's queue closed, "neither lucid nor claude will say so") and this does
+not try to fix that on the side.
+
+Verified end to end with a stubbed `claude` (records its own PID and argv
+per invocation, echoes a canned turn) driven in a real headless browser:
+picking Opus after a default-model turn cleared the feed with the notice,
+spawned a genuinely new PID, and the recorded argv carried
+`--model claude-opus-5`; a page reload restored the dropdown to `claude-opus-5`
+and the next prompt reused the *same* still-live PID with no notice, proving
+the restored preference and the server's own state agreed without a redundant
+kill. `test_webui_http.py` gained matching coverage at the HTTP layer:
+rejecting a non-string/empty `model`, the flag's presence and absence in the
+spawned argv, a genuine two-PID respawn on a model change (with the new
+argv), and same-model reuse producing exactly one PID across two turns. Full
+suite: 244/244.
