@@ -260,6 +260,14 @@ absent optional capability is "unavailable", never a failure, and never moves
     prior expects works, advertises an identical schema, and is silently
     unconfined; a test asserts against it. HISTORY.md § Binding the agent's
     MCP server to its project.
+  - **`path` is optional everywhere (`str | None = None`) and defaults to
+    the bound project** — under `-C` it is ceremony with one accepted value,
+    and an agent measured on the real trial passed it on every one of 29
+    calls anyway, having been told it never would need to. Unbound and
+    omitted refuses by name (`_confine`) rather than a bare pydantic "Field
+    required". `fonts`/`pack_show` opt out (`projectless=True`): their own
+    docstrings mean `path=None` as "no project", not "which one". HISTORY.md
+    § The trial's queue, closed.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
   whether it is registered or reachable. Same discipline for the web UI:
@@ -575,8 +583,12 @@ absent optional capability is "unavailable", never a failure, and never moves
   `lucid init` start, `--control`) are in its docstring. **Two agents in one
   project is possible and neither lucid nor `claude` will say so** — `claude`
   is spawned into its own session, so killing a harness leaves the agent
-  editing, and `write_manifest` is last-writer-wins. TRIAL.md queue item 4;
-  HISTORY.md § The closed-loop trial.
+  editing. `write_manifest`/`restore` now refuse (`ProjectConflictError`)
+  rather than silently clobbering when the manifest moved under a stale
+  read — `Project._manifest_stamp`, the mtime `waveform/`'s own cache key
+  already uses, applied to staleness — but nothing stops the two agents from
+  starting in the first place; one of them just loses cleanly now instead of
+  losing silently. HISTORY.md § The trial's queue, closed.
 - `ruff check` is the lint gate. **Never run `ruff format`** — there is no
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
