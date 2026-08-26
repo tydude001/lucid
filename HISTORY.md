@@ -11648,3 +11648,78 @@ a rehearsal exists to catch: `make_demo.py --build` echoed its steps as
 Fixed by echoing the command `docs/DEMO.md` prints. The suite runs on that
 checkout too — **1921 passed, nothing skipped, 10m27s**, the five
 melt-rendering tests included.
+
+## The trial's queue, closed — six of seven — 2026-08-25
+
+TRIAL.md's queue is the closed-loop trial's own failure list, each row
+evidence-backed. Six of its seven items are closed; item 5 needed no lucid
+change (it was the trial harness's own scorer treating a refused check as a
+failed one, already fixed there); item 7 is left, on purpose — TRIAL.md
+frames it as a decision ("worth deciding... not during it"), not a fix, and
+picking one of its three options for Tyler would be building ahead of a call
+that is his.
+
+**1. `path` is optional under `-C`, and defaults to the bound project.**
+Every tool's `path` parameter changed from required to `str | None = None`
+(mechanical, 82 functions in `server.py`) and `_confine` now resolves an
+absent one to `str(_BOUND_ROOT)` when bound, or refuses with a named message
+when not — the schema itself can no longer mark `path` required only
+sometimes, since `test_binding_does_not_change_the_advertised_tool_schema`
+holds one schema for both bind states, so an unbound server's refusal moved
+from a bare pydantic "Field required" to `_confine`'s own clearer one.
+`fonts`/`pack_show` already treated `path=None` as "no project, lucid's
+default" — a real, tested, and different meaning from every other tool's —
+so `@_tool()` gained `projectless=True` to keep that pair opting out of the
+new default-to-bound-root behaviour rather than silently changing what they
+answer.
+
+**2. `spot_frames` returns a montage, the same route `shot_sheet` and its
+siblings use.** `ops.spot_frames` already extracted the sampled frames as
+PNGs; `_spot_frames_montage` tiles and labels them (`t=…s YAVG=…`) into one
+JPEG under `cache/sheets/spots/<target-stem>/`, best-effort like
+`contact_sheet`'s own (`sheet_error`, never a raise — the PNGs are still the
+record). `server.spot_frames` returns `-> Any` and `[report, Image(...)]`
+when a sheet built, `shot_sheet`'s own shape.
+
+**3. `timeline_status` stops refusing on a fresh project.** `ops.status`
+answers `seeded: false` plus the timeline-independent fields (`clips`,
+`undo_depth`, `canvas`, `head`/`tail`) instead of raising
+`_load_edit`'s "no timeline yet" — `off_timeline`'s own precedent, report
+rather than refuse. `finish_report` genuinely needs a timeline (it composes
+`timeline_view`, which still raises), so it refuses explicitly and by name
+now rather than a bare `KeyError` on a field `status` no longer returns.
+Rippled into `webui.py`'s picker scan (`_scan_one` reads `info["seeded"]`
+directly instead of inferring it from an exception) and `picker.js` (the
+first-run "Finish setup" flow is now keyed on `status === "ok" &&
+!seeded`, not `status === "error"`).
+
+**4. A second writer is now caught, not just the trial harness's own PID
+lock.** `Project` gained `_manifest_stamp` — the manifest's on-disk mtime as
+of this instance's last `read_manifest()`, the same size+mtime idiom
+`waveform/`'s cache key already uses, applied to staleness instead of
+recompute. `write_manifest` and `restore` (a raw `shutil.copy2`, so it was
+the one path around `write_manifest`'s own check) both refuse with a new
+`ProjectConflictError` — a `ProjectError` subclass, so every existing
+`except ProjectError`/`EXPECTED` handler already catches it — when the file
+moved since it was last read here. Skipped when nothing was ever read on
+this instance (`Project.create`'s first write, `reel`'s seeding of a project
+mid-construction): there is nothing yet to conflict with.
+
+**6. `clip_rm`, and `finish_report`'s `unused_clips`.** The agent that found
+this gap had registered its own delivered render as a clip just to look at
+it (before item 2 existed) and had no way to take that back. `clip_rm`
+refuses, naming every reason, when the clip is on the timeline, cued (as
+either a cue's `clip_id` or its `asset`), held, the music bed's own clip,
+marked unspoken, transcribed, or described — a clip with none of those is
+deregistered; the media on disk is never touched, `undo`ing an import's own
+rule. `finish_report` gained `unused_clips`, composed from a new
+`_referenced_clip_ids` helper (timeline segments plus every cue/hold/bed
+reference) rather than raised prose — a clip registered and used nowhere no
+longer needs an agent's own words to be noticed.
+
+Every touched test file re-run clean after the fix: `test_server_stdio.py`
+(202), `test_webui_http.py` (238), `test_cli.py`+`test_project.py`+
+`test_ops_finish_report.py` (86). Two independent full-suite runs each found
+exactly the same three now-fixed `finish_report` field-set assertions
+(`unused_clips` joining the shape) and nothing else — 1938/1941 and
+1939/1941 passed.

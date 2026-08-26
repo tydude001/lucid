@@ -269,6 +269,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reset", action="store_true", help="clear it back to undeclared"
     )
 
+    p_clip_rm = sub.add_parser(
+        "clip-rm", help="un-register a clip, refusing if anything depends on it yet"
+    )
+    p_clip_rm.add_argument("clip_id")
+
     p_attach = sub.add_parser("attach-transcript", help="ingest a word-timed whisper JSON")
     p_attach.add_argument("clip_id")
     p_attach.add_argument("transcript", help="path to the whisper JSON")
@@ -1960,6 +1965,10 @@ def _cmd_role(args: argparse.Namespace) -> int:
     return _emit(ops.clip_role(args.project, args.clip_id, args.role, reset=args.reset))
 
 
+def _cmd_clip_rm(args: argparse.Namespace) -> int:
+    return _emit(ops.clip_rm(args.project, args.clip_id))
+
+
 def _cmd_attach_transcript(args: argparse.Namespace) -> int:
     return _emit(ops.attach_transcript(args.project, args.clip_id, args.transcript))
 
@@ -2858,6 +2867,7 @@ _COMMANDS = {
     "migrate": _cmd_migrate,
     "import": _cmd_import,
     "role": _cmd_role,
+    "clip-rm": _cmd_clip_rm,
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,

@@ -1174,6 +1174,7 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
         "marks",
         "seams",
         "sources",
+        "unused_clips",
         "framing",
         "holds",
         "continuity",
@@ -3089,26 +3090,52 @@ def test_an_unreadable_manifest_is_listed_not_skipped(
     assert entry["error"]
 
 
-def test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone(
+def test_an_unseeded_project_is_listed_as_ok_and_unseeded(
     project: Path, picker_server: str
 ) -> None:
-    """A current-schema project whose manifest reads fine can still fail
-    `ops.status` (no timeline seeded yet is the ordinary way) — that must be
-    one bad entry, never a listing-wide failure (webui.py's `_scan_one`)."""
+    """`ops.status` used to refuse a project with no timeline seeded yet,
+    which put it in the `error` bucket here too; it now reports `seeded:
+    false` instead of raising (TRIAL.md § `timeline_status` is the first
+    call an agent makes and it refuses on a fresh project), so the scan
+    reports it `ok` — a state to offer "finish setup" for, not a failure."""
     unseeded = project.parent / "unseeded"
     ops.init(unseeded)
 
     status, payload = _json(f"{picker_server}/api/projects")
     assert status == 200
     entries = {entry["path"]: entry for entry in payload["projects"]}
-    assert entries[str(unseeded)]["status"] == "error"
-    assert "seed" in entries[str(unseeded)]["error"]
-    # Which kind of `error` this is, as data rather than as a sentence to
+    assert entries[str(unseeded)]["status"] == "ok"
+    # Which kind of `ok` this is, as data rather than as a sentence to
     # match: the picker offers to finish an un-seeded project and must never
     # offer that for a genuinely broken one (docs/plans/POLISH.md § Step 06).
     assert entries[str(unseeded)]["seeded"] is False
+    assert entries[str(unseeded)]["clips"] == 0
+    assert "timeline_duration" not in entries[str(unseeded)]
     # And the healthy project alongside it still lists normally.
     assert entries[str(project)]["status"] == "ok"
+    assert entries[str(project)]["seeded"] is True
+
+
+def test_a_project_with_a_corrupt_manifest_record_is_still_listed_as_an_error(
+    project: Path, picker_server: str
+) -> None:
+    """`seeded: false` covers the ordinary no-timeline case now — this is
+    what still lands in the `error` bucket: a current-schema project whose
+    manifest carries a record `ops.status` cannot make sense of at all
+    (`_stored_tail`'s own validation, read even before a timeline exists)."""
+    broken = project.parent / "broken-tail"
+    ops.init(broken)
+    manifest_path = broken / "lucid.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["tail"] = {"asset": "card:not-a-real-asset"}  # missing required 'seconds'
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entry = {entry["path"]: entry for entry in payload["projects"]}[str(broken)]
+    assert entry["status"] == "error"
+    assert entry["error"]
+    assert entry["seeded"] is False  # never got as far as `lucid seed`
 
 
 def test_scan_does_not_follow_a_symlink_outside_root(
@@ -3307,7 +3334,7 @@ def test_the_picker_still_lists_a_broken_sibling_after_a_create(
     assert status == 200
     entries = {entry["path"]: entry for entry in payload["projects"]}
     assert entries[str(tmp_path / "bad-manifest")]["status"] == "unreadable"
-    assert entries[str(tmp_path / "fresh")]["status"] == "error"
+    assert entries[str(tmp_path / "fresh")]["status"] == "ok"
     assert entries[str(tmp_path / "fresh")]["seeded"] is False
 
 
@@ -3673,11 +3700,11 @@ def test_broken_project_with_a_stale_session_file_still_does_not_take_down_the_l
     project: Path, picker_server: str
 ) -> None:
     """Extends the existing one-bad-project resiliency test
-    (`test_an_unseeded_project_is_listed_as_an_error_not_a_500_for_everyone`)
-    to the new resume-line read: a broken (unseeded) project can carry a
-    `session.json` of its own — the scan must still list it (as `error`,
-    with the session field alongside) and must still list every healthy
-    project next to it."""
+    (`test_an_unseeded_project_is_listed_as_ok_and_unseeded`) to the new
+    resume-line read: an un-seeded project can carry a `session.json` of its
+    own — the scan must still list it (`ok`/`seeded: false`, with the
+    session field alongside) and must still list every healthy project next
+    to it."""
     unseeded = project.parent / "unseeded-with-session"
     ops.init(unseeded)
     session_path = Project.open(unseeded).session_path
@@ -3687,7 +3714,8 @@ def test_broken_project_with_a_stale_session_file_still_does_not_take_down_the_l
     status, payload = _json(f"{picker_server}/api/projects")
     assert status == 200
     entries = {entry["path"]: entry for entry in payload["projects"]}
-    assert entries[str(unseeded)]["status"] == "error"
+    assert entries[str(unseeded)]["status"] == "ok"
+    assert entries[str(unseeded)]["seeded"] is False
     assert entries[str(unseeded)]["session"] == {"mode": "edit"}
     assert entries[str(project)]["status"] == "ok"
 

@@ -1244,6 +1244,7 @@ def test_finish_report_subcommand_emits_json(
         "marks",
         "seams",
         "sources",
+        "unused_clips",
         "holds",
         "framing",
         "continuity",

@@ -2288,6 +2288,67 @@ def clip_role(
     return {"clip_id": clip_id, "role": clip.get("role"), "written": write, "reset": bool(reset)}
 
 
+def clip_rm(path: Path | str, clip_id: str) -> dict[str, Any]:
+    """Un-register a clip `import_media` added, when nothing depends on it yet.
+
+    There is `cue_rm`, `hold_rm`, `unspoken_rm` and no way to undo an import
+    on its own — `undo` is positional and would take every mutation after it
+    too. The gap is quiet: a clip nobody meant to keep still shows up in
+    `assets`, is still cue-able, and still counts toward `media_imported`
+    (TRIAL.md § `spot_frames` is the tool for looking at a delivered render —
+    the agent that found this had registered its own delivered render as a
+    clip just to look at it, and had no way to take that back).
+
+    **Refuses rather than orphaning a reference**, the same discipline
+    `build_shots` applies to a cut orphaning a cue: on the timeline, cued (as
+    either a cue's addressing `clip_id` or its `asset`), held, the music
+    bed's own clip, marked unspoken, transcribed or described are all
+    reasons this clip is no longer "just registered", and every one that
+    applies is named in the refusal so the fix is obvious rather than a
+    second round trip. A clip with none of those is deregistered outright —
+    the manifest entry only; the media on disk is never touched, the way
+    `undo`ing an import leaves it alone too.
+    """
+    project = Project.open(path)
+    media.get_clip(project, clip_id)  # the known-ids message if it doesn't exist
+
+    manifest = project.read_manifest()
+    # Not `_load_edit`: a project with nothing seeded yet has no timeline at
+    # all, and that is not a reason to refuse this check — only a reason
+    # "on the timeline" can never be one of the blockers found.
+    edit = tl.read(project.timeline_path) if project.timeline_path.exists() else None
+    blockers: list[str] = []
+    if edit is not None and any(seg.clip_id == clip_id for seg in edit.segments):
+        blockers.append("it is on the timeline")
+    if any(
+        cue["clip_id"] == clip_id or cue["asset"] == clip_id for cue in manifest.get("cues", [])
+    ):
+        blockers.append("it is referenced by a cue (see cue_ls, cue_rm)")
+    if any(
+        hold["clip_id"] == clip_id or hold["asset"] == clip_id
+        for hold in manifest.get(HOLDS_KEY, [])
+    ):
+        blockers.append("it is referenced by a hold (see hold_ls, hold_rm)")
+    bed = manifest.get(MUSIC_KEY)
+    if bed and (bed.get("clip_id") == clip_id or bed.get("asset") == clip_id):
+        blockers.append("it is the music bed's own clip (see music reset=True)")
+    if any(mark["clip_id"] == clip_id for mark in manifest.get(UNSPOKEN_KEY, [])):
+        blockers.append("it has an unspoken mark (see unspoken_ls, unspoken_rm)")
+    if project.transcript_path(clip_id).is_file():
+        blockers.append("it has a transcript attached")
+    if any(d["clip_id"] == clip_id for d in _descriptions(project)):
+        blockers.append("it has been described (see describe_ls)")
+    if blockers:
+        raise ProjectError(
+            f"clip_rm refuses {clip_id!r}: " + "; ".join(blockers) + ". Clear every "
+            "reference first, or `lucid undo` back to before it was imported."
+        )
+
+    manifest["clips"] = [c for c in manifest["clips"] if c["clip_id"] != clip_id]
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "removed": True}
+
+
 def assets(path: Path | str) -> dict[str, Any]:
     """Every asset a cue can point at — clip or card — with what an
     inspector pane needs to show about it.
@@ -2931,8 +2992,29 @@ def status(path: Path | str) -> dict[str, Any]:
     down at its own default frame rate — `_frame_total_with_tail`, so a caller
     asking "how long is this" gets the same number `check_frames` and
     `_build_mlt` would.
+
+    **A project with nothing seeded answers `seeded: false` rather than
+    refusing.** This is usually the first call an agent makes, asking "what
+    state is this project in" — and the answer to that on a fresh project is
+    not an error, it is "nothing seeded yet, here is what is registered"
+    (`off_timeline`'s own precedent: report rather than refuse). Only the
+    fields that need a timeline to mean anything (`timeline_duration`/
+    `segments`/`expected_frames`/`expected_duration`/`pack`) are absent;
+    `clips`, `undo_depth`, `canvas` and `head`/`tail` are all
+    timeline-independent and still answered. TRIAL.md § `timeline_status` is
+    the first call an agent makes and it refuses on a fresh project.
     """
     project = Project.open(path)
+    if not project.timeline_path.exists():
+        return {
+            "project": str(project.root),
+            "seeded": False,
+            "clips": [c["clip_id"] for c in project.read_manifest().get("clips", [])],
+            "undo_depth": len(project.snapshots()),
+            "canvas": "{}x{}".format(*_mlt_resolution(project)),
+            "head": _stored_head(project),
+            "tail": _stored_tail(project),
+        }
     edit = _load_edit(project)
     rate = _export_fps(_clips_by_id(project))
     expected = _frame_total_with_tail(project, edit, rate)
@@ -2959,6 +3041,7 @@ def status(path: Path | str) -> dict[str, Any]:
     )
     return {
         "project": str(project.root),
+        "seeded": True,
         "timeline_duration": edit.duration,
         "segments": len(edit.segments),
         "undo_depth": len(project.snapshots()),
@@ -3035,6 +3118,34 @@ def properties(
     return result
 
 
+def _referenced_clip_ids(manifest: dict[str, Any], on_timeline: set[str]) -> set[str]:
+    """Every clip_id the timeline, a cue, a hold or the music bed names.
+
+    `on_timeline` is handed in rather than derived from a fresh `Edit` read
+    — `finish_report`'s own caller already has `timeline_view`'s `segments`,
+    composing rather than re-deriving being the whole discipline that
+    function holds to. `asset` and `clip_id` both count on a cue and a hold
+    — the addressing clip and the footage actually shown are different
+    things (CLAUDE.md's own distinction), and either being a real dependency
+    is the point. `finish_report`'s `unused_clips` is everything registered
+    that misses this set entirely: on no lane, cued nowhere, held nowhere,
+    not the bed.
+    """
+    referenced: set[str] = set(on_timeline)
+    for cue in manifest.get("cues", []):
+        referenced.add(cue["clip_id"])
+        referenced.add(cue["asset"])
+    for hold in manifest.get(HOLDS_KEY, []):
+        referenced.add(hold["clip_id"])
+        referenced.add(hold["asset"])
+    bed = manifest.get(MUSIC_KEY)
+    if bed:
+        referenced.add(bed.get("clip_id"))
+        referenced.add(bed.get("asset"))
+    referenced.discard(None)
+    return referenced
+
+
 def finish_report(
     path: Path | str, *, framing: bool = False, holds: bool = False, continuity: bool = False
 ) -> dict[str, Any]:
@@ -3080,6 +3191,15 @@ def finish_report(
     already has a name on the record. Unlike everything else here it reads
     the manifest's clip rows directly rather than `assets`, because `assets`
     probes playability per clip and this report rides every edit.
+
+    `unused_clips` is which registered clips the timeline, a cue, a hold and
+    the music bed all miss — on no lane, cued nowhere, held nowhere, not the
+    bed (TRIAL.md § Registered-and-not-on-the-timeline has no report of its
+    own; `assets`' own `cues` count answers half this question per clip and
+    never names the ones at zero). Informational like `sources`, and unlike
+    `sources` an action genuinely clears it — `clip_rm` when nothing else is
+    keeping the clip, cueing it otherwise — so it is not folded into `flags`
+    only because nothing here decides *which* of those two the clip needs.
 
     `marks` is `unspoken_ls`'s count split into applied vs stale (a stale
     mark's recorded text disagrees with the transcript now — see
@@ -3143,9 +3263,19 @@ def finish_report(
     Nothing here invents a further condition either: there is no
     duration-mismatch flag, and font resolution is informational only (only
     a measured render settles which face libass drew — CLAUDE.md).
+    **Refuses on a project with nothing seeded** — unlike `status` itself
+    (which now reports `seeded: false` rather than raising, TRIAL.md §
+    `timeline_status`), there is no finished cut to report on yet, and
+    `timeline_view` below still needs one regardless.
     """
     project = Project.open(path)
     proj_status = status(path)
+    if not proj_status["seeded"]:
+        raise ProjectError(
+            f"{project.root} has no timeline yet — finish_report reports on a "
+            "finished cut, and there is nothing to finish. Seed it first "
+            "(`lucid seed` / seed_timeline)."
+        )
     tail = proj_status["tail"]
     duration_section = {
         "edit_seconds": proj_status["timeline_duration"],
@@ -3238,11 +3368,23 @@ def finish_report(
     # applied one level cheaper. `vfr` is absent on every clip imported
     # before the field existed, and `.get` reads that as "not variable",
     # which is what an older manifest meant.
-    clip_rows = project.read_manifest().get("clips", [])
+    manifest = project.read_manifest()
+    clip_rows = manifest.get("clips", [])
     sources_section = {
         "clips": len(clip_rows),
         "vfr": [c["clip_id"] for c in clip_rows if c.get("vfr")],
     }
+
+    # A clip on no lane and cued/held/bedded nowhere is quiet everywhere
+    # else: it counts toward `sources.clips` above and shows up in `assets`
+    # exactly like one doing real work. TRIAL.md § Registered-and-not-on-
+    # the-timeline has no report of its own — this is that report, so a
+    # clip registered by accident (or for `spot_frames`-style inspection and
+    # never cleaned up, `clip_rm`'s own reason for existing) is visible
+    # without reading an agent's prose to notice it.
+    on_timeline = {seg["clip_id"] for seg in view.get("segments", [])}
+    referenced = _referenced_clip_ids(manifest, on_timeline)
+    unused_clips = [c["clip_id"] for c in clip_rows if c["clip_id"] not in referenced]
 
     # Cheap on purpose — `reframe_coverage` needs no face detector (ffmpeg
     # scene-cut scan only, bounded by placed footage), so this composed field
@@ -3452,6 +3594,7 @@ def finish_report(
         "marks": marks_section,
         "seams": seams_section,
         "sources": sources_section,
+        "unused_clips": unused_clips,
         "framing": framing_section,
         "holds": holds_section,
         "continuity": continuity_section,
@@ -13416,6 +13559,57 @@ def _nearest_word(parsed: tx.Transcript, t: float) -> dict[str, Any]:
     return {"word": {"index": words[idx].index, "text": words[idx].text}, **_context(parsed, idx, idx)}
 
 
+#: Beside every other sheet under `cache/sheets/`, its own subdirectory like
+#: `SHOT_SHEET_DIR`/`FOOTAGE_SHEET_DIR`/`FIRST_LOOK_DIR` — `reframe_sheet`'s
+#: flat-and-swept layout is the one exception, not the pattern to copy.
+SPOT_SHEET_DIR = "cache/sheets/spots"
+
+
+def _spot_frames_montage(
+    project: Project, target: Path, frames: list[dict[str, Any]]
+) -> Path | None:
+    """Montage `spot_frames`' own extracted PNGs into one labelled sheet.
+
+    Drawn from the same PNGs `spot_frames` already wrote to
+    `cache/frames/<render-stem>/` — no second extraction — so the only new
+    cost is the tile-and-montage step every other sheet already pays.
+    `target`'s own stem slugs the directory, wiped each call: a target is
+    re-sampled at a different `count`/`times` far more often than a clip is
+    re-imported, and a stale tile from a wider run montaging into a narrower
+    one is exactly `_first_look_montage`'s own reason for wiping first.
+
+    Frames a bad seek already dropped (no `png` key, only `error`) are
+    skipped rather than aborting the whole sheet — the same one-bad-frame
+    tolerance `spot_frames` itself applies to extraction.
+    """
+    usable = [f for f in frames if "png" in f]
+    if not usable:
+        return None
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", target.stem)
+    dest = project.root / SPOT_SHEET_DIR / slug
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    tiles: list[Path] = []
+    for frame in usable:
+        tile = dest / f"{frame['index']:03d}.png"
+        yavg = frame.get("YAVG")
+        label = f"t={frame['time']:.2f}s" + (f" YAVG={yavg:.0f}" if yavg is not None else "")
+        _sheet_tile(
+            Path(frame["png"]),
+            label,
+            tile,
+            width=SHEET_PAGE_WIDTH // SHOT_SHEET_COLUMNS,
+        )
+        tiles.append(tile)
+    return graphics.montage(
+        tiles,
+        dest / "sheet.jpg",
+        columns=SHOT_SHEET_COLUMNS,
+        tile_width=SHEET_PAGE_WIDTH // SHOT_SHEET_COLUMNS,
+        quality=SHOT_SHEET_QUALITY,
+    )
+
+
 def spot_frames(
     path: Path | str,
     target: Path | str,
@@ -13443,6 +13637,15 @@ def spot_frames(
     caught and reported per-frame rather than aborting the whole batch — this
     is an exploratory tool over potentially many samples, and one bad seek
     should not cost the other N-1.
+
+    **`frames[].png` is a path, and the agent panel runs `--tools ''` — no
+    `Read`, so a path there is exactly as unreachable as it was for
+    `shot_sheet`/`footage_sheet`/`contact_sheet` before each grew a montage
+    (TRIAL.md § `spot_frames` hands back paths the agent cannot open). `sheet`
+    is that fix applied here: the same frames montaged into one labelled JPEG
+    under `cache/sheets/spots/`, best-effort like `contact_sheet`'s own
+    (`sheet_error` rather than a raise on a box with no `magick`) — the PNGs
+    are the record either way, so a sheet failure never costs the sample.
     """
     if count <= 0 and not times:
         raise picture.PictureError(
@@ -13466,7 +13669,7 @@ def spot_frames(
         "has_video": counts["has_video"],
     }
     if not counts["has_video"]:
-        result.update({"frames": [], "darkest_first": []})
+        result.update({"frames": [], "darkest_first": [], "sheet": None})
         result["notes"] = ["this render has no video stream, so there are no frames to sample."]
         return result
 
@@ -13538,6 +13741,12 @@ def spot_frames(
         (f["index"] for f in frames_out if "YAVG" in f), key=lambda i: frames_out[i]["YAVG"]
     )
 
+    try:
+        sheet = _spot_frames_montage(project, target_path, frames_out)
+    except (graphics.GraphicsError, OSError) as exc:
+        sheet = None
+        notes.append(f"could not build a montage of the sampled frames: {exc}")
+
     result.update(
         {
             "fps": rate,
@@ -13545,6 +13754,7 @@ def spot_frames(
             "mapping_trusted": mapping_trusted,
             "frames": frames_out,
             "darkest_first": darkest_first,
+            "sheet": str(sheet) if sheet else None,
         }
     )
     if notes:

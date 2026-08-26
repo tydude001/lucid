@@ -527,28 +527,26 @@ def _scan_one(path: Path) -> dict[str, Any]:
         info = ops.status(path)
     except EXPECTED as exc:
         # A current-schema project whose manifest reads fine can still fail
-        # here — no timeline seeded yet is the ordinary case. One bad
-        # project must not take the whole listing down (webui.py's own
-        # `_route_picker` would otherwise turn this into a 400 for
-        # everyone under `--root`, not just the broken one).
+        # here — a corrupt head/tail/pack record, say. One bad project must
+        # not take the whole listing down (webui.py's own `_route_picker`
+        # would otherwise turn this into a 400 for everyone under `--root`,
+        # not just the broken one). No timeline seeded yet is no longer one
+        # of these: `ops.status` reports `seeded: false` instead of raising
+        # (TRIAL.md § `timeline_status` is the first call an agent makes and
+        # it refuses on a fresh project), so landing here means a real
+        # error, and the picker offers no "finish setting up" affordance for
+        # it. No fifth status — the four outcomes this scan reports are
+        # unchanged (docs/plans/POLISH.md § Step 06).
         entry["status"] = "error"
         entry["error"] = str(exc)
-        # Which `error` this is, without reading the message. An un-seeded
-        # project — `lucid init` (or `POST /api/create`) with no `lucid seed`
-        # behind it — is the *ordinary* way to land here and is the one
-        # version of it a person can act on from this page, so the picker
-        # offers to finish setting it up instead of showing a dead card. A
-        # file check rather than a string match on `ops.status`'s refusal:
-        # matching a sentence is how a message reword becomes a silent
-        # behaviour change (CLAUDE.md, `media.MultiAudioError`'s own reason
-        # for carrying `streams`). No fifth status — the four outcomes this
-        # scan reports are unchanged (docs/plans/POLISH.md § Step 06).
         entry["seeded"] = (path / TIMELINE_NAME).is_file()
         return entry
     entry["status"] = "ok"
-    entry["timeline_duration"] = info["timeline_duration"]
-    entry["segments"] = info["segments"]
+    entry["seeded"] = info["seeded"]
     entry["clips"] = len(info["clips"])
+    if info["seeded"]:
+        entry["timeline_duration"] = info["timeline_duration"]
+        entry["segments"] = info["segments"]
     return entry
 
 

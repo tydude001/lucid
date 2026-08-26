@@ -117,6 +117,7 @@ EXPECTED_TOOLS = {
     "export",
     "assets",
     "clip_role",
+    "clip_rm",
     "properties",
     "thumbnail",
     "contact_sheet",
@@ -233,6 +234,50 @@ def test_doctor_takes_no_arguments_over_stdio() -> None:
     tools = anyio.run(_with_server, body)
     doctor = next(t for t in tools.tools if t.name == "doctor")
     assert not doctor.input_schema.get("properties")
+
+
+def test_timeline_status_reports_seeded_false_instead_of_refusing(tmp_path: Path) -> None:
+    """TRIAL.md § `timeline_status` is the first call an agent makes and it
+    refuses on a fresh project — both trial runs opened with this call and
+    both got a refusal. A project with nothing seeded must answer instead."""
+    project = tmp_path / "proj"
+    ops.init(str(project))
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("timeline_status", path=str(project))
+
+    result = anyio.run(_with_server, body)
+
+    assert result["seeded"] is False
+    assert result["clips"] == []
+    assert "timeline_duration" not in result
+    assert "segments" not in result
+    # Timeline-independent fields still answer.
+    assert result["undo_depth"] == 0
+    assert result["canvas"]
+    assert result["head"] is None and result["tail"] is None
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_timeline_status_lists_a_registered_clip_before_it_is_seeded(
+    tmp_path: Path,
+) -> None:
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        clip = await client.call("import_media", path=str(project), source=str(footage))
+        status = await client.call("timeline_status", path=str(project))
+        return clip["clip_id"], status
+
+    clip_id, status = anyio.run(_with_server, body)
+
+    assert status["seeded"] is False
+    assert status["clips"] == [clip_id]
 
 
 @needs_ffprobe
@@ -383,6 +428,7 @@ def test_finish_report_reachable_over_stdio(
         "marks",
         "seams",
         "sources",
+        "unused_clips",
         "framing",
         "holds",
         "continuity",
@@ -484,6 +530,7 @@ TOOL_TO_COMMAND = {
     "export": "export",
     "assets": "assets",
     "clip_role": "role",
+    "clip_rm": "clip-rm",
     "properties": "properties",
     "thumbnail": "thumbnail",
     "contact_sheet": "contact-sheet",
@@ -4198,6 +4245,80 @@ async def _seeded(client: Client, project: Path, source: Path, transcript: Path 
 
 
 @needs_ffprobe
+@needs_ffmpeg
+def test_clip_rm_removes_an_unreferenced_clip(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    """TRIAL.md § `spot_frames` is the tool for looking at a delivered
+    render: an agent registered a delivered render as a clip just to see it,
+    with no way to take that back afterwards. The happy path — nothing
+    refers to the clip yet — must actually remove it."""
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, audio, transcript)
+        extra = await client.call("import_media", path=str(project), source=str(footage))
+        removed = await client.call("clip_rm", path=str(project), clip_id=extra["clip_id"])
+        after = await client.call("assets", path=str(project))
+        return {"extra": extra["clip_id"], "removed": removed, "after": after}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["removed"] == {"clip_id": out["extra"], "removed": True}
+    assert out["extra"] not in {c["clip_id"] for c in out["after"]["clips"]}
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_clip_rm_refuses_a_cued_clip(tmp_path: Path, sources: tuple[Path, Path]) -> None:
+    audio, transcript = sources
+    footage = tmp_path / "footage.mp4"
+    _make_video(footage)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        vo = await _seeded(client, project, audio, transcript)
+        extra = await client.call("import_media", path=str(project), source=str(footage))
+        await client.call(
+            "cue_add", path=str(project), clip_id=vo, word_index=0, asset=extra["clip_id"]
+        )
+        return await _refused(session, "clip_rm", path=str(project), clip_id=extra["clip_id"])
+
+    message = anyio.run(_with_server, body)
+    assert "cue" in message
+
+
+@needs_ffprobe
+def test_clip_rm_refuses_the_clip_on_the_timeline(
+    tmp_path: Path, sources: tuple[Path, Path]
+) -> None:
+    audio, transcript = sources
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        vo = await _seeded(client, project, audio, transcript)
+        return vo, await _refused(session, "clip_rm", path=str(project), clip_id=vo)
+
+    vo, message = anyio.run(_with_server, body)
+    assert "timeline" in message
+
+
+def test_clip_rm_refuses_an_unknown_clip(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    ops.init(str(project))
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(session, "clip_rm", path=str(project), clip_id="nope")
+
+    message = anyio.run(_with_server, body)
+    assert "nope" in message
+
+
+@needs_ffprobe
 def test_check_frames_reports_the_export_grid_with_no_target(
     tmp_path: Path, sources: tuple[Path, Path]
 ) -> None:
@@ -4834,6 +4955,37 @@ def test_spot_frames_samples_evenly_and_writes_pngs(tmp_path: Path) -> None:
         assert frame["origin"] == "sampled"
         # duration 12.0 / 3 samples: midpoints at 2, 6, 10.
         assert frame["time"] == pytest.approx(4.0 * (i + 0.5), abs=0.05)
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@pytest.mark.skipif(shutil.which("magick") is None, reason="ImageMagick is not installed")
+def test_spot_frames_returns_a_montage_of_the_samples_over_the_wire(tmp_path: Path) -> None:
+    """TRIAL.md § `spot_frames` hands back paths the agent cannot open: the
+    tool must carry the sampled frames as an image too, like `shot_sheet` and
+    the other sheets — asserted on the raw `CallToolResult` the same way, so
+    a tool that returned only its table cannot pass by accident."""
+    source = tmp_path / "pic.mp4"
+    _make_video(source)
+    project = tmp_path / "proj"
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        await _seeded(client, project, source, None)
+        raw = await session.call_tool(
+            "spot_frames", {"path": str(project), "target": str(source), "count": 3}
+        )
+        return {
+            "is_error": raw.is_error,
+            "kinds": [type(block).__name__ for block in raw.content],
+            "report": json.loads(raw.content[0].text),
+        }
+
+    out = anyio.run(_with_server, body)
+
+    assert out["is_error"] is False
+    assert "ImageContent" in out["kinds"], f"no image came back: {out['kinds']}"
+    assert out["report"]["sheet"].endswith(".jpg")
 
 
 @needs_ffprobe
@@ -7279,6 +7431,69 @@ def test_a_bound_server_refuses_another_project(tmp_path: Path) -> None:
     assert str(project) in message and str(other) in message
 
 
+def test_a_bound_server_defaults_an_omitted_path_to_its_own_project(tmp_path: Path) -> None:
+    """TRIAL.md § `path` is a required argument: an agent bound to a project
+    passed `path` on every one of 29 calls despite being told it never would
+    need to, because omitting it against a bound server used to be a schema
+    validation error. `path` is now optional everywhere, and a bound server
+    resolves the omission to itself."""
+    project, _ = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("cue_ls")
+
+    assert anyio.run(_with_server, body, _bound(project))["count"] == 0
+
+
+def test_an_unbound_server_refuses_an_omitted_path(tmp_path: Path) -> None:
+    """There is no project to default to, so the omission is still refused —
+    with a message naming the reason, not a bare schema error, since `path`
+    can no longer be required only for the unbound case (the two states
+    share one advertised schema)."""
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(session, "cue_ls")
+
+    message = anyio.run(_with_server, body)
+    assert "path" in message and "required" in message
+
+
+@pytest.mark.skipif(
+    shutil.which("magick") is None or shutil.which("ffmpeg") is None,
+    reason="fonts' render check needs ImageMagick and ffmpeg with libass",
+)
+def test_a_bound_server_still_lets_fonts_go_without_a_project(tmp_path: Path) -> None:
+    """`fonts`/`pack_show` document `path=None` as "no project, lucid's
+    default" rather than "which project" — a meaning the default-to-bound
+    rule above must not overwrite just because a project happens to be
+    bound. `projectless=True` is what keeps their omitted `path` as `None`
+    in every bind state, checked here on `fonts` (`pack_show` refuses with
+    neither `pack_path` nor `path` given, bound or not, so it cannot show
+    the same thing with no fixture pack file)."""
+    project, _ = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("fonts")
+
+    result = anyio.run(_with_server, body, _bound(project))
+    assert result["project"] is None
+
+
+def test_a_bound_server_still_confines_an_explicit_path_on_a_projectless_tool(
+    tmp_path: Path,
+) -> None:
+    """`projectless=True` only changes what an *omitted* `path` means — a
+    `path` actually given must still be confined to the bound project, or a
+    bound panel could reach `pack_show` on a second project."""
+    project, other = _two_projects(tmp_path)
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(session, "pack_show", path=str(other))
+
+    message = anyio.run(_with_server, body, _bound(project))
+    assert str(project) in message and str(other) in message
+
+
 def test_a_bound_server_resolves_a_relative_path_against_its_project(tmp_path: Path) -> None:
     """A bound server means "this project", not "wherever the client stands".
 
@@ -7442,6 +7657,20 @@ def test_binding_does_not_change_the_advertised_tool_schema(tmp_path: Path) -> N
 
     assert set(bound) == EXPECTED_TOOLS
     assert bound == unbound
+
+
+def test_path_is_never_a_required_field_in_the_advertised_schema() -> None:
+    """`path` must be optional in the one schema both bind states share —
+    a `required` entry for it would put the pydantic-level "Field required"
+    error back in front of `_confine`'s own, clearer refusal."""
+
+    async def body(session: ClientSession) -> Any:
+        return await session.list_tools()
+
+    for tool in anyio.run(_with_server, body).tools:
+        if "path" in tool.input_schema.get("properties", {}):
+            required = tool.input_schema.get("required", [])
+            assert "path" not in required, f"{tool.name} still requires path"
 
 
 def test_binding_to_a_directory_that_is_not_there_fails_at_startup() -> None:

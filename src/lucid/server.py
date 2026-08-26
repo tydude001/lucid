@@ -147,7 +147,7 @@ class _LoopbackGuard:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def _confine(path: str) -> str:
+def _confine(path: str | None) -> str | None:
     """Resolve a tool's project-selector argument against the bound project.
 
     **Only a project selector is confined, and that is a deliberate
@@ -170,8 +170,28 @@ def _confine(path: str) -> str:
     reading should not depend on where the client happened to be standing.
     Both sides are `resolve()`d, so `..` and a symlink out are refused rather
     than followed.
+
+    **An absent `path` defaults to the bound project.** Every tool but
+    `fonts`/`pack_show` (see `projectless=True` below) takes `path` as a
+    required argument in its own signature, which under `-C` is ceremony
+    with exactly one accepted value — an agent measured on the real trial
+    called it on every one of 29 tool calls, having been told it never would
+    need to (TRIAL.md § `path` is a required argument). `path=None` (the
+    decorator's own default now) resolves to `str(root)` when bound. Unbound
+    servers are unaffected in the way that matters: a caller that omits
+    `path` still gets refused, now with a message naming the reason instead
+    of a bare schema-validation error, since the schema itself can no longer
+    make `path` required only sometimes — `test_binding_does_not_change_the_
+    advertised_tool_schema` holds one schema for both states.
     """
     root = _BOUND_ROOT
+    if path is None:
+        if root is not None:
+            return str(root)
+        raise ProjectError(
+            "this server is not bound to a project (no `-C` at startup), so "
+            "`path` is required."
+        )
     if root is None:
         return path
     candidate = Path(path)
@@ -185,7 +205,7 @@ def _confine(path: str) -> str:
     return str(resolved)
 
 
-def _tool(*selectors: str) -> Callable[[F], F]:
+def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
     """Register a tool, routing its project-selector arguments through `_confine`.
 
     A decorator rather than a line in each body because the confinement has
@@ -200,6 +220,12 @@ def _tool(*selectors: str) -> Callable[[F], F]:
     project — `reel`'s `dest` — and an unlisted selector is silently
     unconfined, exactly the way a tool registered with `mcp.tool()` is, so
     the list belongs beside the registration where it can be read.
+
+    `projectless=True` is `fonts`/`pack_show`'s escape from the default-to-
+    bound-project rule below: their own docstrings document `path=None` as
+    "no project, lucid's default" rather than "which project", so an omitted
+    `path` there stays `None` — not confined, not defaulted — in every bind
+    state, exactly as it always has.
     """
     names = selectors or ("path",)
 
@@ -212,12 +238,15 @@ def _tool(*selectors: str) -> Callable[[F], F]:
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             bound = signature.bind(*args, **kwargs)
+            # A caller that omits a selector now matters: `path` has a
+            # default (`None`) so it can be left out, and the whole point is
+            # to resolve that absence against the bound project rather than
+            # let the tool body see `None`.
+            bound.apply_defaults()
             for name in present:
-                # `bind` omits an argument the caller left to its default, and
-                # a selector never has one — but reading it unguarded would
-                # turn "you forgot dest" into a KeyError from the decorator.
-                if name in bound.arguments:
-                    bound.arguments[name] = _confine(bound.arguments[name])
+                if projectless and bound.arguments[name] is None:
+                    continue
+                bound.arguments[name] = _confine(bound.arguments[name])
             return fn(*bound.args, **bound.kwargs)
 
         return mcp.tool()(wrapper)
@@ -249,13 +278,15 @@ def doctor() -> dict[str, Any]:
 
 
 @_tool()
-def init(path: str, name: str | None = None) -> dict[str, Any]:
+def init(path: str | None = None,
+    *, name: str | None = None) -> dict[str, Any]:
     """Create a lucid project directory at `path`."""
     return ops.init(path, name=name)
 
 
 @_tool()
-def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
+def migrate_project(path: str | None = None,
+    *, plan: bool = False) -> dict[str, Any]:
     """Bring an older project manifest forward to the current schema version.
 
     Every other tool refuses a project written by an older lucid rather than
@@ -269,7 +300,8 @@ def migrate_project(path: str, plan: bool = False) -> dict[str, Any]:
 
 @_tool()
 def import_media(
-    path: str,
+    path: str | None = None,
+    *,
     source: str,
     clip_id: str | None = None,
     copy: bool = False,
@@ -312,7 +344,8 @@ def import_media(
 
 @_tool()
 def clip_role(
-    path: str, clip_id: str, role: str | None = None, reset: bool = False
+    path: str | None = None,
+    *, clip_id: str, role: str | None = None, reset: bool = False
 ) -> dict[str, Any]:
     """Read or set a clip's import role — voiceover vs footage.
 
@@ -331,7 +364,21 @@ def clip_role(
 
 
 @_tool()
-def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str, Any]:
+def clip_rm(path: str | None = None, *, clip_id: str) -> dict[str, Any]:
+    """Un-register a clip `import_media` added, when nothing depends on it yet.
+
+    Refused, naming every reason, if the clip is on the timeline, cued,
+    held, the music bed's own clip, marked unspoken, transcribed or
+    described — clear those first (`cue_rm`/`hold_rm`/`unspoken_rm`/`music
+    reset=True`, or `lucid undo`) or use `undo` back to before the import
+    instead. The media on disk is never touched either way.
+    """
+    return ops.clip_rm(path, clip_id)
+
+
+@_tool()
+def attach_transcript(path: str | None = None,
+    *, clip_id: str, transcript_path: str) -> dict[str, Any]:
     """Ingest an existing word-timed whisper JSON as this clip's transcript.
 
     Checks the transcript against itself for `near_duplicates` — adjacent
@@ -354,7 +401,8 @@ def attach_transcript(path: str, clip_id: str, transcript_path: str) -> dict[str
 
 @_tool()
 def transcribe(
-    path: str, clip_id: str, model: str = "turbo", language: str | None = None
+    path: str | None = None,
+    *, clip_id: str, model: str = "turbo", language: str | None = None
 ) -> dict[str, Any]:
     """Transcribe a clip's own media with whisper, and attach the result.
 
@@ -369,7 +417,8 @@ def transcribe(
 
 @_tool()
 def get_transcript(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     first: int | None = None,
     last: int | None = None,
@@ -386,7 +435,8 @@ def get_transcript(
 
 @_tool()
 def resolve_phrase(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     phrase: str,
     after: int = -1,
@@ -415,7 +465,8 @@ def resolve_phrase(
 
 
 @_tool()
-def transcript_checks(path: str, clip_id: str | None = None) -> dict[str, Any]:
+def transcript_checks(path: str | None = None,
+    *, clip_id: str | None = None) -> dict[str, Any]:
     """Re-check an already-attached transcript against itself.
 
     Returns the same four findings attach_transcript does —
@@ -436,7 +487,8 @@ def transcript_checks(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 @_tool()
 def attribute_speakers(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     streams: list[int] | None = None,
     labels: list[str] | None = None,
@@ -481,7 +533,8 @@ def attribute_speakers(
 
 @_tool()
 def describe(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str | None = None,
     window: float = 10.0,
     force: bool = False,
@@ -515,7 +568,8 @@ def describe(
 
 @_tool()
 def describe_ls(
-    path: str, clip_id: str | None = None, contains: str | None = None
+    path: str | None = None,
+    *, clip_id: str | None = None, contains: str | None = None
 ) -> dict[str, Any]:
     """Read the footage descriptions, to find b-roll by what is in it.
 
@@ -553,7 +607,7 @@ def card_templates() -> dict[str, Any]:
     return ops.card_templates()
 
 
-@_tool()
+@_tool(projectless=True)
 def fonts(path: str | None = None, install: bool = False) -> dict[str, Any]:
     """Will the caption font actually draw on this machine?
 
@@ -573,7 +627,8 @@ def fonts(path: str | None = None, install: bool = False) -> dict[str, Any]:
 
 @_tool()
 def card_new(
-    path: str,
+    path: str | None = None,
+    *,
     name: str,
     template: str,
     slots: dict[str, Any],
@@ -611,7 +666,8 @@ def card_new(
 
 @_tool()
 def card_render(
-    path: str, name: str, width: int | None = None, height: int | None = None
+    path: str | None = None,
+    *, name: str, width: int | None = None, height: int | None = None
 ) -> dict[str, Any]:
     """Rasterise `assets/cards/<name>.svg` into the PNG `card:<name>` shows.
 
@@ -635,7 +691,8 @@ def card_render(
 
 
 @_tool()
-def card_reauthor(path: str, name: str | None = None, plan: bool = False) -> dict[str, Any]:
+def card_reauthor(path: str | None = None,
+    *, name: str | None = None, plan: bool = False) -> dict[str, Any]:
     """Draw recorded cards again at the shape this project renders at now.
 
     Reach for this after `canvas` — a card is the only thing in a project
@@ -657,7 +714,8 @@ def card_reauthor(path: str, name: str | None = None, plan: bool = False) -> dic
 
 
 @_tool()
-def card_safe_zones(path: str, card: str, platform: str) -> dict[str, Any]:
+def card_safe_zones(path: str | None = None,
+    *, card: str, platform: str) -> dict[str, Any]:
     """Measure a rendered card's ink in and around a platform's reserved band.
 
     **Report only** — nothing here blocks a render, and there is no default
@@ -677,7 +735,8 @@ def card_safe_zones(path: str, card: str, platform: str) -> dict[str, Any]:
 
 @_tool()
 def pack_apply(
-    path: str,
+    path: str | None = None,
+    *,
     pack_path: str,
     variant: str = "default",
     allow_fallback: bool = False,
@@ -718,7 +777,8 @@ def pack_apply(
 
 
 @_tool()
-def pack_activate(path: str, variant: str, plan: bool = False) -> dict[str, Any]:
+def pack_activate(path: str | None = None,
+    *, variant: str, plan: bool = False) -> dict[str, Any]:
     """Switch the active pack variant to one already snapshotted by pack_apply.
 
     No file re-read — refuses an unknown variant by name, naming the ones
@@ -728,7 +788,8 @@ def pack_activate(path: str, variant: str, plan: bool = False) -> dict[str, Any]
 
 
 @_tool()
-def pack_apply_captions(path: str, preset: str, plan: bool = False) -> dict[str, Any]:
+def pack_apply_captions(path: str | None = None,
+    *, preset: str, plan: bool = False) -> dict[str, Any]:
     """Apply the active pack variant's caption preset, through caption_style.
 
     **Concrete resolved fields, never a live pointer**: this reads the
@@ -741,7 +802,7 @@ def pack_apply_captions(path: str, preset: str, plan: bool = False) -> dict[str,
     return ops.pack_apply_captions(path, preset, plan=plan)
 
 
-@_tool()
+@_tool(projectless=True)
 def pack_show(
     pack_path: str | None = None, path: str | None = None, variant: str | None = None
 ) -> dict[str, Any]:
@@ -757,7 +818,7 @@ def pack_show(
 
 
 @_tool()
-def pack_status(path: str) -> dict[str, Any]:
+def pack_status(path: str | None = None) -> dict[str, Any]:
     """Active pack variant, and which cards/captions have drifted from it.
 
     A card is `stale` when its own recorded pack_hash no longer matches the
@@ -771,7 +832,8 @@ def pack_status(path: str) -> dict[str, Any]:
 
 @_tool()
 def cue_add(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     word_index: int | None = None,
     asset: str | None = None,
@@ -824,7 +886,8 @@ def cue_add(
 
 @_tool()
 def cue_rm(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     word_index: int | None = None,
     phrase: str | None = None,
@@ -837,7 +900,8 @@ def cue_rm(
 
 
 @_tool()
-def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
+def cue_ls(path: str | None = None,
+    *, clip_id: str | None = None) -> dict[str, Any]:
     """List the picture cue table, each entry echoed with its resolved word.
 
     Read-only. Omit `clip_id` to see every clip's cues. Ordered by
@@ -849,7 +913,8 @@ def cue_ls(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 @_tool()
 def cue_reresolve(
-    path: str, clip_id: str | None = None, apply: bool = False
+    path: str | None = None,
+    *, clip_id: str | None = None, apply: bool = False
 ) -> dict[str, Any]:
     """Re-resolve every phrase-addressed cue, unspoken mark and music-bed
     boundary against the current transcript, and report what moved.
@@ -872,7 +937,7 @@ def cue_reresolve(
 
 
 @_tool()
-def assets(path: str) -> dict[str, Any]:
+def assets(path: str | None = None) -> dict[str, Any]:
     """Every asset a cue can point at — clip or card — for an assets pane.
 
     The cue vocabulary is `clip_id` or `card:name`, so this lists both: each
@@ -887,7 +952,8 @@ def assets(path: str) -> dict[str, Any]:
 
 @_tool()
 def unspoken_add(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     word_index: int | None = None,
     phrase: str | None = None,
@@ -923,7 +989,8 @@ def unspoken_add(
 
 @_tool()
 def unspoken_rm(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     word_index: int | None = None,
     phrase: str | None = None,
@@ -937,7 +1004,7 @@ def unspoken_rm(
 
 
 @_tool()
-def unspoken_ls(path: str) -> dict[str, Any]:
+def unspoken_ls(path: str | None = None) -> dict[str, Any]:
     """Every word marked never-spoken, with what the transcript says now.
 
     Read-only. `stale` is a mark whose recorded text and current text
@@ -950,7 +1017,8 @@ def unspoken_ls(path: str) -> dict[str, Any]:
 
 @_tool()
 def unspoken_detect(
-    path: str,
+    path: str | None = None,
+    *,
     render: str,
     clip_id: str | None = None,
     transcript_path: str | None = None,
@@ -993,7 +1061,8 @@ def unspoken_detect(
 
 
 @_tool()
-def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
+def build_shots(path: str | None = None,
+    *, fps: float | None = None) -> dict[str, Any]:
     """Project the cue table into contiguous shots over the current edit.
 
     Maps each cue's word through the edit's surviving ranges to a timeline
@@ -1011,7 +1080,8 @@ def build_shots(path: str, fps: float | None = None) -> dict[str, Any]:
 
 @_tool()
 def seed_timeline(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     remove_silences: bool = True,
     threshold: float = 0.04,
@@ -1035,7 +1105,8 @@ def seed_timeline(
 
 @_tool()
 def cut_by_transcript(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     cut: Sequence[Sequence[int]] | None = None,
     keep: Sequence[Sequence[int]] | None = None,
@@ -1086,7 +1157,8 @@ def cut_by_transcript(
 
 @_tool()
 def cut_by_time(
-    path: str,
+    path: str | None = None,
+    *,
     spans: Sequence[Sequence[float]],
     pad: float = 0.0,
     confirm_suspect: bool = False,
@@ -1122,7 +1194,8 @@ def cut_by_time(
 
 @_tool()
 def restore(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     ranges: Sequence[Sequence[int]],
     pad: float = 0.0,
@@ -1160,7 +1233,8 @@ def restore(
 
 @_tool()
 def locate(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     first: int | None = None,
     last: int | None = None,
@@ -1215,7 +1289,7 @@ def locate(
 
 
 @_tool()
-def timeline_status(path: str) -> dict[str, Any]:
+def timeline_status(path: str | None = None) -> dict[str, Any]:
     """Report the current timeline: duration, segment count, undo depth.
 
     `head`/`tail` echo the cold open / finishing pass set with the `head`/
@@ -1223,12 +1297,18 @@ def timeline_status(path: str) -> dict[str, Any]:
     `expected_duration` are what `export` would lay down — `timeline_duration`
     alone stays the `Edit`'s own length even with a head or a tail configured,
     since the `Edit` never grows to describe either bookend.
+
+    **This is the tool to call first, to see what state a project is in** —
+    a fresh or un-seeded project answers `seeded: false` with the clip list
+    rather than refusing (TRIAL.md § `timeline_status` is the first call an
+    agent makes and it refuses on a fresh project).
     """
     return ops.status(path)
 
 
 @_tool()
-def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
+def timeline_view(path: str | None = None,
+    *, clip_id: str | None = None) -> dict[str, Any]:
     """The whole edit at once: segments, cut seams, and every word's fate.
 
     timeline_status counts things; this says what they are. Each segment
@@ -1261,7 +1341,8 @@ def timeline_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 @_tool()
 def properties(
-    path: str, clip_id: str | None = None, word_index: int | None = None
+    path: str | None = None,
+    *, clip_id: str | None = None, word_index: int | None = None
 ) -> dict[str, Any]:
     """Project/clip/cue detail for a properties inspector, composed only.
 
@@ -1278,7 +1359,8 @@ def properties(
 
 @_tool()
 def finish_report(
-    path: str, framing: bool = False, holds: bool = False, continuity: bool = False
+    path: str | None = None,
+    *, framing: bool = False, holds: bool = False, continuity: bool = False
 ) -> dict[str, Any]:
     """Duration/canvas/caption/picture/marks/seams report for Finish mode,
     composed only — the truth strip's own numbers.
@@ -1290,8 +1372,12 @@ def finish_report(
     ("yes"/"no"/"unknown" — unknown when no render log exists). `picture`:
     cue count, pinned count, and the picture plan's own refusal message when
     it has one. `marks`: unspoken marks applied vs. still stale. `seams`:
-    the transcript's own overlap count. `flags`: the rolled-up warnings
-    behind all of the above, each one naming the mode that fixes it.
+    the transcript's own overlap count. `unused_clips`: registered clips on
+    no lane, cued nowhere, held nowhere, not the music bed — a clip
+    imported and forgotten (TRIAL.md § Registered-and-not-on-the-timeline
+    has no report of its own), clearable with `clip_rm` or by cueing it.
+    `flags`: the rolled-up warnings behind all of the above, each one naming
+    the mode that fixes it.
 
     `framing` adds `reframe_coverage`'s stale-framing numbers and their two
     flags, and is off by default because it decodes placed footage for a
@@ -1313,14 +1399,15 @@ def finish_report(
 
 
 @_tool()
-def undo(path: str) -> dict[str, Any]:
+def undo(path: str | None = None) -> dict[str, Any]:
     """Roll the timeline back to the state before the last mutation."""
     return ops.undo(path)
 
 
 @_tool()
 def export(
-    path: str,
+    path: str | None = None,
+    *,
     output: str,
     export_format: str | None = "kdenlive",
     fps: float | None = None,
@@ -1371,7 +1458,8 @@ def export(
 
 @_tool()
 def add_captions(
-    path: str,
+    path: str | None = None,
+    *,
     output: str,
     clip_id: str | None = None,
     preset: str | None = None,
@@ -1412,7 +1500,8 @@ def add_captions(
 
 
 @_tool()
-def caption_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
+def caption_view(path: str | None = None,
+    *, clip_id: str | None = None) -> dict[str, Any]:
     """The captions this timeline would produce, and the style in force.
 
     add_captions without writing a file: the same cues, in timeline seconds,
@@ -1429,7 +1518,8 @@ def caption_view(path: str, clip_id: str | None = None) -> dict[str, Any]:
 
 @_tool()
 def caption_style(
-    path: str,
+    path: str | None = None,
+    *,
     preset: str | None = None,
     font: str | None = None,
     size: int | None = None,
@@ -1499,7 +1589,8 @@ def caption_style(
 
 @_tool()
 def canvas(
-    path: str,
+    path: str | None = None,
+    *,
     size: str | None = None,
     reset: bool = False,
     plan: bool = False,
@@ -1527,7 +1618,8 @@ def canvas(
 
 @_tool()
 def head(
-    path: str,
+    path: str | None = None,
+    *,
     asset: str | None = None,
     src_start: float | None = None,
     seconds: float | None = None,
@@ -1577,7 +1669,8 @@ def head(
 
 @_tool()
 def tail(
-    path: str,
+    path: str | None = None,
+    *,
     asset: str | None = None,
     seconds: float | None = None,
     fade: float | None = None,
@@ -1614,7 +1707,8 @@ def tail(
 
 @_tool()
 def music(
-    path: str,
+    path: str | None = None,
+    *,
     asset: str | None = None,
     clip_id: str | None = None,
     word_index_start: int | None = None,
@@ -1678,7 +1772,8 @@ def music(
 
 @_tool()
 def vo_extend(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     word_index: int | None = None,
     seconds: float | None = None,
@@ -1736,7 +1831,8 @@ def vo_extend(
 
 @_tool()
 def vo_synth(
-    path: str,
+    path: str | None = None,
+    *,
     text: str,
     voice: str | None = None,
     candidates: int = 3,
@@ -1803,7 +1899,8 @@ def vo_synth(
 
 @_tool()
 def hold_add(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     gap_word_index: int | None = None,
     cue_word_index: int | None = None,
@@ -1872,7 +1969,8 @@ def hold_add(
 
 
 @_tool()
-def hold_rm(path: str, clip_id: str, gap_word_index: int) -> dict[str, Any]:
+def hold_rm(path: str | None = None,
+    *, clip_id: str, gap_word_index: int) -> dict[str, Any]:
     """Drop a hold's record and its owned cue — the spliced silence stays.
 
     `vo_extend`'s own irreversibility, inherited: there is no clean
@@ -1884,7 +1982,7 @@ def hold_rm(path: str, clip_id: str, gap_word_index: int) -> dict[str, Any]:
 
 
 @_tool()
-def hold_ls(path: str) -> dict[str, Any]:
+def hold_ls(path: str | None = None) -> dict[str, Any]:
     """Every stored hold plus its live-resolved plan.
 
     A hold that cannot currently resolve is reported inline (`hold_error`),
@@ -1897,7 +1995,8 @@ def hold_ls(path: str) -> dict[str, Any]:
 
 
 @_tool()
-def hold_check(path: str, render: str) -> dict[str, Any]:
+def hold_check(path: str | None = None,
+    *, render: str) -> dict[str, Any]:
     """Transcribe each hold's own span off `render` and check its seams.
 
     For each stored hold: the required phrase, transcribed off the render at
@@ -1912,7 +2011,8 @@ def hold_check(path: str, render: str) -> dict[str, Any]:
 
 @_tool()
 def finish_check(
-    path: str,
+    path: str | None = None,
+    *,
     final: str,
     holds: list[dict[str, Any]] | None = None,
     prepend_seconds: float | None = None,
@@ -1974,7 +2074,8 @@ def finish_check(
 
 @_tool("path", "dest")
 def reel(
-    path: str,
+    path: str | None = None,
+    *,
     dest: str,
     start: float,
     end: float,
@@ -2036,7 +2137,8 @@ def reel(
 
 @_tool()
 def reframe(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str | None = None,
     rect: str | None = None,
     pane: str | None = None,
@@ -2100,7 +2202,8 @@ def reframe(
 
 @_tool()
 def reframe_detect(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str | None = None,
     threshold: float = ops.SCENE_THRESHOLD,
     frames: int = ops.DETECT_FRAMES,
@@ -2149,7 +2252,8 @@ def reframe_detect(
 
 @_tool()
 def reframe_coverage(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str | None = None,
     threshold: float = ops.SCENE_THRESHOLD,
 ) -> dict[str, Any]:
@@ -2195,7 +2299,8 @@ def reframe_coverage(
 
 @_tool()
 def continuity_check(
-    path: str,
+    path: str | None = None,
+    *,
     gap: float = ops.CONTINUITY_GAP,
     min_shot: float = ops.CONTINUITY_MIN_SHOT,
     stub_tolerance: float = ops.CONTINUITY_STUB_TOLERANCE,
@@ -2239,7 +2344,8 @@ def continuity_check(
 
 
 @_tool()
-def continuity_accept(path: str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+def continuity_accept(path: str | None = None,
+    *, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
     """Acknowledge one continuity finding once — a deliberate rhyme, never
     re-reported every run.
 
@@ -2254,13 +2360,14 @@ def continuity_accept(path: str, clip_id: str, word_index: int, kind: str) -> di
 
 
 @_tool()
-def continuity_reject(path: str, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
+def continuity_reject(path: str | None = None,
+    *, clip_id: str, word_index: int, kind: str) -> dict[str, Any]:
     """Unmark a continuity finding, putting it back into `continuity_check`."""
     return ops.continuity_reject(path, clip_id, word_index, kind)
 
 
 @_tool()
-def continuity_ls(path: str) -> dict[str, Any]:
+def continuity_ls(path: str | None = None) -> dict[str, Any]:
     """Every accepted continuity finding, with whether it is still live and
     whether it still matches what was accepted (`stale`).
 
@@ -2276,7 +2383,8 @@ def continuity_ls(path: str) -> dict[str, Any]:
 # schema, and the tool then answers `is_error` from a perfectly correct body.
 @_tool()
 def reframe_sheet(
-    path: str,
+    path: str | None = None,
+    *,
     out: str | None = None,
     moments: list[float] | None = None,
     extremes: bool = False,
@@ -2350,7 +2458,8 @@ def reframe_sheet(
 # returns a picture.
 @_tool()
 def shot_sheet(
-    path: str,
+    path: str | None = None,
+    *,
     page: int = 0,
     per_page: int = ops.SHOT_SHEET_PER_PAGE,
     out: str | None = None,
@@ -2394,7 +2503,8 @@ def shot_sheet(
 # and the tool answers `is_error` from a correct body.
 @_tool()
 def footage_sheet(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     mode: str = "auto",
     interval: float = ops.FOOTAGE_SHEET_INTERVAL,
@@ -2447,7 +2557,8 @@ def footage_sheet(
 
 @_tool()
 def thumbnail(
-    path: str, clip_id: str, at: float, interval: float = ops.THUMB_INTERVAL
+    path: str | None = None,
+    *, clip_id: str, at: float, interval: float = ops.THUMB_INTERVAL
 ) -> dict[str, Any]:
     """One filmstrip frame for `clip_id`, at the source time nearest `at`.
 
@@ -2464,7 +2575,8 @@ def thumbnail(
 # `-> Any` for the reason spelled out above `shot_sheet`.
 @_tool()
 def contact_sheet(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     seconds: float = ops.FIRST_LOOK_SECONDS,
     interval: float = ops.FIRST_LOOK_INTERVAL,
@@ -2496,7 +2608,8 @@ def contact_sheet(
 
 @_tool()
 def synopsis(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str | None = None,
     text: str | None = None,
     clear: bool = False,
@@ -2523,7 +2636,8 @@ def synopsis(
 
 
 @_tool()
-def broll_brief(path: str, fps: float | None = None) -> dict[str, Any]:
+def broll_brief(path: str | None = None,
+    *, fps: float | None = None) -> dict[str, Any]:
     """The whole b-roll question as data: what there is, and what it goes under.
 
     Returns the footage catalogue with each clip's `synopsis` and duration,
@@ -2547,7 +2661,8 @@ def broll_brief(path: str, fps: float | None = None) -> dict[str, Any]:
 
 @_tool()
 def verify(
-    path: str,
+    path: str | None = None,
+    *,
     render: str,
     clip_id: str | None = None,
     transcript_path: str | None = None,
@@ -2607,7 +2722,8 @@ def verify(
 
 
 @_tool()
-def check_frames(path: str, target: str | None = None, fps: float | None = None) -> dict[str, Any]:
+def check_frames(path: str | None = None,
+    *, target: str | None = None, fps: float | None = None) -> dict[str, Any]:
     """Check an export's frame count against what the timeline says it should be.
 
     The picture-side counterpart to `verify`, which covers only the audio. Run
@@ -2633,7 +2749,8 @@ def check_frames(path: str, target: str | None = None, fps: float | None = None)
 
 @_tool()
 def film_check(
-    path: str,
+    path: str | None = None,
+    *,
     reference: str | None = None,
     reset: bool = False,
     plan: bool = False,
@@ -2664,7 +2781,8 @@ def film_check(
 
 @_tool()
 def import_edit(
-    path: str,
+    path: str | None = None,
+    *,
     document: str,
     clip_id: str | None = None,
     plan: bool = False,
@@ -2702,7 +2820,8 @@ def import_edit(
 
 @_tool()
 def check_black(
-    path: str,
+    path: str | None = None,
+    *,
     target: str,
     fps: float | None = None,
     pix_th: float = 0.10,
@@ -2720,14 +2839,16 @@ def check_black(
     return ops.check_black(path, target, fps=fps, pix_th=pix_th, min_duration=min_duration)
 
 
+# `-> Any` for the reason spelled out above `shot_sheet`.
 @_tool()
 def spot_frames(
-    path: str,
+    path: str | None = None,
+    *,
     target: str,
     count: int = 6,
     times: Sequence[float] | None = None,
     fps: float | None = None,
-) -> dict[str, Any]:
+) -> Any:
     """Pull `count` evenly-spaced frames (plus any explicit `times`) from a
     render as PNGs with signalstats luma, ranked darkest-first.
 
@@ -2735,13 +2856,22 @@ def spot_frames(
     within a frame (`mapping_trusted`), each frame also reports which
     clip/word it lands near via `Edit.source_at` — refused, not guessed,
     when the render looks stale.
+
+    Like `shot_sheet`/`footage_sheet`/`contact_sheet`, the reply also carries
+    a montage of the sampled frames as an image — `frames[].png` is a path,
+    and this server's agent runs under `--tools ''` with no `Read` to open
+    one (TRIAL.md § `spot_frames` hands back paths the agent cannot open).
     """
-    return ops.spot_frames(path, target, count=count, times=times, fps=fps)
+    report = ops.spot_frames(path, target, count=count, times=times, fps=fps)
+    if not report.get("sheet"):
+        return report
+    return [report, Image(path=report["sheet"])]
 
 
 @_tool()
 def speech_overlap(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     at: float = 0.0,
     clip_in: float | None = None,
@@ -2786,7 +2916,8 @@ def speech_overlap(
 
 @_tool()
 def attenuate_noises(
-    path: str,
+    path: str | None = None,
+    *,
     clip_id: str,
     db: float = -12.0,
     max_event_seconds: float = 1.5,
@@ -2829,7 +2960,8 @@ def attenuate_noises(
 
 
 @_tool()
-def proxy_transcode(path: str, clip_id: str, force: bool = False) -> dict[str, Any]:
+def proxy_transcode(path: str | None = None,
+    *, clip_id: str, force: bool = False) -> dict[str, Any]:
     """Make footage the preview cannot decode playable in the window.
 
     The other half of what the viewer already reports: an unplayable clip
@@ -2855,7 +2987,8 @@ def proxy_transcode(path: str, clip_id: str, force: bool = False) -> dict[str, A
 
 @_tool()
 def review_add(
-    path: str,
+    path: str | None = None,
+    *,
     name: str,
     source: str,
     kind: str,
@@ -2880,7 +3013,8 @@ def review_add(
 
 
 @_tool()
-def review_verdict(path: str, name: str, verdict: str, note: str | None = None) -> dict[str, Any]:
+def review_verdict(path: str | None = None,
+    *, name: str, verdict: str, note: str | None = None) -> dict[str, Any]:
     """Record a verdict against a review item registered by `review_add`.
 
     `verdict` is a free string, not an enum — past review rounds answered
@@ -2892,7 +3026,7 @@ def review_verdict(path: str, name: str, verdict: str, note: str | None = None) 
 
 
 @_tool()
-def review_list(path: str) -> dict[str, Any]:
+def review_list(path: str | None = None) -> dict[str, Any]:
     """Every item registered for this project's review round, and its verdict."""
     return ops.review_list(path)
 

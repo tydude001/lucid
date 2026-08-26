@@ -117,6 +117,17 @@ class ProjectError(Exception):
     """Raised when a path is not a usable lucid project."""
 
 
+class ProjectConflictError(ProjectError):
+    """Raised when `write_manifest` finds the manifest changed since it was
+    last read by this `Project` instance — a second writer (another `lucid
+    web`, an agent panel, a CLI command run beside either) touched the
+    project in between (TRIAL.md § Nothing in lucid notices two writers in
+    one project). A `ProjectError` subclass so every existing `except
+    ProjectError`/`EXPECTED` handler already catches it as a refusal; the
+    distinct type is for a caller that wants to tell "stale write" apart
+    from every other reason a project call can fail."""
+
+
 # -- schema migration --------------------------------------------------------
 
 
@@ -259,6 +270,19 @@ class Project:
     #: A mutable field on a frozen dataclass, excluded from equality, so the
     #: handle stays hashable and comparable by root exactly as before.
     _taken: list[Snapshot] = field(default_factory=list, compare=False, repr=False)
+
+    #: The manifest's on-disk mtime (nanoseconds) as of this instance's last
+    #: `read_manifest()`, or empty for "never read here yet". `write_manifest`
+    #: compares the file's *current* mtime against this before writing: a
+    #: mismatch means another writer — a second `lucid web`, an agent panel,
+    #: a CLI command run beside either — wrote the manifest after this
+    #: instance last read it, and writing blind now would silently discard
+    #: that write the way it always has (TRIAL.md § Nothing in lucid notices
+    #: two writers in one project). `waveform/`'s own size+mtime cache key is
+    #: the same idiom, applied to detecting staleness instead of avoiding
+    #: recompute. A dict rather than a plain field for `_taken`'s own reason:
+    #: mutated in place on a frozen dataclass, never reassigned.
+    _manifest_stamp: dict[str, int] = field(default_factory=dict, compare=False, repr=False)
 
     # -- layout ----------------------------------------------------------
 
@@ -467,11 +491,30 @@ class Project:
         timeline, so the timeline is **removed** — that is what undoing a
         `seed_timeline` means, and leaving the seeded edit in place would
         report an undo that did not happen.
+
+        **The same stale-write refusal `write_manifest` makes, made here
+        too** — a raw `shutil.copy2` rather than `write_manifest` (the undo
+        step is not itself an edit to snapshot), so it would otherwise be the
+        one path around that check: an undo run against a manifest another
+        writer has since changed would blindly overwrite their write rather
+        than only the state this instance actually rolled back from.
         """
         existing = self.snapshots()
         if not existing:
             raise ProjectError("nothing to undo — this project has no history")
         latest = existing[-1]
+
+        if latest.manifest is not None:
+            expected = self._manifest_stamp.get("mtime_ns")
+            if expected is not None and self.manifest_path.exists():
+                current = self.manifest_path.stat().st_mtime_ns
+                if current != expected:
+                    raise ProjectConflictError(
+                        f"{self.manifest_path} changed on disk since it was last "
+                        "read here — another writer touched this project after "
+                        "the state being undone was read; restoring now would "
+                        "silently discard their write. Re-read the project first."
+                    )
 
         if latest.timeline is not None:
             shutil.copy2(latest.timeline, self.timeline_path)
@@ -481,6 +524,7 @@ class Project:
         if latest.manifest is not None:
             shutil.copy2(latest.manifest, self.manifest_path)
             latest.manifest.unlink()
+            self._manifest_stamp["mtime_ns"] = self.manifest_path.stat().st_mtime_ns
         return latest
 
     # -- lifecycle -------------------------------------------------------
@@ -594,12 +638,14 @@ class Project:
 
     def read_manifest(self) -> dict[str, Any]:
         try:
+            mtime_ns = self.manifest_path.stat().st_mtime_ns
             with self.manifest_path.open(encoding="utf-8") as fh:
                 manifest = json.load(fh)
         except json.JSONDecodeError as exc:
             raise ProjectError(f"{self.manifest_path} is not valid JSON: {exc}") from exc
         if not isinstance(manifest, dict):
             raise ProjectError(f"{self.manifest_path} must contain a JSON object")
+        self._manifest_stamp["mtime_ns"] = mtime_ns
         return manifest
 
     def write_manifest(self, manifest: dict[str, Any], *, snapshot: bool = True) -> None:
@@ -618,7 +664,28 @@ class Project:
         `migrate` (which has `_backup_manifest`, and whose schema bump must not
         become an undo step) and `reel`'s seeding of a project it is in the
         middle of creating.
+
+        **Refuses rather than clobbering when the file moved under this
+        instance.** If `read_manifest` was called here and the manifest's
+        on-disk mtime has since changed, a second writer touched this project
+        in between — a second `lucid web`, an agent panel, a CLI command
+        beside either (TRIAL.md § Nothing in lucid notices two writers in one
+        project) — and writing `manifest` now would silently discard theirs,
+        atomically-but-wrongly. Skipped when nothing was ever read here
+        (`_manifest_stamp` empty): `Project.create`'s first write and `reel`'s
+        seeding of a project mid-construction have nothing to conflict with.
         """
+        expected = self._manifest_stamp.get("mtime_ns")
+        if expected is not None and self.manifest_path.exists():
+            current = self.manifest_path.stat().st_mtime_ns
+            if current != expected:
+                raise ProjectConflictError(
+                    f"{self.manifest_path} changed on disk since it was last read "
+                    "here — another writer (a second `lucid web`, agent panel, or "
+                    "CLI command running beside this one) touched this project in "
+                    "between. Re-read the project and re-apply this change; "
+                    "writing now would silently discard theirs."
+                )
         if snapshot:
             self.snapshot()
         tmp = self.manifest_path.with_suffix(".json.tmp")
@@ -626,3 +693,4 @@ class Project:
             json.dump(manifest, fh, indent=2, sort_keys=True)
             fh.write("\n")
         tmp.replace(self.manifest_path)
+        self._manifest_stamp["mtime_ns"] = self.manifest_path.stat().st_mtime_ns

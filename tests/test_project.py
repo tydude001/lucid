@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from lucid.project import MANIFEST_NAME, SCHEMA_VERSION, Project, ProjectError
+from lucid.project import (
+    MANIFEST_NAME,
+    SCHEMA_VERSION,
+    Project,
+    ProjectConflictError,
+    ProjectError,
+)
 
 
 def _v1_project(tmp_path: Path, name: str = "old") -> Project:
@@ -188,3 +194,78 @@ def test_write_manifest_leaves_no_temp_file_behind(tmp_path: Path) -> None:
     project.write_manifest({"schema_version": SCHEMA_VERSION, "name": "demo", "clips": []})
 
     assert [p.name for p in project.root.glob("lucid.json*")] == [MANIFEST_NAME]
+
+
+# -- two writers on one project (TRIAL.md § Nothing in lucid notices two ----
+# writers in one project) --------------------------------------------------
+
+
+def test_write_manifest_refuses_a_write_the_file_has_moved_past(tmp_path: Path) -> None:
+    """Two `Project` instances on the same root — a second `lucid web`, an
+    agent panel, a CLI command beside either. The second writer's write must
+    not silently discard the first's, so the first (stale) instance's write
+    is refused rather than clobbering."""
+    root = tmp_path / "demo"
+    first = Project.create(root)
+    manifest = first.read_manifest()
+
+    second = Project.open(root)
+    second.write_manifest({**second.read_manifest(), "name": "written-by-second"})
+
+    manifest["name"] = "written-by-first"
+    with pytest.raises(ProjectConflictError, match="changed on disk"):
+        first.write_manifest(manifest)
+
+    # The second writer's edit survived, untouched by the refused write.
+    assert Project.open(root).read_manifest()["name"] == "written-by-second"
+
+
+def test_write_manifest_succeeds_after_re_reading_past_a_conflict(tmp_path: Path) -> None:
+    """The recovery path: re-read (picking up the stamp the other writer
+    left) and the same instance can write again."""
+    root = tmp_path / "demo"
+    first = Project.create(root)
+    first.read_manifest()
+
+    second = Project.open(root)
+    second.write_manifest({**second.read_manifest(), "name": "written-by-second"})
+
+    refreshed = first.read_manifest()
+    refreshed["name"] = "written-by-first-after-reread"
+    first.write_manifest(refreshed)
+
+    assert Project.open(root).read_manifest()["name"] == "written-by-first-after-reread"
+
+
+def test_write_manifest_does_not_refuse_an_instance_that_never_read(tmp_path: Path) -> None:
+    """`Project.create`'s own first write, and any other write with nothing
+    to compare against, must not be caught up in a check meant for a stale
+    *read*."""
+    root = tmp_path / "demo"
+    Project.create(root)  # writes once, with no prior read on this instance
+
+    fresh = Project(root)  # never called read_manifest at all
+    fresh.write_manifest({"schema_version": SCHEMA_VERSION, "name": "demo", "clips": []})
+
+    assert Project.open(root).read_manifest()["name"] == "demo"
+
+
+def test_undo_refuses_when_the_manifest_moved_past_the_snapshot_it_read(tmp_path: Path) -> None:
+    """`restore()` bypasses `write_manifest` (a raw `shutil.copy2`, since the
+    undo step is not itself an edit to snapshot) and would otherwise be the
+    one path around this refusal."""
+    root = tmp_path / "demo"
+    first = Project.create(root)
+    manifest = first.read_manifest()
+    manifest["name"] = "renamed"
+    first.write_manifest(manifest)  # one snapshot to undo back to
+
+    stale = Project.open(root)  # reads the post-rename state
+
+    second = Project.open(root)
+    second.write_manifest({**second.read_manifest(), "name": "written-by-second"})
+
+    with pytest.raises(ProjectConflictError, match="changed on disk"):
+        stale.restore()
+
+    assert Project.open(root).read_manifest()["name"] == "written-by-second"

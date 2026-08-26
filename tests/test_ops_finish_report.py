@@ -99,6 +99,17 @@ def _with_one_pinned_cue(project: Project) -> Project:
     return project
 
 
+def test_finish_report_refuses_a_project_with_nothing_seeded(tmp_path: Path) -> None:
+    """`status` itself no longer raises for an un-seeded project (TRIAL.md §
+    `timeline_status`) — it reports `seeded: false` — but `finish_report`
+    still needs a finished cut to report on, so it must refuse clearly
+    rather than KeyError on a field `status` no longer returns."""
+    project = Project.create(tmp_path / "proj")
+
+    with pytest.raises(ProjectError, match="no timeline yet"):
+        ops.finish_report(project.root)
+
+
 # -- composition --------------------------------------------------------------
 
 
@@ -136,6 +147,7 @@ def test_finish_report_field_shape(project: Project) -> None:
         "marks",
         "seams",
         "sources",
+        "unused_clips",
         "framing",
         "holds",
         "continuity",
@@ -158,6 +170,29 @@ def test_finish_report_field_shape(project: Project) -> None:
     for item in result["flags"]["items"]:
         assert set(item) == {"kind", "message", "mode"}
         assert item["mode"] == "finish"
+
+
+# -- unused_clips (TRIAL.md § Registered-and-not-on-the-timeline) -----------
+
+
+def test_unused_clips_is_empty_when_everything_is_referenced(project: Project) -> None:
+    """`vo` is on the timeline and `clipa` is cued — both referenced, so
+    nothing here to name."""
+    _with_one_pinned_cue(project)
+
+    assert ops.finish_report(project.root)["unused_clips"] == []
+
+
+def test_unused_clips_names_a_clip_referenced_nowhere(project: Project) -> None:
+    """The exact shape the trial found: a clip registered (`import_media`,
+    or here — imported for `spot_frames`-style inspection) and never cued,
+    held, or put on any lane."""
+    _with_one_pinned_cue(project)
+    manifest = project.read_manifest()
+    manifest["clips"].append({**CLIPS["clipa"], "clip_id": "delivered", "source": "/tmp/d.mp4"})
+    project.write_manifest(manifest)
+
+    assert ops.finish_report(project.root)["unused_clips"] == ["delivered"]
 
 
 # -- captions.burned / the render log --------------------------------------------

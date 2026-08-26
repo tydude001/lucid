@@ -12,9 +12,11 @@
  * It also owns the **first run** (docs/plans/POLISH.md § Step 06): create → open →
  * import → transcribe → seed, one control at a time, ending in a jump to
  * the workspace. That flow lives here and not in the workspace because a
- * project with no timeline cannot be drawn there — `ops.status` refuses
- * one, which is why the scan reports it as `error` — so everything up to
- * the first seed has to happen on this page. `POST /api/open` binds the
+ * project with no timeline cannot be drawn there, so everything up to the
+ * first seed has to happen on this page — even though `ops.status` itself
+ * now reports an un-seeded project as `ok`/`seeded: false` rather than
+ * refusing it (TRIAL.md § `timeline_status` is the first call an agent
+ * makes and it refuses on a fresh project). `POST /api/open` binds the
  * process before the import step, which is what makes the ordinary job
  * routes reachable from here at all.
  */
@@ -32,14 +34,16 @@ function toast(message) {
   }, 9000);
 }
 
-/** An un-seeded project is an `error` to the scan and a *state* to a person.
+/** An un-seeded project is `ok` to the scan and a *state* to a person.
  *
- * `ops.status` refuses a project with no timeline, which is what puts it in
- * the `error` bucket, but nothing is wrong with it — it is half-made, and
- * this page can finish it. Told apart by the scan's own `seeded` field, never
- * by matching the refusal sentence. */
+ * `ops.status` used to refuse a project with no timeline, which put it in
+ * the `error` bucket; it now answers `seeded: false` instead of raising
+ * (TRIAL.md § `timeline_status` is the first call an agent makes and it
+ * refuses on a fresh project), so the scan reports `ok` too — nothing is
+ * wrong with it, it is half-made, and this page can finish it. Told apart
+ * by the scan's own `seeded` field, never by matching a refusal sentence. */
 function unseeded(entry) {
-  return entry.status === "error" && entry.seeded === false;
+  return entry.status === "ok" && entry.seeded === false;
 }
 
 function badgeClass(status, entry) {
@@ -89,7 +93,7 @@ function card(entry) {
   main.append(el("div", "picker-name", entry.name));
   main.append(el("div", "picker-path", entry.path));
 
-  if (entry.status === "ok") {
+  if (entry.status === "ok" && entry.seeded) {
     // Three chips, one per already-scanned field — never arithmetic done
     // here, only `_scan_one`'s own `timeline_duration`/`segments`/`clips`
     // (CLAUDE.md: the page draws what an op/scan returned, it never decides).
@@ -98,14 +102,21 @@ function card(entry) {
     chips.append(el("span", "chip", `${entry.segments} segments`));
     chips.append(el("span", "chip", entry.clips === 1 ? "1 clip" : `${entry.clips} clips`));
     main.append(chips);
+  } else if (unseeded(entry)) {
+    const meta = el("div", "picker-meta");
+    meta.textContent =
+      entry.clips === 0
+        ? "no footage imported yet"
+        : `${entry.clips === 1 ? "1 clip" : `${entry.clips} clips`} imported, no timeline yet`;
+    main.append(meta);
   } else if (entry.status === "needs_migration") {
     const meta = el("div", "picker-meta");
     meta.textContent = `needs \`lucid migrate -C ${entry.path}\` before it can open`;
     main.append(meta);
   } else {
-    // Still the op's own message either way. Red is reserved for the cases
-    // this page cannot act on; a half-made project is not one of them.
-    const meta = el("div", unseeded(entry) ? "picker-meta" : "picker-meta picker-error");
+    // Still the op's own message. Red is reserved for the cases this page
+    // cannot act on; a half-made project is handled above, not here.
+    const meta = el("div", "picker-meta picker-error");
     meta.textContent = entry.error;
     main.append(meta);
   }
@@ -122,7 +133,7 @@ function card(entry) {
 
   row.append(el("span", badgeClass(entry.status, entry), badgeText(entry)));
 
-  if (entry.status === "ok") {
+  if (entry.status === "ok" && entry.seeded) {
     const button = el("button", "primary", "Open");
     button.type = "button";
     button.addEventListener("click", async () => {
@@ -136,13 +147,11 @@ function card(entry) {
       }
     });
     row.append(button);
-  } else if (entry.status === "error" && entry.seeded === false) {
+  } else if (unseeded(entry)) {
     // A project that exists and has no timeline — `lucid init` or
-    // `POST /api/create` with no seed behind it. `ops.status` refuses it,
-    // which is why the scan calls it `error`, but it is not broken: it is
+    // `POST /api/create` with no seed behind it. It is not broken: it is
     // half-made, and the first-run flow is exactly what finishes it. Read
-    // off the scan's own `seeded` field rather than by matching the refusal
-    // sentence.
+    // off the scan's own `seeded` field rather than by matching a sentence.
     const button = el("button", "primary", "Finish setup");
     button.type = "button";
     button.addEventListener("click", () => resumeSetup(entry, button));
