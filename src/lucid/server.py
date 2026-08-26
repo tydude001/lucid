@@ -343,6 +343,23 @@ def import_media(
 
 
 @_tool()
+def list_media(
+    path: str | None = None, *, source_dir: str, recursive: bool = True
+) -> dict[str, Any]:
+    """List media files under `source_dir` that `import_media` could register.
+
+    What hands an unattended agent source paths on a real job, since
+    `--tools ""` gives it no directory listing of its own (TRIAL.md item 7).
+    A filename filter, not a probe — `import_media` is still what decides a
+    file is actually usable. Each entry's `already_imported` is checked
+    against this project's own registered clips, so a repeated call does not
+    keep re-suggesting footage already on the asset list. `source_dir` names
+    wherever the footage lives and is not confined to the project.
+    """
+    return ops.list_media(path, source_dir, recursive=recursive)
+
+
+@_tool()
 def clip_role(
     path: str | None = None,
     *, clip_id: str, role: str | None = None, reset: bool = False

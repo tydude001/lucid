@@ -41,6 +41,7 @@ EXPECTED_TOOLS = {
     "init",
     "migrate_project",
     "import_media",
+    "list_media",
     "attach_transcript",
     "transcribe",
     "get_transcript",
@@ -454,6 +455,7 @@ TOOL_TO_COMMAND = {
     "init": "init",
     "migrate_project": "migrate",
     "import_media": "import",
+    "list_media": "list-media",
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
     "get_transcript": "transcript",
@@ -4303,7 +4305,7 @@ def test_clip_rm_refuses_the_clip_on_the_timeline(
         vo = await _seeded(client, project, audio, transcript)
         return vo, await _refused(session, "clip_rm", path=str(project), clip_id=vo)
 
-    vo, message = anyio.run(_with_server, body)
+    _vo, message = anyio.run(_with_server, body)
     assert "timeline" in message
 
 
@@ -4316,6 +4318,76 @@ def test_clip_rm_refuses_an_unknown_clip(tmp_path: Path) -> None:
 
     message = anyio.run(_with_server, body)
     assert "nope" in message
+
+
+@needs_ffprobe
+def test_list_media_finds_new_files_and_flags_already_imported_ones(
+    tmp_path: Path,
+) -> None:
+    """TRIAL.md item 7: an unattended agent has no directory listing of its
+    own (`--tools ""`), so this is what hands it source paths on a real
+    job."""
+    project = tmp_path / "proj"
+    ops.init(str(project))
+    source_dir = tmp_path / "footage"
+    (source_dir / "nested").mkdir(parents=True)
+    clip_a = source_dir / "a.mp4"
+    _make_video(clip_a)
+    (source_dir / "nested" / "b.mp4").write_bytes(clip_a.read_bytes())
+    (source_dir / "notes.txt").write_text("not media")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        imported = await client.call("import_media", path=str(project), source=str(clip_a))
+        listing = await client.call(
+            "list_media", path=str(project), source_dir=str(source_dir)
+        )
+        return imported, listing
+
+    imported, listing = anyio.run(_with_server, body)
+
+    assert listing["count"] == 2
+    assert listing["new"] == 1
+    paths = {f["path"]: f["already_imported"] for f in listing["files"]}
+    assert paths[str(clip_a.resolve())] is True
+    assert paths[str((source_dir / "nested" / "b.mp4").resolve())] is False
+    assert not any("notes.txt" in p for p in paths)
+    assert imported["clip_id"]  # sanity: the import itself succeeded
+
+
+def test_list_media_recursive_false_skips_subdirectories(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    ops.init(str(project))
+    source_dir = tmp_path / "footage"
+    (source_dir / "nested").mkdir(parents=True)
+    (source_dir / "top.wav").write_bytes(b"")
+    (source_dir / "nested" / "deep.wav").write_bytes(b"")
+
+    async def body(session: ClientSession) -> Any:
+        client = Client(session)
+        return await client.call(
+            "list_media",
+            path=str(project),
+            source_dir=str(source_dir),
+            recursive=False,
+        )
+
+    listing = anyio.run(_with_server, body)
+    assert listing["count"] == 1
+    assert listing["files"][0]["path"] == str((source_dir / "top.wav").resolve())
+
+
+def test_list_media_refuses_a_missing_directory(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    ops.init(str(project))
+
+    async def body(session: ClientSession) -> Any:
+        return await _refused(
+            session, "list_media", path=str(project), source_dir=str(tmp_path / "nope")
+        )
+
+    message = anyio.run(_with_server, body)
+    assert "directory" in message
 
 
 @needs_ffprobe

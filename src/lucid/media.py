@@ -467,6 +467,38 @@ _PLAYABLE_CONTAINER = frozenset(
     {".mp4", ".m4v", ".mov", ".webm", ".ogg", ".ogv", ".oga", ".mp3", ".m4a", ".wav", ".flac"}
 )
 
+#: What `discover()` looks for on disk. Deliberately wider than
+#: `_PLAYABLE_CONTAINER` above — that set is what a *browser* decodes, this
+#: one is what a camera or a movie rip hands lucid, and `.mkv`/`.avi`/`.aac`
+#: never play in the preview but import and edit exactly like anything else
+#: (CLAUDE.md's own `Source/sl-0428-elevator.mp4` chapter-list example is a
+#: movie rip). A filename filter, not a probe — `import_media` still refuses
+#: or accepts on what ffprobe actually finds.
+SOURCE_MEDIA_EXTENSIONS = frozenset(
+    {
+        ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".m2ts", ".mts",
+        ".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".oga", ".ogv",
+    }
+)
+
+
+def discover(source_dir: Path | str, *, recursive: bool = True) -> list[Path]:
+    """List files under `source_dir` whose extension names a media container.
+
+    Sorted, resolved paths — cheap and filename-only, so a directory of raw
+    footage does not cost a probe per file just to be listed. `import_media`
+    does the real work of deciding whether a given file is actually usable.
+    """
+    root = Path(source_dir).expanduser()
+    if not root.is_dir():
+        raise MediaError(f"{root} is not a directory")
+    pattern = "**/*" if recursive else "*"
+    return sorted(
+        p.resolve()
+        for p in root.glob(pattern)
+        if p.is_file() and p.suffix.lower() in SOURCE_MEDIA_EXTENSIONS
+    )
+
 
 def playability(path: Path | str) -> dict[str, Any]:
     """Can a browser play this file, and if not, name the reason.

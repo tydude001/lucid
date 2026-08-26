@@ -11723,3 +11723,29 @@ Every touched test file re-run clean after the fix: `test_server_stdio.py`
 exactly the same three now-fixed `finish_report` field-set assertions
 (`unused_clips` joining the shape) and nothing else — 1938/1941 and
 1939/1941 passed.
+
+## The seventh queue item, decided and built — 2026-08-26
+
+TRIAL.md item 7 named three options and left the pick to Tyler: the panel's
+user, a wrapper, or a lucid tool that lists importable media. Handed off
+without a live decision from him, the call defaulted to the option that
+needs neither a person nor a new client — a tool is reachable inside the
+same `--tools ""` sandbox the panel already confines an agent to, so
+building it is strictly less than either alternative rather than a
+competing design.
+
+`media.discover(source_dir, recursive=True)` walks a directory and returns
+files whose extension is in the new `SOURCE_MEDIA_EXTENSIONS` — deliberately
+wider than `_PLAYABLE_CONTAINER` (`.mkv`/`.avi`/`.aac` included, since a
+camera dump or a movie rip is exactly what this is for and neither plays in
+the browser preview). It is a filename filter, not a probe — cheap over a
+directory of raw footage, and `import_media` is still what decides a file is
+actually usable. `ops.list_media` compares each found path against this
+project's own registered clips (`clip["source"]`, `import_media`'s own dedup
+key) and reports `already_imported` per file plus a `new` count, so a
+repeated call does not keep re-suggesting footage already on the asset list.
+
+Registered as `list_media` / `lucid list-media <source_dir>`. `source_dir` is
+deliberately **not** a `_tool()` selector, `import_media`'s own `source`
+precedent — it names where footage lives, not a project, so confining it
+would refuse the one thing this tool exists to reach.

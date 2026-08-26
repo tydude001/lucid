@@ -208,6 +208,40 @@ def import_media(
     return record
 
 
+def list_media(path: Path | str, source_dir: Path | str, *, recursive: bool = True) -> dict[str, Any]:
+    """List media files under `source_dir` that `import_media` could register.
+
+    TRIAL.md item 7: with `--tools ""` the agent panel gives an agent no
+    directory listing, so on a real job something has to hand it source
+    paths. This is that something — a lucid tool, so it is reachable inside
+    the same sandbox the panel already confines the agent to, rather than a
+    wrapper or a person pasting paths into the brief.
+
+    A filename filter (`media.SOURCE_MEDIA_EXTENSIONS`), not a probe — cheap
+    over a directory of raw footage. Each entry's `already_imported` compares
+    against this project's own registered clips (`clip["source"]`, the same
+    resolved-path key `import_media`'s dedup already uses), so a repeated
+    call does not re-suggest what is already on the timeline's own asset
+    list. `source_dir` is arbitrary and unconfined on purpose — it names
+    where footage lives, not a project.
+    """
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    imported = {c["source"] for c in manifest.get("clips", [])}
+    found = media.discover(source_dir, recursive=recursive)
+    files = [
+        {"path": str(p), "size": p.stat().st_size, "already_imported": str(p) in imported}
+        for p in found
+    ]
+    return {
+        "source_dir": str(Path(source_dir).expanduser().resolve()),
+        "recursive": recursive,
+        "count": len(files),
+        "new": sum(1 for f in files if not f["already_imported"]),
+        "files": files,
+    }
+
+
 def _near_duplicates(parsed: tx.Transcript) -> list[dict[str, Any]]:
     """Flag adjacent near-duplicate phrases in a just-attached transcript.
 

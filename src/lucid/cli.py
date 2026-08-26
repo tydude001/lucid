@@ -258,6 +258,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="skip the first-look contact sheet this makes by default",
     )
 
+    p_list_media = sub.add_parser(
+        "list-media", help="list media files under a directory that `import` could register"
+    )
+    p_list_media.add_argument("source_dir", help="directory to scan")
+    p_list_media.add_argument(
+        "--no-recursive",
+        dest="recursive",
+        action="store_false",
+        help="only look in source_dir itself, not its subdirectories",
+    )
+
     p_role = sub.add_parser(
         "role", help="read or set a clip's import role — voiceover vs footage"
     )
@@ -1969,6 +1980,10 @@ def _cmd_clip_rm(args: argparse.Namespace) -> int:
     return _emit(ops.clip_rm(args.project, args.clip_id))
 
 
+def _cmd_list_media(args: argparse.Namespace) -> int:
+    return _emit(ops.list_media(args.project, args.source_dir, recursive=args.recursive))
+
+
 def _cmd_attach_transcript(args: argparse.Namespace) -> int:
     return _emit(ops.attach_transcript(args.project, args.clip_id, args.transcript))
 
@@ -2868,6 +2883,7 @@ _COMMANDS = {
     "import": _cmd_import,
     "role": _cmd_role,
     "clip-rm": _cmd_clip_rm,
+    "list-media": _cmd_list_media,
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
     "transcript": _cmd_transcript,

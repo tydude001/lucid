@@ -268,6 +268,14 @@ absent optional capability is "unavailable", never a failure, and never moves
     required". `fonts`/`pack_show` opt out (`projectless=True`): their own
     docstrings mean `path=None` as "no project", not "which one". HISTORY.md
     § The trial's queue, closed.
+  - **`list_media` is what hands an unattended agent source paths** —
+    `--tools ""` gives it no directory listing of its own. `source_dir` is
+    deliberately not a `_tool()` selector (`import_media`'s own `source`
+    precedent): it names where footage lives, not a project, so confining
+    it would refuse the tool's whole point. A filename filter against
+    `media.SOURCE_MEDIA_EXTENSIONS`, not a probe — `import_media` still
+    decides usability. HISTORY.md § The seventh queue item, decided and
+    built.
 - Tests exercise the real server process over stdio (`tests/test_server_stdio.py`),
   not just the tool functions. Unit-testing a tool body proves nothing about
   whether it is registered or reachable. Same discipline for the web UI:
