@@ -111,10 +111,11 @@ build window before the September format decisions.
 
 ## The order, grouped by who can act
 
-**Agent-actionable:** both of these ran the same day, and what they produced
-replaces them — the trial's evidence and the seven-item queue it became are
-[TRIAL.md](TRIAL.md), and the scrub and dry run are TRIAL.md § The publish
-rehearsal. That queue is now the agent-actionable list.
+**Agent-actionable: none left.** Both of these ran the same day, and what they
+produced replaced them — the trial's evidence and the seven-item queue it
+became are [TRIAL.md](TRIAL.md), and the scrub and dry run are TRIAL.md § The
+publish rehearsal. That queue then closed too, 2026-08-25/26 (HISTORY.md § The
+trial's queue, closed; § The seventh queue item, decided and built).
 
 **Tyler's, time-sensitive first:**
 

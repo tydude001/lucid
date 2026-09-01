@@ -517,9 +517,11 @@ the layered timeline being the enabler and the look pass being gated on nothing:
    event, it is two style fields over the one event `to_ass` already writes —
    and then all four treatments were rendered on the real film and Tyler
    chose the `\k` fill lucid already writes. **This rung is done, and lucid
-   diverges from Daydream here by choice** (docs/plans/DAYDREAM.md § What parity does
-not    import).
-   Then 3. **motion graphics + templates**, then
+   diverges from Daydream here by choice** (docs/plans/DAYDREAM.md § What parity
+   does not import).
+3. **Motion graphics + templates** — shipped 2026-08-09, all three steps
+   (§ Motion graphics and templates; HISTORY.md § The card renderer, § Card
+   templates). This rung is done.
 4. **b-roll by description** — **all three build steps shipped 2026-08-09**
    (§ B-roll by description; HISTORY.md § `describe`, § `describe_ls`, § The
    pinned cue). Footage is indexed, searched, and now *placed*: a cue carries
@@ -562,8 +564,8 @@ not    import).
    the producer's own clock, the preview places per shot, and
    `reframe_sheet` is how any of it gets reviewed. **What is left is the
    framing itself** — 25 placements on the film, against the 15 hand numbers
-   as a control — and then the detector. docs/plans/DAYDREAM.md § Aspect swap carries
-the    detector numbers. **The control is ported and rendered, 2026-08-10**
+   as a control — and then the detector. docs/plans/DAYDREAM.md § Aspect swap
+   carries the detector numbers. **The control is ported and rendered, 2026-08-10**
    (HISTORY.md § The framing control): the approved numbers are source-
    addressed project state, they reproduce the approved framing through a real
    `melt` render, and they are a test. **All 25 placements are framed as of
@@ -650,9 +652,11 @@ essay and teaser were declared done. Its status rows live in the wiki, as ever.
   - **The first of them is costed, 2026-08-18: § The co-hosted recording —
     the design note.** It moved the item's premise twice. The scale spike's
     two-stream framing is not what this event records — both prior runs
-    published one mixed track and OBS on this box is still `RecTracks=1` — and
-    a two-mic recording turns out **not** to need the new `Edit` primitive the
-    spike named, because the mics are one performance cut together and the
+    published one mixed track and OBS on this box was `RecTracks=1` when the
+    note was written (it has been `RecTracks=3` since 2026-08-18 — § The
+    format decision, which is the deliverable to the event) — and a two-mic
+    recording turns out **not** to need the new `Edit` primitive the spike
+    named, because the mics are one performance cut together and the
     only per-word fact is a label. What it does need is a decision taken
     before part 1 is recorded, which is why the note exists in August.
 
@@ -2398,11 +2402,16 @@ placement is not needed; the third entry point is UI work on the address space
 that already exists, plus one snap rule. HISTORY.md § The gap that was never on
 the timeline.
 
-### Music — the headline is that it has nowhere to live
+### Music — the headline was that it had nowhere to live
 
 Daydream places music as short accent blocks on its own **A2** lane
-(docs/plans/DAYDREAM.md:92-104), imported under a distinct role. lucid has no such lane
-and cannot grow one cheaply, for a reason already on the record.
+(docs/plans/DAYDREAM.md:92-104), imported under a distinct role. **lucid has one
+now — the A2 lane shipped 2026-08-17** (§ The A2 music lane — the design note;
+HISTORY.md § The A2 music lane, built), so read what follows as the costing
+that got there rather than as the state of the code: the two absence claims
+below — no third lane role, `grep -rn 'A2' src/lucid/` returning nothing — were
+true when this was written and are not now. At the time it had no such lane and
+could not grow one cheaply, for a reason already on the record.
 
 `Edit`'s own docstring: *"One track. A/V are linked… there is no way to cut
 picture without sound yet."* `mlt.document()` accepts exactly two lane roles,
@@ -2438,6 +2447,13 @@ length model was never what was being heard, and "loop or hold" is the wrong
 axis: what beat the machine was **arrangement**, which is placement, which is
 the shape `cue_add` already has. Nothing above is wrong; it is aimed at a cost
 that is not the binding one. HISTORY.md § The three served answers.
+
+**And the item that answer deferred was raised and built, 2026-08-17.** The
+closure above said music would come back as cue *placement* "when a video wants
+it"; Lambs/Longlegs did, and what shipped is `lucid music` — one bed asset over
+one word span with fades, addressed by word index with the duration derived
+live, never stored. Its design and the two render traps behind it are § The A2
+music lane — the design note. **This item is closed.**
 
 ### A default font — the premise is dead on measurement
 

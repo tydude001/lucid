@@ -38,8 +38,8 @@ chat message instead of an afternoon.
 It ships as three clients of one engine, all driving the same operations: a
 CLI, an MCP server (every tool has a matching subcommand, enforced by the
 test suite), and a browser workspace — transcript, preview, a draggable
-timeline, framing review and export, with the agent in the window. Those
-three non-goals are permanent.
+timeline, framing review and export, with the agent in the window. The
+non-goals are permanent: no cloud, no accounts, no metering.
 
 ## Requirements
 
@@ -142,7 +142,7 @@ with the reasoning behind each behaviour.
   second needs no edit and no transcript, which is the point: it is for footage
   with no dialogue to search. What they show is a hypothesis; the checks above
   are what settle one.
-- **Cards** — five SVG templates rasterised at the project's own canvas,
+- **Cards** — six SVG templates rasterised at the project's own canvas,
   recorded so a canvas change re-authors them instead of stretching them.
 - **Reframing** — per-shot source-pixel crop windows for aspect changes,
   face-aware proposals (`reframe-detect`), a review sheet that draws every
@@ -180,10 +180,10 @@ uv run pytest
 ```
 
 The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
-so expect it to be a little slower than a pure unit suite. The five tests
-that render through `melt` need a desktop session; on a headless box they
-fail with "no display for MLT's Qt module to open", which is the environment,
-not a regression.
+so expect it to be a little slower than a pure unit suite. The seven tests
+that render through `melt` need a desktop session (or `QT_QPA_PLATFORM=offscreen`);
+on a headless box they fail with "no display for MLT's Qt module to open", which
+is the environment, not a regression.
 
 ## Documentation
 

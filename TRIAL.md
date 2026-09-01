@@ -70,6 +70,13 @@ Every check in the table above has been seen to pass on a known-good edit.
 
 Each row is evidence-backed, ordered by what it costs a real run.
 
+**All seven are closed** — six on 2026-08-25 (HISTORY.md § The trial's queue,
+closed — six of seven) and the last on 2026-08-26 (§ The seventh queue item,
+decided and built). The rows below are kept as the run's evidence and are
+written in the tense of the run, so **read a "Fix:" as what was proposed, and
+every claim about lucid's surface as it stood that day**; each row ends with a
+pointer to what actually landed. Status, as ever, is the wiki's.
+
 ### 1. `path` is a required argument on every tool, and under `-C` its only legal value is the one the server already knows
 
 29 of the agent's 30 calls carried `"path": "/var/…/proj"` — the thirtieth was
@@ -96,6 +103,10 @@ Fix: make `path` optional when `_BOUND_ROOT` is set, defaulting to the binding.
 `_confine` already resolves and refuses; the decorator would fill an absent
 selector instead of the caller. Unbound servers are unaffected.
 `server.py` § `_tool`, § `_confine`.
+
+**Closed 2026-08-25**, as proposed, across all 82 tools — plus
+`projectless=True` for `fonts`/`pack_show`, which already meant `path=None` as
+"no project" rather than "which one".
 
 ### 2. `spot_frames` is the tool for looking at a delivered render, and it hands back paths the agent cannot open
 
@@ -127,6 +138,11 @@ import but is positional — undoing this one would take every mutation after it
 The polluted state is quiet: `delivered` shows up in `assets`, is cue-able, and
 counts toward `media_imported`.
 
+**Both closed 2026-08-25.** `spot_frames` returns its montage the way the
+sheets do, and `clip_rm` deregisters a clip — refusing, and naming every
+reason, when the timeline, a cue, a hold, the bed, a mark or a transcript still
+depends on it.
+
 ### 3. `timeline_status` is the first call an agent makes and it refuses on a fresh project
 
 Both trial runs opened by calling it, and both got
@@ -140,6 +156,8 @@ only if you already know media has been imported.
 Cheapest fix: name the orientation tools in the refusal text. Better:
 `timeline_status` answers `seeded: false` with the clip list instead of
 raising, which is `off_timeline`'s own precedent — report rather than refuse.
+
+**Closed 2026-08-25**, taking the better option.
 
 ### 4. Nothing in lucid notices two writers in one project
 
@@ -162,6 +180,10 @@ is last-writer-wins, and the loser's edit is gone with nothing raised. A second
 `lucid web`, a second panel, or a CLI command run beside either is the same
 shape.
 
+**Closed 2026-08-25.** `write_manifest` and `restore` both refuse with
+`ProjectConflictError` when the manifest moved since this instance last read
+it, so the loser loses cleanly. Nothing still stops two writers starting.
+
 ### 5. A refused check is not a failed one, and a consumer will get that wrong
 
 The harness's own first score reported `verify_similarity` as a red **FAIL**
@@ -181,6 +203,8 @@ clips, one of which (`delivered`) is on no lane and under no cue.
 which clips are in that state. A finish-time report of "registered, never
 used" would have caught this without anybody reading the agent's prose.
 
+**Closed 2026-08-25** as `finish_report`'s `unused_clips`.
+
 ### 7. The agent cannot see what media exists — it must be told
 
 Deliberate, and recorded rather than proposed. With `--tools ""` there is no
@@ -188,6 +212,10 @@ directory listing, so the three source paths came from the brief. On a real job
 something has to supply them: the panel's user, a wrapper, or a lucid tool that
 lists importable media under a named directory. Worth deciding before the
 first unattended run on real footage, not during it.
+
+**Decided and built 2026-08-26** — the third option, as `list_media` /
+`lucid list-media <source_dir>`, because a tool is reachable inside the same
+`--tools ""` sandbox and needs neither a person nor a new client.
 
 ## What the trial says about the four sheets
 
@@ -221,9 +249,10 @@ states that rule. Left deliberately, each with a reason:
 
 - `~/lucid-*` and `~/TheVaultData` — `$HOME`-relative, naming no user and no
   host, and cited throughout CLAUDE.md's conventions.
-- the bare hostname in PLAN.md and docs/plans/DAYDREAM.md, where it names a homelab box
-in   a decision record rather than a reachable address, and rewriting it would
-  drift four prose lines for no gain now that the MagicDNS form is gone.
+- the bare hostname in PLAN.md and docs/plans/DAYDREAM.md, where it names a
+  homelab box in a decision record rather than a reachable address, and
+  rewriting it would drift four prose lines for no gain now that the MagicDNS
+  form is gone.
 - `192.168.1.50` in HISTORY.md — an illustrative RFC1918 address, matching the
   test that uses it, not this node's.
 - the author line in `pyproject.toml`, which is published on purpose.

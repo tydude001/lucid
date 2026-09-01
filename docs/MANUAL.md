@@ -65,8 +65,10 @@ and every later command reads it without knowing.
 
 ## Renders, presets, undo, migration
 
-`--render` exports media instead of an NLE project, `--preset youtube|web|custom`
-picks a quality bundle for it, and `undo` rolls back the last mutation while
+`--render` exports media instead of an NLE project,
+`--preset youtube|web|tiktok-reels|custom` picks a quality bundle for it
+(`tiktok-reels` checks the project's canvas is vertical and refuses rather than
+reshaping it), and `undo` rolls back the last mutation while
 `restore` un-cuts one specific range. A project written by an older lucid is
 refused rather than guessed at; `lucid migrate` brings it forward (`--plan`
 says what it would do first, and the old manifest is kept under
@@ -79,7 +81,7 @@ sees one, because it degrades a two-source render to 720x576 and exits 0.
 Every MCP tool has a matching subcommand, enforced by the test suite — so an
 agent drives the same operations. It runs the other way too, minus a short
 allowlist of commands there is nothing for an agent to do with (`web`,
-`waveform`, `preview`, `info`, `mcp`):
+`open`, `waveform`, `preview`, `info`, `mcp`):
 
 ```sh
 uv run lucid mcp                                          # serve MCP over stdio
@@ -287,9 +289,11 @@ lucid proxy clip-id                          # make it playable in the window
 `shot-sheet` draws one labelled tile per shot — the whole picture track as a
 grid, each tile showing the exact source second that shot reads from, four
 across and about two dozen a page. It is how you see what the film *looks*
-like without rendering or scrubbing it, and it is the one tool built for an
+like without rendering or scrubbing it, and it was the first tool built for an
 agent to use: over MCP it returns the sheet's **bytes**, so the picture arrives
-in the reply, where every other sheet here returns a path.
+in the reply rather than as a path an agent under `--tools ""` cannot open. All
+four sheets do that now — `shot-sheet`, `footage-sheet`, `contact-sheet` and
+`reframe-sheet` — and so does `spots`, whose montage comes back the same way.
 
 ```sh
 lucid -C myproject shot-sheet                # the picture track, drawn
@@ -304,7 +308,7 @@ three times shows three tiles at three different `src=` values, which is what
 makes a re-used shot legible at a glance.
 
 **What it shows is a hypothesis, not a check.** Confirm anything you notice
-with something that measures — `black`, `check-frames`, `verify`, `film-check`.
+with something that measures — `black`, `frames`, `verify`, `film-check`.
 
 ## Looking at footage you have not cut yet
 
@@ -373,11 +377,13 @@ lucid -C myproject export assembly.kdenlive         # both lanes, written as MLT
 
 A card is an SVG under `assets/cards/` and the PNG `card:<name>` resolves to;
 both are kept, so a card is re-edited rather than redrawn. `card new` fills one
-of five templates — `receipt`, `reveal`, `rerate`, `endcard`, `bumper` — and
-`card render` re-rasterises after a hand edit. Every brand slot on the last two
-defaults to empty: lucid stays generic and the channel supplies its own mark. **Cards generate at the project's own canvas**,
-so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with a
-quarter of its width in black bar.
+of six templates — `receipt`, `reveal`, `rerate`, `chapter`, `endcard`,
+`bumper` — and `card render` re-rasterises after a hand edit. Five of the six
+carry a `mark` slot (`chapter` does not) and every one of them defaults to
+empty: lucid stays generic and the channel supplies its own mark, usually
+through a preset pack (`lucid pack`). **Cards generate at the project's own
+canvas**, so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with
+a quarter of its width in black bar.
 
 Change the canvas later and the cards are the one thing that cannot follow on
 their own — the aspect is baked into the SVG's viewBox, and rasterising a 16:9

@@ -968,13 +968,14 @@ absent optional capability is "unavailable", never a failure, and never moves
       note claiming its `melt` wrapped one was wrong about the mechanism — so
       this is the route for every unattended render. Set it alongside
       `DISPLAY`/`WAYLAND_DISPLAY` only if you want; it is sufficient alone.
-    - So **a session with no desktop behind it cannot run the five
+    - So **a session with no desktop behind it cannot run the seven
       melt-rendering tests in `test_server_stdio.py`** without that variable — `export` refuses with
       "no display for MLT's Qt module to open", correctly, and they fail as a
-      `JSONDecodeError` on the refusal text. Five failures there and nowhere
+      `JSONDecodeError` on the refusal text. Seven failures there and nowhere
       else is the environment, not a regression; confirm by stashing `src/`
-      and re-running, rather than by hunting. (Four when this was written; the
-      count is `grep -c '@needs_melt'`, not a number to trust from memory.)
+      and re-running, rather than by hunting. (Four when this was written,
+      five when it was next read; the count is `grep -c '@needs_melt'`, and
+      writing it here has gone stale twice.)
 - **A caption's look is project state (`caption_style`), and ASS is never
   written by hand** — three of its fields mean the opposite of what they read
   as, `\k` is a left-to-right fill rather than a per-word step, and grouping
@@ -1199,10 +1200,10 @@ absent optional capability is "unavailable", never a failure, and never moves
     - **Judge a split on how much its panes overlap each other**, and the
       number is `pane_overlap` — on the proposal and on the sheet row, where it
       used to be worked out by hand off the two rects. The film's separate at
-      23–24% (distinct groups) against 52–63%, where the same face is in both
-      halves and stacking shows it twice; **4 of its 10 proposals are the
-      duplicating kind**, 3 of them predating the 0.15 floor. Reported, never
-      enforced. HISTORY.md § The thirty-nine windows, reviewed; § What the
+      23–30% (distinct groups) against 52–63%, where the same face is in both
+      halves and stacking shows it twice, with 40–45% the band that is
+      neither; **4 of its 10 proposals are the duplicating kind**, 3 of them
+      predating the 0.15 floor. Reported, never enforced. HISTORY.md § The thirty-nine windows, reviewed; § What the
       re-pin did to the detector.
   - **An export preset never sets the canvas — `tiktok-reels` *checks* it and
     refuses.** The obvious build is the wrong one: a flag that reshapes the
