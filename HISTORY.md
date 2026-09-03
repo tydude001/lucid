@@ -11823,3 +11823,71 @@ rejecting a non-string/empty `model`, the flag's presence and absence in the
 spawned argv, a genuine two-PID respawn on a model change (with the new
 argv), and same-model reuse producing exactly one PID across two turns. Full
 suite: 244/244.
+
+## The trial over real footage — 2026-09-03
+
+The first closed-loop trial ran on generated demo media, and its own § What
+this trial does not settle named that as the confound to fix first: the demo
+footage depicts nothing, so the agent hung picture structurally rather than by
+subject. Subject is the hard half — against 25 human picks the description
+index agreed 2 times and the clips' own filenames 3 (§ Choosing the b-roll) —
+and the demo material cannot pose the question at all. So `agent_trial.py`
+gained `--source`, and the same instrument ran over 96 seconds of the Scream
+essay's own VO with four of the film's source clips beside it. Evidence and the
+three-item queue it produced: TRIAL.md § The second trial.
+
+`--source` swaps the material and nothing else — same client, same
+confinement, same `score()`, same report. It demands `--brief-file` (the
+built-in brief names three demo files and a fluffed take real material has not
+got), refuses `--control` (which is DEMO.md's walkthrough over the demo
+footage), and refuses a directory that is itself a lucid project. That last one
+is the guard worth stating: the trial is described as running "on a copy of a
+real project", and the nearest reading of that is to hand it the project, which
+would spend an agent and a render before reporting the material was nowhere.
+It reads `MANIFEST_NAME` and `TIMELINE_NAME` off `project.py` rather than
+retyping them — the first draft looked for `manifest.json` and would have waved
+every real project straight through, since lucid's manifest is `lucid.json` and
+`*.manifest.json` is the snapshot suffix.
+
+The two things a different brief moves became arguments rather than constants:
+`--phrases`, the pair of lines a brief's own checks ask about, and the clip
+floor. Both persist into the run directory, so `--score-only` months later
+scores against the pair the run was scored with rather than whatever the file
+says then; both default to the demo's, so every earlier run re-scores
+identically. An undeclared phrase reports `None`, never `False` — a brief that
+never named the fluff has said nothing about whether it survived, and a `False`
+there would read as the agent having left it in.
+
+**9 of 9 checks pass.** 77 turns, 76 tool calls across 26 tools, one refusal,
+10 images returned, 914s, $6.94 on Opus 5; 45.23s and 1084 frames delivered,
+`check_frames` delta 0, `verify` 0.984 at 123 heard against 123 expected, and
+the captions read back off four extracted frames rather than off the flag.
+
+What the run establishes is in TRIAL.md; the short version is that the agent
+drew every clip with `footage_sheet`, wrote a `synopsis` for each from what it
+saw, and cued by subject — Scream 4 footage under the Scream 4 line, the 2022
+reveal under the 2022 line — which is `synopsis`'s designed route walked
+unprompted; that it read `shot_sheet` back and caught two of its own picture
+defects, one of them a shot so like its neighbour the cut read as no cut; and
+that it defeated the collapsed-duration trap with no tool for it, by rendering
+the uncut narration and running `verify` on the render to hear what the
+transcript had hidden. It also said plainly that the brief's 45-second target
+and its cut-only-the-fluffs instruction could not both hold, named the
+digression it cut to resolve that, and offered the `restore`.
+
+The three gaps that found are TRIAL.md's queue, and two of them were confirmed
+in the code rather than inferred from the run: `renderlog.append` is called only
+in `webui.py`, so `finish_report`'s `captions.burned` reads `"unknown"` for
+every CLI- or MCP-driven render; and `asr.transcribe_windowed`'s only callers
+are `verify` and `verify --windowed`, both of which take a render, which is why
+hearing your own source material costs a seed and an export.
+
+## The mcp floor caught up to the import — 2026-09-03
+
+`pyproject.toml` pinned `mcp>=1.2` while `server.py` imports `MCPServer` from
+`mcp.server`, which does not exist below 2.0 — `FastMCP` is the 1.x name. A
+fresh resolve off the floor fails on import. Nothing here ever broke and the
+fresh-checkout dry run did not catch it either, because both resolved through
+`uv.lock`, which pins 2.0.0. Found in the 2026-09-01 docs audit, left as a
+call, taken now: the floor is `>=2` and the lock's resolved version is
+unchanged.

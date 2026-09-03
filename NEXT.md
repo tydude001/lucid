@@ -111,11 +111,17 @@ build window before the September format decisions.
 
 ## The order, grouped by who can act
 
-**Agent-actionable: none left.** Both of these ran the same day, and what they
-produced replaced them — the trial's evidence and the seven-item queue it
-became are [TRIAL.md](TRIAL.md), and the scrub and dry run are TRIAL.md § The
-publish rehearsal. That queue then closed too, 2026-08-25/26 (HISTORY.md § The
-trial's queue, closed; § The seventh queue item, decided and built).
+**Agent-actionable: TRIAL.md's second queue, three items.** Both of the
+directions above ran the same day, and what they produced replaced them — the
+trial's evidence and the seven-item queue it became are [TRIAL.md](TRIAL.md),
+and the scrub and dry run are TRIAL.md § The publish rehearsal. That queue then
+closed too, 2026-08-25/26 (HISTORY.md § The trial's queue, closed; § The
+seventh queue item, decided and built).
+
+Direction 1 then ran a **second** time, 2026-09-03, over real footage rather
+than the generated demo — the confound the first run named itself — and
+produced three more gaps: TRIAL.md § The second trial, § The queue — three
+gaps. Those are the agent-actionable work today.
 
 **Tyler's, time-sensitive first:**
 

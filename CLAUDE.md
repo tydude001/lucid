@@ -613,6 +613,16 @@ absent optional capability is "unavailable", never a failure, and never moves
   already uses, applied to staleness — but nothing stops the two agents from
   starting in the first place; one of them just loses cleanly now instead of
   losing silently. HISTORY.md § The trial's queue, closed.
+  - **`--source` runs it over real footage, and the material is the only
+    thing it moves** — same client, same confinement, same `score()`. It
+    refuses a `--source` that is itself a lucid project, which is the
+    plausible mistake ("run it on a copy of a real project" reads as *hand it
+    the project*), and it reads `MANIFEST_NAME`/`TIMELINE_NAME` off
+    `project.py` to do so: a guard that looked for `manifest.json` waves every
+    real project through, since the manifest is `lucid.json`. A brief's own
+    two checked phrases are `--phrases` and persist into the run directory, so
+    `--score-only` scores against the pair the run was scored with; undeclared
+    is **unsettled, never failed**. HISTORY.md § The trial over real footage.
 - `ruff check` is the lint gate. **Never run `ruff format`** — there is no
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually

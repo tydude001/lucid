@@ -2,8 +2,9 @@
 
 NEXT.md § 1 asked for the one measurement lucid has never made: hand an agent a
 brief and watch it drive `claude -p` against the MCP server from import to
-export, unattended, then score the result. This file is that run's evidence and
-the queue its failures became. **Status of anything here lives in the wiki's
+export, unattended, then score the result. This file is the evidence and the
+queue for **both** runs of that measurement — the first over the generated demo
+project, and § The second trial over real footage. **Status of anything here lives in the wiki's
 Open items table, never in this file** (root conventions § Knowledge stores).
 
 The instrument is `scripts/agent_trial.py`. What shipped and what it cost is
@@ -284,3 +285,142 @@ Fixed.
   shipped panel — `claude` loads user memory whatever the cwd. It is a confound
   for anyone reproducing this off this box, and it is what the panel really
   runs with, so it was left alone and is recorded here instead.
+
+## The second trial — the same instrument over real footage — 2026-09-03
+
+The first trial's own § What this trial does not settle names its biggest
+confound first: *"the demo footage has no subject, which is why the agent chose
+picture structurally."* Choosing footage by what it shows is the thing this
+repo has measured hardest — against 25 human picks the description index agreed
+2 times and the clips' own filenames 3 (HISTORY.md § Choosing the b-roll) — and
+the demo material cannot pose that question at all, because nothing in it
+depicts anything. This run poses it.
+
+Everything above still describes the instrument; only the material moved.
+`--source` reads real footage instead of generating any, `--phrases` declares
+the two lines this brief's own checks ask about, and `score()` is the same
+function. HISTORY.md § The trial over real footage.
+
+### What was run — real material
+
+96 seconds of the Scream essay's own VO2.wav — the real recording, its
+mistakes in it — plus four of the film's source clips, all **copies** under
+`~/lucid-work/agent-trial-real/media`. The four are `scream1996-randy-rules`,
+`scream1996-reveal-billy-stu`, `scream4-reveal-jill-and-charlie` and
+`scream2022-reveal-richie-and-amber`: four different films' worth of subject,
+so "which clip goes under this line" has a right answer and several wrong ones.
+
+The brief asked for a 45-second cut with the fluffs gone, a named aside cut, a
+named line kept, picture *under the lines it belongs to* rather than whatever
+is nearest to hand, captions burned, and the render checked. The declared
+phrases were `once in a theater` (must go) and `the front of this movie is
+good` (must stay).
+
+The whole run is kept at `~/lucid-work/agent-trial-real/runs/20260903-201638/`.
+
+### The result — real footage
+
+**9 of 9 checks pass.** 77 turns, 76 tool calls across 26 distinct tools, one
+refusal, 10 images returned, 914s, $6.94 on Opus 5. The delivered cut is 45.23s
+/ 1084 frames at 1920x816, `check_frames` delta 0, `verify` similarity 0.984
+with 123 heard against 123 expected, captions confirmed in the pixels.
+
+Three things this run establishes that the demo one could not:
+
+**Picture was chosen by subject, and the agent built the means to do it.** It
+drew all four clips with `footage_sheet`, wrote a `synopsis` for each from what
+it saw, and then cued: Scream 4 footage under *"Scream 4 falls apart in the
+second half"*, the 2022 reveal under *"the 2022 version… the ending kinda
+sucks"*, Billy and Stu under the thesis turn. That is `synopsis`'s designed
+route — a description does not choose the clip — walked unprompted by a client
+that had never been told it existed. Where the material could not answer (there
+is no Scream 6 footage) it **said so** and stayed in the nearest film rather
+than reaching for something unrelated.
+
+**It reviewed its own picture and found two real defects.** Reading `shot_sheet`
+back, it caught a shot visually identical to its neighbour — *"reads as no cut
+at all"* — and a shot that had landed on the wrong character, re-pinned both,
+and moved a third off a dark motion-blurred frame. The sheets did the job they
+were built for, from the side they were built for.
+
+**It defeated the duration trap without being told about it.** The transcript
+read clean; whisper had collapsed both fluffs into impossible word durations
+(word 2 spanning 3.2s, word 17 spanning 8.3s). The agent noticed the durations,
+re-transcribed at `large-v3`, found an 8-second hole with no words in it, and
+then — having no tool that answers *what does the source actually say here* —
+**rendered the uncut narration to a WAV and ran `verify` on it**, which
+reported *"the first — the first — the first 12 minutes…"* followed by the
+whole opening sentence a second time. It cut both with `cut_by_time`, the tool
+for a fluff that has no words to address, and later caught a 0.02s surviving
+sliver of one. This is the repo's own "trust word order, never durations"
+lesson (HISTORY.md § 2) rediscovered from the tool surface alone.
+
+It also declared where it exceeded the brief, unprompted: the fluffs and the
+aside together leave ~79 seconds, so **the brief's two constraints could not
+both hold**, and it cut the personal-history digression to reach 45, named
+exactly what it dropped, and offered the `restore` back. That contradiction is
+the brief's, not lucid's — recorded here because a run that silently resolves
+one is a run whose result means less.
+
+### The queue — three gaps, each with the evidence that found it
+
+**All three are open.** Status, as ever, is the wiki's.
+
+#### 1. No tool answers "what does the source audio actually say between t1 and t2"
+
+The whole 5.5-minute middle of this run — three `transcribe` calls, a model
+escalation, an export and a `verify` — was the agent building itself an answer
+to that question. `asr.transcribe_windowed` exists and is exactly the right
+pass (a smaller model, overlapping windows, the one that reads across a seam),
+but its only callers are `verify` and `verify --windowed` (`ops.py`), which
+both take a **render**. So the route to hearing your own source material is to
+seed a timeline, export it, and verify the export — which the agent found, and
+which nobody should have to.
+
+Fix: a tool that windows `asr.transcribe_windowed` over a registered clip's own
+audio across a source-second span. The suspect-duration report already says
+*where* to look; this says what is there. Note the honest counter-argument:
+the workaround worked, and a tool that reads source audio is a second answer to
+"what is in this clip" beside the transcript — so it must report, never attach.
+
+#### 2. `finish_report` can never confirm a burn for an agent, because nothing outside the web UI writes the render log
+
+`finish_report` answers `captions.burned` off `renderlog.last`, and
+`renderlog.append` is called in exactly one place: `webui.py`. Every render made
+through the CLI or the MCP server leaves no log, so an agent's `finish_report`
+reads `"unknown"` on a film whose captions are demonstrably burned in — which
+is what happened here, and the agent settled it with `spot_frames` instead.
+That is the right instinct (the repo's own rule is that only pixels settle a
+burn) but the flag is dead weight for two of the three clients, and "unknown"
+sitting beside a real answer teaches a caller to ignore the field.
+
+Fix: either `ops.export`/`add_captions` write the same log the web UI's pipeline
+writes, or `finish_report` stops claiming to answer for clients that cannot
+produce evidence. The first is the smaller change and makes the field mean
+something everywhere; the second is honest and cheaper. Decide before building.
+
+#### 3. `speech_overlap` is the only tool shaped like "does this footage have talking in it", and it requires a transcript
+
+The run's one refusal. The agent asked `speech_overlap` of a b-roll clip and
+got *"no transcript for 'scream1996-randy-rules'"* — correct, and beside the
+point it was reaching for. Before laying dialogue-carrying film footage under a
+voiceover, "will these two talk over each other" is a real question, and
+answering it currently costs a whole transcription of a clip nobody wants
+captions from.
+
+Fix: this is the smallest of the three and may be a docstring rather than a
+tool — `speech_overlap`'s refusal could name what to run instead. Measure
+whether an energy-only answer (`energy.believable`'s machinery, no ASR) is good
+enough before adding a transcription step to a picture decision.
+
+### What this run still does not settle
+
+- **Nobody has watched it.** Four frames were read back — captions in the
+  pixels, the right film under the right line — and every other check is a
+  number. `cut.mp4` is at `~/lucid-work/agent-trial-real/`.
+- **One brief, one model, one run**, again. This one's material was chosen to
+  make the subject question answerable; a brief over footage with no clean
+  answer is a different question.
+- **The 45-second constraint did the cutting.** The agent's largest editorial
+  decision was forced by a contradiction in the brief, so this run says little
+  about how it cuts when nothing is over-constrained.
