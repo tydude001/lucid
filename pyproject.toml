@@ -17,7 +17,7 @@ authors = [
 # Every other dep already covers 3.14. Revisit when OTIO publishes cp314.
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "mcp>=1.2",
+    "mcp>=2",
     "opentimelineio>=0.18.1",
 ]
 
