@@ -22,10 +22,26 @@ the trial cannot silently measure a different client than the one that ships.
     python scripts/agent_trial.py ~/lucid-work/agent-trial --prepare-only
     python scripts/agent_trial.py ~/lucid-work/agent-trial --score-only <run dir>
 
+    python scripts/agent_trial.py ~/lucid-work/agent-trial-real \
+        --source ~/lucid-work/agent-trial-real/media \
+        --brief-file brief.txt --phrases phrases.json
+
 `--control` meets the same brief by script and is scored by the identical
 checks. Run it in its **own** work directory — it edits the project it is
 pointed at, and pointing both modes at one directory means each run wipes the
 other's evidence.
+
+**`--source` swaps the material, never the instrument.** The generated demo
+footage depicts nothing, which is why the first trial's agent hung picture
+structurally rather than by subject (TRIAL.md § What this trial does not
+settle) — and choosing footage by what it shows is the thing this repo has
+measured hardest (HISTORY.md § Choosing the b-roll). So a run over real
+footage reads its media from `--source` instead of generating it, and
+everything else is unchanged: the same client, the same confinement, the same
+`score()`. It demands `--brief-file`, because the built-in brief names three
+demo files and a fluffed take that a real folder does not have, and it refuses
+a directory that is itself a lucid project — the trial's agent must never be
+pointed at real authored state, only at real *material*. Point it at a copy.
 
 **What the agent is given is a goal, never the steps.** A brief listing the
 commands would measure this file's authorship, not the agent — so the default
@@ -65,7 +81,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import make_demo
 
+from lucid import media as lucid_media
 from lucid import ops, webui
+from lucid.project import MANIFEST_NAME, TIMELINE_NAME
 
 
 class TrialError(RuntimeError):
@@ -123,6 +141,23 @@ RETAKE_PHRASE = "no, let me try that again"
 #: broadly takes the good take instead of the fluffed one and still leaves a
 #: film that plays. Only this tail tells them apart.
 KEEPER_PHRASE = "names a word in the transcript"
+
+#: The two phrases above, as the scoring parameter they really are. A run over
+#: real footage declares its own pair in a `--phrases` JSON file, and a run
+#: that declares none gets `None` on both brief checks — *unsettled*, never a
+#: pass and never a failure, because "nobody said which line was the fluff" is
+#: not evidence that the fluff survived. Persisted into the run directory, so
+#: `--score-only` months later scores against the pair the run was scored with
+#: rather than against whatever this file says today.
+DEMO_PHRASES = {"remove": RETAKE_PHRASE, "keep": KEEPER_PHRASE}
+
+#: How many registered clips the demo brief's three files should produce. It
+#: is a parameter because a real folder is not three files and an agent is not
+#: obliged to import all of it: over real material the floor is what the
+#: generic checks need to mean anything — a narration clip to ask the phrase
+#: checks about, and a second asset for `picture_hung` to see.
+DEMO_MIN_CLIPS = 3
+SOURCE_MIN_CLIPS = 2
 
 
 # ---------------------------------------------------------------- preparing
@@ -182,7 +217,45 @@ def hold_lock(work: Path) -> Path:
     return lock
 
 
-def prepare(work: Path, *, fresh: bool) -> tuple[Path, Path]:
+def check_source(source: Path) -> list[Path]:
+    """Refuse a `--source` that is not a folder of usable material.
+
+    Three refusals, and the middle one is the point. An empty or missing
+    directory is an obvious typo. A directory that is itself a **lucid
+    project** is not: it is the plausible mistake — the trial is described as
+    running "on a copy of a real project", and the nearest reading of that is
+    to hand it the project. That run would spend an agent and a render before
+    reporting that the material was nowhere, and the surrounding rule is
+    sharper than convenience: this harness points at real *material*, never at
+    real authored state. The third is the emptiness this cannot see past —
+    a filename filter, `list_media`'s own rule, since `import_media` is still
+    what decides whether a file is usable.
+    """
+    if not source.is_dir():
+        raise TrialError(f"--source is not a directory: {source}")
+    # The two names come from `project.py` rather than being retyped: the
+    # first draft of this guard looked for `manifest.json` and would have
+    # waved every real lucid project straight through, since the manifest is
+    # `lucid.json` and `*.manifest.json` is the snapshot suffix.
+    if any((source / name).exists() for name in (MANIFEST_NAME, TIMELINE_NAME)):
+        raise TrialError(
+            f"--source names a lucid project, not a media folder: {source}. This "
+            "harness starts at `lucid init` and imports from a source directory — "
+            "point it at the footage (a copy), never at authored state."
+        )
+    found = sorted(
+        child for child in source.iterdir()
+        if child.is_file() and child.suffix.lower() in lucid_media.SOURCE_MEDIA_EXTENSIONS
+    )
+    if not found:
+        raise TrialError(
+            f"no media in --source {source} "
+            f"(looked for {sorted(lucid_media.SOURCE_MEDIA_EXTENSIONS)})"
+        )
+    return found
+
+
+def prepare(work: Path, *, fresh: bool, source: Path | None = None) -> tuple[Path, Path]:
     """Generate the footage and an empty project. Returns (media dir, project).
 
     `fresh` removes an existing project so a re-run is not scored against a
@@ -190,14 +263,25 @@ def prepare(work: Path, *, fresh: bool) -> tuple[Path, Path]:
     The media is left alone when it is already there: it is deterministic and
     slow-ish to build, and nothing the agent does can modify it (import links
     media in place, and lucid never writes to a source).
+
+    `source` is real footage, and then nothing is generated at all: the media
+    directory is somebody else's, this function neither writes into it nor
+    removes anything from it, and `fresh` still governs only `work/proj`. That
+    asymmetry is deliberate — the demo media is this harness's own and can be
+    rebuilt from `make_demo`; real material cannot.
     """
-    media = work
-    media.mkdir(parents=True, exist_ok=True)
-    vo = media / "vo.wav"
-    if not vo.exists():
-        make_demo.make_voiceover(vo)
-    if not all((media / name).exists() for name, _c, _l in make_demo.BROLL):
-        make_demo.make_broll(media)
+    if source is not None:
+        check_source(source)
+        work.mkdir(parents=True, exist_ok=True)
+        media = source
+    else:
+        media = work
+        media.mkdir(parents=True, exist_ok=True)
+        vo = media / "vo.wav"
+        if not vo.exists():
+            make_demo.make_voiceover(vo)
+        if not all((media / name).exists() for name, _c, _l in make_demo.BROLL):
+            make_demo.make_broll(media)
 
     project = work / "proj"
     if project.exists() and fresh:
@@ -537,7 +621,13 @@ def evidence_from_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
     return {"outputs": outputs, "burns": burns}
 
 
-def score(project: Path, evidence: dict[str, Any]) -> dict[str, Any]:
+def score(
+    project: Path,
+    evidence: dict[str, Any],
+    *,
+    phrases: dict[str, str] | None = None,
+    min_clips: int = DEMO_MIN_CLIPS,
+) -> dict[str, Any]:
     """Score the finished project against the checks the shipped film trusts.
 
     Two groups, and the split matters. The *generic* checks (a render exists,
@@ -547,7 +637,14 @@ def score(project: Path, evidence: dict[str, Any]) -> dict[str, Any]:
     still there, picture hung, captions burned — and they resolve phrases
     against whatever whisper actually heard, never against word indices, which
     two transcription runs do not agree on.
+
+    `phrases` and `min_clips` are the only two things a different brief moves,
+    which is why they are arguments and the rest is not: a real-footage run is
+    the same instrument over different material, and a second scoring function
+    would be a second opinion about what a finished cut is. Both default to
+    the demo's, so every run scored before they existed re-scores identically.
     """
+    phrases = DEMO_PHRASES if phrases is None else phrases
     checks: list[dict[str, Any]] = []
     facts: dict[str, Any] = {}
 
@@ -572,7 +669,8 @@ def score(project: Path, evidence: dict[str, Any]) -> dict[str, Any]:
     clips = list(assets.get("clips") or []) if isinstance(assets, dict) else []
     facts["clips"] = [c.get("clip_id") for c in clips]
     checks.append(
-        _check("media_imported", len(clips) >= 3, f"{len(clips)} clips: {facts['clips']}")
+        _check("media_imported", len(clips) >= min_clips,
+               f"{len(clips)} clips (wanted {min_clips}+): {facts['clips']}")
     )
 
     # --- picture -----------------------------------------------------------
@@ -591,15 +689,22 @@ def score(project: Path, evidence: dict[str, Any]) -> dict[str, Any]:
         checks.append(_check("picture_hung", False, f"build_shots refused: {exc}"))
 
     # --- the brief's own two phrases ---------------------------------------
+    remove, keep = phrases.get("remove"), phrases.get("keep")
     vo = _voiceover_clip(project, clips)
-    if vo is None:
-        checks.append(_check("retake_removed", None, "no transcribed voiceover clip to ask about"))
-        checks.append(_check("good_take_kept", None, "no transcribed voiceover clip to ask about"))
-    else:
-        checks.append(_phrase_check(project, vo, RETAKE_PHRASE, want_present=False,
-                                    name="retake_removed"))
-        checks.append(_phrase_check(project, vo, KEEPER_PHRASE, want_present=True,
-                                    name="good_take_kept"))
+    for name, phrase, want_present in (
+        ("retake_removed", remove, False),
+        ("good_take_kept", keep, True),
+    ):
+        if not phrase:
+            # Undeclared is unsettled. A brief that never named the fluffed
+            # line has said nothing about whether it survived, and a `False`
+            # here would read in the report as the agent having left it in.
+            checks.append(_check(name, None, "no phrase declared for this run (--phrases)"))
+        elif vo is None:
+            checks.append(_check(name, None, "no transcribed voiceover clip to ask about"))
+        else:
+            checks.append(_phrase_check(project, vo, phrase, want_present=want_present,
+                                        name=name))
 
     # --- the render --------------------------------------------------------
     outputs = list(evidence.get("outputs") or [])
@@ -869,6 +974,8 @@ def write_report(run_dir: Path, run: dict[str, Any], analysis: dict[str, Any] | 
         ]
     else:
         lines.append(f"- {run['wall_seconds']}s wall, no agent — `docs/DEMO.md`'s own commands")
+    if run.get("material"):
+        lines.append(f"- material: `{run['material']}`")
     lines += [
         f"- score: {passed} passed, {len(failed)} failed, {len(unknown)} unsettled",
         "",
@@ -913,6 +1020,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("work", help="the work directory (media, project and runs live here)")
     parser.add_argument("--brief-file", help="a brief to use instead of the built-in one")
+    parser.add_argument("--source", help="a directory of real footage to edit instead of "
+                        "generated demo media (requires --brief-file)")
+    parser.add_argument("--phrases", metavar="FILE",
+                        help='JSON {"remove": "...", "keep": "..."} — the two lines the '
+                        "brief's own checks ask about; unset leaves both unsettled")
     parser.add_argument("--output", help="where the agent is told to render (default <work>/cut.mp4)")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--model", default=None, help="pin the model (default: whatever claude picks)")
@@ -928,6 +1040,21 @@ def main(argv: list[str] | None = None) -> int:
 
     work = Path(args.work).expanduser().resolve()
     output = Path(args.output).expanduser() if args.output else work / "cut.mp4"
+    source = Path(args.source).expanduser().resolve() if args.source else None
+
+    # Both refusals are before anything is generated, spawned or removed.
+    if source is not None and not args.brief_file:
+        parser.error(
+            "--source needs --brief-file: the built-in brief names three demo files and "
+            "a fluffed take that real material does not have, and an agent handed a brief "
+            "about footage it cannot see is measuring the brief."
+        )
+    if source is not None and args.control:
+        parser.error(
+            "--control is `docs/DEMO.md`'s own walkthrough over the demo footage, so it "
+            "cannot meet a brief about other material. Score a real-footage run against "
+            "the demo control, or write a scripted control for that brief."
+        )
 
     if args.score_only:
         run_dir = Path(args.score_only).expanduser().resolve()
@@ -946,16 +1073,27 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(run, dict):
             run = {"returncode": None, "timed_out": False, "wall_seconds": None,
                    "undecodable_lines": 0, "stderr_tail": ""}
+        # The run's own scoring parameters, not this file's defaults: a
+        # re-score months later must answer the question the run was scored on.
+        # Absent for every run made before they existed, and those were all
+        # demo runs, which is exactly what the defaults are.
+        params = _safe(lambda: json.loads((run_dir / "scoring.json").read_text(encoding="utf-8")))
+        params = params if isinstance(params, dict) and "error" not in params else {}
         analysis = analyse(events)
-        scored = score(work / "proj", evidence_from_analysis(analysis))
+        scored = score(
+            work / "proj",
+            evidence_from_analysis(analysis),
+            phrases=params.get("phrases"),
+            min_clips=params.get("min_clips", DEMO_MIN_CLIPS),
+        )
         report = write_report(run_dir, run, analysis, scored, (run_dir / "brief.txt").read_text())
         print(f"\n{report}")
         return 0
 
     lock = hold_lock(work)
     try:
-        media, project = prepare(work, fresh=not args.keep_project)
-        print(f"media   -> {media}")
+        media, project = prepare(work, fresh=not args.keep_project, source=source)
+        print(f"media   -> {media}" + ("  (real footage, not generated)" if source else ""))
         print(f"project -> {project}")
         if args.prepare_only:
             return 0
@@ -966,6 +1104,13 @@ def main(argv: list[str] | None = None) -> int:
             else DEMO_BRIEF.format(media=media, project=project, output=output)
         )
 
+        phrases = (
+            json.loads(Path(args.phrases).expanduser().read_text(encoding="utf-8"))
+            if args.phrases
+            else (None if source is not None else DEMO_PHRASES)
+        )
+        min_clips = SOURCE_MIN_CLIPS if source is not None else DEMO_MIN_CLIPS
+
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         run_dir = work / "runs" / (f"control-{stamp}" if args.control else stamp)
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -975,6 +1120,11 @@ def main(argv: list[str] | None = None) -> int:
                 "started": datetime.now(UTC).isoformat(),
                 "run_dir": str(run_dir),
             }),
+            encoding="utf-8",
+        )
+        (run_dir / "scoring.json").write_text(
+            json.dumps({"phrases": phrases, "min_clips": min_clips, "material": str(media)},
+                       indent=2),
             encoding="utf-8",
         )
         print(f"run     -> {run_dir}\n")
@@ -991,7 +1141,8 @@ def main(argv: list[str] | None = None) -> int:
                             model=args.model, budget_usd=args.budget_usd)
             analysis = analyse(run["events"])
             evidence = evidence_from_analysis(analysis)
-        scored = score(project, evidence)
+        run["material"] = str(media)
+        scored = score(project, evidence, phrases=phrases, min_clips=min_clips)
         report = write_report(run_dir, run, analysis, scored, brief)
         print(f"\n{report}")
         failed = [c["check"] for c in scored["checks"] if c["ok"] is False]
