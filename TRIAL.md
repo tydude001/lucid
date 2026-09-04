@@ -383,7 +383,7 @@ audio across a source-second span. The suspect-duration report already says
 the workaround worked, and a tool that reads source audio is a second answer to
 "what is in this clip" beside the transcript — so it must report, never attach.
 
-#### 2. `finish_report` can never confirm a burn for an agent, because nothing outside the web UI writes the render log
+#### 2. `finish_report` can never confirm a burn for an agent, because nothing outside the web UI writes the render log — CLOSED 2026-09-04
 
 `finish_report` answers `captions.burned` off `renderlog.last`, and
 `renderlog.append` is called in exactly one place: `webui.py`. Every render made
@@ -398,6 +398,15 @@ Fix: either `ops.export`/`add_captions` write the same log the web UI's pipeline
 writes, or `finish_report` stops claiming to answer for clients that cannot
 produce evidence. The first is the smaller change and makes the field mean
 something everywhere; the second is honest and cheaper. Decide before building.
+
+**Decided and built: the first.** A media render logs itself from `ops.export`,
+and a burn continues that run from `ops.add_captions` — two calls minutes apart
+are one render, so the burn carries the export's stages onto a new line rather
+than opening a second run that would hide it (`renderlog.amend`). The web UI
+passes `log=False` to both, since its pipeline still appends the whole run
+itself and a second record would leave `renderlog.last` reading a prefix of the
+run. An export not yet burned still reads `"unknown"`, which is the honest
+answer to a question with no result yet rather than a residue of this gap.
 
 #### 3. `speech_overlap` is the only tool shaped like "does this footage have talking in it", and it requires a transcript
 

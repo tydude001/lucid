@@ -879,7 +879,12 @@ absent optional capability is "unavailable", never a failure, and never moves
     server. The window still plays the *project* everywhere else; this is the
     single place it plays an artifact, and widening it is a new decision.
     PLAN.md § Open questions, *Should the workspace play its own output*.
-    HISTORY.md § The window plays its own render.
+    HISTORY.md § The window plays its own render. **That containment became
+    load-bearing on 2026-09-04**, when `ops.export` and `ops.add_captions`
+    became writers of the log as well (renderlog.py § two writers): both take
+    an output path from their caller, so the log can now name a file outside
+    the project, and the `relative_to(root)` check is what refuses to stream
+    it rather than a second belt on the same braces.
   - **A thumbnail is a preview artifact and keeps the same containment rather
     than adding a caller to it.** `ops.thumbnail` never enters the manifest
     and never calls `preview_path()` — it resolves media through

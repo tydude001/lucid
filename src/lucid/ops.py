@@ -12182,6 +12182,37 @@ def _render_single(
     return destination, extra
 
 
+def _log_render(
+    project: Project,
+    *,
+    output: str,
+    preset: str | None,
+    stages: dict[str, dict[str, Any]],
+    continues: str | None = None,
+) -> None:
+    """Record a CLI/MCP render in the same log the web UI's pipeline writes.
+
+    The web UI knows a whole run at once and calls `renderlog.append` itself;
+    these two ops are each one stage of a render an agent assembles by hand,
+    so they `amend` (renderlog.py's own note on the two writers). Called only
+    after the stage actually succeeded — a stage that raised has no outcome to
+    record here, and the caller's exception is the report.
+
+    `expected_duration` is read now rather than passed in: it is "what the
+    project claims its own finished length is", the number `check_frames` and
+    `verify` measure a render against, and it is read at the same point in the
+    render the web UI reads it.
+    """
+    renderlog.amend(
+        project,
+        output=output,
+        preset=preset,
+        expected_duration=status(str(project.root))["expected_duration"],
+        stages=stages,
+        continues=continues,
+    )
+
+
 def export(
     path: Path | str,
     output: Path | str,
@@ -12190,6 +12221,7 @@ def export(
     fps: float | None = None,
     preset: str | None = None,
     resolution: tuple[int, int] | None = None,
+    log: bool = True,
 ) -> dict[str, Any]:
     """Map the timeline to auto-editor v3 and render or export it.
 
@@ -12250,6 +12282,15 @@ def export(
     checked against the exit code proving nothing, same discipline as the
     melt path — and is `None` with a `"notes"` entry on an audio-only render,
     where a requested resolution has nothing to apply to.
+
+    **A media render records itself in the render log** (`renderlog`), so
+    `finish_report` can answer `captions.burned` for a render made from the
+    CLI or the MCP server rather than reporting `"unknown"` on every one of
+    them. `log=False` is for the web UI's `RenderJob`, which runs this as one
+    stage of a pipeline it logs whole itself — two records of the same render
+    would leave `last` reading a prefix of the run instead of the run. An NLE
+    export writes nothing either way: there is no render to have burned
+    anything into.
     """
     if (preset is not None or resolution is not None) and export_format is not None:
         raise ProjectError(
@@ -12279,7 +12320,7 @@ def export(
                 "if you need a specific resolution, or drop `resolution` and "
                 "export at the project's own picture size."
             )
-        return _export_mlt(
+        reply = _export_mlt(
             project,
             edit,
             output,
@@ -12288,6 +12329,14 @@ def export(
             preset=preset,
             consumer_args=_melt_consumer_args(bundle),
         )
+        if export_format is None and log:
+            _log_render(
+                project,
+                output=reply["output"],
+                preset=preset,
+                stages={"export": {"outcome": "done", "detail": None}},
+            )
+        return reply
 
     primary = clips[edit.segments[0].clip_id]
     header = autoeditor.template(media.media_path(project, primary))
@@ -12325,7 +12374,7 @@ def export(
         render_args=render_args,
         resolution=resolution if export_format is None else None,
     )
-    return {
+    reply = {
         "output": str(written),
         "format": export_format or "media",
         "writer": "auto-editor",
@@ -12339,6 +12388,14 @@ def export(
         "preset": preset,
         **extra,
     }
+    if export_format is None and log:
+        _log_render(
+            project,
+            output=reply["output"],
+            preset=preset,
+            stages={"export": {"outcome": "done", "detail": None}},
+        )
+    return reply
 
 
 def _transcripts_for(project: Project, clip_id: str | None) -> dict[str, tx.Transcript]:
@@ -13076,6 +13133,7 @@ def add_captions(
     hold: float | None = None,
     burn: Path | str | None = None,
     burn_output: Path | str | None = None,
+    log: bool = True,
 ) -> dict[str, Any]:
     """Write word-timed ASS captions for the current timeline.
 
@@ -13083,6 +13141,13 @@ def add_captions(
     through the accumulated edit, and words that have been cut do not appear.
     The count that did is reported as `words_cut`, so a missing sentence can be
     told apart from a bug.
+
+    **A burn records itself in the render log** (`renderlog`), continuing the
+    run `export` opened for the file it burned onto, so `finish_report` can
+    say `captions.burned: "yes"` for a film an agent rendered and captioned
+    through the CLI or the MCP server. `log=False` is the web UI's, which logs
+    its pipeline whole. Writing the `.ass` alone logs nothing: no render
+    happened, so there is nothing a burn could be true of.
 
     The look comes from the project (`caption_style`), not from this call.
     `preset` and the four grouping numbers still override it for a one-off
@@ -13159,6 +13224,17 @@ def add_captions(
             else project.render_dir / f"{source.stem}-captioned{source.suffix}"
         )
         result["burned"] = str(captions.burn(source, destination, target))
+        if log:
+            # `continues=source`: the file just burned onto is the render this
+            # burn belongs to, so when `export` logged that same path this
+            # carries its stages forward instead of opening a second run.
+            _log_render(
+                project,
+                output=result["burned"],
+                preset=None,
+                stages={"burn": {"outcome": "done", "detail": None}},
+                continues=str(source),
+            )
 
     return result
 

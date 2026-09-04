@@ -2271,7 +2271,12 @@ def test_sending_the_same_model_again_reuses_the_live_subprocess(
 
 
 def _fast_export_stub(
-    path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+    path: str,
+    output: str,
+    *,
+    export_format: str | None = None,
+    fps: float | None = None,
+    log: bool = True,
 ) -> dict[str, Any]:
     _make_wav(Path(output), duration=0.3)
     return {
@@ -2365,7 +2370,14 @@ def test_a_second_render_while_one_is_running_is_refused(
     gate = threading.Event()
 
     def _stub(
-        path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+        path: str,
+        output: str,
+        *,
+        export_format: str | None = None,
+        fps: float | None = None,
+        # The pipeline passes `log=False`: it appends the whole run to
+        # `renderlog` itself, so `export`'s own record would be a prefix of it.
+        log: bool = True,
     ) -> dict[str, Any]:
         _make_wav(Path(output), duration=0.2)
         gate.wait(timeout=5)
@@ -2389,7 +2401,14 @@ def test_render_stop_deletes_the_partial_output_and_reports_cancelled(
     gate = threading.Event()
 
     def _stub(
-        path: str, output: str, *, export_format: str | None = None, fps: float | None = None
+        path: str,
+        output: str,
+        *,
+        export_format: str | None = None,
+        fps: float | None = None,
+        # The pipeline passes `log=False`: it appends the whole run to
+        # `renderlog` itself, so `export`'s own record would be a prefix of it.
+        log: bool = True,
     ) -> dict[str, Any]:
         _make_wav(Path(output), duration=0.2)
         gate.wait(timeout=5)
@@ -2477,6 +2496,7 @@ def _fast_export_stub_with_preset(
     fps: float | None = None,
     preset: str | None = None,
     resolution: tuple[int, int] | None = None,
+    log: bool = True,
 ) -> dict[str, Any]:
     _make_wav(Path(output), duration=0.3)
     return {

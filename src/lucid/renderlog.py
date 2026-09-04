@@ -10,12 +10,21 @@ captions in" without re-running or re-parsing anything — docs/plans/STUDIO.md 
 is explicit that an absent log is a warning (`captions.burned == "unknown"`),
 never an error and never a reason to guess.
 
-One line is one whole `RenderJob` run (`webui.py`): which stages were
-attempted, what each one's outcome was, and the output path/preset/expected
-duration at the time. `append` is the only writer; `last`/`all_runs` are the
-only readers. Nothing here parses the render pipeline's own stage logic —
-this module only serializes and deserializes what the caller already decided
-happened.
+One line is one whole run: which stages were attempted, what each one's
+outcome was, and the output path/preset/expected duration at the time.
+Nothing here parses the render pipeline's own stage logic — this module only
+serializes and deserializes what the caller already decided happened.
+
+**There are two writers, because there are two shapes of render.** The web
+UI's `RenderJob` runs the whole pipeline itself and knows the whole run at
+once, so it calls `append`. The CLI and the MCP server have no pipeline —
+an agent renders with `export` and then burns with `add_captions`, two
+separate calls minutes apart — so those two ops call `amend`, which carries
+the earlier stages of the same render forward onto a new line rather than
+starting a second run that would hide the first. Until 2026-09-04 neither
+wrote anything at all, and `finish_report` answered `captions.burned` with
+`"unknown"` for two of lucid's three clients on films whose captions were
+demonstrably burned in (TRIAL.md § 2).
 """
 
 from __future__ import annotations
@@ -52,6 +61,53 @@ def append(
     }
     with project.renders_log_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, default=str) + "\n")
+
+
+def amend(
+    project: Project,
+    *,
+    output: str,
+    preset: str | None,
+    expected_duration: float,
+    stages: dict[str, dict[str, Any]],
+    continues: str | None = None,
+) -> None:
+    """Append a run that carries the last one's stages forward, when it is the same render.
+
+    `continues` is the file the new stage consumed — `add_captions(burn=X)`
+    passes `X`. When it matches the last run's `output`, this is a later stage
+    of *that* render and its stages are merged onto the new line; otherwise
+    this is a new render and only `stages` is written.
+
+    The file stays append-only — a merge is a new line, not an edit — because
+    `last` reads from the end and a superseding line is what it will find. The
+    superseded line is left in place for `all_runs`, which is how a render that
+    was burned twice still shows both attempts.
+
+    The stage dicts themselves are never merged: a stage present in `stages`
+    replaces the earlier one wholesale, since a second burn onto the same
+    export is a new answer to the same question, not an addition to the old
+    one.
+    """
+    carried: dict[str, dict[str, Any]] = {}
+    if continues is not None:
+        previous = last(project)
+        if previous is not None and previous.get("output") == continues:
+            carried = dict(previous.get("stages") or {})
+            # The preset is the export's property, and a later stage of the
+            # same render does not know it — `add_captions` has no preset of
+            # its own to pass. Carry the earlier one rather than writing null
+            # over it, which would make the burn look like an unpresetted
+            # render of its own.
+            if preset is None:
+                preset = previous.get("preset")
+    append(
+        project,
+        output=output,
+        preset=preset,
+        expected_duration=expected_duration,
+        stages={**carried, **stages},
+    )
 
 
 def last(project: Project) -> dict[str, Any] | None:

@@ -1295,7 +1295,16 @@ class RenderJob:
         if resolution is not None:
             export_kwargs["resolution"] = resolution
         try:
-            ops.export(str(self.project_root), str(output), export_format=None, **export_kwargs)
+            # `log=False` on both calls here: this pipeline appends the whole
+            # run itself, at every exit path, and the two ops learned to log
+            # for the clients that have no pipeline (renderlog.py § two
+            # writers). Letting them also log would leave `renderlog.last`
+            # reading a prefix of this run — an export with no burn stage —
+            # instead of the run.
+            ops.export(
+                str(self.project_root), str(output), export_format=None, log=False,
+                **export_kwargs,
+            )
         except EXPECTED as exc:
             self._finish()
             if cancel.is_set():
@@ -1333,7 +1342,8 @@ class RenderJob:
                 # wrote — never the untrimmed source (CLAUDE.md: burning onto
                 # the source lines captions up against audio that has moved).
                 result = ops.add_captions(
-                    str(self.project_root), str(output.with_suffix(".ass")), burn=str(output)
+                    str(self.project_root), str(output.with_suffix(".ass")),
+                    burn=str(output), log=False,
                 )
             except EXPECTED as exc:
                 self._finish()
