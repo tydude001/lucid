@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from lucid import autoeditor, captions, ops, renderlog
 from lucid import timeline as tl
 from lucid import transcript as tx
