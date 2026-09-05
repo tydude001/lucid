@@ -433,6 +433,45 @@ def transcribe(
 
 
 @_tool()
+def hear(
+    path: str | None = None,
+    *,
+    clip_id: str,
+    start: float,
+    end: float,
+    model: str = asr.WINDOWED_MODEL,
+    language: str | None = None,
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
+) -> dict[str, Any]:
+    """What does `clip_id`'s source audio actually say between `start` and `end`?
+
+    Use this when the transcript and the audio might disagree — a word with a
+    suspect duration, a hole with no words in it, a stretch that reads clean
+    but sounds wrong. It runs the same short-overlapping-window pass
+    `verify(windowed=True)` runs, over the clip's own media across the span
+    (source seconds), and comes back with `heard_words`/`heard_text` beside
+    the attached transcript's own words over that span (`transcript_words`).
+    No need to seed, export and verify to hear your source material.
+
+    **Reports, never attaches** — nothing is written and no word index moves.
+    Where the two disagree, `cut_by_time` addresses what the transcript has
+    no word for. `heard_words` can be empty: silence is a real answer. One
+    whisper run over the span; `end` past the clip is refused.
+    """
+    return ops.hear(
+        path,
+        clip_id,
+        start=start,
+        end=end,
+        model=model,
+        language=language,
+        window=window,
+        overlap=overlap,
+    )
+
+
+@_tool()
 def get_transcript(
     path: str | None = None,
     *,
@@ -2897,6 +2936,7 @@ def speech_overlap(
     max_gap: float = 0.3,
     min_seam: float = 0.5,
     cap: float = energy.CAP,
+    clip_evidence: str = "auto",
 ) -> dict[str, Any]:
     """Does a proposed placement of `clip_id` overlap the VO's speech?
 
@@ -2917,6 +2957,14 @@ def speech_overlap(
     clean seam to duck into. `clean_seams` (>= `min_seam` wide) are the
     windows where `clip_id` could speak without touching the VO. Read-only —
     nothing is written, and there is no `plan=`.
+
+    `clip_id` need not have a transcript. Without one the clip side is its
+    energy envelope — runs of sound, reported as sound rather than speech (a
+    sting or a swell counts too) — and `clip_evidence` in the result says
+    "energy" so the reading is not mistaken for a word-level one. Pass
+    `clip_evidence="transcript"` to refuse instead, or `"energy"` to force the
+    envelope on a clip that has a transcript. The VO always needs its
+    transcript.
     """
     return ops.speech_overlap(
         path,
@@ -2928,6 +2976,7 @@ def speech_overlap(
         max_gap=max_gap,
         min_seam=min_seam,
         cap=cap,
+        clip_evidence=clip_evidence,
     )
 
 

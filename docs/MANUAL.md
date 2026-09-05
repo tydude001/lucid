@@ -163,6 +163,15 @@ lucid unspoken ls                            # what is marked, and what went sta
 `detect` takes its candidates from a seam and from a word a cut left a sliver
 of, then asks the render's own transcription which of them nobody said.
 
+When the transcript and the audio might disagree — a suspect duration, a hole
+with no words in it — `hear` reads the source itself across a span, with the
+same short-overlapping-window pass `verify --windowed` uses, and reports what
+it heard beside what the transcript says there. It attaches nothing:
+
+```sh
+lucid hear vo --from 1:02 --to 1:14           # heard_text beside transcript_text
+```
+
 ## Speaker attribution
 
 A co-hosted recording captured on one mic per speaker can have each word
@@ -359,6 +368,12 @@ are:
 ```sh
 lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
 ```
+
+The clip need not have a transcript. Without one its side is read off its
+energy envelope — runs of *sound*, which a sting or a scored swell clears too —
+and the result says `clip_evidence: energy` so the reading is not mistaken for
+a word-level one. `--evidence transcript` refuses instead and names
+`transcribe` as the route to words; the VO side always needs its transcript.
 
 ## Cards, cues and tails
 

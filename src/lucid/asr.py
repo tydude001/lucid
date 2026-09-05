@@ -350,12 +350,29 @@ def transcribe_windowed(
     overlap: float = OVERLAP,
     model: str = WINDOWED_MODEL,
     language: str | None = None,
+    start: float = 0.0,
+    end: float | None = None,
+    allow_silence: bool = False,
 ) -> dict[str, Any]:
     """Transcribe `media` in short overlapping windows, stamped back to absolute time.
 
     Returns the same shape `transcribe` does — a whisper payload `parse_whisper`
     accepts — plus a `windows` count, so a caller can report how the pass was
     run without a second return value.
+
+    `start`/`end` confine the pass to a span of the source, in source seconds;
+    the windows are laid across that span and every word still comes back
+    stamped in the file's own clock, so a caller asking about `[t1, t2)` reads
+    the answer against the same numbers it asked with. The whole file is still
+    decoded once (`_to_mono_wav`) — a span is sliced out of that decode the way
+    every window is, not seeked in ffmpeg — because the decode is the cheap
+    part and one code path for the slicing is one set of edge cases. `end`
+    past the audio is refused rather than clamped: a caller that asked about
+    seconds that do not exist should hear so, not get a shorter answer.
+
+    `allow_silence=True` returns an empty `words` list where the default raises:
+    `verify` wants a render with no speech to fail loudly, but a tool asking
+    *what is said here* has "nothing" as a legitimate answer.
 
     The whole slice set goes to whisper in **one** invocation. The binary takes
     `nargs="+"` audio paths and loads the model once for all of them, which is
@@ -376,7 +393,20 @@ def transcribe_windowed(
         scratch = Path(tmp)
         mono = scratch / "mono.wav"
         duration = _to_mono_wav(source, mono)
-        windows = plan_windows(duration, window=window, overlap=overlap)
+        if start < 0:
+            raise ASRError(f"start must be at least 0, got {start}")
+        stop = duration if end is None else float(end)
+        if stop <= start:
+            raise ASRError(f"span {start:.3f}-{stop:.3f}s is empty or backwards")
+        if stop > duration + 0.01:
+            raise ASRError(
+                f"span ends at {stop:.3f}s but {source.name} is {duration:.3f}s long"
+            )
+        stop = min(stop, duration)
+        windows = [
+            (a + start, b + start)
+            for a, b in plan_windows(stop - start, window=window, overlap=overlap)
+        ]
         parts = _slice(mono, windows, scratch)
 
         out = scratch / "json"
@@ -414,20 +444,20 @@ def transcribe_windowed(
 
         heard: list[list[dict[str, Any]]] = []
         languages: Counter[str] = Counter()
-        for part, (start, _) in zip(parts, windows, strict=True):
+        for part, (w_start, _) in zip(parts, windows, strict=True):
             written = out / f"{part.stem}.json"
             if not written.exists():
                 raise ASRError(
                     f"whisper exited cleanly but wrote no {written.name} for the "
-                    f"window at {start:.1f}s"
+                    f"window at {w_start:.1f}s"
                 )
             payload = json.loads(written.read_text(encoding="utf-8"))
             if payload.get("language"):
                 languages[payload["language"]] += 1
-            heard.append(_absolute(payload, start))
+            heard.append(_absolute(payload, w_start))
 
     words, hallucinated = clean(_reconcile(windows, heard))
-    if not words:
+    if not words and not allow_silence:
         raise ASRError(
             f"whisper heard no speech in any of the {len(windows)} windows of "
             f"{source.name}."
@@ -436,6 +466,8 @@ def transcribe_windowed(
         "language": languages.most_common(1)[0][0] if languages else None,
         "words": words,
         "windows": len(windows),
+        "start": start,
+        "end": stop,
         # A window that came back empty is either real silence or the pass
         # failing on that stretch, and the caller cannot tell which from the
         # word list alone — so a clean-looking windowed result carries its own

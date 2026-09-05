@@ -296,6 +296,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_transcribe.add_argument("--language", help="force a language instead of detecting one")
 
+    p_hear = sub.add_parser(
+        "hear",
+        help="what the source audio actually says across a span — a windowed reading, never attached",
+    )
+    p_hear.add_argument("clip_id")
+    p_hear.add_argument("--from", dest="start", type=_parse_timecode, required=True, help="span start, source time")
+    p_hear.add_argument("--to", dest="end", type=_parse_timecode, required=True, help="span end, source time")
+    p_hear.add_argument(
+        "--model", default=asr.WINDOWED_MODEL, help=f"whisper model ({asr.WINDOWED_MODEL}, the windowed pass's own)"
+    )
+    p_hear.add_argument("--language", help="force a language instead of detecting one per window")
+    p_hear.add_argument("--window", type=float, default=asr.WINDOW, help=f"window length in seconds ({asr.WINDOW})")
+    p_hear.add_argument("--overlap", type=float, default=asr.OVERLAP, help=f"window overlap in seconds ({asr.OVERLAP})")
+
     p_tx = sub.add_parser("transcript", help="read a clip's transcript")
     p_tx.add_argument("clip_id")
     p_tx.add_argument("--first", type=int, help="first word index (inclusive)")
@@ -1872,6 +1886,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="narrowest clean seam worth reporting (0.5s)",
     )
     p_speech.add_argument(
+        "--evidence",
+        dest="clip_evidence",
+        choices=("auto", "transcript", "energy"),
+        default="auto",
+        help="the clip side's evidence: its transcript, its energy envelope, or whichever exists (auto)",
+    )
+    p_speech.add_argument(
         "--cap",
         type=float,
         default=energy.CAP,
@@ -1991,6 +2012,21 @@ def _cmd_attach_transcript(args: argparse.Namespace) -> int:
 def _cmd_transcribe(args: argparse.Namespace) -> int:
     return _emit(
         ops.transcribe(args.project, args.clip_id, model=args.model, language=args.language)
+    )
+
+
+def _cmd_hear(args: argparse.Namespace) -> int:
+    return _emit(
+        ops.hear(
+            args.project,
+            args.clip_id,
+            start=args.start,
+            end=args.end,
+            model=args.model,
+            language=args.language,
+            window=args.window,
+            overlap=args.overlap,
+        )
     )
 
 
@@ -2812,6 +2848,7 @@ def _cmd_speech_overlap(args: argparse.Namespace) -> int:
             max_gap=args.max_gap,
             min_seam=args.min_seam,
             cap=args.cap,
+            clip_evidence=args.clip_evidence,
         )
     )
 
@@ -2886,6 +2923,7 @@ _COMMANDS = {
     "list-media": _cmd_list_media,
     "attach-transcript": _cmd_attach_transcript,
     "transcribe": _cmd_transcribe,
+    "hear": _cmd_hear,
     "transcript": _cmd_transcript,
     "transcript-checks": _cmd_transcript_checks,
     "resolve": _cmd_resolve,

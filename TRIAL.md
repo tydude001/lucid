@@ -364,9 +364,10 @@ one is a run whose result means less.
 
 ### The queue — three gaps, each with the evidence that found it
 
-**All three are open.** Status, as ever, is the wiki's.
+**All three are closed** — item 2 on 2026-09-04, items 1 and 3 on 2026-09-05.
+Status, as ever, is the wiki's.
 
-#### 1. No tool answers "what does the source audio actually say between t1 and t2"
+#### 1. No tool answers "what does the source audio actually say between t1 and t2" — CLOSED 2026-09-05
 
 The whole 5.5-minute middle of this run — three `transcribe` calls, a model
 escalation, an export and a `verify` — was the agent building itself an answer
@@ -382,6 +383,15 @@ audio across a source-second span. The suspect-duration report already says
 *where* to look; this says what is there. Note the honest counter-argument:
 the workaround worked, and a tool that reads source audio is a second answer to
 "what is in this clip" beside the transcript — so it must report, never attach.
+
+**Built: `hear`.** `asr.transcribe_windowed` took `start`/`end` (windows laid
+across the span, words stamped in the file's own clock, a span past the audio
+refused rather than clamped) and `allow_silence`, since "nothing is said here"
+is an answer to this question where `verify` treats it as a failure. `ops.hear`
+runs it over a registered clip's own media and hands back `heard_words` beside
+the attached transcript's words over the same span — reports, never attaches,
+so no word index moves. CLI `lucid hear clip --from 12 --to 20`, MCP `hear`.
+HISTORY.md § The trial's second queue.
 
 #### 2. `finish_report` can never confirm a burn for an agent, because nothing outside the web UI writes the render log — CLOSED 2026-09-04
 
@@ -408,7 +418,7 @@ itself and a second record would leave `renderlog.last` reading a prefix of the
 run. An export not yet burned still reads `"unknown"`, which is the honest
 answer to a question with no result yet rather than a residue of this gap.
 
-#### 3. `speech_overlap` is the only tool shaped like "does this footage have talking in it", and it requires a transcript
+#### 3. `speech_overlap` is the only tool shaped like "does this footage have talking in it", and it requires a transcript — CLOSED 2026-09-05
 
 The run's one refusal. The agent asked `speech_overlap` of a b-roll clip and
 got *"no transcript for 'scream1996-randy-rules'"* — correct, and beside the
@@ -421,6 +431,15 @@ Fix: this is the smallest of the three and may be a docstring rather than a
 tool — `speech_overlap`'s refusal could name what to run instead. Measure
 whether an energy-only answer (`energy.believable`'s machinery, no ASR) is good
 enough before adding a transcription step to a picture decision.
+
+**Measured, then built as a fallback.** `energy.sound_runs` thresholds a clip's
+envelope between its quiet and loud tenths with no word map; against a
+CPU-whisper transcript of this run's own two Scream 1996 clips it finds every
+speech run but reports sound, not speech — the numbers and the reading are in
+HISTORY.md § The trial's second queue. So `speech_overlap` now falls back to it
+when `clip_id` has no transcript, says `clip_evidence: "energy"` in the result,
+and its refusal (`clip_evidence="transcript"`) names `transcribe` as the
+word-level route. The VO side still needs its transcript.
 
 ### What this run still does not settle
 

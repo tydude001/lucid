@@ -332,6 +332,59 @@ def loud_gaps(
     }
 
 
+#: `sound_runs` has no word map to calibrate a speech level from, so it takes
+#: the loud tenth of the file as the level sound sits at. On footage that is
+#: mostly quiet with speech in it the two coincide; on footage under a music
+#: bed the loud tenth is the bed's peaks, and the threshold rises with it.
+LOUD_FRACTION = 0.9
+#: A run of loud frames shorter than this is a click or a consonant, not a
+#: stretch of sound worth reporting on its own; `speech.merge_runs` joins the
+#: survivors afterwards.
+MIN_RUN = 0.1
+
+
+def sound_runs(
+    env: Sequence[float],
+    *,
+    frame: float = FRAME,
+    threshold: float = THRESHOLD,
+    min_run: float = MIN_RUN,
+) -> dict[str, Any]:
+    """Where the audio holds *sound*, with no transcript to say what it is.
+
+    `loud_gaps` asks a sharper question — where does the audio hold sound the
+    transcript did not account for — and it can, because a word map tells it
+    what speech level to calibrate against. This has no map. It calibrates the
+    same way at the quiet end (the quiet tenth of the file) and takes the
+    **loud tenth** as the other anchor, then reports every run of frames over
+    the midpoint. That is sound, not speech: a music sting, a door, a scored
+    bed swell all clear it. Measured on the trial's own footage (HISTORY.md
+    § The trial's second queue) — read a run as *somewhere a voice could be*,
+    and reach for `transcribe` when the answer has to be words.
+    """
+    if not env:
+        raise EnergyError("no envelope to measure — the audio decoded to nothing")
+    ordered = sorted(_db(v) for v in env)
+    quiet_db = ordered[len(ordered) // 10]
+    loud_db = ordered[min(len(ordered) - 1, int(len(ordered) * LOUD_FRACTION))]
+    threshold_db = quiet_db + threshold * (loud_db - quiet_db)
+    loud = [_db(v) >= threshold_db for v in env]
+    runs = [
+        (round(a * frame, 3), round(b * frame, 3))
+        for a, b in _runs(loud, 0, len(env))
+        if (b - a) * frame >= min_run
+    ]
+    return {
+        "quiet_db": round(quiet_db, 1),
+        "loud_db": round(loud_db, 1),
+        "threshold_db": round(threshold_db, 1),
+        "min_run": min_run,
+        "sound_seconds": round(sum(b - a for a, b in runs), 3),
+        "duration": round(len(env) * frame, 3),
+        "runs": runs,
+    }
+
+
 def unaccounted_sound(media: Path | str, spans: Sequence[tuple[float, float]]) -> dict[str, Any]:
     """Decode `media` and report the gaps in `spans` that hold sound anyway."""
     return loud_gaps(spans, envelope(decode(media)))

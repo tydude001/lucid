@@ -382,6 +382,112 @@ def transcribe(
     }
 
 
+def hear(
+    path: Path | str,
+    clip_id: str,
+    *,
+    start: float,
+    end: float,
+    model: str = asr.WINDOWED_MODEL,
+    language: str | None = None,
+    window: float = asr.WINDOW,
+    overlap: float = asr.OVERLAP,
+) -> dict[str, Any]:
+    """What does `clip_id`'s source audio actually say between `start` and `end`?
+
+    The question the real-footage trial spent five minutes building its own
+    answer to (TRIAL.md § The queue, item 1): the transcript said the stretch
+    was clean, the word durations said something was hidden in it, and the
+    only route to *hearing* the source was to seed a timeline, export it and
+    `verify` the export. This is that route as one call — `asr.transcribe_
+    windowed` over the clip's own media across a source-second span, the
+    same pass `verify --windowed` runs, because the smaller model in short
+    overlapping windows is the one that does not tidy a retake away.
+
+    **Reports, never attaches.** A second reading of the same audio beside the
+    attached transcript is a second answer to "what is in this clip", and the
+    transcript is the one every cut is addressed against — so this writes no
+    transcript, moves no word index, and hands back the attached transcript's
+    own words over the same span (`transcript_words`) so the two can be read
+    side by side. When they disagree, `cut_by_time` addresses what the
+    transcript has no word for.
+
+    `heard_words` may be empty: silence is a real answer here, where `verify`
+    treats it as a failure. `end` past the clip is refused, not clamped.
+    Costs one whisper run over ~1.4x the span; on a long clip the whole file
+    is still decoded once first.
+    """
+    project = Project.open(path)
+    clip = media.get_clip(project, clip_id)
+    source = media.media_path(project, clip)
+    start, end = float(start), float(end)
+    if start < 0:
+        raise tl.TimelineError(f"start={start:.3f} is negative")
+    if end <= start:
+        raise tl.TimelineError(f"span {start:.3f}-{end:.3f} is empty or backwards")
+    duration = clip.get("duration")
+    if duration is not None and end > float(duration) + 0.01:
+        raise tl.TimelineError(
+            f"span ends at {end:.3f}s but {clip_id!r} is {float(duration):.3f}s long"
+        )
+    payload = asr.transcribe_windowed(
+        source,
+        window=window,
+        overlap=overlap,
+        model=model,
+        language=language,
+        start=start,
+        end=end,
+        allow_silence=True,
+    )
+    heard = [
+        {
+            "index": i,
+            "text": (w.get("word") or "").strip(),
+            "start": w["start"],
+            "end": w["end"],
+        }
+        for i, w in enumerate(payload["words"])
+    ]
+
+    cached = project.transcript_path(clip_id)
+    attached: list[dict[str, Any]] | None = None
+    if cached.exists():
+        parsed = tx.load(cached, clip_id=clip_id)
+        # Overlap, never containment — a word whose duration swallowed a
+        # retake spans past the window and is exactly the word to show.
+        attached = [
+            {"index": w.index, "text": w.text, "start": w.start, "end": w.end}
+            for w in parsed.words
+            if w.start < end and w.end > start
+        ]
+
+    return {
+        "clip_id": clip_id,
+        "source": str(source),
+        "start": start,
+        "end": payload["end"],
+        "model": model,
+        "language": payload.get("language") or language,
+        "window": window,
+        "overlap": overlap,
+        "windows": payload["windows"],
+        "silent_windows": payload["silent_windows"],
+        "hallucinated_words": payload["hallucinated_words"],
+        "heard_words": heard,
+        "heard_text": " ".join(w["text"] for w in heard if w["text"]),
+        "transcript_words": attached,
+        "transcript_text": (
+            None if attached is None else " ".join(w["text"] for w in attached)
+        ),
+        "attached": False,
+        "note": (
+            "a reading of the source, not a transcript — nothing was written; "
+            "address a cut the transcript has no word for with cut_by_time"
+        ),
+    }
+
+
 def _transcript(project: Project, clip_id: str) -> tx.Transcript:
     cached = project.transcript_path(clip_id)
     if not cached.exists():
@@ -5991,6 +6097,7 @@ def speech_overlap(
     max_gap: float = 0.3,
     min_seam: float = 0.5,
     cap: float = energy.CAP,
+    clip_evidence: str = "auto",
 ) -> dict[str, Any]:
     """Does a *proposed* placement of `clip_id` overlap the VO's speech?
 
@@ -6016,10 +6123,36 @@ def speech_overlap(
     thesis line with no clean seam to duck into. `clean_seams` (>= `min_seam`
     wide) are the windows where `clip_id` could speak without touching the
     VO. Read-only: nothing is written, and there is no `plan=`.
+
+    **`clip_id` need not carry a transcript.** The trial's one refusal was
+    this tool asked of a b-roll clip — "does this footage have talking in
+    it" is a picture decision, and a whole transcription of a clip nobody
+    wants captions from is a steep price for it (TRIAL.md § The queue, item
+    3). With no transcript the clip side falls back to `energy.sound_runs`:
+    the clip's own envelope, thresholded between its quiet and loud tenths,
+    reported as **sound, not speech** — a sting or a scored swell clears it
+    too. `clip_evidence` says which was used (`"transcript"` / `"energy"`),
+    and `clip_evidence="energy"` forces the fallback on a clip that has one,
+    which is how the two were measured against each other (HISTORY.md § The
+    trial's second queue). The VO side always needs its transcript: its
+    words are what the seams are cut around.
     """
+    if clip_evidence not in ("auto", "transcript", "energy"):
+        raise ProjectError(
+            f"clip_evidence must be 'auto', 'transcript' or 'energy', got {clip_evidence!r}"
+        )
     project = Project.open(path)
     clip = media.get_clip(project, clip_id)
-    clip_parsed = _transcript(project, clip_id)
+    clip_parsed: tx.Transcript | None = None
+    if clip_evidence != "energy":
+        if project.transcript_path(clip_id).exists():
+            clip_parsed = _transcript(project, clip_id)
+        elif clip_evidence == "transcript":
+            raise tx.TranscriptError(
+                f"no transcript for {clip_id!r} — run `transcribe {clip_id}` for a "
+                "word-level answer, or leave clip_evidence on 'auto' for the "
+                "energy-only one"
+            )
 
     clip_in = 0.0 if clip_in is None else float(clip_in)
     if clip_out is None:
@@ -6056,33 +6189,52 @@ def speech_overlap(
 
     # Clip B side: not in the edit, so words map by direct offset against the
     # proposed [clip_in, clip_out) -> [at, at + (clip_out - clip_in)) window.
-    clip_full_trimmed = energy.believable([(w.start, w.end) for w in clip_parsed.words], cap=cap)
-    clip_hits = [w for w in clip_parsed.words if w.start < clip_out and w.end > clip_in]
-    clip_trimmed = [
-        trimmed
-        for word, trimmed in zip(clip_parsed.words, clip_full_trimmed)
-        if word.start < clip_out and word.end > clip_in
-    ]
     clip_words: list[dict[str, Any]] = []
     clip_spans: list[tuple[float, float]] = []
-    for word, (bs, be) in zip(clip_hits, clip_trimmed):
-        a, b = max(clip_in, bs), min(clip_out, be)
-        if b <= a:
-            continue
-        t0, t1 = at + (a - clip_in), at + (b - clip_in)
-        clip_words.append(
-            {
-                "index": word.index,
-                "text": word.text,
-                "source_start": word.start,
-                "source_end": word.end,
-                "believable_start": bs,
-                "believable_end": be,
-                "timeline_start": t0,
-                "timeline_end": t1,
-            }
+    clip_energy: dict[str, Any] | None = None
+    if clip_parsed is not None:
+        evidence = "transcript"
+        clip_full_trimmed = energy.believable(
+            [(w.start, w.end) for w in clip_parsed.words], cap=cap
         )
-        clip_spans.append((t0, t1))
+        clip_hits = [w for w in clip_parsed.words if w.start < clip_out and w.end > clip_in]
+        clip_trimmed = [
+            trimmed
+            for word, trimmed in zip(clip_parsed.words, clip_full_trimmed)
+            if word.start < clip_out and word.end > clip_in
+        ]
+        for word, (bs, be) in zip(clip_hits, clip_trimmed):
+            a, b = max(clip_in, bs), min(clip_out, be)
+            if b <= a:
+                continue
+            t0, t1 = at + (a - clip_in), at + (b - clip_in)
+            clip_words.append(
+                {
+                    "index": word.index,
+                    "text": word.text,
+                    "source_start": word.start,
+                    "source_end": word.end,
+                    "believable_start": bs,
+                    "believable_end": be,
+                    "timeline_start": t0,
+                    "timeline_end": t1,
+                }
+            )
+            clip_spans.append((t0, t1))
+    else:
+        evidence = "energy"
+        if not clip.get("has_audio", True):
+            raise media.MediaError(
+                f"{clip_id!r} has no audio track, so it cannot speak over anything"
+            )
+        measured = energy.sound_runs(energy.envelope(energy.decode(media.media_path(project, clip))))
+        clip_energy = {k: v for k, v in measured.items() if k != "runs"}
+        clip_energy["runs_in_clip"] = len(measured["runs"])
+        for rs, re_ in measured["runs"]:
+            a, b = max(clip_in, rs), min(clip_out, re_)
+            if b <= a:
+                continue
+            clip_spans.append((at + (a - clip_in), at + (b - clip_in)))
 
     # VO side: already in the edit, so words map through the same
     # Edit.timeline_span captions use. A fully-cut word is never heard.
@@ -6162,6 +6314,8 @@ def speech_overlap(
         "max_gap": max_gap,
         "min_seam": min_seam,
         "cap": cap,
+        "clip_evidence": evidence,
+        "clip_energy": clip_energy,
         "clip_words": clip_words,
         "vo_words": vo_words,
         "clip_runs": clip_runs,

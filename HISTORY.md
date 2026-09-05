@@ -11891,3 +11891,66 @@ fresh-checkout dry run did not catch it either, because both resolved through
 `uv.lock`, which pins 2.0.0. Found in the 2026-09-01 docs audit, left as a
 call, taken now: the floor is `>=2` and the lock's resolved version is
 unchanged.
+
+## The trial's second queue, closed — `hear` and the energy fallback — 2026-09-05
+
+TRIAL.md § The queue's items 1 and 3, the two the 2026-09-04 render-log fix
+left open. Both were agent-actionable and neither needed the GPU to build; the
+one measurement did, and it ran whisper on the CPU (`--device cpu`, `small`,
+~11 s per clip) because the box's GPU was carrying a vaultmedia NVENC re-pass at
+the time.
+
+**Item 1 — `hear`.** The trial's agent spent 5.5 minutes seeding, exporting and
+verifying a render to learn what its source said across an 8-second hole. The
+pass it needed already existed — `asr.transcribe_windowed`, the one `verify
+--windowed` runs — with no way to point it at a span of a registered clip. So
+the pass took `start`/`end`: the windows are laid across the span and every
+word comes back in the file's own clock, the whole file still decoded once
+(the decode is the cheap part, and one slicing path is one set of edge cases),
+a span past the audio **refused** rather than clamped. It also took
+`allow_silence`, because "nothing is said here" is a real answer to this
+question where `verify` rightly treats a silent render as a failure; the
+default is unchanged, and a full-span call is byte-identical to the old one.
+`ops.hear(clip_id, start, end)` runs it over the clip's own media and returns
+`heard_words`/`heard_text` beside the attached transcript's own words over the
+same span, chosen by overlap rather than containment so a word whose duration
+swallowed a retake is shown. **It reports and never attaches** — TRIAL.md's own
+counter-argument: a second reading of the same audio beside the transcript is a
+second answer to "what is in this clip", and the transcript is the one every
+cut is addressed against. `lucid hear vo --from 1:02 --to 1:14`; MCP `hear`.
+
+**Item 3 — measured first, then a fallback.** The question was whether an
+energy-only answer to "does this footage have talking in it" is good enough to
+spare a picture decision a whole transcription. `energy.sound_runs` is the
+transcript-free half of `loud_gaps`'s calibration: the quiet tenth of the file
+at one end, the **loud tenth** at the other (there is no word map to read a
+speech level from), runs of frames over the midpoint, clicks under 0.1 s
+dropped. Measured against a CPU-whisper transcript of the trial's own two
+Scream 1996 clips, both sides merged into runs at the tool's 0.3 s gap:
+
+| clip | speech (whisper) | sound (energy) | speech runs touched | time recall | time precision |
+|---|---|---|---|---|---|
+| `scream1996-randy-rules` (24.0 s, 55 words) | 15.6 s in 12 runs | 14.7 s in 12 runs | **12/12** | 0.71 | 0.76 |
+| `scream1996-reveal-billy-stu` (30.0 s, 57 words) | 16.7 s in 9 runs | 13.1 s in 16 runs | **9/9** | 0.63 | 0.81 |
+
+Read: every stretch of talking registers as sound, so the yes/no the picture
+decision needs is answered without ASR; the time-level agreement is two-thirds
+to three-quarters, because a scored film clip's bed and effects clear the
+threshold too and quiet consonants do not — so a seam read off energy is a
+place to listen, not a cut point. That is the answer TRIAL.md asked for, and
+it is "good enough for the question the agent was asking, not for the one
+`speech_overlap` was built to answer". So the tool does both, and says which:
+with no transcript on `clip_id` the clip side falls back to `sound_runs`,
+mapped through the proposed window exactly as words are, and the result
+carries `clip_evidence: "energy"` plus the calibration (`clip_energy`) so the
+reading cannot be mistaken for a word-level one. `clip_evidence="transcript"`
+refuses instead and names `transcribe` as the route to words — the refusal the
+trial hit now says what to run; `"energy"` forces the envelope on a clip that
+has a transcript, which is how the table above was built. The VO side always
+needs its transcript, because its words are what the seams are cut around. A
+clip with no audio track is refused: it cannot speak over anything.
+
+Guards: `tests/test_ops_hear.py` (17 tests — span stamping, refusal, silence,
+byte-identity of the default pass, `hear` attaching nothing, `sound_runs`,
+and the fallback through `speech_overlap` on synthetic tone bursts).
+Version 0.21.0 — two things became callable.

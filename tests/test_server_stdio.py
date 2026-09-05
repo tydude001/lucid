@@ -44,6 +44,7 @@ EXPECTED_TOOLS = {
     "list_media",
     "attach_transcript",
     "transcribe",
+    "hear",
     "get_transcript",
     "transcript_checks",
     "resolve_phrase",
@@ -458,6 +459,7 @@ TOOL_TO_COMMAND = {
     "list_media": "list-media",
     "attach_transcript": "attach-transcript",
     "transcribe": "transcribe",
+    "hear": "hear",
     "get_transcript": "transcript",
     "transcript_checks": "transcript-checks",
     "resolve_phrase": "resolve",
@@ -6009,7 +6011,12 @@ def test_speech_overlap_trims_a_suspect_clip_b_word_using_the_whole_clip_not_the
 
 
 @needs_ffprobe
-def test_speech_overlap_refuses_when_clip_has_no_transcript(tmp_path: Path) -> None:
+def test_speech_overlap_reads_an_untranscribed_clip_off_its_energy_and_says_so(tmp_path: Path) -> None:
+    """Until 2026-09-05 this refused with "no transcript" — the real-footage
+    trial's one refusal, asked of b-roll (TRIAL.md § The queue, item 3). The
+    default now falls back to the clip's envelope and labels the reading;
+    `clip_evidence="transcript"` keeps the refusal, naming the route to words.
+    """
     project = tmp_path / "proj"
     audio, transcript = _make_sources(tmp_path)
     b_audio = tmp_path / "clipb.wav"
@@ -6019,14 +6026,24 @@ def test_speech_overlap_refuses_when_clip_has_no_transcript(tmp_path: Path) -> N
         client = Client(session)
         await _seeded(client, project, audio, transcript)
         clip_b = await client.call("import_media", path=str(project), source=str(b_audio))
-        return await session.call_tool(
-            "speech_overlap", {"path": str(project), "clip_id": clip_b["clip_id"]}
+        by_energy = await client.call("speech_overlap", path=str(project), clip_id=clip_b["clip_id"])
+        refused = await session.call_tool(
+            "speech_overlap",
+            {"path": str(project), "clip_id": clip_b["clip_id"], "clip_evidence": "transcript"},
         )
+        return {"by_energy": by_energy, "refused": refused}
 
-    result = anyio.run(_with_server, body)
+    out = anyio.run(_with_server, body)
 
-    assert result.is_error
-    assert "attach" in result.content[0].text
+    by_energy = out["by_energy"]
+    assert by_energy["clip_evidence"] == "energy"
+    assert by_energy["clip_words"] == []
+    assert by_energy["clip_energy"]["runs_in_clip"] >= 1
+    [run] = by_energy["clip_runs"]
+    assert run["timeline_start"] == pytest.approx(0.5, abs=0.06)
+    assert run["timeline_end"] == pytest.approx(1.0, abs=0.06)
+    assert out["refused"].is_error
+    assert "transcribe" in out["refused"].content[0].text
 
 
 @needs_ffprobe
