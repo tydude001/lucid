@@ -327,6 +327,16 @@ absent optional capability is "unavailable", never a failure, and never moves
       what clients present — `server._serve_http`'s refusal, and
       `_WILDCARD_HOSTS` is stated once, in `webui.py`. HISTORY.md § The
       window, reachable from the tailnet.
+    - **A phone reaching it is a home-screen shortcut, which runs
+      standalone — under the status bar, the island and the home
+      indicator.** The two halves of the fix are each inert alone:
+      `env(safe-area-inset-*)` is 0px without `viewport-fit=cover` on the
+      viewport meta, and that meta without the padding only draws more
+      content under the island. All three phone-reachable pages carry both
+      (`index.html`, `picker.html`, `reviewserver.py`), and the top inset
+      rides `#bar` rather than `body` so the bar's own surface runs under
+      the status bar. Unmeasurable here — CDP cannot set an inset — so it is
+      judged on the phone. HISTORY.md § The window on an iPhone home screen.
   - **`_revision` watches the manifest as well as `project.otio`** — the cue
     table and the caption style live there and touch no timeline, so an otio-
     only revision leaves an open window drawing a stale lane.

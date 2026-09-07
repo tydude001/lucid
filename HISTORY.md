@@ -11954,3 +11954,33 @@ Guards: `tests/test_ops_hear.py` (17 tests — span stamping, refusal, silence,
 byte-identity of the default pass, `hear` attaching nothing, `sound_runs`,
 and the fallback through `speech_overlap` on synthetic tone bursts).
 Version 0.21.0 — two things became callable.
+
+## The window on an iPhone home screen
+
+2026-09-07. Added to the home screen from Safari, the window opened with its
+top bar behind the status bar and the dynamic island: a shortcut runs
+standalone, where the page is full-bleed rather than inset.
+
+The fix is a pair, and the trap is that each half is inert on its own —
+`env(safe-area-inset-*)` resolves to `0px` unless the viewport meta carries
+`viewport-fit=cover`, and that meta with no padding behind it merely draws
+*more* content under the island. So both went on all three phone-reachable
+pages at once: `web/index.html`, `web/picker.html`, and `reviewserver.py`'s
+own page, which is the one built to be opened on a phone in the first place.
+
+Where each inset lands was the only other decision. The **top** one is on
+`#bar`, not on `body`, so the bar's own `--panel` surface runs under the
+status bar the way a native app's does; on `body` it would leave a `--bg`
+band above a `--panel` bar, visible in the light theme. `body` takes the
+sides and the bottom — the landscape notch, and the home indicator under the
+timeline pane. The picker and the review page have no bar to carry the top,
+so their one shell element takes all four. `player.js`'s `balancePanes` and
+`timeline.js`'s `fitLaneHeight` measure element boxes rather than
+`innerHeight`, so both are blind to the new padding by construction.
+
+Nothing here was measured on the phone by lucid: CDP cannot set a safe-area
+inset, so the headless harness cannot exercise the fix at all. What is
+measured is the other direction — every `env()` falls back to `0px` on a
+desktop browser, so the layout there is unchanged, and `test_webui_http.py`
+plus `test_review_http.py` (263 tests) pass. The phone is where this one is
+judged.
