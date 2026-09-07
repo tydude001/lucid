@@ -408,10 +408,16 @@ def _render_page(
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>lucid review</title>
 <style>
-  body {{ font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 1rem; }}
+  /* `viewport-fit=cover` above and these `env()`s are one fix: each is a no-op
+     without the other. This page is opened on a phone by design, and an iPhone
+     home-screen shortcut runs standalone, with the status bar, the dynamic
+     island and the home indicator over the page. 0px everywhere else. */
+  body {{ font-family: system-ui, sans-serif; max-width: 640px; margin: 0 auto;
+          padding: calc(1rem + env(safe-area-inset-top, 0px)) calc(1rem + env(safe-area-inset-right, 0px))
+                   calc(1rem + env(safe-area-inset-bottom, 0px)) calc(1rem + env(safe-area-inset-left, 0px)); }}
   video, audio, img {{ width: 100%; border-radius: 4px; }}
   section {{ margin-bottom: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 1rem; }}
   form {{ display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }}

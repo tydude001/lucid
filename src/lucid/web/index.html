@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- `viewport-fit=cover` is half of a pair and useless alone: every
+         `env(safe-area-inset-*)` resolves to 0px without it, so the safe-area
+         padding in app.css would be a no-op — and it alone, without that
+         padding, draws MORE content under the notch. Added because an iPhone
+         home-screen shortcut opens standalone, where the status bar and the
+         dynamic island sit over the page and #bar was behind them. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>lucid</title>
     <!-- A real asset, not the `data:,` placeholder this used to be: that
          avoided the /favicon.ico 404 but tripped `default-src 'self'` instead

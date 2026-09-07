@@ -606,10 +606,23 @@ body {
    track (grid-row 2→3, 3→4) rather than being renumbered in place, so a
    stray old grid-row somewhere would fail loudly (wrong row) rather than
    silently drawing over #mode-bar. */
+/* The safe-area insets an iPhone home-screen shortcut needs: standalone mode
+   puts the page under the status bar, the dynamic island and the home
+   indicator. Sides and bottom belong here (landscape notch, home indicator
+   under the timeline pane); the TOP one is on #bar instead, so the bar's own
+   --panel surface runs under the status bar rather than leaving a --bg band
+   above it. Every `env()` here is 0px on a desktop browser and on any page
+   whose viewport meta lacks `viewport-fit=cover` — the two are one fix, and
+   index.html/picker.html carry the other half. `* { box-sizing: border-box }`
+   above is what keeps the grid rows shrinking to match; balancePanes and
+   fitLaneHeight measure element boxes, not innerHeight, so both are blind to
+   this padding by construction. */
 body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto 1fr minmax(var(--timeline-h-min), var(--timeline-h));
+  padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
   background: var(--bg);
   color: var(--ink);
   font: 13px/1.5 var(--font-sans);
@@ -843,7 +856,9 @@ textarea {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 8px 14px;
+  /* The top safe-area inset lives on the bar, not on body — see body's own
+     rule. 0px everywhere but a standalone iPhone shortcut. */
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -3829,7 +3844,11 @@ body.picker {
 .picker-shell {
   max-width: 52rem;
   margin: 0 auto;
-  padding: 28px 20px 60px;
+  /* Same safe-area fix as the workspace shell, all on one element here: the
+     picker has no bar of its own to carry the top inset, and body.picker is a
+     plain scrolling column. 0px off an iPhone home-screen shortcut. */
+  padding: calc(28px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-right, 0px))
+    calc(60px + env(safe-area-inset-bottom, 0px)) calc(20px + env(safe-area-inset-left, 0px));
 }
 
 .picker-header {

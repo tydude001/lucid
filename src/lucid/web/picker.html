@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Paired with app.css's `env(safe-area-inset-*)` padding, same as
+         index.html's — each is a no-op without the other. An iPhone home-screen
+         shortcut opens standalone, with the status bar over the page. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>lucid</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
