@@ -26,6 +26,10 @@ needs_ffmpeg = pytest.mark.skipif(
     reason="ffmpeg/ffprobe are not installed",
 )
 
+needs_magick = pytest.mark.skipif(
+    shutil.which("magick") is None, reason="ImageMagick is not installed"
+)
+
 pytestmark = needs_ffmpeg
 
 
@@ -203,6 +207,7 @@ def test_a_missing_media_file_reports_playable_null_not_a_crash(project: Path) -
     assert vid["playable"] is None, "missing is a different claim than unplayable"
 
 
+@needs_magick
 def test_assets_lists_a_recorded_card_with_usage_count(project: Path) -> None:
     ops.card_new(project, "outro", "endcard", {})
     ops.cue_add(project, "vo", 4, "card:outro")
@@ -231,6 +236,7 @@ def test_a_card_with_files_and_no_record_is_reported_not_guessed(project: Path) 
     assert orphan["template"] is None
 
 
+@needs_magick
 def test_a_recorded_card_with_no_files_is_also_reported(project: Path) -> None:
     ops.card_new(project, "outro", "endcard", {})
     cards_dir = Project.open(project).cards_dir

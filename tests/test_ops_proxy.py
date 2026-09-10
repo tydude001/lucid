@@ -29,6 +29,11 @@ needs_ffmpeg = pytest.mark.skipif(
     reason="ffmpeg/ffprobe are not installed",
 )
 
+needs_auto_editor = pytest.mark.skipif(
+    shutil.which("auto-editor") is None and not (Path.home() / ".local/bin/auto-editor").exists(),
+    reason="auto-editor is not installed",
+)
+
 pytestmark = needs_ffmpeg
 
 
@@ -125,6 +130,7 @@ def test_media_path_ignores_a_proxy_key_entirely(tmp_path: Path) -> None:
     assert media.media_path(project, clip) == project_root / "cache/attenuated/c.mkv"
 
 
+@needs_auto_editor
 def test_export_never_names_the_proxy(project_with_hevc: tuple[Path, str]) -> None:
     """The load-bearing one. With a current proxy sitting in the cache, an
     export must still reference the original — because it resolves through

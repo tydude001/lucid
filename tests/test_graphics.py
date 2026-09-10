@@ -746,6 +746,7 @@ def test_user_text_is_escaped_and_cannot_rewrite_the_document() -> None:
     graphics.declared_fonts(filled)  # still well-formed
 
 
+@needs_magick
 def test_a_slot_landing_in_an_attribute_cannot_close_it() -> None:
     """`font-family="{{title_font}}"` is an attribute, so `"` has to escape."""
     filled = graphics.fill_template(
@@ -773,6 +774,7 @@ def test_a_whole_rating_draws_no_clip() -> None:
     assert "<clipPath" not in filled
 
 
+@needs_magick
 def test_the_two_rows_of_a_comparison_do_not_share_a_clip_id() -> None:
     """Two halves in one document, which a single id would collapse into one."""
     filled = graphics.fill_template(
@@ -860,6 +862,7 @@ def test_parse_runs_refuses_a_run_left_open() -> None:
         graphics.parse_runs("the [em]rest of the card")
 
 
+@needs_magick
 def test_a_run_value_cannot_smuggle_markup_into_the_card() -> None:
     filled = graphics.fill_template(
         "receipt", {**_required("receipt"), "quote": '</text><script>x</script>'}
@@ -1391,6 +1394,7 @@ def _file_row(drawn: str, needle: str) -> str:
     return next(row for row in drawn.splitlines() if needle in row)
 
 
+@needs_magick
 def test_an_unmarked_line_slot_is_still_a_plain_substitution() -> None:
     """The property that makes the vocabulary additive rather than a restyle.
 
@@ -1407,6 +1411,7 @@ def test_an_unmarked_line_slot_is_still_a_plain_substitution() -> None:
     assert "tspan" not in _file_row(drawn, "Good Sometimes")
 
 
+@needs_magick
 def test_a_marked_line_slot_draws_its_run_in_the_runs_ink() -> None:
     """`G[em]*[/em]` is one word in two colours, which is the whole point.
 
