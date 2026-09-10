@@ -12133,11 +12133,13 @@ Three things the swap had to get right:
   the wheel reads back `License-Expression: LicenseRef-PolyForm-Shield-1.0.0`
   with the text under `dist-info/licenses/LICENSE`, the same readback the
   MIT commit did (§ A licence, and the version literal that never moved).
-- **Source-available is not open source, and four places said it was**:
+- **Source-available is not open source, and five places said it was**:
   README's first line, the pyproject description, the package docstring,
-  and the wiki's project line. All four now say source-available. The
-  README's dependency table keeps "open-source primitive" because ffmpeg,
-  whisper and OTIO are.
+  the wiki's project line, and the GitHub repo's About text — which is
+  metadata, so no commit and no mirror sync reaches it; Tyler caught it
+  after the wrap-up and it was set by hand. All five now say
+  source-available. The README's dependency table keeps "open-source
+  primitive" because ffmpeg, whisper and OTIO are.
 - **Contributions come in under MIT and go out under Shield.** A patch
   licensed to the project under Shield could never be sublicensed, so the
   commercial licence the README now offers would be blocked by the first
