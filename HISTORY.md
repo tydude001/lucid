@@ -9739,9 +9739,9 @@ that needs no JS at all.
 ## The README screenshots, and the five defects they found — 2026-08-19
 
 `docs/ui-polish-plan.md` was written off a review of the two screenshots the
-README shipped in 43fafc8, on the premise that a screenshot is a review of the
+README shipped in 5f40907, on the premise that a screenshot is a review of the
 UI that nobody asked for. Phases 1–3 (the chip nouns, the width-gated timeline
-labels, the Frame-sheet polish) landed in b60e286. This section is phase 4 —
+labels, the Frame-sheet polish) landed in c35cdd8. This section is phase 4 —
 the retakes — plus the four defects that retaking them turned up, and the
 700px overflow the phase 1–3 verification pass had already found and left.
 
