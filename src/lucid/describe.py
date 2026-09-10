@@ -91,6 +91,40 @@ class DescribeError(Exception):
     """Raised when the vision model is missing, or fails on a clip."""
 
 
+#: The torch device the worker loads the model onto, CUDA unless this says
+#: otherwise. The knob exists for whoever measures another device; today the
+#: worker refuses anything but CUDA, because its 4-bit load is bitsandbytes
+#: and bitsandbytes has no other backend (docs/plans/PORTABILITY.md step 3).
+DEVICE_ENV = "LUCID_VLM_DEVICE"
+
+
+def device() -> str:
+    """`$LUCID_VLM_DEVICE`, else `cuda`."""
+    return os.environ.get(DEVICE_ENV) or "cuda"
+
+
+def platform_refusal() -> str | None:
+    """Why this box cannot run the vision model on the device it would ask for, or None.
+
+    Answered here, before a worker is spawned, so `available()` — and so
+    doctor and `describe --plan` — say it rather than a traceback from the
+    worker after a model load.
+    """
+    wanted = device()
+    if not wanted.startswith("cuda"):
+        return (
+            f"{DEVICE_ENV}={wanted}, but the vision model loads 4-bit through "
+            "bitsandbytes, which is CUDA-only — the worker has no path for any "
+            "other device yet."
+        )
+    if sys.platform == "darwin":
+        return (
+            "no CUDA on macOS, and the vision model's 4-bit load is bitsandbytes, "
+            "which has no Metal (MPS) backend."
+        )
+    return None
+
+
 def vlm_python() -> Path:
     """Locate an interpreter that can load the vision model.
 
@@ -184,6 +218,8 @@ def describe_windows(
     """
     if not windows:
         return []
+    if refusal := platform_refusal():
+        raise DescribeError(refusal)
     python = vlm_python()
 
     with tempfile.TemporaryDirectory(prefix="lucid-vlm-") as tmp:
@@ -197,6 +233,7 @@ def describe_windows(
                     "frame_size": frame_size,
                     "max_new_tokens": max_new_tokens,
                     "windows": windows,
+                    "device": device(),
                 }
             ),
             encoding="utf-8",
@@ -246,6 +283,9 @@ def available() -> dict[str, Any]:
         report["python"] = str(vlm_python())
     except DescribeError as exc:
         report["why"] = str(exc)
+        return report
+    if refusal := platform_refusal():
+        report["why"] = refusal
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
         report["why"] = f"lucid's own worker script is missing: {_WORKER}"

@@ -152,6 +152,9 @@ not read as a regression.
 
 ## Step 3 — the GPU workers and the platform docs
 
+Shipped — see HISTORY.md § The GPU workers take a device, and CI runs on
+three OSes. Its README paragraphs wait on step 4, as below.
+
 - **`_tts_worker.py:44` and `_vlm_worker.py:88,103` hardcode `cuda`.** On a
   Mac there is no CUDA; on Windows a CUDA torch works as it does here. Take
   the device from the job dict (`"cuda"` default, `"mps"` or `"cpu"`

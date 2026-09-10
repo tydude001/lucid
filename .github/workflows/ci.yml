@@ -4,6 +4,13 @@
 # four off PATH (HISTORY.md § The repo, readied for strangers) — so a green
 # run here covers everything but the renders and transcription, which only
 # a machine with those tools can check.
+#
+# The suite runs on macOS and Windows too (docs/plans/PORTABILITY.md step 3),
+# with ffmpeg and nothing else, so the same ground is covered on all three.
+# Neither is support: a platform whose render has not been read back on a real
+# machine is unsupported whatever passes here (step 6). `fail-fast: false`
+# because a Windows failure is a finding about paths, not a reason to stop the
+# Linux run that has always been green.
 
 name: ci
 
@@ -28,14 +35,28 @@ jobs:
       - run: uv run ruff check .
 
   test:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
       - name: ffmpeg (with libass) and fontconfig
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core
+      # No fontconfig on either: libass uses the OS's own font system there,
+      # and installing fontconfig would measure the wrong resolver (the plan's
+      # "what this deliberately does not do").
+      - name: ffmpeg
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: ffmpeg
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
       - run: uv sync --locked
       - run: uv run pytest -q -rfE

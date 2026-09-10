@@ -428,6 +428,14 @@ def _tts_entry() -> dict[str, Any]:
             "lucid works without them."
         )
         return row
+    if refusal := tts.platform_refusal():
+        row["why"] = refusal
+        row["fix"] = (
+            "vo-synth has only ever run on a CUDA GPU, so run it on a Linux or "
+            f"Windows box with one — or set {tts.DEVICE_ENV}=mps and measure it. "
+            "Everything else in lucid works without it."
+        )
+        return row
 
     voice = os.environ.get("LUCID_TTS_VOICE")
     if not voice:

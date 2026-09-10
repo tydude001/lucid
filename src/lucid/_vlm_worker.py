@@ -61,7 +61,7 @@ def _frames(media: str, timestamps: list[float], size: str) -> list:
     return out
 
 
-def _load(model_path: str) -> tuple:
+def _load(model_path: str, device: str) -> tuple:
     """Qwen2.5-VL, 4-bit NF4 with bf16 compute, and its processor.
 
     The config every VRAM figure in PLAN.md § B-roll by description was
@@ -85,14 +85,16 @@ def _load(model_path: str) -> tuple:
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_path,
         quantization_config=quant,
-        device_map="cuda",
+        device_map=device,
         torch_dtype=torch.bfloat16,
     ).eval()
     processor = AutoProcessor.from_pretrained(model_path)
     return model, processor
 
 
-def _generate(model, processor, images: list, prompt: str, *, max_new_tokens: int) -> str:
+def _generate(
+    model, processor, images: list, prompt: str, *, max_new_tokens: int, device: str
+) -> str:
     """One greedy pass over the frames and the prompt; the decoded reply."""
     import torch
 
@@ -100,7 +102,7 @@ def _generate(model, processor, images: list, prompt: str, *, max_new_tokens: in
     content.append({"type": "text", "text": prompt})
     messages = [{"role": "user", "content": content}]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=[text], images=list(images), return_tensors="pt").to("cuda")
+    inputs = processor(text=[text], images=list(images), return_tensors="pt").to(device)
     with torch.no_grad():
         out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
     generated = out[:, inputs["input_ids"].shape[1] :]
@@ -111,14 +113,32 @@ def main() -> int:
     job = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     destination = Path(sys.argv[2])
 
-    model, processor = _load(job["model"])
+    # `describe.device()`; absent is what every job before the key meant.
+    # Refused before torch is imported: the 4-bit load below is bitsandbytes,
+    # which has no backend but CUDA, and an unquantised load on another device
+    # is a different memory budget and a different model output — a decision
+    # for whoever measures one (docs/plans/PORTABILITY.md step 3).
+    device = job.get("device") or "cuda"
+    if not device.startswith("cuda"):
+        sys.stderr.write(
+            f"the vision model loads 4-bit through bitsandbytes, which is CUDA-only; "
+            f"device {device!r} has no path in this worker yet\n"
+        )
+        return 2
+
+    model, processor = _load(job["model"], device)
 
     results = []
     for window in job["windows"]:
         try:
             frames = _frames(window["media"], window["timestamps"], job["frame_size"])
             text = _generate(
-                model, processor, frames, job["prompt"], max_new_tokens=job["max_new_tokens"]
+                model,
+                processor,
+                frames,
+                job["prompt"],
+                max_new_tokens=job["max_new_tokens"],
+                device=device,
             )
             results.append({"index": window["index"], "text": text})
         except Exception as exc:  # noqa: BLE001 — reported per window, not fatal

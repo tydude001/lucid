@@ -1,4 +1,4 @@
-"""The Linux-shaped resolvers, widened — docs/plans/PORTABILITY.md step 2.
+"""The Linux-shaped resolvers, widened, and the GPU workers — PORTABILITY.md steps 2 and 3.
 
 Each resolver here found only what a Linux box has: melt in the Kdenlive
 flatpak, auto-editor's Linux build, a chromium on PATH, `tailscale` on PATH,
@@ -14,6 +14,8 @@ registered face draws under DirectWrite, is steps 4 and 5, on real machines.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -21,7 +23,7 @@ from typing import Self
 
 import pytest
 
-from lucid import autoeditor, doctor, fonts, media, picture, webui
+from lucid import autoeditor, describe, doctor, fonts, media, picture, tts, webui
 
 _PROBE = media.MediaInfo(
     duration=5.0,
@@ -399,3 +401,133 @@ def test_a_substituting_face_off_linux_is_still_a_cross(monkeypatch: pytest.Monk
     font = doctor._caption_font()
     assert font["ok"] is False
     assert "where CoreText looks" in font["fix"]
+
+
+# -- the GPU workers — step 3 -------------------------------------------------
+
+
+def _synth_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A box where the interpreter, the model and a voice all resolve."""
+    voice = tmp_path / "voice"
+    voice.mkdir()
+    (voice / "ref.wav").touch()
+    (voice / "ref.txt").write_text("the words", encoding="utf-8")
+    monkeypatch.setattr(tts, "tts_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(tts, "model_dir", lambda: tmp_path / "model")
+    monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.delenv(tts.DEVICE_ENV, raising=False)
+    return voice
+
+
+def test_a_mac_reports_the_synthesiser_unavailable_rather_than_failing_in_the_worker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Everything resolves and nothing can run: the worker loads onto CUDA.
+    Said before the GPU is asked for, the way doctor reports any absent
+    optional capability — and the device knob opens the door for whoever
+    measures MPS, without claiming it works."""
+    voice = _synth_ready(monkeypatch, tmp_path)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(tts.subprocess, "run", lambda *a, **k: pytest.fail("worker spawned"))
+
+    report = tts.available()
+    assert report["available"] is False
+    assert "no CUDA on macOS" in report["why"]
+    with pytest.raises(tts.TTSError, match="no CUDA on macOS"):
+        tts.synth("a line", voice, tmp_path / "out", [1], max_seconds=5)
+    assert "no CUDA on macOS" in doctor._tts_entry()["why"]
+
+    monkeypatch.setenv(tts.DEVICE_ENV, "mps")
+    assert tts.available()["available"] is True
+
+
+@pytest.mark.parametrize(("env", "expected"), [(None, "cuda"), ("cpu", "cpu")])
+def test_the_synth_job_carries_the_device(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env: str | None, expected: str
+) -> None:
+    voice = _synth_ready(monkeypatch, tmp_path)
+    if env:
+        monkeypatch.setenv(tts.DEVICE_ENV, env)
+    jobs: list[dict] = []
+
+    def worker(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        jobs.append(json.loads(Path(command[2]).read_text(encoding="utf-8")))
+        Path(command[3]).write_text(json.dumps({"candidates": []}), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(tts.subprocess, "run", worker)
+    with pytest.raises(tts.TTSError, match="returned nothing"):
+        tts.synth("a line", voice, tmp_path / "out", [1], max_seconds=5)
+    assert jobs[0]["device"] == expected
+
+
+@pytest.mark.parametrize(
+    ("platform", "env", "why"),
+    [
+        ("darwin", None, "no CUDA on macOS"),
+        ("linux", "mps", "bitsandbytes, which is CUDA-only"),
+        ("linux", "cpu", "bitsandbytes, which is CUDA-only"),
+    ],
+)
+def test_describe_refuses_a_device_its_4bit_load_cannot_use(
+    monkeypatch: pytest.MonkeyPatch, platform: str, env: str | None, why: str
+) -> None:
+    """bitsandbytes has no MPS backend, so a Mac cannot describe today and a
+    non-CUDA device has no path in the worker. `available()` says so, which
+    is what doctor and `describe --plan` both read."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(describe, "vlm_python", lambda: Path(sys.executable))
+    if env:
+        monkeypatch.setenv(describe.DEVICE_ENV, env)
+    else:
+        monkeypatch.delenv(describe.DEVICE_ENV, raising=False)
+    monkeypatch.setattr(describe.subprocess, "run", lambda *a, **k: pytest.fail("worker spawned"))
+
+    report = describe.available()
+    assert report["available"] is False
+    assert why in report["why"]
+    assert why in doctor._vlm_entry()["why"]
+    with pytest.raises(describe.DescribeError, match=why.split(",")[0]):
+        describe.describe_windows([{"index": 0, "media": "x.mp4", "timestamps": [0.0]}])
+
+
+def test_linux_on_cuda_still_describes_and_says_so_in_the_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(describe, "vlm_python", lambda: Path(sys.executable))
+    monkeypatch.delenv(describe.DEVICE_ENV, raising=False)
+    assert describe.available()["available"] is True
+
+    jobs: list[dict] = []
+
+    def worker(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        jobs.append(json.loads(Path(command[2]).read_text(encoding="utf-8")))
+        Path(command[3]).write_text(
+            json.dumps({"results": [{"index": 0, "text": "a room"}]}), encoding="utf-8"
+        )
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(describe.subprocess, "run", worker)
+    describe.describe_windows([{"index": 0, "media": "x.mp4", "timestamps": [0.0]}])
+    assert jobs[0]["device"] == "cuda"
+
+
+def test_the_vision_worker_itself_refuses_before_importing_torch(tmp_path: Path) -> None:
+    """Run the real worker the way lucid does — a subprocess, never an import.
+    lucid's own venv has no torch, so a worker that reached for it first would
+    die on `ModuleNotFoundError`; the refusal has to come before that."""
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"model": "m", "device": "mps", "windows": []}), encoding="utf-8")
+    worker = Path(describe.__file__).with_name("_vlm_worker.py")
+
+    done = subprocess.run(
+        [sys.executable, str(worker), str(job), str(tmp_path / "out.json")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 2
+    assert "bitsandbytes" in done.stderr
+    assert "ModuleNotFoundError" not in done.stderr
+    assert not (tmp_path / "out.json").exists()

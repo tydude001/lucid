@@ -46,6 +46,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,30 @@ _WORKER = Path(__file__).with_name("_tts_worker.py")
 
 class TTSError(Exception):
     """Raised when no interpreter can synthesise, a voice is incomplete, or the worker fails."""
+
+
+#: The torch device the worker loads the model onto, CUDA unless this says
+#: otherwise. `mps` and `cpu` pass through to `from_pretrained` untouched, and
+#: **neither has ever been run**: Qwen3-TTS has only been measured on CUDA
+#: here, so a Mac is reported unavailable until someone sets this and listens
+#: to the result (docs/plans/PORTABILITY.md step 3).
+DEVICE_ENV = "LUCID_TTS_DEVICE"
+
+
+def device() -> str:
+    """`$LUCID_TTS_DEVICE`, else `cuda`."""
+    return os.environ.get(DEVICE_ENV) or "cuda"
+
+
+def platform_refusal() -> str | None:
+    """Why this OS cannot run the synthesiser on the device it would ask for, or None."""
+    if sys.platform == "darwin" and device().startswith("cuda"):
+        return (
+            "no CUDA on macOS, and the synthesiser loads onto CUDA. "
+            f"{DEVICE_ENV}=mps (or cpu) passes through to the worker but has "
+            "never been measured."
+        )
+    return None
 
 
 def tts_python() -> Path:
@@ -163,6 +188,9 @@ def available(voice: str | Path | None = None) -> dict[str, Any]:
     if reasons:
         report["why"] = reasons[0]
         return report
+    if refusal := platform_refusal():
+        report["why"] = refusal
+        return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
         report["why"] = f"lucid's own worker script is missing: {_WORKER}"
         return report
@@ -199,6 +227,8 @@ def synth(
     """
     if not seeds:
         return []
+    if refusal := platform_refusal():
+        raise TTSError(refusal)
     python = tts_python()
     model = model_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -216,6 +246,7 @@ def synth(
                     "seeds": [int(s) for s in seeds],
                     "max_new_tokens": max_new_tokens(max_seconds),
                     "out_dir": str(out_dir),
+                    "device": device(),
                 }
             ),
             encoding="utf-8",

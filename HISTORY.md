@@ -12247,3 +12247,46 @@ One claim in the plan's own "what already works" list is wrong: **OTIO
 0.18.1 has no macOS x86_64 wheel for any Python** — every macOS wheel on PyPI
 is arm64. An Apple-silicon Mac, and GitHub's `macos-latest`, get a wheel; an
 Intel Mac builds OTIO from its sdist, which needs CMake and a C++ compiler.
+
+## The GPU workers take a device, and CI runs on three OSes — 2026-09-10
+
+Step 3 of docs/plans/PORTABILITY.md, the last of the three that are code.
+
+**Both workers take their device from the job** — `tts.device()` and
+`describe.device()`, from `LUCID_TTS_DEVICE` / `LUCID_VLM_DEVICE`, CUDA when
+unset, and a job with no key means what every job before it meant: the TTS
+worker's plain `cuda` still loads onto the `cuda:0` it always did. The two
+are not symmetric, and the asymmetry is the finding. Qwen3-TTS loads in bf16
+with no quantisation, so `mps` and `cpu` pass straight to `from_pretrained` —
+unrun, but reachable. The vision model loads **4-bit through bitsandbytes,
+which has no backend but CUDA**, so the VLM worker refuses any other device
+before it imports torch; an unquantised load is four times the memory and a
+different model output, and that is a decision for whoever measures one.
+
+On a Mac with the default device, `tts.available()` and `describe.available()`
+answer unavailable with the reason — so doctor, `describe --plan` and
+`vo-synth --plan` say "no CUDA on macOS" before a GPU is asked for, the way
+an absent optional capability is always reported, and never a worker
+traceback after a model load. Whisper on a Mac is CPU-only — openai-whisper's
+MPS support is partial — and there is nothing to build for it. README.md
+§ Requirements still says Linux only, and keeps saying it until step 4 runs.
+
+**CI's suite job is a matrix of `ubuntu-24.04`, `macos-latest` and
+`windows-latest`**, ffmpeg from apt, Homebrew and Chocolatey, and no
+fontconfig off Linux — installing it would measure the resolver libass is not
+using there. `fail-fast: false`, so a Windows failure is a finding and not a
+stopped Linux run. **Neither new runner has ever run**: GitHub is fed only by
+Gitea's hand-synced mirror, so the first push after this is the measurement,
+and the Windows job is the likeliest place for step 5's path class to show up
+first. The tests that stand in for another OS by setting `sys.platform` now
+meet the real thing, so every test measuring a Linux mechanism pins
+`sys.platform` to `linux` — the three doctor voice tests joined the five
+display tests and two resolver tests for that reason: the voice is asked
+after the device, and a Mac runner would answer "no CUDA" first.
+
+The VLM worker's refusal is tested by running the real worker as a
+subprocess, the way lucid runs it: lucid's own venv has no torch, so a
+worker that reached for it first would die on `ModuleNotFoundError`, which is
+exactly how the control against the old worker failed (exit 1, not 2).
+Suite: 2020 passed, 1 skipped. No version bump across the three steps —
+nothing new became callable; the two device variables are configuration.

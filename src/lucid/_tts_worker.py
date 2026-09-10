@@ -40,8 +40,14 @@ def main() -> int:
     import torch
     from qwen_tts import Qwen3TTSModel
 
+    # `tts.device()`; absent is what every job before the key meant. Plain
+    # `cuda` keeps the `cuda:0` this always loaded onto.
+    device = job.get("device") or "cuda"
     model = Qwen3TTSModel.from_pretrained(
-        job["model"], device_map="cuda:0", dtype=torch.bfloat16, attn_implementation="sdpa"
+        job["model"],
+        device_map="cuda:0" if device == "cuda" else device,
+        dtype=torch.bfloat16,
+        attn_implementation="sdpa",
     )
 
     def pitch_spread(audio: np.ndarray, rate: int = 24000) -> float | None:

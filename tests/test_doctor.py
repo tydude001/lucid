@@ -215,6 +215,7 @@ def test_missing_magick_says_everything_else_works(monkeypatch: pytest.MonkeyPat
 def test_unset_voice_is_an_expected_refusal_not_an_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # the voice is asked after the device
     monkeypatch.setattr(doctor.tts, "tts_python", lambda: Path("/venv/bin/python"))
     monkeypatch.setattr(doctor.tts, "model_dir", lambda: Path("/models/Qwen3-TTS"))
     row = doctor._tts_entry()
@@ -233,6 +234,7 @@ def test_a_configured_voice_never_has_its_path_printed(
     (voice / "ref.wav").write_bytes(b"")
     (voice / "ref.txt").write_text("hello", encoding="utf-8")
     monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.setattr(sys, "platform", "linux")  # the voice is asked after the device
     monkeypatch.setattr(doctor.tts, "tts_python", lambda: Path("/venv/bin/python"))
     monkeypatch.setattr(doctor.tts, "model_dir", lambda: Path("/models/Qwen3-TTS"))
     row = doctor._tts_entry()
@@ -248,6 +250,7 @@ def test_an_incomplete_voice_names_the_files_and_not_the_directory(
     voice.mkdir()
     (voice / "ref.wav").write_bytes(b"")
     monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.setattr(sys, "platform", "linux")  # the voice is asked after the device
     monkeypatch.setattr(doctor.tts, "tts_python", lambda: Path("/venv/bin/python"))
     monkeypatch.setattr(doctor.tts, "model_dir", lambda: Path("/models/Qwen3-TTS"))
     row = doctor._tts_entry()

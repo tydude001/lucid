@@ -460,7 +460,9 @@ voice-clone venv under `~/lucid-work/voice-clone/`; `LUCID_TTS_MODEL` likewise).
 **The voice is yours to supply** — `--voice` or `LUCID_TTS_VOICE`; lucid ships
 no reference clip and has no default voice. `lucid vo-synth … --plan` reports
 what it resolved. Why a reference clip and not a fine-tuned model: HISTORY.md
-§ `vo_synth`, built.
+§ `vo_synth`, built. It loads onto CUDA; `LUCID_TTS_DEVICE` (`mps`, `cpu`)
+hands the worker another device, which has never been run, so a Mac reports
+the synthesiser unavailable until it is set.
 
 ## Reframing
 
@@ -595,7 +597,9 @@ frames as six people, fluently, with nothing on screen saying it was wrong.
 
 The model runs under a separate interpreter (`LUCID_VLM`), so nothing here
 puts torch in lucid's own environment. `--plan` reports whether this machine
-can run it at all.
+can run it at all — never on a Mac today: the model loads 4-bit through
+bitsandbytes, which is CUDA-only, so `LUCID_VLM_DEVICE` exists for whoever
+builds another path and the worker refuses anything but CUDA until then.
 
 Then read them back, which **is** the search — no ranking, no embeddings, no
 similarity score to tune:
