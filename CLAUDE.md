@@ -665,7 +665,9 @@ absent optional capability is "unavailable", never a failure, and never moves
     commits. GitHub (`tydude001/lucid`, private until Tyler flips it) is fed
     only by Gitea's push mirror, synced by hand — there is no `github`
     remote here. **Never `git push --mirror`**: the reflog still reaches the
-    pre-rewrite objects. HISTORY.md § The repo, readied for strangers.
+    pre-rewrite objects. **And never merge a PR on GitHub** — the next sync
+    force-pushes over it; the route is wiki `git-server.md` § GitHub push
+    mirrors. HISTORY.md § The repo, readied for strangers.
 - **The version is a hand-typed literal in two places and is bumped
   deliberately, never derived.** `pyproject.toml` and `lucid/__init__.py`,
   held together by `tests/test_version.py` — a VCS-derived or
