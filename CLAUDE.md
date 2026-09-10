@@ -656,6 +656,12 @@ absent optional capability is "unavailable", never a failure, and never moves
   `_TAILNET_HOST`). `~/lucid-*` working paths stay as they are: they name no
   user and no host. HISTORY.md § The closed-loop trial, § The publish
   rehearsal.
+  - **That rule now binds the history too: it was rewritten with `git
+    filter-repo` on 2026-09-10** to remove what the scrub had left in old
+    commits. GitHub (`tydude001/lucid`, private until Tyler flips it) is fed
+    only by Gitea's push mirror, synced by hand — there is no `github`
+    remote here. **Never `git push --mirror`**: the reflog still reaches the
+    pre-rewrite objects. HISTORY.md § The repo, readied for strangers.
 - **The version is a hand-typed literal in two places and is bumped
   deliberately, never derived.** `pyproject.toml` and `lucid/__init__.py`,
   held together by `tests/test_version.py` — a VCS-derived or

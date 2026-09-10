@@ -125,5 +125,5 @@ gaps. Those are the agent-actionable work today.
 1. OBS mic routing + the two-mic test recording — gates speaker attribution.
 2. The standing watches: one real edit in the redesigned workspace, the
    sheets on a real job, the vo_synth listening verdict.
-3. The publish call: which internal docs ship, and whether the README
-   screenshots go back to real footage.
+3. Making the GitHub repo public — every doc ships and the screenshots stay
+   on the demo project (HISTORY.md § The repo, readied for strangers).
