@@ -51,8 +51,9 @@ non-goals are permanent: no cloud, no accounts, no metering.
   removal and single-source rendering. Install the upstream binary; the PyPI
   package is a stale 29.x.
 - **whisper** — transcription and render verification. A subprocess, never an
-  import: any `openai-whisper` install works, resolved via `LUCID_WHISPER`,
-  then `PATH`, then a sibling venv.
+  import: any `openai-whisper` install works (`uv tool install
+  openai-whisper` is the short route), resolved via `LUCID_WHISPER`, then
+  `PATH`.
 - **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). A
   Kdenlive install provides it.
 - **ImageMagick (`magick`)** — rasterises title and end cards.

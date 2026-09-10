@@ -30,8 +30,7 @@ does not choose the clip (CLAUDE.md) — arriving in a new place, and it is why
 
 **The detector is a subprocess, resolved the way whisper and the VLM are.**
 `LUCID_FACE` names a Python interpreter with insightface and onnxruntime in it;
-failing that, genstack's venv, which is the one this box actually has. lucid's
-own venv holds neither, and should not start now — the argument that put whisper
+failing that, a refusal naming what it needs. lucid's own venv holds neither, and should not start now — the argument that put whisper
 behind a binary (`asr.py`'s docstring) and the vision model behind an interpreter
 (`describe.py`) puts this behind one too. `lucid status` should not pay for an
 ONNX runtime.
@@ -50,11 +49,6 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-
-#: The interpreter that actually exists here — genstack's venv, which carries
-#: insightface 1.0.1 and onnxruntime 1.27.0. Cross-repo, and recorded in the
-#: wiki (`tooling.md` § Face detection) rather than here; this is only the path.
-SIBLING_VENV = Path.home() / "projects" / "genstack" / ".venv" / "bin" / "python"
 
 #: RetinaFace, via insightface's model zoo. The weights are already on this box
 #: under `~/.insightface/models/`; nothing here downloads them, because a
@@ -82,31 +76,30 @@ class FaceError(Exception):
 def face_python() -> Path:
     """Locate an interpreter that can run the face detector.
 
-    `LUCID_FACE` first, then genstack's venv. No PATH step, for
+    `LUCID_FACE`, and nothing after it. No PATH step, for
     `describe.vlm_python`'s reason: `python` is always on PATH and is almost
     never the one with onnxruntime in it, so searching it would resolve to an
     interpreter that fails with an ImportError instead of refusing now.
 
     A second variable rather than a shared "vision sidecar" resolver, because
-    `LUCID_VLM` points at vaultmedia's tagging venv and this needs genstack's —
-    two different interpreters with two different capabilities. One resolver
+    the two are routinely different interpreters with different capabilities
+    — measured here as insightface 1.0.1 and onnxruntime 1.27.0 in one venv
+    and the vision model's torch stack in another. One resolver
     with two capabilities is the tidier build and it wants a third consumer
     before it is worth the indirection (PLAN.md § The auto-framing detector).
     """
     override = os.environ.get("LUCID_FACE")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
-    if SIBLING_VENV.exists():
-        return SIBLING_VENV
     raise FaceError(
-        "no interpreter with a face detector. Looked at $LUCID_FACE "
-        f"({override or 'unset'}), then {SIBLING_VENV}. Set LUCID_FACE to the "
-        "python in a venv that has insightface and onnxruntime."
+        f"no interpreter with a face detector. $LUCID_FACE is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set LUCID_FACE to "
+        "the python in a venv that has insightface, onnxruntime and opencv."
     )
 
 
 def available() -> dict[str, Any]:
-    """Whether this box can detect faces, and what is missing if it cannot.
+    """Whether this machine can detect faces, and what is missing if it cannot.
 
     A report rather than a raise, so `info` and a refusal message can say
     "detection is unavailable here, because X" without loading an ONNX session

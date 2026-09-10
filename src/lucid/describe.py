@@ -4,9 +4,8 @@ The design and the six measurements behind every constant here are PLAN.md
 § B-roll by description. The short version:
 
 **The model is a subprocess, resolved the way whisper is.** `LUCID_VLM` names
-a Python interpreter that can load Qwen2.5-VL; failing that, the sibling
-tagging venv this box actually has; failing that, a refusal naming both. lucid
-never imports torch — `lucid status` should not pay for a GPU context, and the
+a Python interpreter that can load Qwen2.5-VL; failing that, a refusal naming
+what it needs. lucid never imports torch — `lucid status` should not pay for a GPU context, and the
 same argument that put whisper behind a binary puts the VLM behind an
 interpreter (`asr.py`'s docstring).
 
@@ -23,7 +22,7 @@ widened to save time.
 
 **Frames per call are fixed and never scale with clip length.** Six frames at
 420x360 peaks at 6024 MiB and fits; twelve OOMs, and twelve is what
-vaultmedia's own length-scaled rule asks for on a 730s clip. Length is
+a length-scaled rule asks for on a 730s clip. Length is
 absorbed by the window *count*.
 
 Two residual error classes are known, measured, and not bugs:
@@ -49,14 +48,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-#: The interpreter that actually exists here — vaultmedia's tagging venv, the
-#: same repo `asr.SIBLING_VENV` falls back into for whisper. Cross-repo, and
-#: recorded in the wiki rather than here; this is only the path.
-SIBLING_VENV = Path.home() / "projects" / "vaultmedia" / ".venv-tag" / "bin" / "python"
-
-#: Where `tagger_core` lives. lucid reuses its loader and its generation pass
-#: and nothing else — its prompt and vocabulary are specific to that repo's own library.
-SIBLING_TAGGER = Path.home() / "projects" / "vaultmedia"
+#: What `_vlm_worker.py` loads, as a Hugging Face id — fetched into the
+#: interpreter's own HF cache on first use, and 4-bit quantised at load.
+MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
 #: 10s. Measured against the alternative rather than chosen: at one pass per
 #: clip the model invents people; at 10s it names the kitchen, the cabinets,
@@ -67,14 +61,14 @@ WINDOW = 10.0
 #: scales frames with duration is exactly what OOMs on the 730s cold open.
 FRAMES_PER_WINDOW = 3
 
-#: vaultmedia's, and the size every VRAM measurement was taken at.
+#: The size every VRAM measurement was taken at.
 FRAME_SIZE = "420x360"
 
 #: 120 truncated two windows of the Scream footage mid-sentence. This is
 #: headroom over that, and `truncated` still checks rather than trusting it.
 MAX_NEW_TOKENS = 220
 
-#: lucid's own prompt, not the sibling repo's. It asks for the concrete nouns
+#: lucid's own prompt. It asks for the concrete nouns
 #: a later search has to match on — a description that says "a person does
 #: something" indexes nothing.
 PROMPT = (
@@ -100,8 +94,8 @@ class DescribeError(Exception):
 def vlm_python() -> Path:
     """Locate an interpreter that can load the vision model.
 
-    `LUCID_VLM` first, then the sibling tagging venv. There is no PATH step,
-    unlike `asr.whisper_binary`: `python` is always on PATH and is almost
+    `LUCID_VLM`, and nothing after it. There is no PATH step, unlike
+    `asr.whisper_binary`: `python` is always on PATH and is almost
     never the one with torch in it, so searching it would resolve to an
     interpreter that fails several minutes later with an ImportError instead
     of refusing now.
@@ -109,32 +103,12 @@ def vlm_python() -> Path:
     override = os.environ.get("LUCID_VLM")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
-    if SIBLING_VENV.exists():
-        return SIBLING_VENV
     raise DescribeError(
-        "no interpreter with a vision model. Looked at $LUCID_VLM "
-        f"({override or 'unset'}), then {SIBLING_VENV}. Set LUCID_VLM to the "
-        "python in a venv that has torch, transformers and bitsandbytes."
+        f"no interpreter with a vision model. $LUCID_VLM is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set LUCID_VLM to "
+        "the python in a venv that has torch, transformers, bitsandbytes and "
+        "Pillow, on a machine with a CUDA GPU."
     )
-
-
-def tagger_dir() -> Path:
-    """Locate `tagger_core`, whose loader and generation pass this reuses.
-
-    `LUCID_VLM_TAGGER` overrides it. Separate from `vlm_python` because the
-    two are separable: pointing `LUCID_VLM` at some other venv should not
-    also have to move the module, and deriving one from the other would guess
-    a repo layout from a venv path.
-    """
-    override = os.environ.get("LUCID_VLM_TAGGER")
-    candidate = Path(override).expanduser() if override else SIBLING_TAGGER
-    if not (candidate / "tagger_core.py").exists():
-        raise DescribeError(
-            f"no tagger_core.py under {candidate} — that module holds the "
-            "model loader and the generation pass lucid reuses. Set "
-            "LUCID_VLM_TAGGER to the directory that has it."
-        )
-    return candidate
 
 
 def plan_windows(duration: float, *, window: float = WINDOW) -> list[tuple[float, float]]:
@@ -211,7 +185,6 @@ def describe_windows(
     if not windows:
         return []
     python = vlm_python()
-    tagger = tagger_dir()
 
     with tempfile.TemporaryDirectory(prefix="lucid-vlm-") as tmp:
         job_path = Path(tmp) / "job.json"
@@ -219,7 +192,7 @@ def describe_windows(
         job_path.write_text(
             json.dumps(
                 {
-                    "tagger_dir": str(tagger),
+                    "model": MODEL,
                     "prompt": prompt,
                     "frame_size": frame_size,
                     "max_new_tokens": max_new_tokens,
@@ -262,7 +235,7 @@ def _worker_failure(python: Path, completed: subprocess.CompletedProcess[str]) -
 
 
 def available() -> dict[str, Any]:
-    """Whether this box can describe, and what is missing if it cannot.
+    """Whether this machine can describe, and what is missing if it cannot.
 
     A report rather than a raise, so `info` and the web UI can say "describe
     is unavailable here, because X" without a 31 GB model being the thing
@@ -271,13 +244,15 @@ def available() -> dict[str, Any]:
     report: dict[str, Any] = {"available": False, "python": None, "tagger": None, "why": None}
     try:
         report["python"] = str(vlm_python())
-        report["tagger"] = str(tagger_dir())
     except DescribeError as exc:
         report["why"] = str(exc)
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
         report["why"] = f"lucid's own worker script is missing: {_WORKER}"
         return report
+    # What the interpreter above runs — lucid's own worker since it stopped
+    # importing a sibling repo's tagger, which is what this key used to name.
+    report["tagger"] = str(_WORKER)
     report["available"] = True
     return report
 

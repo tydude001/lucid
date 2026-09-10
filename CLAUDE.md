@@ -138,9 +138,13 @@ absent optional capability is "unavailable", never a failure, and never moves
         so no schema bump, and **`Word.as_dict` omits it when unset**: an
         `asdict` would stamp `"speaker": null` onto every word of every
         transcript and rewrite each file on the next save for no change.
-- **Whisper is a subprocess, and it is not on PATH.** Do not `import whisper` —
+- **Whisper is a subprocess.** Do not `import whisper` —
   go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
-  → PATH → a sibling venv. It is openai-whisper, not faster-whisper, whatever
+  → PATH, and nothing after. **No resolver in `src/` may fall back into a
+  path under `~/projects`** — that is another repo's layout on one machine,
+  and printing it is how `doctor` told strangers about it; this box's installs
+  ride `~/.local/bin/whisper` and `~/.config/environment.d/60-lucid.conf`
+  instead (HISTORY.md § The repo, readied for strangers). It is openai-whisper, not faster-whisper, whatever
   PLAN.md's older tables say. Why it is not an import: `asr.py`'s docstring.
   - **Both passes hallucinate, and the two rules that catch it are not one
     rule.** `asr.clean` is the entry point and the reason it exists is that the

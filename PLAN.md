@@ -1429,8 +1429,8 @@ was not what it was assumed to be.
    `tagger_core.load_qwen` loads it 4-bit (nf4, bf16 compute) in **14.9s**, and
    `run_vlm` is a generic frames+prompt pass. Nothing needs downloading and no
    inference code needs writing. What lucid must **not** reuse is that repo's
-   prompt and vocabulary — both are specific to that repo's own library — only the loader
-   and the generation pass. That the model is cached and that the tagging venv
+   prompt and vocabulary — both are specific to that repo's own library —
+   only the loader and the generation pass. That the model is cached and that the tagging venv
    exists are box/cross-repo facts and belong in the wiki, not here; this note
    cites them.
 

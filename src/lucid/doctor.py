@@ -4,7 +4,7 @@ Every dependency here has a documented way of failing *silently* — that is the
 whole reason this module exists. `melt` prints `Failed to load` and exits 0.
 PyPI's auto-editor is a stale 29.x whose multi-source render degrades to
 720x576 and exits 0. libass substitutes a font nobody chose and ffmpeg exits 0.
-Tyler navigates that with CLAUDE.md; a newcomer has nothing, so `lucid doctor`
+The repo's CLAUDE.md records each of them; a newcomer has none of that, so `lucid doctor`
 probes each one and — when a probe fails — prints the named trap and the fix
 rather than a bare ✗.
 
@@ -141,7 +141,7 @@ def _whisper_entry() -> dict[str, Any]:
     PATH whose venv has lost torch, which resolves fine and dies minutes into
     a transcription. `--help` imports the package and costs about a second.
     """
-    looked_for = f"$LUCID_WHISPER ({os.environ.get('LUCID_WHISPER') or 'unset'}), then PATH, then {asr.SIBLING_VENV}"
+    looked_for = f"$LUCID_WHISPER ({os.environ.get('LUCID_WHISPER') or 'unset'}), then PATH"
     try:
         binary = asr.whisper_binary()
     except asr.ASRError as exc:
@@ -151,9 +151,9 @@ def _whisper_entry() -> dict[str, Any]:
             looked_for=looked_for,
             why=str(exc),
             fix=(
-                "install openai-whisper into any venv (`uv pip install "
-                "openai-whisper`) and point LUCID_WHISPER at that venv's "
-                "`whisper` binary. lucid never imports it — it is a "
+                "install openai-whisper (`uv tool install openai-whisper`, or "
+                "into any venv) and put its `whisper` on PATH, or point "
+                "LUCID_WHISPER at the binary. lucid never imports it — it is a "
                 "subprocess, so it does not have to live in lucid's own venv."
             ),
         )
@@ -376,14 +376,15 @@ def _vlm_entry() -> dict[str, Any]:
         "LUCID_VLM",
         "describe — searching b-roll by what is on screen",
         report,
-        looked_for=f"$LUCID_VLM ({os.environ.get('LUCID_VLM') or 'unset'}), then {describe.SIBLING_VENV}",
+        looked_for=f"$LUCID_VLM ({os.environ.get('LUCID_VLM') or 'unset'})",
         found=report.get("python"),
     )
     if not row["ok"]:
         row["fix"] = (
-            "point LUCID_VLM at a python in a venv with torch, transformers "
-            "and bitsandbytes. `lucid describe --plan` reports the same answer "
-            "without paying for a model load."
+            "point LUCID_VLM at a python in a venv with torch, transformers, "
+            "bitsandbytes and Pillow, on a machine with a CUDA GPU; the model "
+            f"({describe.MODEL}) downloads on first use. `lucid describe --plan` "
+            "reports the same answer without paying for a model load."
         )
     return row
 
@@ -394,13 +395,13 @@ def _face_entry() -> dict[str, Any]:
         "LUCID_FACE",
         "reframe-detect — face-aware crop proposals when the canvas moves",
         report,
-        looked_for=f"$LUCID_FACE ({os.environ.get('LUCID_FACE') or 'unset'}), then {faces.SIBLING_VENV}",
+        looked_for=f"$LUCID_FACE ({os.environ.get('LUCID_FACE') or 'unset'})",
         found=report.get("python"),
     )
     if not row["ok"]:
         row["fix"] = (
-            "point LUCID_FACE at a python in a venv with insightface and "
-            "onnxruntime. Framing still works by hand (`lucid reframe`); only "
+            "point LUCID_FACE at a python in a venv with insightface, "
+            "onnxruntime and opencv-python. Framing still works by hand (`lucid reframe`); only "
             "the proposals need this."
         )
     return row

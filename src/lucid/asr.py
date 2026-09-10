@@ -5,10 +5,10 @@ would pull torch and a GPU context into every `lucid` invocation — including
 `lucid status`, which needs neither — so ASR stays behind `subprocess`, the
 same shape as ffmpeg and auto-editor.
 
-**It is not on PATH on this box.** The working install is openai-whisper inside
-a sibling project's venv, which is why the resolution order below ends in a
-hardcoded path rather than an error. `LUCID_WHISPER` overrides it anywhere
-else.
+It is openai-whisper, found through `LUCID_WHISPER` and then PATH. Until
+2026-09-10 the order ended in a hardcoded path into a sibling project's venv,
+which is where this machine's install lives; that path now rides PATH instead,
+so the order means the same thing on every machine.
 
 Failures are frequently opaque: when another job holds the GPU, whisper exits
 non-zero with the real reason buried several frames up a CUDA traceback. So the
@@ -66,17 +66,13 @@ OVERLAP = 5.0
 #: the work and keeps the slices exact.
 SLICE_RATE = 16000
 
-#: The install that actually exists here — the same one goodsometimes'
-#: scripts/clipcut.py hardcodes.
-SIBLING_VENV = Path.home() / "projects" / "vaultmedia" / ".venv-tag" / "bin" / "whisper"
-
 
 class ASRError(Exception):
     """Raised when whisper is missing, or fails on a media file."""
 
 
 def whisper_binary() -> Path:
-    """Locate the whisper binary: env override, then PATH, then the venv."""
+    """Locate the whisper binary: `LUCID_WHISPER`, then PATH."""
     override = os.environ.get("LUCID_WHISPER")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
@@ -85,13 +81,11 @@ def whisper_binary() -> Path:
     if found:
         return Path(found)
 
-    if SIBLING_VENV.exists():
-        return SIBLING_VENV
-
     raise ASRError(
         "whisper not found. Looked at $LUCID_WHISPER "
-        f"({override or 'unset'}), then PATH, then {SIBLING_VENV}. "
-        "Set LUCID_WHISPER to the binary in a venv that has openai-whisper."
+        f"({override or 'unset'}), then PATH. Install openai-whisper "
+        "(`uv tool install openai-whisper`, or any venv) and put its `whisper` "
+        "on PATH, or set LUCID_WHISPER to the binary."
     )
 
 

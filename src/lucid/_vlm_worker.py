@@ -61,24 +61,63 @@ def _frames(media: str, timestamps: list[float], size: str) -> list:
     return out
 
 
+def _load(model_path: str) -> tuple:
+    """Qwen2.5-VL, 4-bit NF4 with bf16 compute, and its processor.
+
+    The config every VRAM figure in PLAN.md § B-roll by description was
+    measured under — until 2026-09-10 it was imported from a sibling repo's
+    tagger at run time, and it is carried here unchanged so that lucid can
+    describe on a box that has never seen that repo.
+    """
+    import torch
+    from transformers import (
+        AutoProcessor,
+        BitsAndBytesConfig,
+        Qwen2_5_VLForConditionalGeneration,
+    )
+
+    quant = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+    )
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        model_path,
+        quantization_config=quant,
+        device_map="cuda",
+        torch_dtype=torch.bfloat16,
+    ).eval()
+    processor = AutoProcessor.from_pretrained(model_path)
+    return model, processor
+
+
+def _generate(model, processor, images: list, prompt: str, *, max_new_tokens: int) -> str:
+    """One greedy pass over the frames and the prompt; the decoded reply."""
+    import torch
+
+    content = [{"type": "image", "image": im} for im in images]
+    content.append({"type": "text", "text": prompt})
+    messages = [{"role": "user", "content": content}]
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = processor(text=[text], images=list(images), return_tensors="pt").to("cuda")
+    with torch.no_grad():
+        out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    generated = out[:, inputs["input_ids"].shape[1] :]
+    return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
+
+
 def main() -> int:
     job = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     destination = Path(sys.argv[2])
 
-    # The loader and the generation pass come from vaultmedia's tagger_core —
-    # the measured-working 4-bit config, reused rather than reimplemented.
-    # Its *prompt and vocabulary* are specific to that repo's own library and are not
-    # reused: lucid passes its own prompt (PLAN.md § B-roll by description).
-    sys.path.insert(0, job["tagger_dir"])
-    import tagger_core
-
-    model, processor = tagger_core.load_qwen()
+    model, processor = _load(job["model"])
 
     results = []
     for window in job["windows"]:
         try:
             frames = _frames(window["media"], window["timestamps"], job["frame_size"])
-            text = tagger_core.run_vlm(
+            text = _generate(
                 model, processor, frames, job["prompt"], max_new_tokens=job["max_new_tokens"]
             )
             results.append({"index": window["index"], "text": text})
