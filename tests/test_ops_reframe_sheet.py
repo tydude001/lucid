@@ -30,6 +30,10 @@ needs_tools = pytest.mark.skipif(
     shutil.which("magick") is None or shutil.which("ffmpeg") is None,
     reason="the sheet is ffmpeg's frames drawn on by magick",
 )
+needs_face = pytest.mark.skipif(
+    not faces.available()["available"],
+    reason="`extremes` probes with the real face detector (LUCID_FACE)",
+)
 
 VO = {
     "clip_id": "vo",
@@ -192,6 +196,7 @@ def test_a_sliding_window_draws_both_ends_not_a_static_crop(project: Project) ->
 
 
 @needs_tools
+@needs_face
 def test_a_sliding_row_keeps_the_montage_grid_even_with_extremes(project: Project) -> None:
     """`columns` is `SHEET_PICKS` under `extremes`, not `len(at)` — a sliding
     row still has to match whatever every other row in this run is drawing,

@@ -12056,6 +12056,15 @@ the marker, with no assertion changed. After: **1815 passed, 161 skipped, 0
 failed**, 7m46s. That is this machine's ffmpeg and fonts — the CI runner's
 are unmeasured until its first run.
 
+The full suite on this machine, tools and all, then found a ninth of the same
+kind: `test_a_sliding_row_keeps_the_montage_grid_even_with_extremes` runs the
+real face detector and was guarded only on magick and ffmpeg — it had been
+passing on the genstack fallback, and failed the moment that went, because
+`environment.d` reaches a process only after a fresh login. It passes with
+`LUCID_FACE` set and skips without it (`needs_face`). **1975 passed, 1
+failed** before that marker; the file alone after it, 25 of 25 with the
+variable and 24 plus one skip without.
+
 What else shipped, each small:
 
 - `lucid doctor` has an **Agent panel** section — `claude`, resolved through
