@@ -1129,7 +1129,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_fonts.add_argument(
         "--install",
         action="store_true",
-        help="copy the vendored face where fontconfig looks (writes into $HOME)",
+        help="copy the vendored face where this OS's font system looks (writes into $HOME)",
     )
 
     p_canvas = sub.add_parser("canvas", help="read or change the shape this project renders at")

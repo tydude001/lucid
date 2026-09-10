@@ -199,7 +199,7 @@ def _auto_editor_entry() -> dict[str, Any]:
         "then PATH, then ~/.local/bin/auto-editor"
     )
     stale_fix = (
-        "install the auto-editor-linux-x86_64 binary from the GitHub release. "
+        f"install the {autoeditor.release_asset()} binary from the GitHub release. "
         "`pip install auto-editor` gets 29.3.1 — a stale fork of the old "
         "Python program under the same name, which does not speak the v3 "
         "timeline lucid writes."
@@ -262,14 +262,10 @@ def _melt_entry() -> dict[str, Any]:
     exits 0, so a zero return here proves nothing. What is checked is that
     stdout carries melt's own `melt <version>` line.
     """
-    looked_for = (
-        f"$LUCID_MELT ({os.environ.get('LUCID_MELT') or 'unset'}), then PATH, "
-        f"then the Kdenlive flatpak ({picture.KDENLIVE_FLATPAK})"
-    )
+    where, install = picture.melt_search()
+    looked_for = f"$LUCID_MELT ({os.environ.get('LUCID_MELT') or 'unset'}), then PATH, then {where}"
     fix = (
-        "melt has no host package on many boxes — it ships inside Kdenlive. "
-        "`flatpak install org.kde.kdenlive`, or set LUCID_MELT to a melt "
-        "command. Without it, single-source cuts still render through "
+        f"{install} Without it, single-source cuts still render through "
         "auto-editor; anything layered (b-roll, cards, music) does not."
     )
     try:
@@ -560,14 +556,22 @@ def _caption_font() -> dict[str, Any]:
             "and magick. Fix those first; captions cannot be burnt without them."
         )
         return report
-    matched = captions.font_match(family)
+    # Where the OS has its own font system, fontconfig is not asked at all:
+    # even installed (Homebrew has one), it answers for a resolver libass is
+    # not using there. The render's answer is the whole report.
+    native = fonts.native_font_system()
+    report["font_system"] = native or "fontconfig"
+    matched = {} if native else captions.font_match(family)
     report["drew"] = drew.get("drew")
     report["resolves_to"] = matched.get("resolves_to")
     report["fontconfig_available"] = matched.get("available")
     report["ok"] = drew.get("drew") is True
     if report["ok"]:
         report["note"] = (
-            "fontconfig's answer and the render's agree here. They do not "
+            f"fontconfig is not this platform's font system ({native}), so only "
+            "the render was asked — and it drew."
+            if native
+            else "fontconfig's answer and the render's agree here. They do not "
             "always: a family fc-match calls installed can still burn in a "
             "substitute, which is why both are asked."
         )
@@ -576,9 +580,9 @@ def _caption_font() -> dict[str, Any]:
         f"{family!r} could not be shown to draw — the probe rendered nothing at all"
     )
     report["fix"] = (
-        "`lucid fonts --install` copies the vendored face where fontconfig "
-        "looks. Until then captions burn in a face nobody chose and ffmpeg "
-        "exits 0 about it."
+        f"`lucid fonts --install` copies the vendored face where "
+        f"{native or 'fontconfig'} looks. Until then captions burn in a face "
+        "nobody chose and ffmpeg exits 0 about it."
     )
     return report
 
@@ -734,7 +738,14 @@ def render(payload: dict[str, Any]) -> str:
     font = payload["caption_font"]
     lines += ["", "Caption font"]
     if font["ok"]:
-        lines.append(f"  {_TICK} {font['font']} draws (fontconfig: {font['resolves_to']})")
+        # `.get`: hand-built payloads predate the key, and absent meant fontconfig.
+        system = font.get("font_system", "fontconfig")
+        resolved = (
+            f"fontconfig: {font['resolves_to']}"
+            if system == "fontconfig"
+            else f"{system} — fontconfig is not this platform's font system"
+        )
+        lines.append(f"  {_TICK} {font['font']} draws ({resolved})")
     else:
         lines.append(f"  {_CROSS} {font['font']}")
         lines += _wrap(font["why"], indent="      ")

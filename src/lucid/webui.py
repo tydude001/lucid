@@ -151,6 +151,28 @@ TOKEN_COOKIE = "lucid_token"
 LUCID_TAILSCALE_ENV = "LUCID_TAILSCALE"
 
 
+def _tailscale_installs() -> list[Path]:
+    """Where the Tailscale app puts its CLI on this OS, searched after PATH.
+
+    Neither the macOS app nor the Windows installer puts `tailscale` on PATH
+    by default. Leads from docs/plans/PORTABILITY.md step 2, unmeasured here.
+    """
+    if sys.platform == "darwin":
+        return [Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")]
+    if sys.platform == "win32":
+        program_files = Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+        return [program_files / "Tailscale" / "tailscale.exe"]
+    return []
+
+
+def _find_tailscale() -> str | None:
+    """`$LUCID_TAILSCALE`, then PATH, then the OS's own install location."""
+    found = os.environ.get(LUCID_TAILSCALE_ENV) or shutil.which("tailscale")
+    if found:
+        return found
+    return next((str(p) for p in _tailscale_installs() if p.is_file()), None)
+
+
 def _host_forms(name: str) -> set[str]:
     """Every spelling of `name` a browser might put in `Host:`.
 
@@ -238,10 +260,11 @@ def tailscale_identity(binary: str | None = None) -> tuple[str, list[str]]:
     loopback would look like the feature working until something off the
     machine tried it.
     """
-    resolved = binary or os.environ.get(LUCID_TAILSCALE_ENV) or shutil.which("tailscale")
+    resolved = binary or _find_tailscale()
     if not resolved:
+        where = "".join(f" or at {p}" for p in _tailscale_installs())
         raise ProjectError(
-            "--tailscale: no `tailscale` binary found on PATH. Install it, or "
+            f"--tailscale: no `tailscale` binary found on PATH{where}. Install it, or "
             f"set {LUCID_TAILSCALE_ENV} to the one to use, or pass --host with "
             "--allow-remote --allow-remote-host yourself."
         )
@@ -3706,13 +3729,49 @@ _APP_BROWSER_FLATPAKS = (
 LUCID_BROWSER_ENV = "LUCID_BROWSER"
 
 
+def _app_browser_installs() -> list[Path]:
+    """Where a chromium-family browser installs itself on macOS and Windows.
+
+    Neither OS puts one on PATH, so `_APP_BROWSER_BINS` finds nothing there.
+    Same vendor order as that tuple, so a box with Chrome and Edge both — every
+    Windows box has Edge — opens the same browser it would on Linux. Leads from
+    docs/plans/PORTABILITY.md step 2, unmeasured here.
+    """
+    if sys.platform == "darwin":
+        return [
+            Path(apps) / f"{name}.app" / "Contents" / "MacOS" / name
+            for name in ("Chromium", "Google Chrome", "Brave Browser", "Vivaldi", "Microsoft Edge")
+            for apps in ("/Applications", Path.home() / "Applications")
+        ]
+    if sys.platform == "win32":
+        roots = [
+            Path(value)
+            for key in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")
+            if (value := os.environ.get(key))
+        ]
+        return [
+            root / relative
+            for relative in (
+                Path("Chromium", "Application", "chrome.exe"),
+                Path("Google", "Chrome", "Application", "chrome.exe"),
+                Path("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                Path("Vivaldi", "Application", "vivaldi.exe"),
+                Path("Microsoft", "Edge", "Application", "msedge.exe"),
+            )
+            for root in roots
+        ]
+    return []
+
+
 def _resolve_app_browser() -> list[str] | None:
     """The command to launch a chromeless `--app=<url>` window with, or None.
 
     Checked in order, stopping at the first hit: `$LUCID_BROWSER` (taken
     literally, unconditionally); a chromium-family binary on PATH
-    (`_APP_BROWSER_BINS`); a chromium-family flatpak, only if `flatpak`
-    itself is on PATH (`_APP_BROWSER_FLATPAKS`, probed with `flatpak info`).
+    (`_APP_BROWSER_BINS`); on macOS and Windows, a chromium-family browser in
+    its install location (`_app_browser_installs`); a chromium-family flatpak,
+    only if `flatpak` itself is on PATH (`_APP_BROWSER_FLATPAKS`, probed with
+    `flatpak info`).
 
     Deliberately does not add a fourth tier for Playwright's cached
     Chromium under `~/.cache/ms-playwright/` — it exists on this box only as
@@ -3729,6 +3788,10 @@ def _resolve_app_browser() -> list[str] | None:
         if resolved:
             return [resolved]
 
+    for install in _app_browser_installs():
+        if install.is_file():
+            return [str(install)]
+
     if shutil.which("flatpak"):
         for app_id in _APP_BROWSER_FLATPAKS:
             try:
@@ -3744,7 +3807,11 @@ def _resolve_app_browser() -> list[str] | None:
 
 
 def _launch_app(url: str) -> None:
-    """Open `url` in a chromeless app window, falling back to `xdg-open`.
+    """Open `url` in a chromeless app window, falling back to a normal tab.
+
+    The tab goes through `xdg-open` where there is one — Linux, unchanged —
+    and the stdlib `webbrowser` module on macOS and Windows, which is what
+    `xdg-open` is there (`open`, `os.startfile`).
 
     Best-effort only: a vanished binary, a permission error, or nothing
     found at all must never crash `lucid open` — the URL was already
@@ -3775,6 +3842,18 @@ def _launch_app(url: str) -> None:
             )
         except OSError:
             pass
+        return
+    # Not on Linux, where a box with no `xdg-open` is a box `webbrowser` would
+    # answer with a console browser (w3m, lynx) seizing this terminal.
+    if sys.platform.startswith("linux"):
+        return
+
+    import webbrowser
+
+    try:
+        webbrowser.open(url)
+    except (webbrowser.Error, OSError):
+        pass
 
 
 def open_studio(path: Path | str | None = None, *, root: Path | str | None = None) -> None:

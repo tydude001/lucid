@@ -38,6 +38,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -57,15 +58,35 @@ class FontError(RuntimeError):
     """A vendored face could not be installed, or a probe could not be run."""
 
 
-def user_font_dir() -> Path:
-    """The directory fontconfig searches for a user's own faces.
+#: The font system that is not fontconfig, on the two OSes that have one.
+#: libass resolves through it there, so `fc-match` — and anything fontconfig
+#: says about a directory — is an answer about a resolver nobody is using.
+#: docs/plans/PORTABILITY.md step 4/5 measures what substitution looks like
+#: under each; every fontconfig finding in CLAUDE.md is void on both.
+NATIVE_FONT_SYSTEMS = {"darwin": "CoreText", "win32": "DirectWrite"}
 
-    Resolved the way `/etc/fonts/fonts.conf` resolves it — `<dir
+
+def native_font_system() -> str | None:
+    """`CoreText`/`DirectWrite` where the OS has its own, None where it is fontconfig."""
+    return NATIVE_FONT_SYSTEMS.get(sys.platform)
+
+
+def user_font_dir() -> Path:
+    """The directory this OS's font system searches for a user's own faces.
+
+    On Linux, resolved the way `/etc/fonts/fonts.conf` resolves it — `<dir
     prefix="xdg">fonts</dir>`, i.e. `$XDG_DATA_HOME/fonts` with
     `~/.local/share` as XDG's own default — rather than hardcoded, because a
     box that sets `XDG_DATA_HOME` would otherwise get a copy in a directory
-    nothing reads and a report saying the font was installed.
+    nothing reads and a report saying the font was installed. On macOS it is
+    `~/Library/Fonts`; on Windows the per-user directory, which is **not
+    enough on its own** there (`_register_windows`).
     """
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Fonts"
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(local) / "Microsoft" / "Windows" / "Fonts"
     base = os.environ.get("XDG_DATA_HOME") or ""
     root = Path(base).expanduser() if base.strip() else Path.home() / ".local" / "share"
     return root / "fonts"
@@ -134,14 +155,57 @@ def install(*, source: Path | str | None = None, dest: Path | str | None = None)
         changed = True
         installed.append({"file": face.name, "path": str(there), "state": "installed"})
 
-    refreshed = _refresh_cache(target) if changed else None
+    native = native_font_system()
+    # The rescan before the search-path check, or `fc-list` answers about a
+    # cache that has not seen the face yet.
+    refreshed = _refresh_cache(target) if changed and not native else None
+    registered = (
+        _register_windows([Path(entry["path"]) for entry in installed])
+        if sys.platform == "win32"
+        else None
+    )
     return {
         "dir": str(target),
-        "on_fontconfig_path": _on_search_path(target),
+        # None, never False, where fontconfig is not the font system: "does
+        # fontconfig search it" has no bearing on what libass will find there.
+        "on_fontconfig_path": None if native else _on_search_path(target),
+        "font_system": native or "fontconfig",
+        "registered": registered,
         "faces": installed,
         "changed": changed,
         "cache_refreshed": refreshed,
     }
+
+
+#: Where Windows lists a user's own faces. A file copied into the per-user
+#: font directory without a value here is **not installed** — nothing
+#: enumerates the directory — so `install` writes one per face and reads it
+#: back rather than reporting the copy as the install.
+_WINDOWS_FONTS_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+
+
+def _register_windows(paths: list[Path]) -> bool:
+    """Register each face under HKCU, and answer whether every value reads back.
+
+    The value's name is display text and the data is the face's full path,
+    which is how a per-user font differs from a system one (a bare filename).
+    Whether libass under DirectWrite then draws it is docs/plans/PORTABILITY.md
+    step 5's measurement, not this function's claim — it answers only that
+    Windows has the face on its list.
+    """
+    import winreg  # Windows-only stdlib, so imported where it is used
+
+    wanted = {
+        f"{p.stem} ({'OpenType' if p.suffix.lower() == '.otf' else 'TrueType'})": str(p)
+        for p in paths
+    }
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _WINDOWS_FONTS_KEY) as key:
+            for name, data in wanted.items():
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, data)
+            return all(winreg.QueryValueEx(key, name)[0] == data for name, data in wanted.items())
+    except OSError:
+        return False
 
 
 def _on_search_path(directory: Path) -> bool | None:
@@ -366,7 +430,7 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
         report["warning"] = (
             f"{family!r} renders identically to a family that cannot exist, so libass "
             "is substituting — captions will draw in a face nobody chose, and ffmpeg "
-            "will exit 0. `lucid fonts install` puts the vendored face where "
-            "fontconfig looks."
+            "will exit 0. `lucid fonts --install` puts the vendored face where "
+            f"{native_font_system() or 'fontconfig'} looks."
         )
     return report

@@ -675,8 +675,9 @@ def fonts(path: str | None = None, install: bool = False) -> dict[str, Any]:
 
     `path` is optional: with a project, this checks the font that project's
     caption style would burn; without one, lucid's default. `install` copies
-    the vendored face where fontconfig looks and is off by default, because it
-    writes into the home directory.
+    the vendored face where this OS's font system looks (fontconfig, CoreText
+    or DirectWrite) and is off by default, because it writes into the home
+    directory.
     """
     return ops.fonts(path, install=install)
 

@@ -60,6 +60,9 @@ Read these before assuming a port is a rewrite. Each was checked 2026-09-10.
   cp313 wheels for macOS (arm64 and x86_64) and Windows. Verify the wheel
   list on PyPI before relying on this; the cp314 gap in `pyproject.toml`'s
   comment is the kind of thing that changes.
+  *Correction, 2026-09-10: the x86_64 half is wrong — every macOS wheel of
+  0.18.1 is arm64, so an Intel Mac builds OTIO from source (CMake and a C++
+  compiler). HISTORY.md § The Linux-shaped resolvers, widened.*
 - **The MCP stdio server, the stdlib HTTP web UI, its `EventSource` bus,
   Range streaming (`webui._stream_file`) and the mtime-based
   `_revision`/`ProjectConflictError` watches are all platform-neutral.**
@@ -95,6 +98,8 @@ than pass or fail. A unit test monkeypatches `sys.platform` to `"darwin"`
 and `"win32"` and asserts neither path touches `os.getuid` or refuses.
 
 ## Step 2 — the Linux-shaped resolvers, widened
+
+Shipped — see HISTORY.md § The Linux-shaped resolvers, widened.
 
 None of these crash; each silently narrows what a non-Linux box can find.
 All keep their `LUCID_*` override as the first branch.

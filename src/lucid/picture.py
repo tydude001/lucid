@@ -114,6 +114,53 @@ class PictureError(Exception):
     """Raised when a picture-side check cannot be run or cannot be read."""
 
 
+def melt_bundles() -> list[Path]:
+    """Where a desktop editor ships its own `melt` on this OS, searched after PATH.
+
+    Shotcut and Kdenlive both bundle one on macOS and Windows, and neither
+    puts it on PATH. **Whether these bundles carry every module lucid's
+    documents use (`qtblend`, `qimage`, `affine`, `avformat`) is unmeasured**
+    — docs/plans/PORTABILITY.md step 4's first question — and a missing module
+    renders *something* at exit 0, so finding one here is not a claim that it
+    renders correctly. Empty on Linux, where the flatpak is the fallback.
+    """
+    if sys.platform == "darwin":
+        return [
+            Path(apps) / bundle
+            for apps in ("/Applications", Path.home() / "Applications")
+            for bundle in ("Shotcut.app/Contents/MacOS/melt", "kdenlive.app/Contents/MacOS/melt")
+        ]
+    if sys.platform == "win32":
+        program_files = Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+        return [program_files / "Shotcut" / "melt.exe", program_files / "kdenlive" / "bin" / "melt.exe"]
+    return []
+
+
+def melt_search() -> tuple[str, str]:
+    """(where `melt_command` looks after PATH, how to get a melt there), for this OS.
+
+    Stated once so `melt_command`'s refusal and doctor's row say the same
+    thing — a doctor naming the flatpak on a Mac sends someone to a package
+    manager their OS has not got.
+    """
+    if sys.platform in ("darwin", "win32"):
+        where = ", ".join(str(p) for p in melt_bundles())
+        return (
+            f"the Shotcut and Kdenlive installs ({where})",
+            (
+                "Install Shotcut (shotcut.org) or Kdenlive (kdenlive.org) — both "
+                "ship melt inside the application — or set LUCID_MELT to a melt command."
+            ),
+        )
+    return (
+        f"the Kdenlive flatpak ({KDENLIVE_FLATPAK})",
+        (
+            "melt has no host package on many boxes — it ships inside Kdenlive. "
+            "`flatpak install org.kde.kdenlive`, or set LUCID_MELT to a melt command."
+        ),
+    )
+
+
 def melt_command() -> list[str]:
     """The argv prefix that runs `melt`, however it is installed here.
 
@@ -126,17 +173,19 @@ def melt_command() -> list[str]:
     found = shutil.which("melt")
     if found:
         return [found]
+    for bundle in melt_bundles():
+        if bundle.is_file():
+            return [str(bundle)]
     if shutil.which("flatpak"):
         installed = subprocess.run(
             ["flatpak", "info", KDENLIVE_FLATPAK], capture_output=True, text=True, check=False
         )
         if installed.returncode == 0:
             return ["flatpak", "run", "--command=melt", KDENLIVE_FLATPAK]
+    where, install = melt_search()
     raise PictureError(
-        "melt not found. Looked at $LUCID_MELT, then PATH, then the Kdenlive "
-        f"flatpak ({KDENLIVE_FLATPAK}). Install your distribution's `melt` "
-        "package or `flatpak install org.kde.kdenlive`, or set LUCID_MELT to a "
-        "melt command. Without it the timeline's own frame total is still reported; "
+        f"melt not found. Looked at $LUCID_MELT, then PATH, then {where}. "
+        f"{install} Without it the timeline's own frame total is still reported; "
         "only the comparison against melt needs melt."
     )
 
@@ -595,6 +644,9 @@ def render(
         notes.append(
             f"systemd-run is not available here, so the render ran without the "
             f"{max_memory} memory cap"
+            if sys.platform.startswith("linux")
+            else f"the {max_memory} memory cap is a systemd scope and Linux-only, so "
+            "this render ran without one"
         )
     return {
         "output": str(destination),

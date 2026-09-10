@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -50,8 +52,38 @@ class AutoEditorError(Exception):
     """Raised when auto-editor is missing, or fails on a timeline."""
 
 
+#: `platform.machine()` as each OS spells it, to the architecture in upstream's
+#: release asset names. Read off the 31.6.0 release's asset list 2026-09-10:
+#: `auto-editor-{linux,macos,windows}-<arch>`, where 64-bit ARM is `arm64` on
+#: macOS and `aarch64` on the other two, and Windows adds `.exe`.
+_RELEASE_ARCH = {"x86_64": "x86_64", "amd64": "x86_64", "arm64": "arm64", "aarch64": "arm64", "armv7l": "armv7"}
+
+
+def release_asset() -> str:
+    """The upstream release binary built for this OS and CPU, by its GitHub name.
+
+    Named in the not-found message so nobody on a Mac is told to download the
+    Linux build. An OS upstream does not build for gets a description rather
+    than a name that does not exist.
+    """
+    system = {"darwin": "macos", "win32": "windows"}.get(sys.platform)
+    if system is None and sys.platform.startswith("linux"):
+        system = "linux"
+    machine = platform.machine().lower()
+    arch = _RELEASE_ARCH.get(machine)
+    if system is None or arch is None:
+        return f"auto-editor release binary for {sys.platform}/{machine or 'this CPU'}"
+    if arch == "arm64" and system != "macos":
+        arch = "aarch64"
+    return f"auto-editor-{system}-{arch}" + (".exe" if system == "windows" else "")
+
+
 def binary() -> str:
-    """Locate the auto-editor binary, preferring an explicit override."""
+    """Locate the auto-editor binary, preferring an explicit override.
+
+    `shutil.which` finds `auto-editor.exe` on Windows by itself (PATHEXT), so
+    the search is the same on every OS; only the name of the download differs.
+    """
     override = os.environ.get("LUCID_AUTO_EDITOR")
     if override:
         return override
@@ -62,7 +94,7 @@ def binary() -> str:
     if local.exists():
         return str(local)
     raise AutoEditorError(
-        "auto-editor not found. Install the auto-editor-linux-x86_64 binary "
+        f"auto-editor not found. Install the {release_asset()} binary "
         "from the GitHub release (not PyPI — that build is stale and diverged), "
         "or set LUCID_AUTO_EDITOR to its path."
     )

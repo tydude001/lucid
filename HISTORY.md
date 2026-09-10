@@ -12189,3 +12189,61 @@ gives for `systemd-run`. The five existing display tests now pin
 `sys.platform` to `linux` — nothing asserted changed; they state the platform
 they measure, since step 3's macOS and Windows runners would otherwise run
 them against the branch that skips the dance. Suite: 1979 passed, 1 skipped.
+
+## The Linux-shaped resolvers, widened — 2026-09-10
+
+Step 2 of docs/plans/PORTABILITY.md. None of these crashed off Linux; each
+found only what a Linux box has, and each now also looks where the other two
+OSes put things — after `LUCID_*` and PATH, which are unchanged and first.
+**Every location below is a lead, not a measurement**: nothing here has run
+on a Mac or a Windows box, and a bundle being *found* is not a claim that it
+renders (steps 4 and 5).
+
+- **melt** — `picture.melt_bundles()`: Shotcut and Kdenlive inside
+  `/Applications` (and `~/Applications`) on macOS, under `%ProgramFiles%` on
+  Windows. `picture.melt_search()` states where it looked and how to get one
+  **once**, and both `melt_command`'s refusal and doctor's row read it — so
+  doctor no longer tells a Mac to `flatpak install`. The `/tmp` flatpak hint
+  needed no change: it only ever fires for a command beginning `flatpak`.
+- **auto-editor** — the not-found message names this machine's download,
+  `autoeditor.release_asset()`, read off the 31.6.0 release's actual asset
+  list rather than the plan's guess: 64-bit ARM is `arm64` on macOS and
+  `aarch64` on Linux and Windows, Windows adds `.exe`, and an OS upstream
+  does not build for gets a description instead of a name that 404s.
+- **`lucid open`** — chromium-family browsers in their macOS app bundles and
+  Windows install directories, in the Linux tuple's vendor order so a Windows
+  box with Chrome opens Chrome and not the Edge every one has. With no
+  chromium it opens a normal tab through `webbrowser` — **on macOS and
+  Windows only**: a Linux box with no `xdg-open` is exactly the box where
+  `webbrowser` answers with w3m or lynx and takes over the terminal `lucid
+  open` is serving from, so Linux still opens nothing there, as before.
+- **Tailscale** — the macOS app's CLI and `%ProgramFiles%\Tailscale`, neither
+  on PATH by default. `--tailscale` still refuses rather than falls back, and
+  now names the paths it tried.
+- **The memory cap** says it is a Linux-only systemd scope off Linux, instead
+  of "not available here", which reads as something to install.
+- **Fonts** — `fonts.user_font_dir` is `~/Library/Fonts` on macOS and the
+  per-user `Microsoft\Windows\Fonts` on Windows. **On Windows a copy there is
+  not an install** — nothing enumerates the directory — so `install` writes
+  each face's HKCU `Fonts` value and reads it back, reporting `registered`;
+  whether DirectWrite then hands it to libass is step 5's. Off Linux,
+  `fc-cache` and `fc-list` are not run, `on_fontconfig_path` is null, and
+  doctor's caption-font row does not ask `fc-match` at all: Homebrew has a
+  fontconfig, and asking it measures a resolver libass is not using there.
+  The ✓/✗ is still the rendered probe's, a measurement on any OS. The probe's
+  warning also said `lucid fonts install`; the flag is `--install`.
+
+`tests/test_portability.py` stands in for either OS by setting `sys.platform`
+and holds Linux to what it was. Run against the old `src/` as a control, 31
+of its 33 fail and the two that pass are the Linux-invariance ones — the
+uncapped-render note and `lucid open` with no `xdg-open` — which is the
+evidence Linux did not move. Two existing tests pin `sys.platform` to
+`linux`: doctor's melt fix (it names the flatpak) and the XDG font directory.
+Live on this box, `lucid doctor` reads as before, `lucid open` still resolves
+the Chrome flatpak and `--tailscale` `/usr/bin/tailscale`. Suite: 2012
+passed, 1 skipped.
+
+One claim in the plan's own "what already works" list is wrong: **OTIO
+0.18.1 has no macOS x86_64 wheel for any Python** — every macOS wheel on PyPI
+is arm64. An Apple-silicon Mac, and GitHub's `macos-latest`, get a wheel; an
+Intel Mac builds OTIO from its sdist, which needs CMake and a C++ compiler.

@@ -156,6 +156,7 @@ def test_absent_auto_editor_still_names_the_stale_pypi_build(
 
 def test_melt_exiting_zero_with_no_banner_is_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """melt's exit code is evidence of nothing — CLAUDE.md, measured twice."""
+    monkeypatch.setattr(sys, "platform", "linux")  # the fix names the flatpak there
     monkeypatch.setattr(doctor.picture, "melt_command", lambda: ["melt"])
     monkeypatch.setattr(doctor, "_run", lambda cmd: ("Failed to load\n", "", 0))
     row = doctor._melt_entry()

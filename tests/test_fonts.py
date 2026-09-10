@@ -60,6 +60,7 @@ def test_a_face_already_there_is_compared_by_content_not_by_name(tmp_path) -> No
 
 
 def test_the_font_dir_is_resolved_the_way_fontconfig_resolves_it(monkeypatch) -> None:
+    monkeypatch.setattr(fonts.sys, "platform", "linux")
     monkeypatch.setenv("XDG_DATA_HOME", "/somewhere/else")
     assert fonts.user_font_dir() == fonts.Path("/somewhere/else/fonts")
 
