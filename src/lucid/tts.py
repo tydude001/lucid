@@ -142,14 +142,26 @@ def available(voice: str | Path | None = None) -> dict[str, Any]:
 
     `voice` is checked too (the argument, else `LUCID_TTS_VOICE`), because a
     box with the model and no voice cannot synthesise either.
+
+    Each of the three is resolved on its own, so one missing does not hide
+    what the other two found, and `why` names the voice first — the order
+    `ops.vo_synth` refuses in. Interpreter-first made the reason depend on the
+    machine: a checkout with no TTS venv was told about the venv, and never
+    that there is no default voice.
     """
     report: dict[str, Any] = {"available": False, "python": None, "model": None, "voice": None, "why": None}
-    try:
-        report["python"] = str(tts_python())
-        report["model"] = str(model_dir())
-        report["voice"] = str(voice_dir(voice))
-    except TTSError as exc:
-        report["why"] = str(exc)
+    reasons = []
+    for key, resolve in (
+        ("voice", lambda: voice_dir(voice)),
+        ("python", tts_python),
+        ("model", model_dir),
+    ):
+        try:
+            report[key] = str(resolve())
+        except TTSError as exc:
+            reasons.append(str(exc))
+    if reasons:
+        report["why"] = reasons[0]
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
         report["why"] = f"lucid's own worker script is missing: {_WORKER}"

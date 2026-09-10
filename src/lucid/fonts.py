@@ -239,6 +239,20 @@ def _probe_ass(family: str, *, size: int, width: int, height: int) -> str:
     ) + "\n"
 
 
+def _run_tool(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """`subprocess.run`, with a missing binary refused as a `FontError`.
+
+    A probe's callers catch `FontError` and report it — `lucid doctor` among
+    them, whose whole job is the machine that lacks ImageMagick. A bare
+    `FileNotFoundError` went straight past that and crashed doctor on exactly
+    the box it exists to diagnose.
+    """
+    try:
+        return subprocess.run(argv, check=False, **kwargs)
+    except FileNotFoundError:
+        raise FontError(f"{argv[0]} not found — the font probe needs it on PATH") from None
+
+
 def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -> None:
     """Burn one frame of `PROBE_TEXT` in `family`, on black.
 
@@ -249,7 +263,7 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
     """
     script = out.parent / "probe.ass"
     script.write_text(_probe_ass(family, size=size, width=width, height=height), encoding="utf-8")
-    done = subprocess.run(
+    done = _run_tool(
         [
             "ffmpeg", "-v", "error", "-y",
             "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:d=1",
@@ -260,7 +274,6 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
         capture_output=True,
         text=True,
         timeout=120,
-        check=False,
     )
     if done.returncode != 0 or not out.exists():
         raise FontError(
@@ -271,12 +284,11 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
 
 def _rmse(a: Path, b: Path) -> float:
     """Root-mean-square difference between two renders, 0 for identical."""
-    done = subprocess.run(
+    done = _run_tool(
         ["magick", "compare", "-metric", "RMSE", str(a), str(b), "null:"],
         capture_output=True,
         text=True,
         timeout=120,
-        check=False,
     )
     # `magick compare` writes the metric to stderr and exits non-zero when the
     # images differ, which is its normal case here, so the exit code says
@@ -291,12 +303,11 @@ def _rmse(a: Path, b: Path) -> float:
 
 def _ink(png: Path) -> float:
     """Mean luminance of a render — how much was drawn at all."""
-    done = subprocess.run(
+    done = _run_tool(
         ["magick", str(png), "-format", "%[fx:mean]", "info:"],
         capture_output=True,
         text=True,
         timeout=60,
-        check=False,
     )
     try:
         return float((done.stdout or "").strip())

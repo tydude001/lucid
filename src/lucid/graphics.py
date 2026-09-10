@@ -2134,6 +2134,14 @@ def fill_template(
         raise GraphicsError(f"template {name!r} needs {sorted(missing)}, which nothing supplied")
 
     resolved = {s: values.get(s, meta["default"]) for s, meta in slots.items()}
+    # Refuse what no slot could draw before measuring any of them: a line
+    # break in a single-line value is a malformed ask, and that answer should
+    # neither wait on nor depend on having the renderer every fit is measured
+    # through. `line_markup` is where the refusal lives; this only runs it early.
+    colours = {name: str(resolved[name]) for name in PALETTE}
+    for slot, meta in slots.items():
+        if meta["kind"] == "line" and has_runs(str(resolved[slot])):
+            line_markup(str(resolved[slot]), colours)
 
     view_height = round(TEMPLATE_WIDTH * height / width)
     mid_y = round(view_height * geometry["mid_ratio"])
