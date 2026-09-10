@@ -472,12 +472,37 @@ def _display() -> dict[str, Any]:
     file. An unattended box does not need a session: `QT_QPA_PLATFORM=offscreen`
     draws with no display server at all, measured on this repo's own box, and
     doctor says so rather than reporting a bare "no display".
+
+    **On macOS and Windows the question does not arise** — Qt draws through
+    the OS's own window system (`picture.NATIVE_QT_PLATFORMS`) — so `ok` is
+    None and `applicable` False: neither a pass nor a failure, since whether
+    Qt draws a card there is unmeasured (docs/plans/PORTABILITY.md step 4).
     """
     env = picture.display_env()
     headless = picture.qt_is_headless(env)
     wayland, x11 = env.get("WAYLAND_DISPLAY"), env.get("DISPLAY")
+    native = picture.native_qt_platform()
+    if native:
+        return {
+            "ok": None,
+            "applicable": False,
+            "wayland_display": wayland,
+            "display": x11,
+            "xdg_runtime_dir": env.get("XDG_RUNTIME_DIR"),
+            "qt_platform": env.get("QT_QPA_PLATFORM") or None,
+            "headless_qt": headless,
+            "how": None,
+            "why": None,
+            "fix": None,
+            "note": (
+                f"Qt draws through its own `{native}` plugin, with no display "
+                "server to find. Whether a "
+                "layered render keeps its cards here has not been measured."
+            ),
+        }
     report: dict[str, Any] = {
         "ok": bool(wayland or x11 or headless),
+        "applicable": True,
         "wayland_display": wayland,
         "display": x11,
         "xdg_runtime_dir": env.get("XDG_RUNTIME_DIR"),
@@ -695,7 +720,11 @@ def render(payload: dict[str, Any]) -> str:
 
     display = payload["display"]
     lines += ["", "Display (MLT's Qt module)"]
-    if display["ok"]:
+    # `.get`, for the same reason as `agent` below: hand-built payloads predate it.
+    if display.get("applicable") is False:
+        lines.append(f"  {_DASH} not applicable on this platform")
+        lines += _wrap(display["note"], indent="      ")
+    elif display["ok"]:
         lines.append(f"  {_TICK} {display['how']}")
     else:
         lines.append(f"  {_CROSS} no display")

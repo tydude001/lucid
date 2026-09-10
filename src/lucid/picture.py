@@ -37,6 +37,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -140,6 +141,25 @@ def melt_command() -> list[str]:
     )
 
 
+#: Where Qt draws through the OS's own window system rather than a display
+#: server: `cocoa` on macOS, `windows` on Windows. There is no socket to find
+#: and nothing for the render gate to check, and `/run/user/<uid>` is not a
+#: path either OS has — Windows has no `os.getuid` at all, so applying the
+#: Linux dance there raised before any render or `lucid doctor` ran. Every
+#: other platform Qt runs on reaches a display through X11 or Wayland, which is
+#: what `display_env` is for. **That Qt draws a `qimage` producer under either
+#: is unmeasured** — docs/plans/PORTABILITY.md step 4 is where it gets settled.
+NATIVE_QT_PLATFORMS = {"darwin": "cocoa", "win32": "windows"}
+
+
+def native_qt_platform() -> str | None:
+    """Qt's own platform plugin on this OS, or None where Qt needs a display server.
+
+    Read at call time, never at import, so a test can stand in for either OS.
+    """
+    return NATIVE_QT_PLATFORMS.get(sys.platform)
+
+
 def display_env() -> dict[str, str]:
     """Give MLT's Qt module a display, or it silently drops what it cannot load.
 
@@ -159,8 +179,13 @@ def display_env() -> dict[str, str]:
     platform plugin at all, and **melt aborts printing nothing** — which the
     empty-output guards read as a project that could not be loaded. So the
     directory this searched is exported alongside the socket it found.
+
+    On macOS and Windows none of that applies (`NATIVE_QT_PLATFORMS`) and the
+    environment is returned as it is.
     """
     env = dict(os.environ)
+    if native_qt_platform():
+        return env
     runtime = Path(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
     if env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"):
         if env.get("WAYLAND_DISPLAY") and (runtime / env["WAYLAND_DISPLAY"]).exists():
@@ -482,7 +507,11 @@ def render(
     destination = Path(output).expanduser()
 
     env = display_env()
-    if not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY") or qt_is_headless(env)):
+    # The gate is a Linux one: it catches melt aborting with a socket name and
+    # no runtime dir, which cannot happen where Qt draws natively.
+    if not native_qt_platform() and not (
+        env.get("WAYLAND_DISPLAY") or env.get("DISPLAY") or qt_is_headless(env)
+    ):
         raise PictureError(
             "no display for MLT's Qt module to open, so this render would drop "
             "every `qimage` producer and the `qtblend` transition — the picture "

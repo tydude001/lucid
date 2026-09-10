@@ -68,6 +68,8 @@ Read these before assuming a port is a rewrite. Each was checked 2026-09-10.
 
 ## Step 1 — the two things that break outright
 
+Shipped — see HISTORY.md § The Windows crash and the display gate.
+
 Both are in `picture.py` and both are Linux display-server concepts applied
 unconditionally.
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -98,6 +99,7 @@ def test_a_wayland_socket_travels_with_the_directory_it_lives_in(
     `XDG_RUNTIME_DIR`. Naming one without the other is how melt aborts printing
     nothing under a scrubbed environment — which is the environment the MCP
     stdio transport hands its server (measured 2026-08-08)."""
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
@@ -115,6 +117,7 @@ def test_an_inherited_display_is_left_alone_but_still_kept_whole(
 ) -> None:
     """A session that already names a display is not second-guessed — the pair
     is only ever completed, never replaced."""
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-9")
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
@@ -396,12 +399,40 @@ def test_a_render_with_no_display_refuses_rather_than_dropping_the_picture_lane(
     """Without a display every `qimage` producer and the `qtblend` transition
     refuse to load, the picture lane vanishes and melt still exits 0
     (HISTORY.md § 4) — so this is a refusal, not a warning."""
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(picture, "display_env", dict)
     project = tmp_path / "timeline.mlt"
     project.write_text("<mlt/>", encoding="utf-8")
 
     with pytest.raises(picture.PictureError, match="no display"):
         picture.render(project, tmp_path / "out.mp4")
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_a_native_qt_platform_neither_asks_for_a_uid_nor_refuses(
+    melt: _FakeMelt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    """Qt draws through cocoa on macOS and its `windows` plugin on Windows, so
+    the Linux display dance does not apply there — and Windows has no
+    `os.getuid` at all, which made every render and `lucid doctor` raise
+    `AttributeError` before anything ran (docs/plans/PORTABILITY.md step 1).
+    Removing `getuid` is what proves the path never reaches for it."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.delattr(os, "getuid", raising=False)
+    for name in ("WAYLAND_DISPLAY", "DISPLAY", "XDG_RUNTIME_DIR", "QT_QPA_PLATFORM"):
+        monkeypatch.delenv(name, raising=False)
+
+    assert picture.display_env() == dict(os.environ)
+
+    # `shutil.which` branches on `sys.platform` itself and reaches for
+    # `_winapi` under a faked win32, which Linux has not got. Neither OS has
+    # `systemd-run`, so None is the answer a real `which` gives on both.
+    monkeypatch.setattr(picture.shutil, "which", lambda name: None)
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+    result = picture.render(project, tmp_path / "out.mp4", expect_frames=150)
+    assert result["agrees"] is True
+    assert (tmp_path / "out.mp4").exists()
 
 
 def test_a_render_melt_did_not_write_is_a_failure_whatever_it_exited(

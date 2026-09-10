@@ -13,6 +13,8 @@ file runs identically on a box with none of the six installed.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -272,6 +274,7 @@ def test_no_display_names_offscreen_rather_than_just_refusing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An unattended box needs no session at all — say which variable to set."""
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(doctor.picture, "display_env", dict)
     monkeypatch.setattr(doctor.picture, "qt_is_headless", lambda env=None: False)
     display = doctor._display()
@@ -281,11 +284,44 @@ def test_no_display_names_offscreen_rather_than_just_refusing(
 
 
 def test_headless_qt_counts_as_a_display(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(doctor.picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})
     display = doctor._display()
     assert display["ok"] is True
     assert display["headless_qt"] is True
     assert "no display server" in display["how"]
+
+
+@pytest.mark.parametrize(("platform", "plugin"), [("darwin", "cocoa"), ("win32", "windows")])
+def test_a_native_qt_platform_is_not_applicable_rather_than_a_pass_or_a_cross(
+    monkeypatch: pytest.MonkeyPatch, platform: str, plugin: str
+) -> None:
+    """Windows has no `os.getuid`, so doctor raised there before it printed a
+    line; and neither OS has a display server to find, so a ✗ would be wrong
+    and a ✓ would claim a measurement nobody has made (PORTABILITY.md step 1)."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.delattr(os, "getuid", raising=False)
+    for name in ("WAYLAND_DISPLAY", "DISPLAY", "XDG_RUNTIME_DIR", "QT_QPA_PLATFORM"):
+        monkeypatch.delenv(name, raising=False)
+
+    display = doctor._display()
+    assert display["ok"] is None
+    assert display["applicable"] is False
+    assert plugin in display["note"]
+
+    text = doctor.render(
+        {
+            "lucid": "0.0.0",
+            "ok": True,
+            "required": [],
+            "optional": [],
+            "display": display,
+            "caption_font": {"ok": True, "font": "Outfit", "resolves_to": "Outfit"},
+        }
+    )
+    assert "– not applicable on this platform" in text
+    assert "✗ no display" not in text
+    assert "Everything required is here." in text
 
 
 # -- the caption face -----------------------------------------------------

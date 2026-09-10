@@ -12154,3 +12154,38 @@ The LICENSE file is the project's official plain text
 who stops providing a product and wants the noncompete to outlive it, and
 lucid has no product to discontinue. No version bump — nothing new became
 callable. The status of the public flip stays in the wiki's Open items table.
+
+## The Windows crash and the display gate — 2026-09-10
+
+Step 1 of docs/plans/PORTABILITY.md, from this box. `picture.display_env`
+defaulted `XDG_RUNTIME_DIR` to `/run/user/{os.getuid()}`, and Windows has no
+`os.getuid` — so every render, and `lucid doctor` before it printed a line,
+raised `AttributeError` there. The render gate behind it was the macOS half:
+it refused without `WAYLAND_DISPLAY`, `DISPLAY` or `QT_QPA_PLATFORM=offscreen`,
+none of which Qt needs where it draws through the OS's own window system.
+
+`picture.NATIVE_QT_PLATFORMS` names the two (`cocoa`, `windows`) and
+`native_qt_platform()` reads `sys.platform` at call time. On either,
+`display_env` hands back the environment untouched and the gate does not run;
+everywhere else — Linux, and any BSD Qt reaches through X11 or Wayland — the
+dance is byte-for-byte what it was. **Keyed on the two native platforms rather
+than on `sys.platform == "linux"`**, which is what the plan wrote: a FreeBSD
+box has `getuid` and a display server, and the Linux gate is right for it.
+
+Doctor's display section answers `ok: None`, `applicable: False` there and
+renders `– not applicable on this platform`. Not a ✓, because whether Qt draws
+a `qimage` card under cocoa is exactly what step 4 has not measured; not a ✗,
+because nothing is missing. `ok` on the report never read this section.
+
+The tests were run as controls first: against the old `src/`, the darwin and
+win32 cases of both new tests fail on `os.getuid` itself. The first draft
+patched `picture.sys`, which the old module does not have, so its control
+failed on a missing attribute and proved nothing — they patch `sys.platform`
+directly now. Two of them also had to lose this box's own `XDG_RUNTIME_DIR`,
+which short-circuited past `getuid` and let the old code answer ✓; Windows
+has no such variable. And faking `win32` on Linux sends stdlib `shutil.which`
+to `_winapi`, so the render test stubs `which` to the None a real Windows box
+gives for `systemd-run`. The five existing display tests now pin
+`sys.platform` to `linux` — nothing asserted changed; they state the platform
+they measure, since step 3's macOS and Windows runners would otherwise run
+them against the branch that skips the dance. Suite: 1979 passed, 1 skipped.
