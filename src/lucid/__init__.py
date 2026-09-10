@@ -1,4 +1,4 @@
-"""lucid — an open-source, local-first AI video editor.
+"""lucid — a source-available, local-first AI video editor.
 
 The public surface is the MCP server (``lucid mcp``) and the equivalent CLI
 (``lucid <subcommand>``). Everything operates on a *project directory*; see

@@ -1,14 +1,18 @@
 [project]
 name = "lucid"
 version = "0.21.0"
-description = "Open-source, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
+description = "Source-available, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
 readme = "README.md"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
-# The code is PolyForm Shield 1.0.0 (LICENSE). The vendored typefaces are not
-# covered by it and carry their
-# own OFL-1.1 texts beside them, which ship in the package because they sit
-# inside it: src/lucid/fonts/ (the caption face, FONTS.md) and src/lucid/web/
-# (the three UI faces, web/FONTS.md).
+# The code is PolyForm Shield 1.0.0 (LICENSE): use it for anything except a
+# product that competes with lucid. It is source-available, not open source,
+# and SPDX lists no identifier for it — only the Noncommercial and
+# Small-Business PolyForm texts — so the expression is a LicenseRef, which is
+# what PEP 639 provides for exactly this. HISTORY.md § The licence, chosen.
+# The vendored typefaces are not covered by it and carry their own OFL-1.1
+# texts beside them, which ship in the package because they sit inside it:
+# src/lucid/fonts/ (the caption face, FONTS.md) and src/lucid/web/ (the three
+# UI faces, web/FONTS.md).
 license-files = ["LICENSE"]
 authors = [
     { name = "tydude001", email = "tylergrose321@gmail.com" }

@@ -12096,3 +12096,59 @@ Left as it was, on purpose: the author email in `pyproject.toml` and every
 commit (published deliberately at the rehearsal), and the PyPI name — `lucid`
 there is Google's interpretability library, which blocks `pip install lucid`
 and not a GitHub repo.
+
+## The licence, chosen — 2026-09-10
+
+The code is PolyForm Shield 1.0.0 now, and was MIT for 23 days without ever
+having been distributed under it: the GitHub repo is still private, fed by
+Gitea's mirror, so no copy anyone holds carries the MIT grant. That timing is
+the whole reason the question was worth asking today rather than after the
+flip — a version that has shipped MIT is MIT forever in every copy out there,
+and relicensing after the fact is the HashiCorp shape.
+
+The question was how lucid could earn anything rather than simply going
+public, and the honest answer is that the code is not what anyone would pay
+for. The field (PRIOR-ART.md) sells hour-metered subscriptions on a Mac app
+or open-core over a closed renderer; nobody sells a Linux command-line tool,
+and lucid's own install story is `doctor` over a flatpak's melt and a
+hand-installed whisper. What the repo has that is worth something is the
+measured unattended agent run (TRIAL.md) and being the one Linux, CLI-first,
+OTIO-native member of the field — a reputation and a wedge, not a product.
+So closing the source was the weakest option, a hosted tier means
+re-platforming every local render trap first, and open-core is a decision
+for after a demo exists and someone shows up. What can be decided now is
+whether a competitor may lift the MLT writer, the hallucination guard and the
+tool surface into their own product. Shield says no and reserves nothing
+else: any use is permitted except providing a product that competes. BSL was
+the alternative and needs a change date and an additional-use grant to fill
+in; Shield needs neither, and VEED's open-edit is the precedent in this
+exact field for a PolyForm text over an agent-facing editor.
+
+Three things the swap had to get right:
+
+- **SPDX lists no identifier for it** — `PolyForm-Noncommercial-1.0.0` and
+  `PolyForm-Small-Business-1.0.0` only, checked against the license-list
+  data — so `license = "PolyForm-Shield-1.0.0"` would be an invalid
+  expression. PEP 639's `LicenseRef-` prefix exists for exactly this, and
+  the wheel reads back `License-Expression: LicenseRef-PolyForm-Shield-1.0.0`
+  with the text under `dist-info/licenses/LICENSE`, the same readback the
+  MIT commit did (§ A licence, and the version literal that never moved).
+- **Source-available is not open source, and four places said it was**:
+  README's first line, the pyproject description, the package docstring,
+  and the wiki's project line. All four now say source-available. The
+  README's dependency table keeps "open-source primitive" because ffmpeg,
+  whisper and OTIO are.
+- **Contributions come in under MIT and go out under Shield.** A patch
+  licensed to the project under Shield could never be sublicensed, so the
+  commercial licence the README now offers would be blocked by the first
+  outside contribution. MIT's sublicense right is what lets a contribution
+  ship under lucid's own terms and under any other, with no contributor
+  agreement to sign — CONTRIBUTING.md states it in one paragraph.
+
+The LICENSE file is the project's official plain text
+(`polyformproject.org/licenses/shield/1.0.0.txt`), unaltered, under the one
+`Required Notice:` line the Notices section asks licensees to carry. No
+`Licensor Line of Business:` line, on purpose: that clause is for a licensor
+who stops providing a product and wants the noncompete to outlive it, and
+lucid has no product to discontinue. No version bump — nothing new became
+callable. The status of the public flip stays in the wiki's Open items table.

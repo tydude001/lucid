@@ -1,6 +1,6 @@
 # lucid
 
-An open-source, local-first AI video editor. A lucid dream is a dream you
+A source-available, local-first AI video editor. A lucid dream is a dream you
 control — lucid puts an AI agent on your timeline and keeps the whole thing
 on hardware you own: no cloud, no accounts, no metering.
 
@@ -238,7 +238,15 @@ throughout the code, not because any work is outstanding.
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE) — that covers the code. The vendored typefaces
-are not covered by it and are not lucid's to relicense: the caption face under `src/lucid/fonts/` and the
-three browser faces under `src/lucid/web/` are OFL-1.1, each shipping its
-licence text beside it and its provenance in that directory's `FONTS.md`.
+[PolyForm Shield 1.0.0](LICENSE) — that covers the code. It is
+source-available rather than open source: you can read it, run it, change it
+and redistribute it for any purpose except one, which is providing a product
+that competes with lucid. Cutting your own videos with it, building on it,
+running it for clients, forking it to fix a bug — all fine. Shipping it, or a
+derivative, as a rival editor is the one reserved use. Anyone who wants that
+can ask for a commercial licence.
+
+The vendored typefaces are not lucid's to relicense: the caption face under
+`src/lucid/fonts/` and the three browser faces under `src/lucid/web/` are
+OFL-1.1, each shipping its licence text beside it and its provenance in that
+directory's `FONTS.md`.
