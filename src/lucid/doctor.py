@@ -558,6 +558,48 @@ def _caption_font() -> dict[str, Any]:
     return report
 
 
+def _agent() -> dict[str, Any]:
+    """The agent panel's `claude`, run for its version rather than found.
+
+    Its own section, like the display: it is not a capability of lucid's
+    engine but of one client — `lucid web`'s agent pane spawns `claude -p`
+    and nothing else does — so absent is `–`, never a failure, and `ok` on
+    the report does not read it. The binary is resolved by `webui._agent_bin`
+    itself rather than restated, so this answers what the pane will spawn.
+    Whether that `claude` is logged in is not probed: finding out costs a
+    model call.
+    """
+    from lucid import webui
+
+    binary = webui._agent_bin()
+    found = shutil.which(binary)
+    fix = (
+        "install Claude Code (https://docs.claude.com/en/docs/claude-code) and "
+        f"log in, or set {webui.AGENT_BIN_ENV} to its binary. Everything else — "
+        "the CLI, `lucid mcp` for any MCP client, and the rest of the workspace "
+        "— works without it."
+    )
+    if not found:
+        return {
+            "ok": False,
+            "found": None,
+            "version": None,
+            "why": f"no `{binary}` on PATH — the workspace's agent pane has nothing to spawn",
+            "fix": fix,
+        }
+    out, _err, code = _run([found, "--version"])
+    version = out.strip().splitlines()[0] if out.strip() else None
+    if code != 0 or not version:
+        return {
+            "ok": False,
+            "found": found,
+            "version": None,
+            "why": f"{found} --version exited {code} without printing a version",
+            "fix": fix,
+        }
+    return {"ok": True, "found": found, "version": version, "why": None, "fix": None}
+
+
 # -- the report ----------------------------------------------------------
 
 
@@ -587,6 +629,7 @@ def report() -> dict[str, Any]:
         "optional": optional,
         "display": _display(),
         "caption_font": _caption_font(),
+        "agent": _agent(),
     }
 
 
@@ -667,6 +710,18 @@ def render(payload: dict[str, Any]) -> str:
         lines.append(f"  {_CROSS} {font['font']}")
         lines += _wrap(font["why"], indent="      ")
         lines += _wrap(f"fix: {font['fix']}", indent="      ")
+
+    # `.get`, because the section is younger than the report's other keys and
+    # a payload built by hand (the CLI's own tests build two) predates it.
+    agent = payload.get("agent")
+    if agent is not None:
+        lines += ["", "Agent panel (`lucid web`'s agent pane — optional)"]
+        if agent["ok"]:
+            lines.append(f"  {_TICK} {agent['version']} — {agent['found']}")
+        else:
+            lines.append(f"  {_DASH} claude" + (f" — {agent['found']}" if agent["found"] else ""))
+            lines += _wrap(agent["why"], indent="      ")
+            lines += _wrap(f"fix: {agent['fix']}", indent="      ")
 
     failures = [e["name"] for e in payload["required"] if not e["ok"]]
     lines.append("")

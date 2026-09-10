@@ -25,10 +25,11 @@ source:
 | Capability | Open-source primitive |
 |---|---|
 | Cutting, concat, captions, rendering | ffmpeg |
-| Local transcription (30+ languages) | whisper (openai / .cpp / faster-whisper) |
+| Local transcription (30+ languages) | openai-whisper |
 | Silence and bad-take removal | auto-editor |
 | Timeline data model + NLE export | OpenTimelineIO (FCPXML, etc.) |
-| Programmatic motion graphics | Motion Canvas |
+| Layered rendering (b-roll, cards, music) | MLT |
+| Title and end cards | SVG templates, rasterised by ImageMagick |
 
 lucid is the orchestration layer on top: an MCP server that exposes those
 primitives as editing tools to any agent that speaks MCP (Claude Code, Codex,
@@ -43,6 +44,9 @@ non-goals are permanent: no cloud, no accounts, no metering.
 
 ## Requirements
 
+lucid is developed and tested on Linux only (a Fedora-based desktop); it has
+never been run on macOS or Windows.
+
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and
   OpenTimelineIO).
@@ -54,18 +58,29 @@ non-goals are permanent: no cloud, no accounts, no metering.
   import: any `openai-whisper` install works (`uv tool install
   openai-whisper` is the short route), resolved via `LUCID_WHISPER`, then
   `PATH`.
-- **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). A
-  Kdenlive install provides it.
+- **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). Your
+  distribution's `melt` package, or a Kdenlive install (the flatpak's own is
+  found automatically); `LUCID_MELT` overrides both.
 - **ImageMagick (`magick`)** — rasterises title and end cards.
 
 Run `lucid doctor` to check all of this at once — it probes every binary,
 reports what it found and where, and names the fix for anything missing.
 
-Optional, feature-gated: a torch-capable interpreter named by `LUCID_VLM`
-powers `describe` (b-roll search by what's on screen), and one named by
-`LUCID_FACE` powers `reframe-detect` (face-aware crop proposals).
-`describe --plan` reports whether this machine can run it. Everything else
-works without them.
+Optional, feature-gated — `lucid doctor` reports each as available or not,
+and everything else works without them:
+
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`,
+  logged in) — the agent pane in the workspace. `lucid mcp` works with any
+  MCP client; only the pane spawns `claude` itself.
+- **`LUCID_VLM`** — the python of a venv with torch, transformers,
+  bitsandbytes and Pillow, on a CUDA GPU. Powers `describe` (b-roll search by
+  what's on screen); the Qwen2.5-VL model downloads on first use.
+- **`LUCID_FACE`** — the python of a venv with insightface, onnxruntime and
+  opencv-python. Powers `reframe-detect` (face-aware crop proposals).
+- **`LUCID_TTS`, `LUCID_TTS_MODEL` and `LUCID_TTS_VOICE`** — a python with
+  qwen-tts and a CUDA torch, a local Qwen3-TTS snapshot, and a directory
+  holding a reference clip of the voice. Powers `vo-synth`. There is no
+  default voice, on purpose.
 
 ## Try it
 

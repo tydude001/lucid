@@ -494,7 +494,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-fallback",
         action="store_true",
         help="use a font role's own declared fallback stack when its primary "
-        "family does not draw on this box, instead of refusing",
+        "family does not draw on this machine, instead of refusing",
     )
     p_pack_apply.add_argument(
         "--install-fonts",

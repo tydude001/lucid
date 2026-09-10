@@ -107,7 +107,7 @@ def _validate_fonts(fonts: dict[str, Any], where: str) -> dict[str, str]:
             raise PackError(
                 f"{where}.fonts.{role} = {stack!r} has no fallback stack — it must "
                 "end in a CSS generic (serif, sans-serif, …) the way lucid's own "
-                f"{graphics.FONTS['title_font']!r} does, or a face this box lacks "
+                f"{graphics.FONTS['title_font']!r} does, or a face this machine lacks "
                 "renders pixel-identically to one it has and nothing says so"
             )
         out[role] = stack

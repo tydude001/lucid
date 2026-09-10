@@ -1480,7 +1480,7 @@ def pack_apply(
                 if not allow_fallback:
                     raise ProjectError(
                         f"pack variant {vname!r}'s {role!r} names {family!r}, which "
-                        f"does not draw on this box ({result.get('warning', 'it substitutes')})"
+                        f"does not draw on this machine ({result.get('warning', 'it substitutes')})"
                         " — pass allow_fallback to use its declared fallback stack "
                         "instead, which is then recorded rather than silent"
                     )

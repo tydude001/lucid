@@ -132,10 +132,10 @@ def melt_command() -> list[str]:
         if installed.returncode == 0:
             return ["flatpak", "run", "--command=melt", KDENLIVE_FLATPAK]
     raise PictureError(
-        "melt not found. It has no host package on this box — it ships inside "
-        f"the Kdenlive flatpak ({KDENLIVE_FLATPAK}), so either install that "
-        "with `flatpak install org.kde.kdenlive`, or set LUCID_MELT to a melt "
-        "command. Without it the timeline's own frame total is still reported; "
+        "melt not found. Looked at $LUCID_MELT, then PATH, then the Kdenlive "
+        f"flatpak ({KDENLIVE_FLATPAK}). Install your distribution's `melt` "
+        "package or `flatpak install org.kde.kdenlive`, or set LUCID_MELT to a "
+        "melt command. Without it the timeline's own frame total is still reported; "
         "only the comparison against melt needs melt."
     )
 

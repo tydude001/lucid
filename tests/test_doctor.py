@@ -378,3 +378,41 @@ def test_cli_doctor_json_is_the_same_dict_the_tool_returns(
     monkeypatch.setattr(ops, "doctor", lambda: fine)
     assert main(["doctor", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["required"][0]["name"] == "melt"
+
+
+# -- the agent panel -------------------------------------------------------
+
+
+def test_an_absent_claude_is_unavailable_and_never_moves_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent pane is one client's feature: missing is `–`, not a failure."""
+    monkeypatch.setenv("LUCID_AGENT_BIN", "lucid-test-no-such-claude")
+    payload = doctor.report()
+    agent = payload["agent"]
+    assert agent["ok"] is False
+    assert "lucid-test-no-such-claude" in agent["why"]
+    assert "LUCID_AGENT_BIN" in agent["fix"]
+    assert payload["ok"] == all(r["ok"] for r in payload["required"])
+    text = doctor.render(payload)
+    assert "– claude" in text
+    assert "✗ claude" not in text
+
+
+def test_a_claude_is_run_for_its_version_rather_than_found(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Found-but-silent is not a pass — the rule every other probe holds to."""
+    fake = tmp_path / "claude"
+    fake.write_text("#!/bin/sh\necho '9.9.9 (Claude Code)'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("LUCID_AGENT_BIN", str(fake))
+    agent = doctor._agent()
+    assert agent["ok"] is True
+    assert agent["version"] == "9.9.9 (Claude Code)"
+
+    fake.write_text("#!/bin/sh\nexit 3\n")
+    agent = doctor._agent()
+    assert agent["ok"] is False
+    assert agent["found"] == str(fake)
+    assert "exited 3" in agent["why"]

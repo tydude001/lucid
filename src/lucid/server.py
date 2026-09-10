@@ -809,7 +809,7 @@ def pack_apply(
     ever depends on `pack_path` staying reachable.
 
     For every font role, `fonts.probe` asks whether the declared family
-    actually draws *on this box* — a family that does not refuses the whole
+    actually draws *on this machine* — a family that does not refuses the whole
     call unless `allow_fallback` (then its declared CSS fallback is used and
     recorded, never silent); one that draws but is vendored nowhere lucid
     knows about is recorded `font_provenance: "unvendored"` rather than
