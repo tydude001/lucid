@@ -87,13 +87,11 @@ decisions before the repo goes public*:
 A launch lands much better with direction 1's demo in hand, which is a
 second reason 1 runs first.
 
-## 3. October prep — urgent, and the critical path is physical
+## 3. The co-hosted recording — the critical path is physical
 
-Part 1 of the October Horror Bracket is due Oct 1, format decisions wanted
-mid-September (PLAN.md § Direction and order). The co-hosted note's steps 2
-and 5 explicitly **have nothing to be built against until the five-minute
-two-mic test recording exists** (PLAN.md § The co-hosted recording — the
-design note), and right now `RecTracks=3` records two copies of one mix,
+The co-hosted note's steps 2 and 5 explicitly **have nothing to be built
+against until the five-minute two-mic test recording exists** (PLAN.md § The
+co-hosted recording — the design note), and right now `RecTracks=3` records two copies of one mix,
 because the scene collection holds no audio sources at all.
 
 The two things only Tyler can do, and the sooner the better:
@@ -106,8 +104,7 @@ The moment that file exists, the lucid-side work unblocks: pinning
 `MARGIN_DB` against a real recording rather than one synthetic voice
 (HISTORY.md § Speaker attribution, built — at chance on simultaneous
 speech, measured), the co-hosted note's deferred steps, and attribution
-judged on genuine cross-talk. Every week the test slips compresses the
-build window before the September format decisions.
+judged on genuine cross-talk.
 
 ## The order, grouped by who can act
 
@@ -125,7 +122,7 @@ gaps. Those are the agent-actionable work today.
 
 **Tyler's, time-sensitive first:**
 
-1. OBS mic routing + the two-mic test recording — gates October.
+1. OBS mic routing + the two-mic test recording — gates speaker attribution.
 2. The standing watches: one real edit in the redesigned workspace, the
    sheets on a real job, the vo_synth listening verdict.
 3. The publish call: which internal docs ship, and whether the README

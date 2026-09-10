@@ -196,10 +196,14 @@ uv run pytest
 ```
 
 The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
-so expect it to be a little slower than a pure unit suite. The seven tests
-that render through `melt` need a desktop session (or `QT_QPA_PLATFORM=offscreen`);
-on a headless box they fail with "no display for MLT's Qt module to open", which
-is the environment, not a regression.
+so expect it to be a little slower than a pure unit suite. Tests that need
+whisper, auto-editor, melt or ImageMagick skip where the binary is absent. The
+seven tests that render through `melt` also need a desktop session (or
+`QT_QPA_PLATFORM=offscreen`); on a headless box they fail with "no display for
+MLT's Qt module to open", which is the environment, not a regression.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the rules a pull request is checked
+against, and [SECURITY.md](SECURITY.md) how to report a vulnerability.
 
 ## Documentation
 

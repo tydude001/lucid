@@ -1,0 +1,41 @@
+# Lint, and the suite on a runner with ffmpeg and nothing else lucid shells
+# out to. Tests that need whisper, auto-editor, melt or ImageMagick skip
+# there rather than fail — measured 2026-09-10 by running the suite with all
+# four off PATH (HISTORY.md § The repo, readied for strangers) — so a green
+# run here covers everything but the renders and transcription, which only
+# a machine with those tools can check.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+      - run: uv sync --locked
+      # `ruff check` only, at the dev group's pinned version — ruff's default
+      # rule set moves between releases. Never `ruff format`: there is no ruff
+      # config, and the formatter's 88-column default rewrites almost every file.
+      - run: uv run ruff check .
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+      - name: ffmpeg (with libass) and fontconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core
+      - run: uv sync --locked
+      - run: uv run pytest -q -rfE

@@ -21,12 +21,18 @@ dependencies = [
     "opentimelineio>=0.18.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/tydude001/lucid"
+Documentation = "https://github.com/tydude001/lucid/blob/main/docs/MANUAL.md"
+Issues = "https://github.com/tydude001/lucid/issues"
+
 [project.scripts]
 lucid = "lucid.cli:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "ruff==0.16.0",
 ]
 
 [build-system]
