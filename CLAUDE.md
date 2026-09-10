@@ -33,7 +33,11 @@ is no licence question and nothing to keep in step with an upstream. The three
 directions after every queue closed, ranked, are [NEXT.md](NEXT.md); the first
 of them ran the same day and its evidence and failure queue are
 [TRIAL.md](TRIAL.md) — an agent cutting a video end to end, unattended,
-scored. Open-item status lives in the wiki, not here.
+scored. What a macOS/Windows port would take — the one Windows crash, the
+Linux-shaped resolvers, and the melt/libass/magick measurements that have to
+be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
+surveyed 2026-09-10 and not started. Open-item status lives in the wiki, not
+here.
 
 ## Things that will bite you
 

@@ -45,7 +45,8 @@ non-goals are permanent: no cloud, no accounts, no metering.
 ## Requirements
 
 lucid is developed and tested on Linux only (a Fedora-based desktop); it has
-never been run on macOS or Windows.
+never been run on macOS or Windows. What a port would take is
+[docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
 
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and
