@@ -36,8 +36,7 @@ of them ran the same day and its evidence and failure queue are
 scored. What a macOS/Windows port would take — the one Windows crash, the
 Linux-shaped resolvers, and the melt/libass/magick measurements that have to
 be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
-surveyed 2026-09-10 and not started. Open-item status lives in the wiki, not
-here.
+surveyed 2026-09-10. Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
@@ -649,6 +648,14 @@ absent optional capability is "unavailable", never a failure, and never moves
   ruff config, so it applies its own 88-column default against this repo's
   wider lines and rewrites 26 of 30 files, burying whatever you actually
   changed.
+- **CI runs the suite on Linux, macOS and Windows, so a test measuring a
+  Linux mechanism pins `sys.platform` to `linux`** — the display dance, the
+  flatpak, fontconfig — or the macOS runner meets the branch that skips it.
+  Stand in for another OS by patching `sys.platform` itself, never
+  `module.sys` (a control against old code then fails on the missing
+  attribute and proves nothing), and stub `shutil.which` under a faked
+  `win32`: it reaches for `_winapi`. HISTORY.md § The Windows crash and the
+  display gate.
 - **A reachable identifier in the docs is elided, never swapped for a
   plausible one.** The tailnet address, MagicDNS name, IPv6 suffix and
   absolute `/home/<user>` paths that a measurement quoted are written
