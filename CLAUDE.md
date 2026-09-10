@@ -612,7 +612,11 @@ absent optional capability is "unavailable", never a failure, and never moves
   the Edit shot refuses without the agent pane's "Export complete", the set
   refuses a mean-luma spread over 30, and `check_timeline_width` is the repo's
   only regression test for the defect below. HISTORY.md § The screenshots
-  stopped being captured by hand.
+  stopped being captured by hand. **A committed image is public forever**, and
+  no text filter reads pixels: never a frame of footage lucid does not own,
+  and never a pane that prints an absolute path (the properties pane does) —
+  both cost blobs stripped out of the whole history. HISTORY.md § The repo,
+  readied for strangers.
 - **An unattended agent edit is measured by `scripts/agent_trial.py`, which
   imports the panel's flags from `webui.py` rather than restating them** —
   `_agent_bin`, `_AGENT_ALLOWED_TOOLS`, `_AGENT_DISALLOWED_TOOLS`, and the same

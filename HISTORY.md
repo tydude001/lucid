@@ -11984,3 +11984,99 @@ measured is the other direction — every `env()` falls back to `0px` on a
 desktop browser, so the layout there is unchanged, and `test_webui_http.py`
 plus `test_review_http.py` (263 tests) pass. The phone is where this one is
 judged.
+
+## The repo, readied for strangers — 2026-09-10
+
+A publish audit before the repo goes public on GitHub. The 2026-08-24 rehearsal
+(TRIAL.md § The publish rehearsal) scrubbed the *tree* and ran a fresh clone on
+this machine; this pass asked what it did not — what the **history** carries,
+and what happens on a machine that is not this one.
+
+**The history undid the scrub.** The scrub edited HISTORY.md's tip, and the 280
+commits behind it still held the tailnet IPv4 (78 occurrences across all
+blobs), the MagicDNS name, the IPv6 suffix and `/home/<user>` paths. It also
+held the README screenshots from before § The README screenshots came off the
+demo project — five blobs of stills from the film the channel's first video is
+about, used as product screenshots, which is not the fair-use case the video
+itself is — and two early demo shots whose properties pane printed the
+project's absolute `/var/home/<user>/…` path. And four places, two of them in
+shipped code, described the private sibling repo `describe` borrowed its
+loader from in terms that belonged to that repo alone.
+
+**The public history is a `git filter-repo` of this one**, built beside it in
+`~/lucid-work/public-clone` and never pushed:
+`--replace-text` and `--replace-message` elide the identifiers the way the
+scrub did (the bare hostname stays, as it did then), and
+`--strip-blobs-with-ids` drops the seven screenshots. Measured on every blob,
+every commit message and every tag, not on diffs: **502 hits in this repo, 0
+in the public one**, 285 commits (the NEXT.md elision below comes out empty
+once the history already has it), all 17 tags, and a tip tree hash identical
+to `main`'s. The scan's own first two runs read 0 on *both* repos — the
+control was what caught it: `cat-file --batch-check` without `%(rest)` reads
+`<sha> <path>` as one object name, and the RTK wrapper drops stdin besides.
+Two commit citations in this file (the README front door, and phase 3 of the
+screenshot pass) name hashes the rewrite changed; the public clone carries one
+commit on top that follows them.
+
+**Moving onto that history is not done here.** Once GitHub has it, this
+checkout and Gitea must move too, or the next `git pull` merges the old
+history back and the next push publishes it. `~/lucid-work/publish/
+switch-to-public-history.sh` bundles the old history to `~/lucid-archive/`,
+resets `main` and the tags onto the public clone, and prints the force-pushes
+for Gitea — which, like every push, are Tyler's.
+
+**`describe` could not run anywhere else.** `_vlm_worker.py` did
+`sys.path.insert` into `~/projects/vaultmedia` and imported its tagger. The
+4-bit Qwen2.5-VL loader and the greedy generation pass — about forty lines —
+now live in the worker, and the old and new workers were run on the same
+10-second window under the same interpreter: **byte-identical output**. Then
+`lucid describe` end to end through the CLI with only `LUCID_VLM` set. The
+same sweep took out every resolver fallback into `~/projects` — whisper's into
+vaultmedia's venv, `LUCID_VLM`'s, and `LUCID_FACE`'s into genstack's — which
+`doctor` had been printing to anyone who ran it. This machine's installs now
+ride `~/.local/bin/whisper` and `~/.config/environment.d/60-lucid.conf` (wiki
+`tooling.md`). `LUCID_TTS`'s default into `~/lucid-work/voice-clone` stays:
+it names no other repo, and CLAUDE.md pins it as a runtime dependency.
+
+**A stranger's machine, simulated**: the suite with whisper, auto-editor,
+melt, ImageMagick, flatpak and `claude` off PATH, an empty `HOME`, no display.
+**14 failed, 1807 passed, 153 skipped** — and the worst of the 14 was the tool
+built for exactly that machine. `lucid doctor` crashed: the caption-font probe
+ran `magick` unguarded, so `FileNotFoundError` went straight past the
+`FontError` handler that would have printed the ✗. `fonts._run_tool` turns a
+missing binary into the `FontError` it always meant. Two refusals depended on
+the machine: `fill_template` needed magick to reach its "a single-line slot
+cannot take a line break" check (it measured other slots first; the check now
+runs over every line slot before anything is measured), and `tts.available`
+reported a missing interpreter before a missing voice, the reverse of the
+order `vo_synth` refuses in (each of the three now resolves on its own and
+the voice is named first). The other eight tests shelled out to magick or
+auto-editor with no skip marker, where their neighbours had one; they got
+the marker, with no assertion changed. After: **1815 passed, 161 skipped, 0
+failed**, 7m46s. That is this machine's ffmpeg and fonts — the CI runner's
+are unmeasured until its first run.
+
+What else shipped, each small:
+
+- `lucid doctor` has an **Agent panel** section — `claude`, resolved through
+  `webui._agent_bin` and run for its version; `–` when absent, never moving
+  `ok`, in the shape of the display and caption-font sections.
+- README: the primitives table names what lucid shells out to (no Motion
+  Canvas, which nothing imports; openai-whisper only; MLT and ImageMagick
+  added), says lucid has only run on Linux, and lists Claude Code and the
+  three interpreters as optional. Five user-facing strings that said "this
+  box" say "this machine", and melt's refusal stopped claiming there is no
+  host package.
+- `.github/workflows/ci.yml`: `ruff check`, and the suite on ubuntu-24.04
+  with ffmpeg only. `ruff==0.16.0` joins the dev group, pinned — its default
+  rule set is 415 rules and moves between releases.
+- CONTRIBUTING.md, SECURITY.md (GitHub private vulnerability reporting, which
+  has to be switched on in the repo's settings), `[project.urls]`.
+- NEXT.md § 3 keeps what gates speaker attribution and drops the channel's
+  production dates; its quoted `/home` path is elided, as the scrub did.
+- The merged `studio-reshape` branch is deleted locally; Gitea still has it.
+
+Left as it was, on purpose: the author email in `pyproject.toml` and every
+commit (published deliberately at the rehearsal), and the PyPI name — `lucid`
+there is Google's interpretability library, which blocks `pip install lucid`
+and not a GitHub repo.
