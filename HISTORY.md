@@ -12018,12 +12018,18 @@ Two commit citations in this file (the README front door, and phase 3 of the
 screenshot pass) name hashes the rewrite changed; the public clone carries one
 commit on top that follows them.
 
-**Moving onto that history is not done here.** Once GitHub has it, this
-checkout and Gitea must move too, or the next `git pull` merges the old
-history back and the next push publishes it. `~/lucid-work/publish/
-switch-to-public-history.sh` bundles the old history to `~/lucid-archive/`,
-resets `main` and the tags onto the public clone, and prints the force-pushes
-for Gitea — which, like every push, are Tyler's.
+**Then this checkout and Gitea moved onto it**, the same day:
+`~/lucid-work/publish/switch-to-public-history.sh` bundled the old history to
+`~/lucid-archive/`, reset `main` and the tags onto the public clone, and Tyler
+force-pushed Gitea. GitHub is reached through Gitea's own push mirror, not a
+second remote — but the private GitHub mirror already held the old history,
+and **GitHub keeps an overwritten commit viewable by its hash** (the
+screenshot commit was fetchable from it by ID), so the repo was deleted and
+recreated empty before the first sync rather than force-pushed over. The
+mirror's fine-grained token was bound to the deleted repo's ID and answered
+403 until the new repo was added to it, with Workflows write for `ci.yml`.
+After the sync, GitHub's refs equal Gitea's and five old hashes answer "No
+commit found".
 
 **`describe` could not run anywhere else.** `_vlm_worker.py` did
 `sys.path.insert` into `~/projects/vaultmedia` and imported its tagger. The
@@ -12053,8 +12059,9 @@ order `vo_synth` refuses in (each of the three now resolves on its own and
 the voice is named first). The other eight tests shelled out to magick or
 auto-editor with no skip marker, where their neighbours had one; they got
 the marker, with no assertion changed. After: **1815 passed, 161 skipped, 0
-failed**, 7m46s. That is this machine's ffmpeg and fonts — the CI runner's
-are unmeasured until its first run.
+failed**, 7m46s. That is this machine's ffmpeg and fonts — and the CI
+runner's first run on GitHub (ubuntu-24.04, ffmpeg from apt) gave the same
+count exactly: **1815 passed, 161 skipped**, 11m45s, lint green.
 
 The full suite on this machine, tools and all, then found a ninth of the same
 kind: `test_a_sliding_row_keeps_the_montage_grid_even_with_extremes` runs the
