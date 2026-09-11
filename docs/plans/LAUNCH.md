@@ -65,12 +65,11 @@ pointer, and the wiki row updates.
 ## Step 1 — the launch asset: a watchable closed loop
 
 Built three times — HISTORY.md § The launch clip, § The launch clip, re-cut
-as an announcement, and § The launch clip, third shape, which is the one
-that stands: `~/lucid-work/launch-demo/cut/launch-v3.mp4`, 50 s, no voice,
-the Apollo 11 demo run recorded in a legible window, the finished cut and
-verify's numbers on screen. The two earlier cuts (narrated, in Tyler's
-cloned voice) are in `~/lucid-work/launch-cut/`. The 9:16 re-author is not
-made.
+as an announcement, § The launch clip, third shape — and **none stands**.
+Tyler kept the third shape's idea (no voice, the real product, the result on
+screen) and rejected the clip itself as "full of errors… choppy and weak".
+Its measured errors, a v4 shape and the four calls it needs from him are in
+`~/lucid-work/launch-v4-review/PIN.md`. Paused there by him on 2026-09-11.
 
 **What it is.** One screen recording, 60–90 seconds cut and the full run
 uncut, of the agent pane in the workspace driving a brief from `lucid init`

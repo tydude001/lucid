@@ -12599,3 +12599,20 @@ right fix is an empty state rather than any toast. The demo's voice is
 still the clone. The upscale of the typing beat is 1.6x in time, which
 reads as fast typing rather than a speed-up. No 9:16 version. And the music
 is the generated pad; a licensed track would sit better under real footage.
+
+## The launch clip, rejected — 2026-09-11
+
+Tyler on the third shape: "sucks lol. i like the idea but its full of
+errors and still feels choppy and weak." Watched frame by frame, it was
+worse than the section above says. The bed was never "mixed under with
+fades": the audio track has ten timestamp holes, one at every beat edge
+(6.6 s in all), and the music never fades. The mechanism is ffmpeg's
+rather than lucid's (wiki `tooling.md` § Video editing). The check beat's
+crop is stretched 2.5x sideways, the cut beat stops mid-sentence before the
+moon, and the NASA clips carry baked-in pillarbox bars. Five black chapter
+cards in 44 s account for most of the choppiness. Three lucid defects show
+in frame: the fresh-project toast, a zero-length "In" of the discarded take
+left on the timeline (the agent hid it with `unspoken_add`), and the rate
+button wrapping as "Helpfu / l". The v4 shape and the calls it needs are
+in `~/lucid-work/launch-v4-review/PIN.md`. He paused the clip there and
+moved on to step 2.
