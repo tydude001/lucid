@@ -175,7 +175,24 @@ sentence is replaced by what was measured.
 
 ## Step 3 — the flip, and the ten minutes after it
 
-Tyler's hand, in this order, the same afternoon:
+**Decide first: the flip publishes the MIT history.** Every tag from
+`v0.1.0` to `v0.21.0`, and 108 commits on `main`, carry the MIT LICENSE that
+`2b3fc92` added and `905a745` replaced. HISTORY.md § The licence, chosen
+rests on no copy having shipped under MIT. The flip makes all of them
+public, each tag with a downloadable source archive, and the last MIT commit
+holds nearly the whole of lucid. There are two ways out:
+- Accept it.
+- Before the flip, rewrite the history so no public commit grants MIT:
+  the LICENSE file, pyproject's `license = "MIT"`, and the grant lines in
+  README and CONTRIBUTING. HISTORY.md's own account of the MIT period is a
+  record and stays. Every SHA changes again; `git filter-repo`'s commit
+  map rewrites the citations, as it did on 2026-09-10.
+
+The recommendation is the rewrite. It is measured done when a `git grep`
+over `git rev-list --all` finds the MIT text nowhere except HISTORY.md. This is a legal question and
+was not put to a lawyer.
+
+Then Tyler's hand, in this order, the same afternoon:
 
 1. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
@@ -192,11 +209,12 @@ Tyler's hand, in this order, the same afternoon:
 5. Social preview image: `docs/img/edit-mode.png`, which is what every link
    unfurls to on X, Bluesky and Slack. It is already screened for footage and
    paths (CLAUDE.md § Conventions, the screenshot rule).
-6. Tag a release. `v0.21.0` is the version in `pyproject.toml`; a GitHub
-   release with notes gives the directories in step 4 something to cite and
-   the HN post a permalink that will not move. Release notes are the
-   HISTORY.md section names since the last tag, one line each — not a
-   changelog, which the repo does not keep on purpose.
+6. Tag a release: `v0.22.0`, at the tip that goes public. `v0.21.0`
+   predates the licence change. A GitHub release with notes gives the
+   directories in step 4 something to cite and the HN post a permalink that
+   will not move. Release notes are the HISTORY.md section names since the
+   last tag, one line each — not a changelog, which the repo does not keep
+   on purpose. The draft is `~/lucid-work/launch-release/NOTES.md`.
 7. Pin docs/DEMO.md from the README's first screen, if it is not already the
    first link a newcomer sees.
 8. **A way to buy the author a coffee** (Tyler's ask, 2026-09-11; deferred —
