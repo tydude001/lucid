@@ -12440,3 +12440,76 @@ open — this clip is the first thing that gives him a real listen. The top
 captions overlap the truth strip's chips in the punch-in shots; readable,
 not clean. No 9:16 re-author yet. And take 3's ✗ was mine: a synth
 backgrounded beside a running take, on a box with one GPU.
+
+## The launch clip, re-cut as an announcement — 2026-09-11
+
+Tyler's verdict on the 60 s cut above: better, "but still looks kind of
+stiff and you don't get a good look at the whole UI. I want it to feel more
+like an Apple announcement." Both complaints were structural, so this is a
+second cut rather than a polish: `~/lucid-work/launch-cut/v2/`, same take,
+new recipe, 57 s.
+
+**What "stiff" was.** Five static crops hard-cut against 137 words of
+narration at 2.3 words a second, and no shot ever showed the window whole —
+every one was a 1280x720 punch-in. Four changes, each of them something
+lucid already had a tool for:
+
+- **The narration is sparse.** Eleven lines, 95 words, with a pause after
+  every line stated in the script itself (`text | seconds`, 1.2–1.8 s, 3.5 s
+  after the last). Four of the lines are headlines — "You describe the cut.",
+  "The agent finds the words.", "Then it builds the picture.", "And it
+  checks its work." — and each is spoken over its own `chapter` card (an
+  amber numeral, the phrase, nothing else) before the shot that shows it.
+  An `endcard` with the mark alone opens; the same template with the
+  footnote closes.
+- **The window floats.** A second asset, `hero.mp4`, is the take scaled to
+  1600x900 with rounded corners and a hairline on a radial ink ground
+  (`hero.sh`: magick draws the ground and the mask, ffmpeg composites), so
+  a whole-window shot reads as a product on a stage rather than a
+  screenshot. Its clock is the take's, so a pin means the same second on
+  either asset.
+- **Every UI shot moves.** `reframe --interp` was authored 2026-08-11 and
+  never used in a film until now: a window at the shot's head and a second
+  one a frame before its end, flagged to slide in, so each shot is one slow
+  push — full window to the transcript as the proposal lands, full window
+  to the lanes as the picture builds, the brief zooming until it is
+  readable. The shot's length comes from the projection (`build_shots`), so
+  the arrival window is placed from the narration's own timing and nothing
+  in `beats.json` is a timeline second.
+- **A bed, and no burned captions.** `music.py` generates an ambient pad
+  (four chords, detuned harmonics, low-passed, loudnorm'd to −34 LUFS) so
+  the clip owns its music, and `music` mixes it from the first word with a
+  4 s fade-out; measured in the gaps it sits 15 dB under the read. The
+  karaoke captions are gone from the picture — the type is the cards — and
+  `add_captions` writes the sidecar `.ass` instead.
+
+The whole run is in it once: `lapse.mp4` is the hero window at 40x, made to
+exactly the length "Two and a half minutes. Unattended." takes, so the
+checklist fills, the lanes appear and the render lands in 5.4 s.
+
+**What the build found.** Whisper hears "B-roll" as `B` + `-roll`, so the
+cue phrase is `B roll under the lines`. It also invents words over the 3.5 s
+of trailing silence the end card holds on — 16 of them on the second
+transcription, different ones each time — and the answer is the one
+CLAUDE.md gives: `unspoken_add` on every word after "no cloud", so verify
+and the sidecar ignore them and no index moves. The first hero encode ran
+48 minutes and 763 MB before it was killed: a looped PNG ground with no
+`-t` on it and `-shortest` unset keeps the overlay running after the take
+ends, which is worth knowing for any derived asset built this way. And the
+hero shot pinned at 44.0 s opened on a window still showing "Loading…"
+with the no-timeline toast — the take's window reloads at ~45 s, a second
+after the agent's seed — so it is pinned at 45.0. `check_black` flags the
+opener (0–3.4 s): an ink card with a five-letter mark is 98% under its luma
+threshold, which is the threshold reading a dark card as black, not a black
+frame.
+
+`check_frames` delta 0; `verify` 95 of 95 at similarity 1.0 with the bed
+under the read. 56.9 s, 1920x1080, 10.6 MB. Recipe: `v2/build.py`,
+`v2/beats.json`, `v2/script.txt`, `v2/synth.py`, `v2/music.py`,
+`v2/hero.sh`.
+
+**Still open.** The narration is the clone; the public version wants
+Tyler's read of `v2/script.txt` (the gap column is direction, not text).
+The interpolation is linear — MLT's `=` — where an announcement would ease;
+a shot of the recording's first 46 s shows a window that has not loaded
+yet, which the time-lapse includes honestly; and there is no 9:16 version.
