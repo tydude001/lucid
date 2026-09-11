@@ -12669,3 +12669,37 @@ same reason as last time (wiki `git-server.md` § GitHub push mirrors):
 GitHub serves an overwritten commit by its hash. That is step 3's first
 item in docs/plans/LAUNCH.md. The first public release is `v0.22.0`, cut at
 the flip, so that no public tag predates the licence.
+
+## The second run on macOS and Windows — 2026-09-11
+
+The first CI run on the recreated GitHub repo (run `34646490356`, at
+`741af41`), and the first to carry § The first run on macOS and Windows's
+fixes. **macOS: 1867 passed, 162 skipped, 0 failed** — the same count as
+ubuntu-24.04, so the three failures the first macOS run had are gone. The
+macOS runner has ffmpeg and nothing else, so that is lucid's own code on
+macOS and not yet melt, whisper or auto-editor there. Those are for the
+Mac trial kit (docs/plans/LAUNCH.md step 2).
+
+**Windows: 11 failed, 1981 passed, 37 skipped**, down from 62 failed and
+465 errors. There are four clusters, none of them investigated yet:
+
+- **`lucid doctor` crashes before printing a line.** `render` writes ✓ to a
+  stdout that Python encodes as cp1252 when it is piped, and ✓ has no cp1252
+  byte (`UnicodeEncodeError`). CI's doctor step exists to say what each
+  runner resolved, so the run says nothing about which melt answered. A user
+  piping doctor into a file or a paste hits the same crash, and a paste is
+  exactly what step 2 asks a tester for.
+- **Six melt renders:** "melt did not return a readable MLT document:
+  syntax error: line 1, column 0". Something on the runner answered as melt
+  and returned no XML. Which binary it was is the question doctor's crash
+  hid.
+- **Three caption-font tests: Outfit does not draw.** It was installed by
+  `lucid fonts --install` and registered through `fonts._register_windows`.
+  `ink` is identical to the substitute's (0.050134), so ImageMagick fell back
+  silently — the rule CLAUDE.md states for libass, on another rasteriser.
+- **Two singles:** a wildcard-bind test dialled an address Windows refuses to
+  connect to (`WinError 10049`), and a `build_shots` assertion is not yet
+  read.
+
+The logs are `~/lucid-work/ci-34646490356-all.log`, and the failed jobs
+alone are `-win.log`.
