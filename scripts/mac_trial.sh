@@ -1,19 +1,30 @@
 #!/bin/bash
 # lucid on a Mac, in one file — docs/plans/LAUNCH.md § Step 2.
 #
-# One file, two jobs:
+# One file, three jobs:
 #
 #   bash scripts/mac_trial.sh --pack OUT.sh    on the dev box: copy this script to OUT.sh and
 #                                              append the repo at HEAD, so the tester needs no
 #                                              repo access, git, or GitHub account
-#   bash lucid-mac-test.sh                     on the Mac: unpack, install the tools with
-#                                              Homebrew, run docs/DEMO.md, zip a report
+#   bash lucid-mac-test.sh                     on the Mac: unpack, install the tools, run
+#                                              docs/DEMO.md, zip a report
+#   bash lucid-mac-test.sh --uninstall         on the Mac: remove what the test added, and only that
 #
 # The Mac half runs DEMO.md's commands as written, into ~/lucid-mac-trial/demo instead of
-# ~/lucid-demo, and stops at the first one that fails, since that is the finding. The install
-# list is the Homebrew half of README.md § Requirements; whisper comes from `uv tool`, because
-# Homebrew's openai-whisper pulls llvm and pytorch as formulae, gigabytes more than uv's wheels.
-# Written for the macOS system bash (3.2): no associative arrays, no ${x,,}.
+# ~/lucid-demo, and stops at the first one that fails, since that is the finding.
+#
+# What it installs, and why each is the light option:
+#   - Homebrew formulae uv, ffmpeg, espeak-ng, auto-editor: 22 formulae with dependencies
+#     (formulae.brew.sh, 2026-09-11). Not `mlt`, which pulls 135 (OpenCV, VTK, OpenVINO, GCC).
+#   - melt comes from the Shotcut app instead, which bundles one and which picture.melt_bundles()
+#     already finds, and which lucid doctor's own fix names. Its modules are unmeasured
+#     (PORTABILITY.md step 4), so the two frames in the report are the check, not melt's exit code.
+#   - whisper from `uv tool`, since Homebrew's openai-whisper pulls llvm and pytorch as formulae.
+#   - no ImageMagick: only cards need it and the demo draws none; doctor reports it unavailable.
+#
+# Everything added is written to installed.txt as it happens, and --uninstall reads that, so it
+# never removes a thing the tester already had. Written for the macOS system bash (3.2): no
+# associative arrays, no ${x,,}.
 
 set -u
 
@@ -33,14 +44,122 @@ if [ "${1:-}" = "--pack" ]; then
 fi
 
 PACKED_REV=unpacked
-W="${LUCID_TRIAL_DIR:-$HOME/lucid-mac-trial}"   # the two overrides exist for a dry run off the Mac
+# The LUCID_TRIAL_* overrides exist only for a dry run off the Mac.
+W="${LUCID_TRIAL_DIR:-$HOME/lucid-mac-trial}"
 DEMO="$W/demo"
 REPORT="${LUCID_TRIAL_REPORT:-$HOME/Desktop/lucid-mac-report.zip}"
+MANIFEST="$W/installed.txt"   # what this test added; survives a re-run, read by --uninstall
+BREW_PATHS="${LUCID_TRIAL_BREW:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
+APPS="${LUCID_TRIAL_APPS:-/Applications}"
+UVPY="${UV_PYTHON_INSTALL_DIR:-$HOME/.local/share/uv/python}"
+WHISPER_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/whisper"
+FORMULAE="uv ffmpeg espeak-ng auto-editor"
 
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "This is the Mac test. Run it on a Mac." >&2
     exit 1
 fi
+
+find_brew() {
+    brew_bin=""
+    for b in $BREW_PATHS; do
+        [ -x "$b" ] && brew_bin="$b" && break
+    done
+    [ -n "$brew_bin" ] && eval "$("$brew_bin" shellenv)"
+}
+
+ask() {  # ask "question" -> 0 on y
+    local ans
+    printf "%s [y/N] " "$1"
+    read -r ans
+    [ "$ans" = "y" ] || [ "$ans" = "Y" ]
+}
+
+# ---- --uninstall --------------------------------------------------------------------------
+if [ "${1:-}" = "--uninstall" ]; then
+    if [ ! -f "$MANIFEST" ]; then
+        echo "No record of a lucid test on this Mac ($MANIFEST is missing), so nothing to remove."
+        exit 0
+    fi
+    find_brew
+    export PATH="$HOME/.local/bin:$PATH"
+    entries() { grep "^$1 " "$MANIFEST" | cut -d' ' -f2- | sort -u; }
+    formulae="$(entries brew | tr '\n' ' ')"
+    brew_itself=$(grep -c '^homebrew-itself$' "$MANIFEST")
+
+    echo
+    echo "  This removes what the lucid test added to this Mac, and nothing else:"
+    [ -n "$(entries cask)" ] && echo "    - the Shotcut app"
+    [ -n "$(entries uv-tool)" ] && echo "    - whisper (speech-to-text)"
+    [ -n "$(entries whisper-model)" ] && echo "    - the speech model it downloaded"
+    grep -q '^uv-cache$' "$MANIFEST" && echo "    - uv's download cache"
+    [ -n "$(entries uv-python)" ] && echo "    - the Python versions uv downloaded for the test"
+    [ -n "$formulae" ] && echo "    - $(echo "$formulae" | wc -w | tr -d ' ') Homebrew packages: $formulae"
+    [ "$brew_itself" -gt 0 ] && echo "    - Homebrew itself (you will be asked separately)"
+    echo "    - the lucid-mac-trial folder"
+    echo
+    ask "  Go ahead?" || exit 0
+
+    if [ -n "$(entries uv-tool)" ] && command -v uv >/dev/null; then
+        uv tool uninstall openai-whisper
+    fi
+    if grep -q '^uv-cache$' "$MANIFEST" && command -v uv >/dev/null; then
+        uv cache clean
+    fi
+    entries uv-python | while read -r p; do
+        case "$p" in "$HOME"/*) rm -rf "$p" ;; esac
+    done
+    entries whisper-model | while read -r p; do
+        case "$p" in "$HOME"/*) rm -f "$p" ;; esac
+    done
+    # rmdir removes a folder only when it is empty, so a folder holding anything of theirs stays.
+    rmdir "$WHISPER_CACHE" "$UVPY" "$HOME/.local/share/uv/tools" "$HOME/.local/share/uv" \
+        "$HOME/.local/share" "$HOME/.local/bin" "$HOME/.local" 2>/dev/null
+
+    if [ -n "$brew_bin" ]; then
+        # Plain uninstall, never --zap: the test runs melt, never Shotcut itself, so it wrote no
+        # Shotcut settings, and any that exist are from the tester's own earlier use.
+        for c in $(entries cask); do
+            brew uninstall --cask "$c"
+        done
+        removed_brew=0
+        if [ "$brew_itself" -gt 0 ]; then
+            echo
+            echo "  Homebrew was installed by this test. If you don't use it for anything else,"
+            if ask "  remove Homebrew completely too?"; then
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)"
+                removed_brew=1
+            fi
+        fi
+        if [ "$removed_brew" -eq 0 ] && [ -n "$formulae" ]; then
+            # One command first, so Homebrew weighs the set as a whole. If it refuses — something
+            # installed since depends on one of these — go one at a time, dependents before their
+            # dependencies, and leave whatever is still needed.
+            # shellcheck disable=SC2086
+            if ! brew uninstall $formulae 2>/dev/null; then
+                left="${formulae% }"
+                while [ -n "$left" ]; do
+                    next=""
+                    for f in $left; do
+                        brew list --formula "$f" >/dev/null 2>&1 || continue
+                        brew uninstall "$f" >/dev/null 2>&1 || next="${next:+$next }$f"
+                    done
+                    [ "$next" = "$left" ] && break
+                    left="$next"
+                done
+                [ -n "$left" ] && echo "  Kept (something else on this Mac needs them): $left"
+            fi
+        fi
+    fi
+
+    rm -rf "$W"
+    echo
+    echo "  Done. The report on your Desktop (lucid-mac-report.zip) is yours to delete once sent."
+    [ "$brew_itself" -gt 0 ] && echo "  Apple's Command Line Tools, which Homebrew set up, stay installed; other apps use them."
+    exit 0
+fi
+
+# ---- the test -----------------------------------------------------------------------------
 if ! grep -q '^__PAYLOAD__$' "$0"; then
     echo "This copy has no lucid inside it. Ask Tyler for the packed file (lucid-mac-test.sh)." >&2
     exit 1
@@ -51,13 +170,12 @@ cat <<'EOF'
   lucid — Mac test
   ----------------
   This will:
-    1. install the video tools lucid needs, with Homebrew (a few GB of downloads)
+    1. install the tools lucid needs (Homebrew packages, the Shotcut app, whisper)
     2. make a short test video and let lucid edit it
     3. put lucid-mac-report.zip on your Desktop for you to send back to Tyler
 
-  It takes 15–40 minutes, mostly downloading. You can leave it running.
-  Everything goes into Homebrew, ~/.local, and a folder called lucid-mac-trial in
-  your home folder. Delete that folder afterwards if you like.
+  It takes 15–30 minutes, mostly downloading. You can leave it running.
+  To remove everything it added afterwards, run this same file with --uninstall.
 
 EOF
 if [ "$(uname -m)" != "arm64" ]; then
@@ -68,12 +186,25 @@ printf "  Press Enter to start, or Ctrl-C to stop. "
 read -r _
 
 if [ -f "$W/.lucid-mac-trial" ]; then
+    [ -f "$MANIFEST" ] && cp "$MANIFEST" "$HOME/.lucid-mac-trial-installed"
     rm -rf "$W"
 fi
 mkdir -p "$W"
 touch "$W/.lucid-mac-trial"
+if [ -f "$HOME/.lucid-mac-trial-installed" ]; then
+    mv "$HOME/.lucid-mac-trial-installed" "$MANIFEST"
+fi
+touch "$MANIFEST"
 LOG="$W/report.txt"
 exec > >(tee -a "$LOG") 2>&1
+
+record() { echo "$*" >> "$MANIFEST"; }
+listing() { [ -d "$1" ] && find "$1" -mindepth 1 -maxdepth 1 -exec basename {} \; | sort; }
+whisper_before="$(listing "$WHISPER_CACHE")"
+uvpy_before="$(listing "$UVPY")"
+[ -d "${XDG_CACHE_HOME:-$HOME/.cache}/uv" ] || grep -q '^uv-cache$' "$MANIFEST" || record uv-cache
+# Never upgrade, reinstall or clean up a package the tester already had.
+export HOMEBREW_NO_INSTALL_UPGRADE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
 
 STEPS=()
 fail=""
@@ -97,7 +228,23 @@ step() {  # step "what this is" command args...
     return $rc
 }
 
+record_new_formulae() {  # anything in `brew list` now that was not there before the install
+    [ -n "${formulae_before+x}" ] || return 0
+    comm -13 <(echo "$formulae_before") <(brew list --formula -1 | sort) | while read -r f; do
+        [ -n "$f" ] && ! grep -qx "brew $f" "$MANIFEST" && record "brew $f"
+    done
+}
+
 finish() {
+    record_new_formulae
+    # Whatever arrived during the run — a speech model, a uv-managed Python — is the test's.
+    comm -13 <(echo "$whisper_before") <(listing "$WHISPER_CACHE") | while read -r f; do
+        [ -n "$f" ] && record "whisper-model $WHISPER_CACHE/$f"
+    done
+    comm -13 <(echo "$uvpy_before") <(listing "$UVPY") | while read -r f; do
+        [ -n "$f" ] && record "uv-python $UVPY/$f"
+    done
+
     echo
     echo "════ summary"
     echo "lucid $PACKED_REV · macOS $(sw_vers -productVersion) · $(uname -m)"
@@ -112,11 +259,10 @@ finish() {
     # in it. A copy, never `sed -i`: tee still holds the log open and would keep writing to the
     # replaced file's old inode.
     sleep 1
-    sed "s#$HOME#~#g" "$LOG" > "$W/report-clean.txt"
+    sed "s#$HOME#~#g" "$LOG" > "$W/report-for-tyler.txt"
     rm -f "$REPORT"
     (
         cd "$W" || exit
-        mv report-clean.txt report-for-tyler.txt
         files=(report-for-tyler.txt)
         for f in frame-3s.png frame-10s.png demo/demo.mp4 demo/proj/lucid.json demo/proj/project.otio; do
             [ -e "$f" ] && files+=("$f")
@@ -125,9 +271,13 @@ finish() {
     )
     echo
     echo "  Done. Send Tyler this file from your Desktop:  lucid-mac-report.zip"
+    echo "  To remove everything the test installed:      bash $0 --uninstall"
     echo
     open -R "$REPORT" 2>/dev/null
 }
+
+# Ctrl-C mid-install still records what had landed, so --uninstall can find it.
+trap 'echo; echo "!! stopped by Ctrl-C"; fail="stopped by Ctrl-C"; finish; exit 130' INT
 
 echo "lucid Mac test · lucid $PACKED_REV · $(date '+%Y-%m-%d %H:%M %Z')"
 echo "macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)) · $(uname -m) · $(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
@@ -137,27 +287,48 @@ line=$(awk '/^__PAYLOAD__$/ {print NR + 1; exit}' "$0")
 if ! step "unpack lucid" sh -c "tail -n +$line '$0' | base64 --decode | tar -xz -C '$W'"; then finish; exit 1; fi
 
 # Homebrew. Its installer asks for the Mac's password and may install Apple's command line tools.
-brew_bin=""
-for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-    [ -x "$b" ] && brew_bin="$b" && break
-done
+find_brew
 if [ -z "$brew_bin" ]; then
     echo
     echo "Homebrew is not installed. Installing it now — it will ask for your Mac password."
     step "install Homebrew" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
-        [ -x "$b" ] && brew_bin="$b" && break
-    done
+    find_brew
     if [ -z "$brew_bin" ]; then fail="install Homebrew"; finish; exit 1; fi
+    record homebrew-itself
 fi
-eval "$("$brew_bin" shellenv)"
 export PATH="$HOME/.local/bin:$PATH"
 
-if ! step "install tools (Homebrew)" brew install uv ffmpeg espeak-ng mlt auto-editor imagemagick; then finish; exit 1; fi
-if ! step "install whisper (uv tool)" uv tool install --python 3.12 openai-whisper; then finish; exit 1; fi
+formulae_before="$(brew list --formula -1 | sort)"
+# shellcheck disable=SC2086
+step "install tools (Homebrew)" brew install $FORMULAE
+brew_rc=$?
+record_new_formulae
+[ $brew_rc -eq 0 ] || { finish; exit 1; }
+
+if [ -d "$APPS/Shotcut.app" ]; then
+    echo
+    echo "── Shotcut is already installed; using it"
+else
+    if ! step "install Shotcut (for its melt renderer)" brew install --cask shotcut; then finish; exit 1; fi
+    record "cask shotcut"
+    # lucid runs melt from inside the app, never the app itself, so macOS's first-launch prompt has
+    # nowhere to appear. Homebrew has already checked the download against its checksum.
+    xattr -dr com.apple.quarantine "$APPS/Shotcut.app" 2>/dev/null
+fi
+
+if uv tool list 2>/dev/null | grep -q '^openai-whisper '; then
+    echo
+    echo "── whisper is already installed; using it"
+else
+    step "install whisper (uv tool)" uv tool install --python 3.12 openai-whisper
+    whisper_rc=$?
+    uv tool list 2>/dev/null | grep -q '^openai-whisper ' && record "uv-tool openai-whisper"
+    [ $whisper_rc -eq 0 ] || { finish; exit 1; }
+fi
 echo
-brew list --versions uv ffmpeg espeak-ng mlt auto-editor imagemagick
-echo "melt: $(command -v melt)"
+# shellcheck disable=SC2086
+brew list --versions $FORMULAE
+echo "shotcut: $(brew list --cask --versions shotcut 2>/dev/null || echo "not from Homebrew")"
 echo "whisper: $(command -v whisper)"
 
 cd "$W/lucid" || { fail="enter repo"; finish; exit 1; }
@@ -171,7 +342,7 @@ step "DEMO 2 init" uv run lucid init "$DEMO/proj" &&
 step "DEMO 2 import vo" L import "$DEMO/vo.wav" --clip-id vo &&
 step "DEMO 2 import blue" L import "$DEMO/broll-blue.mp4" --clip-id blue &&
 step "DEMO 2 import rust" L import "$DEMO/broll-rust.mp4" --clip-id rust &&
-step "DEMO 2 transcribe (first run downloads a whisper model)" L transcribe vo &&
+step "DEMO 2 transcribe (first run downloads a 1.5 GB speech model)" L transcribe vo &&
 step "DEMO 2 seed" L seed vo &&
 step "DEMO 3 find the retake" L transcript vo --search "let me try that again" &&
 step "DEMO 3 read around it" L transcript vo --first 8 --last 26 &&
@@ -191,6 +362,7 @@ if [ -f "$DEMO/demo.mp4" ]; then
 fi
 
 finish
+trap - INT   # from here Ctrl-C only closes the editor window; the report is already written
 
 if [ -z "$fail" ]; then
     printf "  Want to see lucid's editor window with the result? Type y and Enter (Ctrl-C closes it): "
