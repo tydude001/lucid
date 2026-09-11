@@ -64,12 +64,13 @@ pointer, and the wiki row updates.
 
 ## Step 1 — the launch asset: a watchable closed loop
 
-Built — see HISTORY.md § The launch clip and § The launch clip, re-cut as
-an announcement. The recorder, four scored takes and a 57 s cut exist
-(`~/lucid-work/launch-cut/v2/launch-v2.mp4`: chapter cards, the window
-floating with slow push-ins, a generated bed); the narration is a placeholder
-in Tyler's cloned voice until he reads `v2/script.txt`, and the 9:16
-re-author is not made.
+Built three times — HISTORY.md § The launch clip, § The launch clip, re-cut
+as an announcement, and § The launch clip, third shape, which is the one
+that stands: `~/lucid-work/launch-demo/cut/launch-v3.mp4`, 50 s, no voice,
+the Apollo 11 demo run recorded in a legible window, the finished cut and
+verify's numbers on screen. The two earlier cuts (narrated, in Tyler's
+cloned voice) are in `~/lucid-work/launch-cut/`. The 9:16 re-author is not
+made.
 
 **What it is.** One screen recording, 60–90 seconds cut and the full run
 uncut, of the agent pane in the workspace driving a brief from `lucid init`

@@ -12513,3 +12513,89 @@ Tyler's read of `v2/script.txt` (the gap column is direction, not text).
 The interpolation is linear — MLT's `=` — where an announcement would ease;
 a shot of the recording's first 46 s shows a window that has not loaded
 yet, which the time-lapse includes honestly; and there is no 9:16 version.
+
+## The launch clip, third shape — 2026-09-11
+
+Tyler on the announcement cut: "still looks kinda amateur — the slow push
+is eh. the VO sounds kinda janky in places. and i still don't know if it
+really helps describe what LUCID is best at… idk what '2.5 minutes' is even
+referring to." All four points were right, and the honest diagnosis was that
+two cuts had polished the form without settling the argument. The third
+shape is the one a devtool launch actually uses: **no voice, real product
+footage, the result on screen, type between beats.** He approved it with
+"proceed with your top recommendations" and "pull from open source resources
+if needed", providing nothing else. `~/lucid-work/launch-demo/`, 50 s.
+
+**The argument, in six beats.** *The take* — the raw narration drawn as it
+is spoken (a lucid export: ink card, karaoke captions at 84 px), the false
+start audible: "…leave for the Moon. Um, no, let me take that again." *The
+brief* — four sentences typed into the pane in real time, the actual words
+being the pitch. *The agent* — the 200 s run at speed, the whole window
+legible. *The cut* — the finished film playing, launch under "leave the
+Earth", moonwalk under "walked on the Moon", captions burned. *The check* —
+the pane's own report, then a card: "35 of 35 words heard. frame count
+agrees · checked against the timeline". End card. The clip's only spoken
+words are the demo's, and the "2.5 minutes" line is gone with the rest of
+the feature tour.
+
+**The demo is a real film now.** The trial's espeak narration and colour-
+block b-roll were the amateur tell nobody could fix by cutting: an AI voice
+saying "this is a demo", edited by an AI, narrated by a clone. The new demo
+is three sentences on Apollo 11, written for a false start, synthesised in
+Tyler's cloned voice (best of four seeds, `sim` 0.988–0.990) — the one voice
+he has already approved as a placeholder — over NASA's own restored Apollo 11
+footage from archive.org (Goddard, public domain; provenance in
+`source/PROVENANCE.md`), cut into three silent 720p clips. The brief names
+the shots by what they show, so the agent has to choose from the footage
+sheets rather than from filenames.
+
+**The recorder grew four things** (`record_run.py`): `--media` for real
+footage, `--brief-file` with `{media}`/`{project}`/`{output}` placeholders,
+`--phrases`/`--min-clips` so the run is scored against its own pair (and
+`finish()` reads them back from `scoring.json` rather than the demo's), and
+`--type CPS`, which types the brief through the page's own JS with jittered
+delays and a beat on punctuation, then clicks Send. `marks.json` records
+typing start, send and done on the frames' clock, which is what a cut of
+the recording addresses.
+
+**Legibility cost three takes and a real fix.** A 1920-wide layout draws its
+type at 13 px, unreadable as a whole-window shot. The obvious route — a
+device scale factor of 1.5 on a 1280x720 page — measured wrong three ways:
+`Page.startScreencast` hands back CSS pixels whatever the factor is, with or
+without an `Emulation.setDeviceMetricsOverride`, and CDP's own `scale` on
+that override changes nothing either. CSS `zoom` on the root gave crisp
+1920x1080 frames and then **collapsed the preview to 88x50 mid-run**; a
+`transform: scale(1.5)` on `<body>` did the same at 56x32. The mechanism was
+lucid's: `player.js`'s `balancePanes` read the workspace and timeline
+heights off `getBoundingClientRect()` — the transformed frame — and the
+lanes' room off `clientHeight` — layout pixels — and wrote `--timeline-h`
+from the difference, so every `project-changed` reload inflated the timeline
+by the transform until nothing was left for the preview. It now measures
+`offsetHeight` for both, a test holds it to that, and the recorder lays the
+page out at 1280x720 and draws it at 1920x1080 through the body transform:
+take 4's `#frame` rect measured 888x500 where take 3's had measured 56x32.
+A real 1280x720 window could never have shown this; a transformed one is
+the only way to record a legible whole window, and the fix costs nothing
+in either.
+
+The other change the recording forced is small: a fresh project's "this
+project has no timeline yet" is advice, not a failure, and it sat as a red
+error over the opening seconds of every take. `app.js`'s `load()` gives it
+the `warn` severity, which auto-dismisses; a real load failure stays until a
+load succeeds, as before.
+
+**Four takes, all 9 of 9.** 183 s/$2.04, 246 s/$1.86, 302 s/$2.50,
+200 s/$1.50; the cut is take 4's. Every take found the false start and kept
+the second try, hung the launch and the moonwalk where the brief said, and
+verified 35 of 35 with the frame count agreeing. `check_black` was not
+asked; the assembly is ffmpeg (`cut/cut.py`, `cut/beats.json`): every beat
+is a separate segment with its own sound, concatenated, the v2 pad mixed
+under at −34 LUFS with fades, the whole thing fades in and out. The bed sits
+15 dB under the two beats that speak.
+
+**Still open.** The amber toast is in the brief beat for its whole nine
+seconds, because the project has no timeline until the agent seeds it; the
+right fix is an empty state rather than any toast. The demo's voice is
+still the clone. The upscale of the typing beat is 1.6x in time, which
+reads as fast typing rather than a speed-up. No 9:16 version. And the music
+is the generated pad; a licensed track would sit better under real footage.
