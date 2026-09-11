@@ -170,7 +170,14 @@ async function main() {
       console.log(JSON.stringify({ dragged: [x1, y1, x2, y2], dwell }));
     } else if (cmd === 'viewport') {
       const [w, h] = rest.slice(0, 2).map(Number);
-      await s.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+      // A third argument is the device scale factor — the recorder captures a
+      // 1280x720 page at 1.5 so the window's type is legible in a 1080p frame.
+      const dsf = Number(rest[2] ?? 1);
+      // A fourth is CDP's own `scale` — a scale applied to the resulting view
+      // image, which is what makes the screencast hand back more than the
+      // page's CSS pixels (a device scale factor alone does not).
+      const scale = Number(rest[3] ?? 1);
+      await s.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: dsf, mobile: false, ...(scale !== 1 ? { scale } : {}) });
       await sleep(400);
       // Two sweeps, because one is blind where the other is noisy
       // (CLAUDE.md § The README screenshots, and the five defects they found).
