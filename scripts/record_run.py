@@ -275,7 +275,7 @@ class EventTap(threading.Thread):
 
 def open_workspace(root: Path, port: int, cdp_port: int, env: dict[str, str]) -> tuple[subprocess.Popen, subprocess.Popen]:
     server = shots.serve(root, port, env)
-    browser = shots.browse(cdp_port, size=f"{SIZE[0]},{SIZE[1]}")
+    browser = shots.browse(cdp_port, size=f"{SIZE[0]},{SIZE[1]}", mute=True)
     os.environ["CDP_PORT"] = str(cdp_port)
     url = f"http://127.0.0.1:{port}/"
     shots.seed_dark(url)

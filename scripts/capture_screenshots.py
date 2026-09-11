@@ -205,7 +205,7 @@ def serve(root: Path, port: int, env: dict[str, str]) -> subprocess.Popen:
     raise CaptureError(f"lucid web never bound :{port}")
 
 
-def browse(cdp_port: int, size: str = "1400,900") -> subprocess.Popen:
+def browse(cdp_port: int, size: str = "1400,900", *, mute: bool = False) -> subprocess.Popen:
     binaries = sorted(
         Path.home().glob(
             ".cache/ms-playwright/chromium_headless_shell-*/"
@@ -227,6 +227,10 @@ def browse(cdp_port: int, size: str = "1400,900") -> subprocess.Popen:
             "--hide-scrollbars",
             "--force-device-scale-factor=1",
             f"--window-size={size}",
+            # A headless browser still plays audio through the host's sound
+            # server. The screencast captures no sound, and the recorder's
+            # playback tail was audible in the operator's headphones.
+            *(["--mute-audio"] if mute else []),
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
