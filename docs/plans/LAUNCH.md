@@ -176,6 +176,15 @@ Tyler's hand, in this order, the same afternoon:
    changelog, which the repo does not keep on purpose.
 7. Pin docs/DEMO.md from the README's first screen, if it is not already the
    first link a newcomer sees.
+8. **A way to buy the author a coffee** (Tyler's ask, 2026-09-11; deferred —
+   nothing else in this plan waits on it). The whole build is a
+   `.github/FUNDING.yml` naming the account (GitHub Sponsors, Ko-fi or Buy
+   Me a Coffee — one, not three) plus one line at the foot of the README,
+   which puts the **Sponsor** button on the repo page. It is not revenue and
+   is not the open-core call (§ What this plan deliberately does not do):
+   it is the cheapest honest answer to "how do I say thanks", and a launch
+   thread asks that question within the hour. Wire it before Show HN, since
+   the button is what the thread will find.
 
 **Done when:** the public URL unfurls with the image and the tagline, the
 Security tab shows "Report a vulnerability", and a release exists.
