@@ -205,7 +205,7 @@ def serve(root: Path, port: int, env: dict[str, str]) -> subprocess.Popen:
     raise CaptureError(f"lucid web never bound :{port}")
 
 
-def browse(cdp_port: int) -> subprocess.Popen:
+def browse(cdp_port: int, size: str = "1400,900") -> subprocess.Popen:
     binaries = sorted(
         Path.home().glob(
             ".cache/ms-playwright/chromium_headless_shell-*/"
@@ -226,7 +226,7 @@ def browse(cdp_port: int) -> subprocess.Popen:
             "--no-sandbox",
             "--hide-scrollbars",
             "--force-device-scale-factor=1",
-            "--window-size=1400,900",
+            f"--window-size={size}",
             "about:blank",
         ],
         stdout=subprocess.DEVNULL,
