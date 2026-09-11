@@ -58,9 +58,9 @@ pointer, and the wiki row updates.
   Open-core, a hosted tier and a commercial licence are later calls, and
   **none of them is a launch step** — see § What this plan deliberately does
   not do.
-- **CI runs on three OSes and is green on Gitea**; the GitHub mirror is one
-  sync behind (`0f6f202`, wiki `lucid-portability`). The three-OS suite is
-  what lets step 2 ask a Mac to try it at all.
+- **CI runs on three OSes, on GitHub**: Linux and macOS are green and
+  Windows is not yet (HISTORY.md § The second run on macOS and Windows).
+  The three-OS suite is what lets step 2 ask a Mac to try it at all.
 
 ## Step 1 — the launch asset: a watchable closed loop
 
@@ -178,15 +178,12 @@ sentence is replaced by what was measured.
 **No public commit may carry the MIT grant.** A flip publishes every tag
 and commit, not just the tip, and until 2026-09-11 all 17 tags carried MIT.
 They were rewritten to carry Shield instead (HISTORY.md § The MIT history,
-rewritten). **The GitHub repo still holds the old commits, and GitHub serves
-an overwritten commit by its hash** — so a sync alone is not enough.
+rewritten). The GitHub repo was recreated for it, since GitHub serves an
+overwritten commit by its hash; any later rewrite needs the same.
 
 Tyler's hand, in this order, the same afternoon:
 
-1. Delete `tydude001/lucid` on GitHub and create it again, empty and
-   private. Re-add it to the mirror token's repository access, and set its
-   description again: a repo's metadata is not carried by the mirror. Then
-   sync the GitHub mirror so the public repo is at the tip (wiki
+1. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
 2. Flip `tydude001/lucid` public.
 3. Enable private vulnerability reporting — SECURITY.md already points at it
