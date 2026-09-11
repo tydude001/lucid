@@ -2150,6 +2150,22 @@ textarea {
   border-left-color: var(--kept);
 }
 
+/* A picture a tool returned — a contact, footage, shot or reframe sheet the
+   agent read. Drawn at the pane's width and no wider: a sheet is landscape
+   and the rail is narrow, so it reads as a thumbnail of what the agent saw
+   rather than a thing to inspect here. */
+.agent-entry--image {
+  border-left-color: var(--dim);
+  padding: 4px 0 4px 8px;
+}
+
+.agent-entry--image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+
 .agent-progress {
   display: flex;
   flex-direction: column;

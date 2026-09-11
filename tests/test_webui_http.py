@@ -4170,6 +4170,20 @@ def test_a_load_failure_toast_and_a_planned_cut_are_retired_by_what_supersedes_t
     assert b'ctx.emit("agent-plan", null)' in agent
 
 
+def test_the_feed_follows_its_checklist_and_draws_a_tool_results_image(server: str) -> None:
+    """Two more from the same recorded run: the checklist grew forty steps
+    below the fold while the pane showed its first three, and the shot sheet
+    the agent reviewed its own picture on — an image block in the tool
+    result — was skipped as not part of the progress story. `addStep`
+    scrolls; `resultImages` draws each base64 image under its step, and the
+    stylesheet caps it at the pane's width."""
+    _, _, agent = _get(f"{server}/static/agent.js")
+    assert b"function resultImages" in agent
+    assert b"agent-entry--image" in agent
+    _, _, css = _get(f"{server}/static/app.css")
+    assert re.search(rb"\.agent-entry--image img\s*\{[^}]*max-width:\s*100%", css)
+
+
 # -- Studio Step 03: the Frame view's backend ----------------------------
 #
 # `GET /api/reframe/coverage` (synchronous, cheap), `POST /api/reframe/sheet`

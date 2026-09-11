@@ -207,6 +207,17 @@ function resultPreview(block) {
   return "";
 }
 
+/** The base64 images in a tool_result's content, in order — `[]` for a
+ * result with none, or whose content is a bare string. Shape verified on a
+ * real run: `{type:"image", source:{type:"base64", media_type, data}}`. */
+function resultImages(block) {
+  const content = block?.content;
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((b) => b && b.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string")
+    .map((b) => ({ media_type: b.source.media_type || "image/png", data: b.source.data }));
+}
+
 /** Like `resultPreview`, but returns the tool's own parsed JSON reply rather
  * than a joined string — an MCP tool result's `content` is `[{type:"text",
  * text: "<json>"}]`, so this parses the first text block. Returns `null`
@@ -264,6 +275,10 @@ function addStep(block) {
   }
   if (!currentProgress) currentProgress = openProgress();
   currentProgress.append(step);
+  // A step is appended inside an entry `append()` already scrolled to, so
+  // nothing else scrolls: the first recorded run's checklist grew forty
+  // steps below the fold while the pane went on showing "Importing media".
+  scrollToBottom();
   // `name`/`input` are carried alongside the checklist bookkeeping so the
   // matching tool_result can tell whether this was a plan-mode cut-family
   // call (docs/plans/STUDIO.md Step 02 item 6) — the checklist itself never reads them.
@@ -337,6 +352,21 @@ function handleAssistantOrUser(data) {
         }
       }
       finishStep(block.tool_use_id, !block.is_error, resultPreview(block));
+      // A sheet the agent asked for is a picture the agent read (CLAUDE.md:
+      // an MCP tool result can carry an image, and `claude -p` puts it in
+      // front of the model). Drawing it under the step is the one way a
+      // person watching the pane sees what the agent saw — skipped as "not
+      // part of the progress story" until the first recorded run, where the
+      // shot sheet it reviewed its own picture on never appeared on screen.
+      for (const image of resultImages(block)) {
+        const wrap = el("div", "agent-entry agent-entry--image");
+        const img = document.createElement("img");
+        img.src = `data:${image.media_type};base64,${image.data}`;
+        img.alt = `${humanizeTool(pending?.name)} — the image the tool returned`;
+        img.loading = "lazy";
+        wrap.append(img);
+        append(wrap);
+      }
     }
     // Any other block type (image, thinking, …) is silently skipped rather
     // than dumped raw — it is not part of the progress story this pane
