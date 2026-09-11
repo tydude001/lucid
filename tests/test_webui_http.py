@@ -4154,6 +4154,22 @@ def test_app_js_wires_the_new_bus_events_and_the_toast_dismiss(server: str) -> N
     assert b"toast-dismiss" in body
 
 
+def test_a_load_failure_toast_and_a_planned_cut_are_retired_by_what_supersedes_them(server: str) -> None:
+    """Two banners that outlived the state they reported, both measured on
+    the first recorded agent run (docs/plans/LAUNCH.md § Step 1): the fresh
+    project's "no timeline yet" error toast — timerless by design — sat over
+    the CC lane for three minutes after the agent had seeded the timeline,
+    and the transcript's Apply/Dismiss banner went on proposing a 13-word cut
+    the agent had already applied. `load()` clears its own failure toast on
+    the next success; an applied cut emits a null `agent-plan`, which is the
+    banner's own clear path. The repo has no JS harness, so this holds the
+    two source-level facts the way the toast-dismiss test above does."""
+    _, _, app = _get(f"{server}/static/app.js")
+    assert b"load.failed = true" in app and b"load.failed = false" in app
+    _, _, agent = _get(f"{server}/static/agent.js")
+    assert b'ctx.emit("agent-plan", null)' in agent
+
+
 # -- Studio Step 03: the Frame view's backend ----------------------------
 #
 # `GET /api/reframe/coverage` (synchronous, cheap), `POST /api/reframe/sheet`

@@ -709,7 +709,10 @@ def score(
     # --- the render --------------------------------------------------------
     outputs = list(evidence.get("outputs") or [])
     facts["claimed_outputs"] = outputs
-    existing = [p for p in outputs if Path(p).exists()]
+    # `~` is expanded, because a brief written with `~/…` paths (so the pane
+    # shows no username — LAUNCH.md § Step 1's footage rule, applied to the
+    # feed) is echoed back unexpanded in the tool's own reply.
+    existing = [p for p in outputs if Path(p).expanduser().exists()]
     facts["existing_outputs"] = existing
     checks.append(
         _check("render_exists", bool(existing), f"{len(existing)} of {len(outputs)} claimed paths on disk")

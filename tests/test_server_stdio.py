@@ -12,6 +12,7 @@ import array
 import inspect
 import json
 import math
+import os
 import shutil
 import struct
 import subprocess
@@ -7589,6 +7590,25 @@ def test_a_bound_server_resolves_a_relative_path_against_its_project(tmp_path: P
         return await Client(session).call("cue_ls", path=".")
 
     assert anyio.run(_with_server, body, _bound(project))["count"] == 0
+
+
+def test_a_bound_server_expands_a_tilde_in_the_confined_path(tmp_path: Path) -> None:
+    """`~/proj` is the bound project when the project is under HOME, not a
+    directory literally named `~`. Measured on the first recorded agent run
+    (docs/plans/LAUNCH.md § Step 1): a brief spelled `~/…` so the pane shows
+    no username, and `resolve()` alone would refuse every such `path` as
+    outside the project. HOME is the child's, so both are set on the server
+    (`USERPROFILE` is what `expanduser` reads on Windows)."""
+    project, _ = _two_projects(tmp_path)
+    env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+    server = StdioServerParameters(
+        command=sys.executable, args=["-m", "lucid.cli", "-C", str(project), "mcp"], env=env
+    )
+
+    async def body(session: ClientSession) -> Any:
+        return await Client(session).call("cue_ls", path="~/proj")
+
+    assert anyio.run(_with_server, body, server)["count"] == 0
 
 
 def test_a_bound_server_refuses_an_escape_by_parent_or_symlink(tmp_path: Path) -> None:

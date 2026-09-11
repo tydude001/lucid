@@ -4661,7 +4661,7 @@ def _sheet_luma(stats: dict[str, float], scale: float) -> dict[str, Any]:
 
 
 def _sheet_frame(
-    project: Project, *, asset: str, source: Path, at: float
+    project: Project, *, asset: str, source: Path, at: float, still: bool = False
 ) -> tuple[Path, dict[str, Any]]:
     """Extract (or reuse) one tile's source frame, with its luma.
 
@@ -4733,7 +4733,11 @@ def _sheet_frame(
             pass
 
     if scale is None or not fresh:
-        scale = float(2 ** media.probe(source).bit_depth - 1)
+        # A card is a still, and `probe` refuses a still (no duration) — so a
+        # `card:` row read its bit depth off ffprobe's refusal and errored
+        # the whole sheet, on the title card the agent had just made.
+        depth = media.still_bit_depth(source) if still else media.probe(source).bit_depth
+        scale = float(2**depth - 1)
 
     frame.parent.mkdir(parents=True, exist_ok=True)
     # The full-resolution frame is scratch, so it goes to a temporary
@@ -4882,14 +4886,20 @@ def shot_sheet(
         label = f"{row['asset']} t={row['start']:.1f}s src={at:.1f}s"
         try:
             frame, luma = _sheet_frame(
-                project, asset=row["asset"], source=Path(row["asset_path"]), at=at
+                project,
+                asset=row["asset"],
+                source=Path(row["asset_path"]),
+                at=at,
+                still=bool(row.get("is_image")),
             )
             if luma["blank"]:
                 label = f"{label} {_BLANK_MARK}"
             tile = dest_dir / "tiles" / f"{index:04d}.png"
             tile.parent.mkdir(parents=True, exist_ok=True)
             _sheet_tile(frame, label, tile)
-        except (picture.PictureError, graphics.GraphicsError, OSError) as exc:
+        except (picture.PictureError, graphics.GraphicsError, media.MediaError, OSError) as exc:
+            # `MediaError` is in the tuple because one asset ffprobe refuses
+            # is one errored tile, not a sheet that never comes back.
             # One unreadable moment is not a reason to throw the other
             # twenty-three away — `describe_windows`' rule, for the same
             # reason: the sheet is evidence, and partial evidence beats none.

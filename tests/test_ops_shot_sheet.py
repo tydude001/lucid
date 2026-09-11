@@ -185,3 +185,31 @@ def test_a_bad_page_size_refuses_before_anything_is_drawn(project: Project) -> N
         ops.shot_sheet(project.root, per_page=0)
     with pytest.raises(ProjectError):
         ops.shot_sheet(project.root, page=-1)
+
+
+@needs_ffmpeg
+@needs_magick
+def test_a_card_on_the_picture_track_draws_as_a_tile(project: Project, tmp_path: Path) -> None:
+    """A still is held, not played, and `probe` refuses one (no duration). The
+    first recorded agent run (docs/plans/LAUNCH.md § Step 1) made a title
+    card unprompted, cued it over the opening line, and then could not review
+    its own picture: `shot_sheet` read the card's bit depth through `probe`
+    and the refusal errored the whole sheet. A card row goes through
+    `media.still_bit_depth` and draws; and a source ffprobe *does* refuse is
+    one errored tile, never a lost sheet."""
+    cards = project.cards_dir
+    cards.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=orange:size=320x240",
+         "-frames:v", "1", str(cards / "title.png")],
+        check=True,
+    )  # fmt: skip
+    ops.cue_add(project.root, "vo", 2, asset="card:title")
+
+    sheet = ops.shot_sheet(project.root)
+    by_asset = {tile["asset"]: tile for tile in sheet["tiles"]}
+    card = by_asset["card:title"]
+    assert "error" not in card, card
+    assert card["is_image"] is True
+    assert Path(sheet["sheet"]).is_file()
+    assert all("error" not in tile for tile in sheet["tiles"]), sheet["tiles"]

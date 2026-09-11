@@ -322,9 +322,18 @@ function handleAssistantOrUser(data) {
       const pending = pendingSteps.get(block.tool_use_id);
       if (pending && !block.is_error) {
         const bare = String(pending.name || "").replace(MCP_PREFIX, "");
-        if ((bare === "cut_by_transcript" || bare === "cut_by_time") && pending.input?.plan === true) {
-          const payload = parseResultPayload(block);
-          if (payload) ctx.emit("agent-plan", { tool: bare, input: pending.input, payload });
+        if (bare === "cut_by_transcript" || bare === "cut_by_time") {
+          if (pending.input?.plan === true) {
+            const payload = parseResultPayload(block);
+            if (payload) ctx.emit("agent-plan", { tool: bare, input: pending.input, payload });
+          } else {
+            // The agent applied a cut itself, so whatever it last proposed
+            // is no longer a proposal — with or without the banner's Apply
+            // having been pressed. Left standing, the banner offered to cut
+            // 13 words that were already struck through in the transcript
+            // beside it, for the rest of the first recorded run.
+            ctx.emit("agent-plan", null);
+          }
         }
       }
       finishStep(block.tool_use_id, !block.is_error, resultPreview(block));

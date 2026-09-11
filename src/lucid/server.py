@@ -194,7 +194,11 @@ def _confine(path: str | None) -> str | None:
         )
     if root is None:
         return path
-    candidate = Path(path)
+    # `~` is expanded before the containment test, because `resolve()` alone
+    # reads `~/proj` as a directory literally named `~` under the root and
+    # refuses it as outside the project — a brief written with `~/…` paths
+    # (so the agent pane shows no username) had every `path` refused by name.
+    candidate = Path(path).expanduser()
     resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
     if resolved != root and root not in resolved.parents:
         raise ProjectError(

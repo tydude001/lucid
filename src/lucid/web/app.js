@@ -126,7 +126,18 @@ async function load(clipId) {
     view = await api(`/api/view${query}`);
   } catch (err) {
     toast(err.message);
+    load.failed = true;
     return;
+  }
+  // A toast about a load that failed is a claim about the project's state,
+  // and it stops being true the moment a load succeeds. 'error' toasts have
+  // no timer on purpose (see toast()), so without this the fresh project's
+  // "no timeline yet" sat over the CC lane for the whole of the first
+  // recorded agent run — three minutes after the agent had seeded it.
+  if (load.failed) {
+    load.failed = false;
+    clearTimeout(toast.timer);
+    $("toast").hidden = true;
   }
   // Fetched after the view and not in parallel with it: a bad clip_id has to
   // fail on the view, where the toast above already reports it, rather than

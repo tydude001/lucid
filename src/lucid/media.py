@@ -171,6 +171,36 @@ def _bit_depth(video: dict[str, Any] | None) -> int:
     return 8
 
 
+def still_bit_depth(path: Path | str) -> int:
+    """Bits per sample of a still image, by the same rule `probe` applies to video.
+
+    `probe` refuses a still — ffprobe reports no duration for a PNG, and it is
+    right to — so a sheet that read a card's bit depth through it errored on
+    the card and took the other tiles with it (the first recorded agent run,
+    LAUNCH.md § Step 1: `shot_sheet` failed on the title card the agent had
+    just made). One ffprobe for the image's own stream, `_bit_depth` for the
+    answer; 8 when ffprobe cannot say, which is `_bit_depth`'s own default
+    and the safe direction to be wrong in.
+    """
+    done = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=pix_fmt,bits_per_raw_sample",
+            "-of", "json", str(Path(path).expanduser()),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    if done.returncode != 0:
+        return 8
+    try:
+        streams = json.loads(done.stdout).get("streams") or []
+    except json.JSONDecodeError:
+        return 8
+    return _bit_depth(streams[0] if streams else None)
+
+
 def probe(path: Path | str) -> MediaInfo:
     """Run ffprobe against `path` and summarise its first video/audio stream.
 
