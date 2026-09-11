@@ -64,6 +64,10 @@ pointer, and the wiki row updates.
 
 ## Step 1 — the launch asset: a watchable closed loop
 
+Built — see HISTORY.md § The launch clip. The recorder, four scored takes and
+a 60 s cut exist; the narration is a placeholder in Tyler's cloned voice
+until he reads the script, and the 9:16 re-author is not made.
+
 **What it is.** One screen recording, 60–90 seconds cut and the full run
 uncut, of the agent pane in the workspace driving a brief from `lucid init`
 to a verified render. The cut version is what every channel below posts; the

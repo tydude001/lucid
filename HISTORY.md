@@ -12366,3 +12366,77 @@ draws under Windows is the font probe's verdict on that run. None of this is
 a Windows or macOS measurement in step 4/5's sense: the fixes are verified
 here, on Linux, and by reasoning about the other two, until they run there.
 Suite on this box: 2025 passed.
+
+## The launch clip — 2026-09-11
+
+docs/plans/LAUNCH.md § Step 1 asked for a watchable closed loop. TRIAL.md
+had run that loop twice and scored it; what the launch lacked was a recording
+of one. `scripts/record_run.py` is that: the trial's own brief driven through
+the workspace's agent pane (`POST /api/agent`, the route a person's Send
+button hits) inside the headless Chrome the verify-live harness drives, with
+`scripts/screencast.mjs` streaming the page over CDP the whole time, and the
+run scored afterwards by `agent_trial.score()` off the same `/api/events`
+stream the pane draws from. The video is of a measured run.
+
+**Whether the preview's `<video>` reaches a screencast was measured first,
+not assumed** — `Page.captureScreenshot` had composited it on two days and
+not on a third with the same binary. `--probe` plays a project that has
+picture and reads the mean luma of the `#frame` rect off the captured frames:
+71 against black's 16, and a frame read back showed the rust b-roll under the
+playhead with its counter. Every run reports `preview_luma` beside its score.
+
+Four takes, each 9 of 9 on the trial's checks. What separated them was not
+the edit but what the recording showed of the window:
+
+| take | turns | wall | cost | errors | what it showed |
+|---|---|---|---|---|---|
+| 1 | 39 | 164s | $1.96 | 1 | five UI defects, below |
+| 2 | 34 | 158s | $1.44 | 0 | tilde paths in the brief; the feed still not scrolling |
+| 3 | 38 | 170s | $1.55 | 1 | whisper failed once — a TTS synth was holding the GPU |
+| 4 | 42 | 217s | $1.84 | 0 | the take |
+
+**Six defects, all real for anyone watching the agent work, none visible to
+a test that called the ops.** The fresh project's "no timeline yet" error
+toast — timerless by design — sat over the CC lane for the whole run after
+the agent had seeded the timeline; `load()` now clears its own failure toast
+on the next success. The transcript's Apply/Dismiss banner went on proposing
+a 13-word cut the agent had already applied; an applied cut now emits a null
+`agent-plan`. `shot_sheet` failed outright on the title card the agent made
+unprompted, because `media.probe` refuses a still (no duration) and the
+sheet read the card's bit depth through it — `media.still_bit_depth` now,
+and `MediaError` in the per-tile catch so one refused asset is one errored
+tile. The checklist grew forty steps below the fold while the pane showed
+its first three; `addStep` scrolls. The sheet the agent reviewed its own
+picture on never appeared, because image blocks were skipped as not part of
+the progress story; `resultImages` draws each under its step — and then drew
+broken-image icons, because `default-src 'self'` refuses a data URL, so the
+CSP admits `img-src 'self' data:`. Each fix carries a test; the card one
+fails against the old code with the run's own error. Two smaller ones ride
+along: `_confine` expands `~`, so a brief spelled `~/…` (no username in the
+pane) is not refused by name, and the recorder mutes its browser — headless
+Chrome plays audio through the host's sound server, and the playback tail
+was audible in Tyler's headphones.
+
+**The cut is built the way lucid builds a film.** A narration is the spine
+— seven lines, 137 words, 56.7 s, synthesised line by line in Tyler's cloned
+voice as a placeholder (best of three seeds each, all at `sim` 0.988–0.991,
+where the real takes sit); the public version wants his read of the same
+script. The recording is footage hung off it as pinned picture cues
+(`src_start` into the take), a `chapter` card opens and an `endcard` closes
+as the tail, four of the five shots carry a 1280x720 `reframe` window as a
+punch-in, captions are `karaoke` at 64 px placed **top** because the
+preview's own burnt captions sit at the bottom of the same frame, and
+`add_captions --burn` writes the file. `check_frames` delta 0; `verify` 138
+of 138 at similarity 1.0. The first attempt at this cut — the recording as
+the base clip, cut by time, a tail glued on — refused correctly: a tail
+needs a cue lane to join, and a project whose picture is its own clip has
+none. 59.7 s at 1920x1080. The recipe (`build.py`, `beats.json`, the
+narration script and `synth.py`) is in `~/lucid-work/launch-cut/`; the
+takes and their reports in `~/lucid-work/launch-recording/runs/`.
+
+**What it does not settle.** The narration is a clone, not a read, and
+Tyler's listening verdict on the clone (wiki `lucid-vo-synth`) is still
+open — this clip is the first thing that gives him a real listen. The top
+captions overlap the truth strip's chips in the punch-in shots; readable,
+not clean. No 9:16 re-author yet. And take 3's ✗ was mine: a synth
+backgrounded beside a running take, on a box with one GPU.
