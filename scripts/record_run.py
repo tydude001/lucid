@@ -329,7 +329,17 @@ def _tilde(path: Path) -> str:
 def record(work: Path, model: str | None, port: int, cdp_port: int, keep: bool) -> int:
     lock = agent_trial.hold_lock(work)
     try:
-        media, project = agent_trial.prepare(work, fresh=True)
+        # The footage lives in its own folder: `list_media` walks the folder
+        # it is handed, and with the media at the work root the second take's
+        # agent found the first take's `runs/…/recording.mp4` and reported an
+        # unlisted file it had decided not to import.
+        media_dir = work / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        if not (media_dir / "vo.wav").exists():
+            agent_trial.make_demo.make_voiceover(media_dir / "vo.wav")
+        if not all((media_dir / name).exists() for name, _c, _l in agent_trial.make_demo.BROLL):
+            agent_trial.make_demo.make_broll(media_dir)
+        media, project = agent_trial.prepare(work, fresh=True, source=media_dir)
         output = work / "cut.mp4"
         if output.exists():
             output.unlink()
