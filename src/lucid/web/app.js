@@ -125,7 +125,12 @@ async function load(clipId) {
   try {
     view = await api(`/api/view${query}`);
   } catch (err) {
-    toast(err.message);
+    // A project with no timeline yet is the ordinary state of a fresh one,
+    // not a failure — it sat as a red error over the first three recorded
+    // agent runs' opening seconds. Advice auto-dismisses; everything else
+    // stays until a load succeeds (below).
+    const fresh = /no timeline yet/.test(err.message);
+    toast({ message: err.message, severity: fresh ? "warn" : "error" });
     load.failed = true;
     return;
   }

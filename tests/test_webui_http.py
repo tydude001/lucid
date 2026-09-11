@@ -4166,6 +4166,15 @@ def test_a_load_failure_toast_and_a_planned_cut_are_retired_by_what_supersedes_t
     two source-level facts the way the toast-dismiss test above does."""
     _, _, app = _get(f"{server}/static/app.js")
     assert b"load.failed = true" in app and b"load.failed = false" in app
+    # A fresh project's "no timeline yet" is advice, so it takes the severity
+    # that auto-dismisses; a real load failure stays red until a load succeeds.
+    assert b"/no timeline yet/.test(err.message)" in app
+    # And the pane balancer measures in layout pixels only: a bounding rect is
+    # in the transformed frame, and the two disagree under any ancestor transform.
+    _, _, player = _get(f"{server}/static/player.js")
+    assert b"const workspaceH = workspace.offsetHeight;" in player
+    assert b"workspace.getBoundingClientRect().height" not in player
+    assert b'severity: fresh ? "warn" : "error"' in app
     _, _, agent = _get(f"{server}/static/agent.js")
     assert b'ctx.emit("agent-plan", null)' in agent
 

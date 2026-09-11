@@ -298,8 +298,12 @@ function balancePanes(viewerHeight, frameHeight) {
   const workspace = $("workspace");
   const timeline = $("timeline-pane");
   if (!workspace || !timeline || workspace.hidden || timeline.hidden) return;
-  const workspaceH = workspace.getBoundingClientRect().height;
-  const timelineH = timeline.getBoundingClientRect().height;
+  // Layout pixels, like `lanes.clientHeight` below — a bounding rect is in
+  // the transformed frame, and mixing the two under any ancestor transform
+  // inflated the timeline on every reload until the preview was a 56px strip
+  // (the launch recorder draws a 1280x720 layout at 1920x1080 through one).
+  const workspaceH = workspace.offsetHeight;
+  const timelineH = timeline.offsetHeight;
   if (!workspaceH || !timelineH) return;
   // Everything in the preview pane that is not the picture — its head row and
   // the transport — measured rather than assumed, so a control added to either
