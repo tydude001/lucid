@@ -9739,9 +9739,9 @@ that needs no JS at all.
 ## The README screenshots, and the five defects they found — 2026-08-19
 
 `docs/ui-polish-plan.md` was written off a review of the two screenshots the
-README shipped in 5f40907, on the premise that a screenshot is a review of the
+README shipped in 1afba93, on the premise that a screenshot is a review of the
 UI that nobody asked for. Phases 1–3 (the chip nouns, the width-gated timeline
-labels, the Frame-sheet polish) landed in c35cdd8. This section is phase 4 —
+labels, the Frame-sheet polish) landed in 8831152. This section is phase 4 —
 the retakes — plus the four defects that retaking them turned up, and the
 700px overflow the phase 1–3 verification pass had already found and left.
 
@@ -12293,7 +12293,7 @@ nothing new became callable; the two device variables are configuration.
 
 ## The first run on macOS and Windows — 2026-09-11
 
-Step 3's matrix ran for the first time on 2026-09-10 (`2b63c96`): Linux
+Step 3's matrix ran for the first time on 2026-09-10 (`1af3336`): Linux
 green, **macOS 3 failed / 1857 passed, Windows 62 failed + 465 errors / 1461
 passed**. The Windows number was one defect wearing 470 test names.
 
@@ -12616,3 +12616,56 @@ left on the timeline (the agent hid it with `unspoken_add`), and the rate
 button wrapping as "Helpfu / l". The v4 shape and the calls it needs are
 in `~/lucid-work/launch-v4-review/PIN.md`. He paused the clip there and
 moved on to step 2.
+
+## The MIT history, rewritten — 2026-09-11
+
+§ The licence, chosen rests on one fact: no copy anyone held carried the MIT
+grant. That was true of the tip and false of the flip. Going public publishes
+every commit and tag, not just `main`, and all 17 tags (`v0.1.0` to
+`v0.21.0`) plus 108 commits on `main` carried the MIT LICENSE, each tag with
+a source archive GitHub would offer for download. The last of them held
+nearly the whole of lucid. It was found while drafting the flip's release
+notes, whose tag would have been `v0.21.0`.
+
+**The history is a `git filter-repo` of itself again**, built beside the
+checkout in `~/lucid-work/licence-rewrite/`. A blob callback (`rules.py`)
+swaps the LICENSE text for the Shield file `1297ac0` wrote, and rewrites the
+places that grant MIT: pyproject's `license = "MIT"` and its comment,
+README's licence line, and CONTRIBUTING's line. It also rewrites one
+`test_version.py` docstring the swap would have made false. Left alone on
+purpose:
+- this file's account of the MIT period — a record, and `main` carries it
+  too;
+- commit messages;
+- the pre-licence "open-source" descriptions, which grant nothing.
+
+The first renumbered commit is the MIT one: `2b3fc92` is now `bd353cd`, and
+`905a745` is `1297ac0`. The old history is
+`~/lucid-archive/lucid-pre-licence-rewrite-2026-09-11.bundle`, and
+filter-repo's map from every old hash to its new one sits beside it as
+`lucid-licence-rewrite-2026-09-11.commit-map`. Anything citing an older
+hash — the wiki's log among them — resolves through that map. Three
+citations in this file follow it.
+
+Measured on every blob in the history, not on diffs:
+- **44 blobs changed**; 137 commits renumbered, from the MIT commit on.
+- **Every grant pattern: 0 hits in LICENSE, pyproject, README and
+  CONTRIBUTING, against 1 / 21 / 21 / 20 / 1 / 1 before** — the same scan
+  on the old repo is the control. The only remaining hits are prose quoting
+  the old line: this section and LAUNCH.md.
+- The tip tree is identical to `main`'s.
+- All 17 tags have the Shield LICENSE and `LicenseRef-PolyForm-Shield-1.0.0`.
+- Wheels built from the rewritten `v0.1.0` and `v0.21.0` read
+  `License-Expression: LicenseRef-PolyForm-Shield-1.0.0`, with the Shield
+  text under `dist-info/licenses/`.
+- `tests/test_version.py` passes 3 of 3 at the rewritten `v0.21.0`.
+
+The MIT period is still in this file. Whether a record of intent in a
+private repo's history counts as a grant is a legal question, not a
+measurement, and it was not put to a lawyer.
+
+The GitHub repo is still to be recreated rather than synced over, for the
+same reason as last time (wiki `git-server.md` § GitHub push mirrors):
+GitHub serves an overwritten commit by its hash. That is step 3's first
+item in docs/plans/LAUNCH.md. The first public release is `v0.22.0`, cut at
+the flip, so that no public tag predates the licence.

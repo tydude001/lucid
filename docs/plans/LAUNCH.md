@@ -59,7 +59,7 @@ pointer, and the wiki row updates.
   **none of them is a launch step** — see § What this plan deliberately does
   not do.
 - **CI runs on three OSes and is green on Gitea**; the GitHub mirror is one
-  sync behind (`ddf56cf`, wiki `lucid-portability`). The three-OS suite is
+  sync behind (`0f6f202`, wiki `lucid-portability`). The three-OS suite is
   what lets step 2 ask a Mac to try it at all.
 
 ## Step 1 — the launch asset: a watchable closed loop
@@ -175,26 +175,18 @@ sentence is replaced by what was measured.
 
 ## Step 3 — the flip, and the ten minutes after it
 
-**Decide first: the flip publishes the MIT history.** Every tag from
-`v0.1.0` to `v0.21.0`, and 108 commits on `main`, carry the MIT LICENSE that
-`2b3fc92` added and `905a745` replaced. HISTORY.md § The licence, chosen
-rests on no copy having shipped under MIT. The flip makes all of them
-public, each tag with a downloadable source archive, and the last MIT commit
-holds nearly the whole of lucid. There are two ways out:
-- Accept it.
-- Before the flip, rewrite the history so no public commit grants MIT:
-  the LICENSE file, pyproject's `license = "MIT"`, and the grant lines in
-  README and CONTRIBUTING. HISTORY.md's own account of the MIT period is a
-  record and stays. Every SHA changes again; `git filter-repo`'s commit
-  map rewrites the citations, as it did on 2026-09-10.
+**No public commit may carry the MIT grant.** A flip publishes every tag
+and commit, not just the tip, and until 2026-09-11 all 17 tags carried MIT.
+They were rewritten to carry Shield instead (HISTORY.md § The MIT history,
+rewritten). **The GitHub repo still holds the old commits, and GitHub serves
+an overwritten commit by its hash** — so a sync alone is not enough.
 
-The recommendation is the rewrite. It is measured done when a `git grep`
-over `git rev-list --all` finds the MIT text nowhere except HISTORY.md. This is a legal question and
-was not put to a lawyer.
+Tyler's hand, in this order, the same afternoon:
 
-Then Tyler's hand, in this order, the same afternoon:
-
-1. Sync the GitHub mirror so the public repo is at the tip (wiki
+1. Delete `tydude001/lucid` on GitHub and create it again, empty and
+   private. Re-add it to the mirror token's repository access, and set its
+   description again: a repo's metadata is not carried by the mirror. Then
+   sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
 2. Flip `tydude001/lucid` public.
 3. Enable private vulnerability reporting — SECURITY.md already points at it
