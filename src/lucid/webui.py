@@ -2047,8 +2047,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # This page is only ever served to a person sitting at this machine,
         # and it embeds no third-party anything. Say so, so a stray injection
-        # has nowhere to phone home to.
-        self.send_header("Content-Security-Policy", "default-src 'self'; media-src 'self'")
+        # has nowhere to phone home to. `img-src` admits `data:` for one
+        # reason: a tool result's image arrives inline over this server's own
+        # event stream, and the agent pane draws it as a data URL — under
+        # `default-src 'self'` alone every such picture was a broken-image
+        # icon, silently, in the third recorded run. A data URL loads
+        # nothing from anywhere, so nothing here gains a place to phone.
+        self.send_header(
+            "Content-Security-Policy", "default-src 'self'; media-src 'self'; img-src 'self' data:"
+        )
         self.send_header("X-Content-Type-Options", "nosniff")
         # No `?t=` token leaves this origin in a Referer header. Cheap, and
         # the only way the credential could walk out of a page that embeds

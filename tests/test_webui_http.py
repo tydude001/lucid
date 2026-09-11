@@ -4182,6 +4182,11 @@ def test_the_feed_follows_its_checklist_and_draws_a_tool_results_image(server: s
     assert b"agent-entry--image" in agent
     _, _, css = _get(f"{server}/static/app.css")
     assert re.search(rb"\.agent-entry--image img\s*\{[^}]*max-width:\s*100%", css)
+    # The image is a data URL, and `default-src 'self'` alone refuses one:
+    # every returned sheet drew as a broken-image icon in the third recorded
+    # run, with nothing in the console to say why.
+    _, headers, _ = _get(f"{server}/")
+    assert "img-src 'self' data:" in headers["Content-Security-Policy"]
 
 
 # -- Studio Step 03: the Frame view's backend ----------------------------
