@@ -12290,3 +12290,79 @@ worker that reached for it first would die on `ModuleNotFoundError`, which is
 exactly how the control against the old worker failed (exit 1, not 2).
 Suite: 2020 passed, 1 skipped. No version bump across the three steps —
 nothing new became callable; the two device variables are configuration.
+
+## The first run on macOS and Windows — 2026-09-11
+
+Step 3's matrix ran for the first time on 2026-09-10 (`2b63c96`): Linux
+green, **macOS 3 failed / 1857 passed, Windows 62 failed + 465 errors / 1461
+passed**. The Windows number was one defect wearing 470 test names.
+
+**`timeline.to_otio` called `Path(source).as_uri()`**, and on Windows a rooted
+path with no drive — `/footage/a.mp4`, every fixture, and every manifest
+written on Linux — is not absolute, so it raised on every op that writes
+`project.otio`. The URL is interchange only; `from_otio` never reads it back.
+A driveless rooted path now gets the URL Linux wrote for it, and a genuinely
+relative one still refuses. Import resolves its source, so a project made on
+Windows never had the problem — one moved there from Linux did.
+
+The two other defects were lucid's, not the suite's:
+
+- **`media.scene_cuts` put a Windows path inside an ffmpeg filter.**
+  `metadata=print:file=C:\…\scenes.txt` — `:` separates a filter's options,
+  so the filename ended at the drive letter and ffmpeg refused the chain,
+  which is every scene scan: `footage_sheet --scenes`, `reframe_coverage`,
+  `reframe_detect`. PORTABILITY.md step 5 had named the trap and credited the
+  caption burn with dodging it; the scene scan was the only other filter
+  string carrying a path, and it had not. It takes the burn's route — ffmpeg
+  run in the temp dir, the report named relatively. **Linux can hold a `:` in
+  a directory name, so the regression test reproduces it here**, and the
+  control against the old code fails with ffmpeg's own `No option name near
+  'scratch/…'`.
+- **The agent pane spawned `claude` by bare name while doctor found it with
+  `shutil.which`.** On Windows an npm install is `claude.cmd`, which `which`
+  finds and CreateProcess does not, so doctor would be ✓ over a pane that
+  cannot start. `_agent_bin` resolves through `which` now. What it leaves —
+  a kill that takes `cmd.exe` and not the `node` under it — is a step-5 lead,
+  written into the plan rather than built blind.
+
+The rest was the suite assuming Linux:
+
+- **Every fake binary was a shebang script** — `whisper`, `claude`,
+  `tailscale` — and Windows runs a PE image or a batch file, never a `#!`
+  (`WinError 193`). `tests/stubs.py`'s `write_stub` takes Python source and
+  returns what to run: the script itself on POSIX, a `.cmd` launcher beside it
+  on Windows. It reads the host from `os.name`, **never `sys.platform`**,
+  because the tests that use it also patch `sys.platform` to stand in for
+  another OS. The bash agent stubs became Python and write their argv by
+  rename, so a test polling for the file never reads it half-written.
+- **The MCP-over-HTTP fixture `select()`ed on a pipe**, which Windows allows
+  only on sockets (`WinError 10038`); a reader thread with a timeout.
+- **Three doctor/synth tests measured a Linux mechanism unpinned** — the
+  fontconfig question and the CUDA default — and the macOS runner answered
+  the other branch. Pinned, per CLAUDE.md's rule; run with the whole process
+  pretending to be `darwin`, the control reproduces exactly the three
+  failures and the fix clears them.
+- **The font tests had never run in CI at all.** Linux's runner has no
+  ImageMagick, so they skipped there; Windows's image ships one, so they ran
+  on a machine without lucid's caption face installed. CI now runs `lucid
+  fonts --install` first, as doctor tells a user to — which on Windows makes
+  the next run the first real exercise of `_register_windows` and of whether
+  libass draws a per-user face. The `fc-match` tests skip where fontconfig is
+  absent, and what `font_match` answers there (`available: null`, "cannot
+  tell", never "not installed") had no test, so it has one.
+- Separator-sensitive `endswith`/`in` checks compare `as_posix()`; the symlink
+  sweep test ages the link itself only where the OS can (`utime` with
+  `follow_symlinks=False` does not exist on Windows — the sweep ages by the
+  target anyway); the Linux render-note case names `XDG_RUNTIME_DIR` so
+  standing in for Linux on Windows never reaches for `os.getuid`.
+
+**Two things only the next run can settle.** The six `@needs_melt` render
+tests *ran* on Windows, so something there answered to `melt` — and the stdio
+client parsed a refusal as JSON before reporting it, so the log holds six
+`JSONDecodeError`s and not one word of what melt said. The client checks
+`is_error` first now, and CI prints `lucid doctor` before the suite, so the
+next log names what each runner resolved. And whether the vendored face
+draws under Windows is the font probe's verdict on that run. None of this is
+a Windows or macOS measurement in step 4/5's sense: the fixes are verified
+here, on Linux, and by reasoning about the other two, until they run there.
+Suite on this box: 2025 passed.

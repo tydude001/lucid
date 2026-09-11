@@ -26,6 +26,7 @@ from typing import Any
 import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
+from stubs import write_stub
 
 from lucid import energy, finishlog, graphics, media, ops, picture
 from lucid.project import Project
@@ -150,9 +151,11 @@ class Client:
 
     async def call(self, tool: str, **arguments: Any) -> Any:
         result = await self._session.call_tool(tool, arguments)
-        payload = json.loads(result.content[0].text)
-        assert not result.is_error, f"{tool} failed: {payload}"
-        return payload
+        # A refusal is prose, not JSON — checked first, or the failure reads as
+        # a bare JSONDecodeError and the server's own message is lost (every
+        # one of the first Windows CI run's stdio failures, 2026-09-10).
+        assert not result.is_error, f"{tool} failed: {result.content[0].text}"
+        return json.loads(result.content[0].text)
 
 
 async def _with_server(body: Any, server: StdioServerParameters = SERVER) -> Any:
@@ -713,8 +716,10 @@ def test_card_new_from_a_template_over_the_wire(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(
-    shutil.which("magick") is None or shutil.which("ffmpeg") is None,
-    reason="the render half of the font report needs ImageMagick and ffmpeg with libass",
+    shutil.which("magick") is None
+    or shutil.which("ffmpeg") is None
+    or shutil.which("fc-match") is None,
+    reason="both halves of the font report: fontconfig, and a burn through ImageMagick and libass",
 )
 def test_fonts_over_the_wire_reports_fontconfig_and_the_render_separately(
     tmp_path: Path,
@@ -2177,9 +2182,8 @@ def _fake_whisper(path: Path) -> Path:
     Real whisper's CLI shape, minus the GPU — `asr.transcribe` only cares that
     the binary accepts these flags and drops `<stem>.json` in `--output_dir`.
     """
-    script = path / "fake-whisper.py"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    return write_stub(
+        path / "fake-whisper",
         "import argparse, json\n"
         "from pathlib import Path\n"
         "p = argparse.ArgumentParser()\n"
@@ -2198,10 +2202,7 @@ def _fake_whisper(path: Path) -> Path:
         "]\n"
         "out = Path(args.output_dir) / f'{Path(args.media).stem}.json'\n"
         "out.write_text(json.dumps({'language': args.language or 'en', 'words': words}))\n",
-        encoding="utf-8",
     )
-    script.chmod(0o755)
-    return script
 
 
 @needs_ffprobe
@@ -2245,9 +2246,8 @@ def _fake_whisper_runaway(path: Path) -> Path:
     ingest path had no guard against this at all, and the windowed pass's rule
     only sees the three of the eight that share an instant.
     """
-    script = path / "runaway-whisper.py"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    return write_stub(
+        path / "runaway-whisper",
         "import argparse, json\n"
         "from pathlib import Path\n"
         "p = argparse.ArgumentParser()\n"
@@ -2279,10 +2279,7 @@ def _fake_whisper_runaway(path: Path) -> Path:
         "    {'start': 117.78, 'end': 119.78, 'text': ' them alive you know', 'words': real},\n"
         "    {'start': 119.78, 'end': 119.98, 'text': ' people were really well', 'words': loop},\n"
         "]}))\n",
-        encoding="utf-8",
     )
-    script.chmod(0o755)
-    return script
 
 
 @needs_ffprobe
@@ -2333,9 +2330,8 @@ def _fake_whisper_finish_check(path: Path) -> Path:
     a boundary recheck — this test's project has no holds, so it is always
     the recheck) hands it exactly one file.
     """
-    script = path / "fake-whisper-finish-check.py"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    return write_stub(
+        path / "fake-whisper-finish-check",
         "import argparse, json\n"
         "from pathlib import Path\n"
         "p = argparse.ArgumentParser()\n"
@@ -2372,10 +2368,7 @@ def _fake_whisper_finish_check(path: Path) -> Path:
         "             {'word': 'delta', 'start': 0.5, 'end': 0.8}]\n"
         "    stem = Path(args.media[0]).stem\n"
         "    (out / f'{stem}.json').write_text(json.dumps({'language': 'en', 'words': words}))\n",
-        encoding="utf-8",
     )
-    script.chmod(0o755)
-    return script
 
 
 @needs_ffprobe
@@ -3652,7 +3645,7 @@ def test_contact_sheet_returns_the_image_itself_over_the_wire(
     assert report["sheet"].endswith(".jpg")
     # The frames themselves stay where the filmstrip route serves them from —
     # the montage is drawn from those, never a second extraction.
-    assert all("/cache/thumbs/" in frame["path"] for frame in report["frames"])
+    assert all("/cache/thumbs/" in Path(frame["path"]).as_posix() for frame in report["frames"])
 
 
 @needs_ffmpeg

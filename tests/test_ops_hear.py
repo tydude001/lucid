@@ -17,6 +17,7 @@ import wave
 from pathlib import Path
 
 import pytest
+from stubs import write_stub
 
 from lucid import asr, energy, ops
 from lucid import timeline as tl
@@ -48,9 +49,8 @@ def _wav(dest: Path, *, duration: float, tones: list[tuple[float, float]] = ()) 
 def _fake_whisper(path: Path, *, empty: bool = False) -> Path:
     """One word per window, at 0.3s into it: `w0000` -> 'alpha', `w0001` ->
     'bravo', ... — window-relative, exactly as real whisper stamps a slice."""
-    script = path / "fake-whisper.py"
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    return write_stub(
+        path / "fake-whisper",
         "import argparse, json\n"
         "from pathlib import Path\n"
         "p = argparse.ArgumentParser()\n"
@@ -67,10 +67,8 @@ def _fake_whisper(path: Path, *, empty: bool = False) -> Path:
         "    stem = Path(m).stem\n"
         "    idx = int(stem.lstrip('w'))\n"
         f"    words = [] if {empty!r} else [{{'word': names[idx % len(names)], 'start': 0.3, 'end': 0.6}}]\n"
-        "    (Path(args.output_dir) / f'{stem}.json').write_text(json.dumps({'language': 'en', 'words': words}))\n"
+        "    (Path(args.output_dir) / f'{stem}.json').write_text(json.dumps({'language': 'en', 'words': words}))\n",
     )
-    script.chmod(0o755)
-    return script
 
 
 @pytest.fixture

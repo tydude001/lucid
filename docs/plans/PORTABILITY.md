@@ -181,6 +181,10 @@ three OSes. Its README paragraphs wait on step 4, as below.
   binary is absent, so the matrix covers the same ground the Linux runner
   does — everything but renders and transcription — on three OSes. A
   Windows runner is also where the path-handling class below gets caught.
+  **First run 2026-09-10: macOS 3 failed, Windows 62 failed + 465 errors** —
+  and "the same ground" was wrong for Windows, whose image ships ImageMagick
+  and answered `@needs_melt` with something nobody installed. What it found
+  and what was fixed: HISTORY.md § The first run on macOS and Windows.
 
 ## Step 4 — measure melt on macOS (needs a Mac)
 
@@ -224,7 +228,10 @@ Everything in step 4 again, plus the class of defects only Windows has:
   best-known ffmpeg filter trap already — `captions.py:874` passes
   `-vf ass=lucid.ass` as a relative name against a working directory, so
   no drive-letter colon ever enters a filter string — confirm that cwd
-  handling holds rather than re-deriving it.
+  handling holds rather than re-deriving it. **`media.scene_cuts` did not
+  dodge it** — its `metadata=print:file=` carried an absolute temp path and
+  every scan refused on the first Windows CI run; it takes the caption
+  burn's cwd route now, and it was the only other filter string with a path.
 - **Symlinks refuse without Developer Mode**, and `_place` already handles
   that; confirm the `reference` route resolves through `media_path()` on a
   project on a different drive from its footage.
@@ -243,7 +250,13 @@ Everything in step 4 again, plus the class of defects only Windows has:
   `shutil.which` first. `webui._agent_bin` returns the bare name; route it
   through `shutil.which` and let `LUCID_AGENT_BIN` override, or the agent
   pane fails the way CLAUDE.md § the agent panel had no tools describes —
-  silently.
+  silently. **Done 2026-09-11**, unmeasured on a real `claude.cmd`. The half
+  it leaves: **killing a `.cmd` kills `cmd.exe` and not the `node` under
+  it** — TerminateProcess does not take children — so "New Task" and a
+  model change would leave the old agent running, editing, holding its
+  pipes. Claude Code's native installer is a `claude.exe` and does not have
+  the problem; an npm install does. Measure it on the Windows box before
+  building a tree kill (`taskkill /T`, or a Job object) for it.
 
 ## Step 6 — say so
 

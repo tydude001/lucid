@@ -12,7 +12,6 @@ import http.client
 import json
 import math
 import re
-import shlex
 import shutil
 import struct
 import subprocess
@@ -27,6 +26,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
+from stubs import write_stub
 
 from lucid import media, ops, webui
 from lucid import timeline as tl
@@ -153,54 +153,50 @@ def _sse_events(resp: http.client.HTTPResponse) -> Iterator[tuple[str, Any]]:
             event = "message"
 
 
-def _write_agent_stub(path: Path, argv_file: Path, canned: dict[str, Any]) -> None:
-    """A fake `claude` binary: records its own argv, echoes one stream-json line.
+def _agent_stub_body(
+    canned: dict[str, Any], *, argv_file: Path | None = None, pid_file: Path | None = None
+) -> str:
+    """The Python every fake `claude` below runs (`stubs.write_stub`).
 
-    Blocks reading stdin afterwards so the process stays alive the way the
-    real subprocess would, rather than exiting and racing the reader thread.
+    Records what it is asked to, echoes one stream-json line, then blocks
+    reading stdin so the process stays alive the way the real subprocess
+    would, rather than exiting and racing the reader thread. The argv lands by
+    rename, so a test polling for the file never reads it half-written.
     """
-    script = (
-        "#!/usr/bin/env bash\n"
-        f"printf '%s\\n' \"$@\" > {shlex.quote(str(argv_file))}\n"
-        f"echo {shlex.quote(json.dumps(canned))}\n"
-        "cat > /dev/null\n"
-    )
-    path.write_text(script, encoding="utf-8")
-    path.chmod(0o755)
+    lines = ["import json, os, sys", "from pathlib import Path"]
+    if pid_file is not None:
+        lines.append(f"with open({str(pid_file)!r}, 'a', encoding='utf-8') as f: f.write(f'{{os.getpid()}}\\n')")
+    if argv_file is not None:
+        partial = f"{str(argv_file)!r} + '.partial'"
+        lines.append(f"Path({partial}).write_text(''.join(a + '\\n' for a in sys.argv[1:]), encoding='utf-8')")
+        lines.append(f"os.replace({partial}, {str(argv_file)!r})")
+    lines.append(f"print(json.dumps({canned!r}), flush=True)")
+    lines.append("sys.stdin.read()")
+    return "\n".join(lines) + "\n"
 
 
-def _write_pid_recording_stub(path: Path, pid_file: Path, canned: dict[str, Any]) -> None:
+def _write_agent_stub(path: Path, argv_file: Path, canned: dict[str, Any]) -> Path:
+    """A fake `claude` binary: records its own argv, echoes one stream-json line."""
+    return write_stub(path, _agent_stub_body(canned, argv_file=argv_file))
+
+
+def _write_pid_recording_stub(path: Path, pid_file: Path, canned: dict[str, Any]) -> Path:
     """Same shape as `_write_agent_stub`, plus its own PID appended to
     `pid_file` on every invocation — proves a respawn is a genuinely new
     process rather than the same one reused.
     """
-    script = (
-        "#!/usr/bin/env bash\n"
-        f'echo "$$" >> {shlex.quote(str(pid_file))}\n'
-        f"echo {shlex.quote(json.dumps(canned))}\n"
-        "cat > /dev/null\n"
-    )
-    path.write_text(script, encoding="utf-8")
-    path.chmod(0o755)
+    return write_stub(path, _agent_stub_body(canned, pid_file=pid_file))
 
 
 def _write_pid_and_argv_stub(
     path: Path, pid_file: Path, argv_file: Path, canned: dict[str, Any]
-) -> None:
+) -> Path:
     """`_write_pid_recording_stub` plus `_write_agent_stub`'s own argv
     capture, combined: a model change has to be proven on both axes at
     once — a genuinely new process (the PID) that actually got the new
     `--model` (the argv) rather than the old one respawned unchanged.
     """
-    script = (
-        "#!/usr/bin/env bash\n"
-        f'echo "$$" >> {shlex.quote(str(pid_file))}\n'
-        f"printf '%s\\n' \"$@\" > {shlex.quote(str(argv_file))}\n"
-        f"echo {shlex.quote(json.dumps(canned))}\n"
-        "cat > /dev/null\n"
-    )
-    path.write_text(script, encoding="utf-8")
-    path.chmod(0o755)
+    return write_stub(path, _agent_stub_body(canned, pid_file=pid_file, argv_file=argv_file))
 
 
 # -- the read model -------------------------------------------------------
@@ -1473,7 +1469,7 @@ def test_preview_names_the_kind_the_front_end_has_to_draw_with(
     _, card = _json(f"{server}/api/preview/card:outro")
     assert card["kind"] == "image"
     assert card["playable"] is True
-    assert card["path"].endswith("assets/cards/outro.png")
+    assert Path(card["path"]).as_posix().endswith("assets/cards/outro.png")
 
     _, clip = _json(f"{server}/api/preview/vo")
     assert clip["kind"] == "audio"
@@ -1729,8 +1725,7 @@ def test_agent_prompt_with_a_model_passes_it_through_to_the_spawned_argv(
     a wrong one is `claude`'s own refusal to report, not lucid's to guess at.
     """
     argv_file = tmp_path / "argv.txt"
-    stub = tmp_path / "agent-stub.sh"
-    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, {"type": "result", "subtype": "success"})
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     status, _ = _post(f"{server}/api/agent", {"prompt": "hi", "model": "claude-opus-5"})
@@ -1751,8 +1746,7 @@ def test_agent_prompt_without_a_model_omits_the_flag(
     existed would render differently.
     """
     argv_file = tmp_path / "argv.txt"
-    stub = tmp_path / "agent-stub.sh"
-    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, {"type": "result", "subtype": "success"})
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     status, _ = _post(f"{server}/api/agent", {"prompt": "hi"})
@@ -1774,8 +1768,7 @@ def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
     """
     argv_file = tmp_path / "argv.txt"
     canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
-    stub = tmp_path / "agent-stub.sh"
-    _write_agent_stub(stub, argv_file, canned)
+    stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, canned)
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -1834,8 +1827,7 @@ def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
     what this asserts — not the string that happens to be there today.
     """
     argv_file = tmp_path / "argv.txt"
-    stub = tmp_path / "agent-stub.sh"
-    _write_agent_stub(stub, argv_file, {"type": "result", "subtype": "success"})
+    stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, {"type": "result", "subtype": "success"})
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     status, _ = _post(f"{server}/api/agent", {"prompt": "hello"})
@@ -1855,15 +1847,13 @@ def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
     assert "-C" in entry["args"]
 
 
-def _write_silent_agent_stub(path: Path) -> None:
+def _write_silent_agent_stub(path: Path) -> Path:
     """A fake `claude` that reproduces the real bug this test guards against:
     it errors to stderr and exits 0 without ever writing a `stream-json` line
     to stdout — exactly what claude 2.1.226 does when `--verbose` is missing
     from a `--print --output-format=stream-json` invocation.
     """
-    script = "#!/usr/bin/env bash\necho 'Error: boom, no --verbose' >&2\nexit 0\n"
-    path.write_text(script, encoding="utf-8")
-    path.chmod(0o755)
+    return write_stub(path, "import sys\nprint('Error: boom, no --verbose', file=sys.stderr)\n")
 
 
 def test_a_silent_agent_exit_still_surfaces_as_a_result_event(
@@ -1876,8 +1866,7 @@ def test_a_silent_agent_exit_still_surfaces_as_a_result_event(
     subtype is what `agent.js`'s `handleResult` needs to show an error and
     clear `busy`.
     """
-    stub = tmp_path / "silent-agent-stub.sh"
-    _write_silent_agent_stub(stub)
+    stub = _write_silent_agent_stub(tmp_path / "silent-agent-stub")
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -2081,8 +2070,7 @@ def test_new_task_kills_the_running_subprocess_and_the_next_prompt_spawns_a_fres
 ) -> None:
     pid_file = tmp_path / "pids.txt"
     canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
-    stub = tmp_path / "agent-stub.sh"
-    _write_pid_recording_stub(stub, pid_file, canned)
+    stub = _write_pid_recording_stub(tmp_path / "agent-stub", pid_file, canned)
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -2132,8 +2120,7 @@ def test_new_task_mid_turn_does_not_leak_a_synthetic_error_event(
     """
     argv_file = tmp_path / "argv.txt"
     canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "working…"}]}}
-    stub = tmp_path / "agent-stub.sh"
-    _write_agent_stub(stub, argv_file, canned)
+    stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, canned)
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -2177,8 +2164,7 @@ def test_changing_the_model_mid_conversation_kills_the_subprocess_and_respawns(
     pid_file = tmp_path / "pids.txt"
     argv_file = tmp_path / "argv.txt"
     canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
-    stub = tmp_path / "agent-stub.sh"
-    _write_pid_and_argv_stub(stub, pid_file, argv_file, canned)
+    stub = _write_pid_and_argv_stub(tmp_path / "agent-stub", pid_file, argv_file, canned)
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -2225,8 +2211,7 @@ def test_sending_the_same_model_again_reuses_the_live_subprocess(
     """
     pid_file = tmp_path / "pids.txt"
     canned = {"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}
-    stub = tmp_path / "agent-stub.sh"
-    _write_pid_recording_stub(stub, pid_file, canned)
+    stub = _write_pid_recording_stub(tmp_path / "agent-stub", pid_file, canned)
     monkeypatch.setenv(webui.AGENT_BIN_ENV, str(stub))
 
     host, port = _host_and_port(server)
@@ -4977,11 +4962,9 @@ def test_the_default_server_still_asks_for_no_token(server: str) -> None:
 
 def test_tailscale_identity_refuses_rather_than_falling_back(tmp_path: Path) -> None:
     """A `--tailscale` that quietly bound loopback would look like it worked."""
-    down = tmp_path / "tailscale-down"
-    down.write_text(
-        '#!/bin/sh\necho \'{"BackendState":"Stopped","TailscaleIPs":[]}\'\n', encoding="utf-8"
+    down = write_stub(
+        tmp_path / "tailscale-down", "print('{\"BackendState\":\"Stopped\",\"TailscaleIPs\":[]}')\n"
     )
-    down.chmod(0o755)
     with pytest.raises(ProjectError) as exc:
         webui.tailscale_identity(str(down))
     assert "not up" in str(exc.value)
@@ -4993,7 +4976,6 @@ def test_tailscale_identity_refuses_rather_than_falling_back(tmp_path: Path) -> 
 
 def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_path: Path) -> None:
     """Two answers, not one: what to bind, and what a client may put in `Host:`."""
-    fake = tmp_path / "tailscale"
     payload = json.dumps(
         {
             "BackendState": "Running",
@@ -5001,8 +4983,7 @@ def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_pat
             "Self": {"HostName": "lucid-box", "DNSName": _TAILNET_NAME + "."},
         }
     )
-    fake.write_text(f"#!/bin/sh\ncat <<'EOF'\n{payload}\nEOF\n", encoding="utf-8")
-    fake.chmod(0o755)
+    fake = write_stub(tmp_path / "tailscale", f"print({payload!r})\n")
 
     bind, names = webui.tailscale_identity(str(fake))
     # IPv4, because it is what a phone dials and what binds with no bracket

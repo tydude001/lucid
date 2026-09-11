@@ -539,7 +539,12 @@ def test_sweep_scratch_does_not_follow_a_symlink(
     outside = _staged(tmp_path / "elsewhere", "real", age_days=400)
     link = root / "timeline-abcd1234"
     link.symlink_to(outside, target_is_directory=True)
-    os.utime(link, (time.time() - 400 * 86400, time.time() - 400 * 86400), follow_symlinks=False)
+    # The link itself aged too, so an `lstat`-based sweep would be tempted
+    # as well — where the OS lets a link's own mtime be set at all, which
+    # Windows does not (`utime: follow_symlinks unavailable`). The sweep ages
+    # by `stat()`, the target's 400 days, so the guard is exercised either way.
+    if os.utime in os.supports_follow_symlinks:
+        os.utime(link, (time.time() - 400 * 86400, time.time() - 400 * 86400), follow_symlinks=False)
     monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
 
     assert picture.sweep_scratch() == []

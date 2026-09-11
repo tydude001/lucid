@@ -59,4 +59,17 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
       - run: uv sync --locked
+      # The caption face, installed the way doctor tells a user to. The probe
+      # tests assert it draws, and they run wherever ImageMagick is — the
+      # Windows image ships one — so without this they measured a runner
+      # nobody had set up (the first Windows run, 2026-09-10). On Windows it
+      # is also the registration `fonts._register_windows` writes, exercised.
+      - run: uv run lucid fonts --install
+      # What each runner actually resolves, printed before the suite rather
+      # than inferred from which tests skipped: the first Windows run ran the
+      # `@needs_melt` tests on a runner nobody had put melt on, and nothing in
+      # the log said what had answered. Informational — a runner with only
+      # ffmpeg is missing required tools by design.
+      - run: uv run lucid doctor
+        continue-on-error: true
       - run: uv run pytest -q -rfE

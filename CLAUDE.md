@@ -656,6 +656,10 @@ absent optional capability is "unavailable", never a failure, and never moves
   attribute and proves nothing), and stub `shutil.which` under a faked
   `win32`: it reaches for `_winapi`. HISTORY.md § The Windows crash and the
   display gate.
+  - **A fake binary goes through `tests/stubs.py`'s `write_stub`, never a
+    `#!` script** — Windows cannot run one, and every stub the suite had was
+    one. Python source in, the path to run out; use the returned path, which
+    is a `.cmd` on Windows. HISTORY.md § The first run on macOS and Windows.
 - **A reachable identifier in the docs is elided, never swapped for a
   plausible one.** The tailnet address, MagicDNS name, IPv6 suffix and
   absolute `/home/<user>` paths that a measurement quoted are written

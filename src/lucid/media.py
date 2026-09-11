@@ -418,16 +418,24 @@ def scene_cuts(
         # `metadata=print` to a *file*, not to stdout: bare `metadata=print`
         # writes nothing anywhere ffmpeg's own `-v error` leaves readable, which
         # reads exactly like a clip with no cuts in it.
+        #
+        # Named relative to a working directory, never as an absolute path:
+        # `:` separates a filter's options, so a Windows temp dir's `C:` ended
+        # the filename at the drive letter and ffmpeg refused the whole chain
+        # (the first Windows CI run, 2026-09-10). `captions.burn`'s `ass=`
+        # dodges the same trap the same way.
         report = Path(tmp) / "scenes.txt"
         command = [
             "ffmpeg", "-nostdin", "-v", "error",
             *(("-t", f"{float(until):.3f}") if until else ()),
-            "-i", str(media),
-            "-vf", f"select='gt(scene,{floor})',metadata=print:file={report}",
+            "-i", str(media.resolve()),
+            "-vf", f"select='gt(scene,{floor})',metadata=print:file={report.name}",
             "-an", "-f", "null", "-",
         ]  # fmt: skip
         try:
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            completed = subprocess.run(
+                command, cwd=tmp, capture_output=True, text=True, check=False
+            )
         except FileNotFoundError as exc:
             raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
         if completed.returncode != 0:

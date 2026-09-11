@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from stubs import write_stub
 
 from lucid import asr, autoeditor, doctor, graphics, ops, picture, tts
 from lucid.cli import main
@@ -335,6 +336,9 @@ def test_a_substituted_caption_face_carries_the_install_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """libass substitutes and ffmpeg exits 0 — the only symptom is this check."""
+    # fontconfig is asked on Linux only; off it, `test_portability` covers
+    # the CoreText/DirectWrite branch, and the macOS runner met that one.
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(
         doctor.fonts,
         "probe",
@@ -353,6 +357,7 @@ def test_fontconfig_and_the_render_are_reported_side_by_side(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The two disagree on this box, so neither is folded into the other."""
+    monkeypatch.setattr(sys, "platform", "linux")  # fontconfig is Linux's question
     monkeypatch.setattr(doctor.fonts, "probe", lambda family, **kw: {"drew": True})
     monkeypatch.setattr(
         doctor.captions,
@@ -443,15 +448,13 @@ def test_a_claude_is_run_for_its_version_rather_than_found(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Found-but-silent is not a pass — the rule every other probe holds to."""
-    fake = tmp_path / "claude"
-    fake.write_text("#!/bin/sh\necho '9.9.9 (Claude Code)'\n")
-    fake.chmod(0o755)
+    fake = write_stub(tmp_path / "claude", "print('9.9.9 (Claude Code)')\n")
     monkeypatch.setenv("LUCID_AGENT_BIN", str(fake))
     agent = doctor._agent()
     assert agent["ok"] is True
     assert agent["version"] == "9.9.9 (Claude Code)"
 
-    fake.write_text("#!/bin/sh\nexit 3\n")
+    assert write_stub(tmp_path / "claude", "raise SystemExit(3)\n") == fake
     agent = doctor._agent()
     assert agent["ok"] is False
     assert agent["found"] == str(fake)

@@ -787,7 +787,16 @@ class EventBus:
 
 
 def _agent_bin() -> str:
-    return os.environ.get(AGENT_BIN_ENV, "claude")
+    """The `claude` the agent pane spawns, resolved the way `doctor._agent` finds it.
+
+    Through `shutil.which`, because Popen does not: on Windows an npm install
+    is `claude.cmd`, and CreateProcess searches PATH for `.exe` alone — so a
+    bare name that doctor's `which` found would still fail to spawn, and doctor
+    would be ✓ over a pane that cannot start. Unresolved, the name goes through
+    as given and the spawn's own error names it.
+    """
+    name = os.environ.get(AGENT_BIN_ENV, "claude")
+    return shutil.which(name) or name
 
 
 class AgentSession:

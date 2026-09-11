@@ -91,6 +91,7 @@ def test_the_caption_default_actually_draws() -> None:
     assert "warning" not in report
 
 
+@pytest.mark.skipif(shutil.which("fc-match") is None, reason="fontconfig is not installed")
 def test_fontconfig_and_the_render_are_reported_separately() -> None:
     """They are different questions and this repo has measured them
     disagreeing, so neither result is folded into the other."""

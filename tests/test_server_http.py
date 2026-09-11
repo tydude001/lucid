@@ -15,10 +15,11 @@ compared byte-for-byte against the same call over stdio.
 from __future__ import annotations
 
 import json
+import queue
 import re
-import select
 import subprocess
 import sys
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -50,12 +51,18 @@ def _start_http(root: Path | None, *extra: str, timeout: float = 15.0) -> tuple[
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
     )
-    ready, _, _ = select.select([proc.stdout], [], [], timeout)
-    if not ready:
+    # A thread rather than `select()`, which takes only sockets on Windows —
+    # `[WinError 10038]` for a pipe, the first Windows CI run (2026-09-10).
+    first: queue.Queue[str] = queue.Queue()
+    threading.Thread(target=lambda: first.put(proc.stdout.readline()), daemon=True).start()
+    try:
+        line = first.get(timeout=timeout)
+    except queue.Empty:
         proc.kill()
         err = proc.stderr.read() if proc.stderr else ""
-        raise RuntimeError(f"lucid mcp --transport http did not start in {timeout}s: {err}")
-    line = proc.stdout.readline() if proc.stdout else ""
+        raise RuntimeError(
+            f"lucid mcp --transport http did not start in {timeout}s: {err}"
+        ) from None
     match = _URL_RE.search(line)
     if not match:
         proc.kill()

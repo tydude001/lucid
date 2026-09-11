@@ -15,15 +15,29 @@ registered face draws under DirectWrite, is steps 4 and 5, on real machines.
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import types
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Self
 
 import pytest
 
-from lucid import autoeditor, describe, doctor, fonts, media, picture, tts, webui
+from lucid import (
+    autoeditor,
+    describe,
+    doctor,
+    fonts,
+    media,
+    picture,
+    timeline,
+    tts,
+    webui,
+)
 
 _PROBE = media.MediaInfo(
     duration=5.0,
@@ -54,7 +68,7 @@ def test_melt_is_found_in_an_editor_bundle_off_path(
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.delenv("LUCID_MELT", raising=False)
     monkeypatch.setattr(picture.shutil, "which", lambda name: None)
-    assert any(str(p).endswith(bundle) for p in picture.melt_bundles())
+    assert any(p.as_posix().endswith(bundle) for p in picture.melt_bundles())
 
     installed = tmp_path / "melt"
     installed.touch()
@@ -103,6 +117,9 @@ def test_the_uncapped_render_note_says_why_for_the_platform(
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setenv("LUCID_MELT", "melt")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    # Named, so standing in for Linux on a Windows runner never reaches for
+    # `os.getuid` to build `/run/user/<uid>` — Windows has none.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
     monkeypatch.setattr(picture.shutil, "which", lambda name: None)
 
@@ -179,7 +196,7 @@ def test_tailscale_is_found_where_the_app_installs_it(
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.delenv(webui.LUCID_TAILSCALE_ENV, raising=False)
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
-    assert any(str(p).endswith(tail) for p in webui._tailscale_installs())
+    assert any(p.as_posix().endswith(tail) for p in webui._tailscale_installs())
 
     installed = tmp_path / "tailscale"
     installed.touch()
@@ -193,7 +210,7 @@ def test_tailscale_still_refuses_when_nothing_is_anywhere(monkeypatch: pytest.Mo
     monkeypatch.delenv(webui.LUCID_TAILSCALE_ENV, raising=False)
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
     monkeypatch.setattr(webui, "_tailscale_installs", lambda: [Path("/nowhere/Tailscale")])
-    with pytest.raises(webui.ProjectError, match="/nowhere/Tailscale"):
+    with pytest.raises(webui.ProjectError, match=re.escape(str(Path("/nowhere/Tailscale")))):
         webui.tailscale_identity()
 
 
@@ -446,6 +463,9 @@ def test_the_synth_job_carries_the_device(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env: str | None, expected: str
 ) -> None:
     voice = _synth_ready(monkeypatch, tmp_path)
+    # CUDA is the default *on Linux*; a real Mac refuses before the device is
+    # read (the test above), which is what the macOS runner met.
+    monkeypatch.setattr(sys, "platform", "linux")
     if env:
         monkeypatch.setenv(tts.DEVICE_ENV, env)
     jobs: list[dict] = []
@@ -531,3 +551,66 @@ def test_the_vision_worker_itself_refuses_before_importing_torch(tmp_path: Path)
     assert "bitsandbytes" in done.stderr
     assert "ModuleNotFoundError" not in done.stderr
     assert not (tmp_path / "out.json").exists()
+
+
+# -- what the first Windows CI run found -------------------------------------
+
+
+def test_a_manifest_written_on_linux_still_writes_a_timeline_under_windows_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Windows `/footage/a.mp4` has no drive, so it is not absolute and
+    `Path.as_uri()` raised — on every op that writes `project.otio`, over a URL
+    nothing in lucid reads back. 470 of the first Windows run's 527 failures."""
+    monkeypatch.setattr(timeline, "Path", PureWindowsPath)
+    clip = {"clip_id": "a", "duration": 2.0, "has_video": True}
+    edit = timeline.Edit([timeline.Segment("a", 0.0, 1.0)])
+
+    def url(source: str) -> str:
+        otio = timeline.to_otio(edit, {"a": {**clip, "source": source}}, rate=25.0)
+        return otio.tracks[0][0].media_reference.target_url
+
+    assert url("/footage/a.mp4") == "file:///footage/a.mp4"
+    assert url(r"C:\footage\a.mp4") == "file:///C:/footage/a.mp4"
+    with pytest.raises(ValueError, match="relative"):
+        url("footage/a.mp4")
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_the_scene_scan_survives_a_colon_in_its_temp_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`:` separates a filter's options, so the scan's report file named by an
+    absolute path ended at a Windows drive letter and ffmpeg refused the chain.
+    Linux can hold a `:` in a directory name, so the same trap is reproduced
+    here rather than only on a Windows runner, where the temp dir has one
+    already. The input is passed relative, since the fix moves ffmpeg's cwd."""
+    colons = tmp_path if os.name == "nt" else tmp_path / "C:scratch"
+    colons.mkdir(exist_ok=True)
+    monkeypatch.setattr(tempfile, "tempdir", str(colons))
+    clip = tmp_path / "cut.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "color=c=red:size=160x120:rate=25:duration=1",
+         "-f", "lavfi", "-i", "color=c=blue:size=160x120:rate=25:duration=1",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0", "-pix_fmt", "yuv420p", str(clip)],
+        check=True,
+    )  # fmt: skip
+    monkeypatch.chdir(tmp_path)
+
+    cuts = media.scene_cuts("cut.mp4")
+
+    assert [round(c["src_time"], 2) for c in cuts] == [1.0]
+
+
+def test_the_agent_pane_spawns_the_claude_doctor_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An npm install on Windows is `claude.cmd`, which `shutil.which` finds
+    and Popen does not — so doctor was ✓ over a pane that could not spawn."""
+    monkeypatch.delenv(webui.AGENT_BIN_ENV, raising=False)
+    monkeypatch.setattr(
+        webui.shutil, "which", lambda name: r"C:\npm\claude.cmd" if name == "claude" else None
+    )
+    assert webui._agent_bin() == r"C:\npm\claude.cmd"
+
+    monkeypatch.setattr(webui.shutil, "which", lambda name: None)
+    assert webui._agent_bin() == "claude", "unresolved, the spawn's own error names it"

@@ -9,10 +9,12 @@ than eyeballed in a player.
 from __future__ import annotations
 
 import re
+import shutil
 from itertools import pairwise
 
 import pytest
 
+from lucid import captions as captions_module
 from lucid.captions import (
     DEFAULT_GROUPING,
     PRESETS,
@@ -338,7 +340,27 @@ def test_the_spans_and_the_k_tags_are_the_same_numbers() -> None:
 
 # -- the font that is not there ------------------------------------------
 
+#: `font_match` asks fontconfig, which Linux has and Windows does not — there
+#: libass uses DirectWrite. What a box without it gets is the test below.
+needs_fc_match = pytest.mark.skipif(shutil.which("fc-match") is None, reason="fontconfig is not installed")
 
+
+def test_no_fontconfig_is_cannot_tell_never_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`null`, not `false`: false would send someone installing a font they
+    already have. Every Windows box is this case."""
+
+    def absent(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("fc-match")
+
+    monkeypatch.setattr(captions_module.subprocess, "run", absent)
+    match = font_match("Outfit")
+
+    assert match["available"] is None
+    assert match["resolves_to"] is None
+    assert "warning" not in match
+
+
+@needs_fc_match
 def test_a_missing_font_is_reported_rather_than_substituted_silently() -> None:
     """The one styling failure with no symptom: libass swaps the font, ffmpeg
     exits 0, and the render is in a typeface nobody picked."""
@@ -349,6 +371,7 @@ def test_a_missing_font_is_reported_rather_than_substituted_silently() -> None:
     assert "not installed" in match["warning"]
 
 
+@needs_fc_match
 def test_a_font_that_is_there_carries_no_warning() -> None:
     installed = font_match("Definitely Not A Real Font 91537")["resolves_to"]
     match = font_match(installed)

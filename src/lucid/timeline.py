@@ -24,7 +24,7 @@ from __future__ import annotations
 import bisect
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import opentimelineio as otio
@@ -606,6 +606,21 @@ def _rational(seconds: float, rate: float) -> otio.opentime.RationalTime:
     return otio.opentime.RationalTime(round(seconds * rate), rate)
 
 
+def _file_url(source: str) -> str:
+    """The reference's URL — interchange only; `from_otio` never reads it back.
+
+    A manifest written on Linux carries `/home/…` sources, and on Windows a
+    rooted path with no drive is not absolute, so `Path.as_uri()` raises — on
+    every op that writes the timeline, over a field nothing in lucid consumes.
+    Such a path gets the URL Linux wrote for it. A genuinely relative source
+    still refuses, on every OS, as it always has.
+    """
+    path = Path(source)
+    if path.is_absolute():
+        return path.as_uri()
+    return PurePosixPath(source).as_uri()
+
+
 def to_otio(
     edit: Edit,
     clips: dict[str, dict[str, Any]],
@@ -627,7 +642,7 @@ def to_otio(
         if record is None:
             raise TimelineError(f"segment {n} references unregistered clip {seg.clip_id!r}")
         reference = otio.schema.ExternalReference(
-            target_url=Path(record["source"]).as_uri(),
+            target_url=_file_url(record["source"]),
             available_range=otio.opentime.TimeRange(
                 _rational(0.0, rate), _rational(float(record["duration"]), rate)
             ),
