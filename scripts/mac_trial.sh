@@ -316,9 +316,11 @@ else
     xattr -dr com.apple.quarantine "$APPS/Shotcut.app" 2>/dev/null
 fi
 
-if uv tool list 2>/dev/null | grep -q '^openai-whisper '; then
+# A whisper already on PATH is used, never replaced: uv refuses to overwrite one it did not
+# install ("Executable already exists", measured on the dry run), and it is the tester's anyway.
+if command -v whisper >/dev/null; then
     echo
-    echo "── whisper is already installed; using it"
+    echo "── whisper is already installed ($(command -v whisper)); using it"
 else
     step "install whisper (uv tool)" uv tool install --python 3.12 openai-whisper
     whisper_rc=$?
