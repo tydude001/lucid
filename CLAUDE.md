@@ -36,7 +36,10 @@ of them ran the same day and its evidence and failure queue are
 scored. What a macOS/Windows port would take — the one Windows crash, the
 Linux-shaped resolvers, and the melt/libass/magick measurements that have to
 be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
-surveyed 2026-09-10. Open-item status lives in the wiki, not here.
+surveyed 2026-09-10. How a public repo gets seen — the recording, one
+stranger's Mac run, the flip, the MCP directories, Show HN, in that order —
+is [docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
+Open-item status lives in the wiki, not here.
 
 ## Things that will bite you
 
