@@ -154,6 +154,20 @@ inherited-blocker mistake (wiki `practice.md`), and `doctor` already prints
 the fix under each ✗. If the stranger stops at the same binary twice, that
 binary gets a one-line installer in DEMO.md § What you need.
 
+**The kit, 2026-09-11 — a deliberate departure from the rule above.** Tyler
+asked for the tester's run to be "really really easy", for a friend rather
+than a stranger, so `scripts/mac_trial.sh --pack OUT.sh` writes one file with
+the repo at HEAD inside it: no git, no GitHub access, since the repo is still
+private. On the Mac it installs `uv ffmpeg espeak-ng mlt auto-editor
+imagemagick` with Homebrew (all six ship Apple Silicon bottles, checked
+against formulae.brew.sh that day: mlt 7.40 depending on qtbase/qtsvg,
+auto-editor 31.6), whisper with `uv tool`, then runs DEMO.md's commands to
+the first failure and zips a report to the Desktop. What it measures is
+therefore **the Homebrew install path plus lucid on macOS**, not whether a
+stranger can follow `doctor`'s fixes. That second question is still open,
+and this run answers the one PORTABILITY.md step 4 needs first: does
+Homebrew's melt carry the modules lucid's documents use.
+
 **Done when:** one Mac run reaches `verify` agreeing with the timeline, its
 queue is closed or recorded, and README.md's "never been run on macOS"
 sentence is replaced by what was measured.
