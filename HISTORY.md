@@ -12703,3 +12703,51 @@ Mac trial kit (docs/plans/LAUNCH.md step 2).
 
 The logs are `~/lucid-work/ci-34646490356-all.log`, and the failed jobs
 alone are `-win.log`.
+
+## The registry entry and the plugin manifest — 2026-09-12
+
+docs/plans/LAUNCH.md step 4 lists lucid in the MCP directories, and two of
+its four listings are files rather than form submissions: a `server.json`
+for the official registry and a Claude Code plugin. Both are built. Neither
+is submitted — step 4 is gated on step 3's flip, and the manifests point at
+a URL that 404s until then. The version literals moved to 0.22.0 in the same
+pass (step 3, item 6, which the release-notes draft was already written
+against).
+
+**The registry entry carries no `packages`, and that is the honest shape.**
+The schema (`2025-12-11`) requires exactly `name`, `description` and
+`version`; `packages` and `remotes` are both optional, checked against the
+published schema rather than an example. lucid is on no package registry —
+it is a git clone and `uv sync`, because whisper, melt, auto-editor and
+magick are not pip-installable anyway — so a `pypi` entry would name
+something that does not exist. What stands in for it is `websiteUrl`
+pointing at docs/DEMO.md, which is what that field's own description is for
+("particularly useful when the server has custom installation instructions").
+The name is `io.github.tydude001/lucid`; the namespace is proved to the
+publisher CLI by a GitHub login at publish time, so nothing about it can be
+settled from here. `repository.id` is deliberately absent: it exists to
+detect a repository that was deleted and recreated, and lucid's was
+recreated on 2026-09-11 (§ The MIT history, rewritten), so a stale id would
+assert the opposite of the truth.
+
+**The plugin's `command` is the one thing that could fail silently, so it
+was measured.** § The agent panel had no tools at all is the standing rule:
+a generated MCP config's command resolves against *claude's* PATH, a bare
+`lucid` is absent for every launch that skips an activated venv, and the
+failure reports `tools: []` while `claude` answers in prose anyway. A plugin
+manifest is static JSON, so it cannot name `sys.executable` the way
+`webui.py` does. What it can name is `${CLAUDE_PLUGIN_ROOT}`, which for a
+plugin whose source is the repo root *is* the checkout — so the entry is
+`uv run --project ${CLAUDE_PLUGIN_ROOT} lucid mcp`, which is DEMO.md's own
+idiom and needs only `uv` on PATH. Driven over stdio with that exact argv,
+the repo's own venv scrubbed out of PATH so nothing resolved by accident:
+**90 tools, `doctor` among them.** The three files are `server.json`,
+`.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (a
+single-plugin marketplace at `source: "./"`, which is what makes
+`/plugin marketplace add tydude001/lucid` work).
+
+**Both formats were read off current docs, not memory**, which is what the
+plan asks for: the registry's published JSON schema, and code.claude.com's
+plugin and marketplace references. The plugin manifest's `mcpServers` may be
+inline or a path; inline is used, since the config is six lines and a second
+file would be a second place to keep the command in step.

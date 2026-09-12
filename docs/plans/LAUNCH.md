@@ -199,7 +199,10 @@ Tyler's hand, in this order, the same afternoon:
    unfurls to on X, Bluesky and Slack. It is already screened for footage and
    paths (CLAUDE.md § Conventions, the screenshot rule).
 6. Tag a release: `v0.22.0`, at the tip that goes public. `v0.21.0`
-   predates the licence change. A GitHub release with notes gives the
+   predates the licence change. **The two version literals are already at
+   0.22.0** (2026-09-12, `uv sync` behind them, `tests/test_version.py`
+   green), so this item is the annotated tag and the GitHub release, not the
+   bump. A GitHub release with notes gives the
    directories in step 4 something to cite and the HN post a permalink that
    will not move. Release notes are the HISTORY.md section names since the
    last tag, one line each — not a changelog, which the repo does not keep
@@ -226,10 +229,17 @@ is the one channel where lucid's shape is the pitch rather than a curiosity.
 List it a week *before* Show HN so the first strangers arrive in ones and
 twos, with time to fix what they find.
 
-- **The official MCP registry** (`registry.modelcontextprotocol.io`) — a
-  `server.json` in the repo and a publish through its CLI. Check its current
-  docs at the time; the mechanics have changed more than once since it
-  launched, and this plan states the *step*, not the command.
+- **The official MCP registry** (`registry.modelcontextprotocol.io`) —
+  **`server.json` is written and in the repo** (2026-09-12, against the
+  published `2025-12-11` schema); what remains is the publish through its
+  CLI, which proves the `io.github.tydude001` namespace with a GitHub login
+  and so cannot be done before the flip. The entry carries **no `packages`
+  block**, because lucid is on no package registry and a `pypi` identifier
+  would name something that does not exist — `websiteUrl` points at
+  docs/DEMO.md instead. If lucid is ever published to PyPI, that block is
+  the one thing to add. Re-check the schema URL at publish time; the
+  mechanics have changed more than once. Shipped — see HISTORY.md § The
+  registry entry and the plugin manifest.
 - **The community directories** — PulseMCP, Glama, Smithery, and a pull
   request to the `awesome-mcp-servers` list under its media/video heading.
   Each takes the repo URL, the description and the release; none needs
@@ -239,9 +249,16 @@ twos, with time to fix what they find.
   Claude Code user is a plugin manifest naming `lucid mcp` as its server.
   This is lucid *being* a plugin, which PLAN.md's non-goal ("a plugin system
   before there are two users") does not touch — that non-goal is about lucid
-  *having* plugins. The manifest is a file; verify the current plugin
-  manifest and marketplace format against Claude Code's docs at the time
-  rather than from memory, the same rule as the registry.
+  *having* plugins. **Built 2026-09-12**: `.claude-plugin/plugin.json` and a
+  single-plugin `.claude-plugin/marketplace.json`, both read off
+  code.claude.com's current references. The server command is
+  `uv run --project ${CLAUDE_PLUGIN_ROOT} lucid mcp` — a static manifest
+  cannot name `sys.executable`, and a bare `lucid` is the silent `tools: []`
+  failure HISTORY.md § The agent panel had no tools at all measured — and it
+  was driven over stdio with the repo's venv scrubbed from PATH: 90 tools.
+  What remains is a user-facing line in the README once the repo is public,
+  since `/plugin marketplace add tydude001/lucid` 404s until then. Shipped —
+  see HISTORY.md § The registry entry and the plugin manifest.
 
 **What to watch.** Each listing reports something — installs, stars,
 "tried it" comments. Record which ones actually sent a stranger (an issue, a
