@@ -12759,3 +12759,44 @@ four new copies unguarded — a bump that missed one would advertise a version
 the release does not have, and nothing else reads them, so nothing else would
 notice. `tests/test_version.py` now holds all six together; verified by
 drifting `server.json` to 0.21.0 and watching it fail by name.
+
+## The Windows queue, made to say what it could not — 2026-09-12
+
+§ The second run on macOS and Windows left 11 Windows failures in four
+clusters, and two of the four could not be read because the log did not say
+what had answered. This pass fixes what can be fixed from Linux and makes the
+rest report, so the next Windows run is a reading rather than a guess.
+**Nothing here has run on Windows yet**; each fix is verified on this box,
+with a control against the old code where one reproduces.
+
+- **`lucid doctor` on a pipe.** `cli.main` now switches any standard stream
+  whose encoding cannot carry ✓/✗ to UTF-8, before parsing arguments, and
+  leaves every other stream alone. Replacing the glyphs was the other option
+  and the wrong one: a doctor paste is read for its marks. The test builds
+  Windows's pipe on Linux — a cp1252 `TextIOWrapper` — and the control
+  against the old `main` fails with the runner's own `UnicodeEncodeError`.
+- **The six melt renders.** The runner image lists no melt, MLT, Shotcut or
+  Kdenlive (actions/runner-images, Windows 2025), yet `melt_command` resolved
+  something and `project_frames` got non-XML back. Which binary it was is
+  still unknown. The refusal now carries the argv and the head of what it
+  printed, `repr`'d so a BOM or a banner shows, and doctor no longer crashes
+  before printing its melt row. Both land in the next log.
+- **Outfit not drawing.** The probe burns with `-v verbose` now and parses
+  libass's own account: `Using font provider …` and every `fontselect:` pick,
+  reported as `font_provider`, `drawn_with` and `control_drawn_with`, by file
+  name and PostScript name, never path. Doctor's ✗ row prints what drew
+  instead. On this box it reproduces the Nerd Font first pick for `Noto Sans`
+  that CLAUDE.md records, from the probe itself. The obvious fix, calling
+  `AddFontResourceW` and broadcasting `WM_FONTCHANGE` after the registry
+  write, is **not built**: whether DirectWrite needs it, or the choco ffmpeg's
+  libass uses DirectWrite at all, is what `font_provider` will say.
+- **The two singles were the suite's.** The wildcard-bind test dialled the
+  banner's `0.0.0.0`. Linux connects to that as loopback and Windows refuses
+  (`WinError 10049`), so it dials `127.0.0.1` at the bound port, with the
+  `Host` header, the thing under test, unchanged. The `build_shots`
+  assertion compares `as_posix()`, § The first run on macOS and Windows's
+  precedent.
+
+Suite on this box: 2035 passed. The next Windows run needs the GitHub mirror
+synced; its log should be read for doctor's melt row, the melt refusal's
+`it printed:` line, and the font probe's `font_provider`.

@@ -12,6 +12,7 @@ file runs identically on a box with none of the six installed.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -407,6 +408,51 @@ def test_cli_doctor_exits_nonzero_when_something_required_is_missing(
     monkeypatch.setattr(ops, "doctor", lambda: broken)
     assert main(["doctor"]) == 1
     assert "install it" in capsys.readouterr().out
+
+
+def test_cli_doctor_prints_its_marks_into_a_pipe_that_cannot_encode_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows encodes a piped stdout as cp1252, which has no ✓ or ✗, and
+    doctor died with `UnicodeEncodeError` before its first line — in CI's own
+    doctor step, and in the paste a tester is asked for. The stream here is
+    that pipe, built on Linux: the control against the old `main` raises."""
+    broken = {
+        "lucid": "0.0.0",
+        "ok": False,
+        "required": [doctor._entry("melt", "layered renders", why="not here", fix="install it")],
+        "optional": [],
+        "display": {"ok": True, "how": "a Wayland session"},
+        "caption_font": {"ok": True, "font": "Outfit", "resolves_to": "Outfit"},
+    }
+    monkeypatch.setattr(ops, "doctor", lambda: broken)
+    pipe = io.BytesIO()
+    stream = io.TextIOWrapper(pipe, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", stream)
+
+    assert main(["doctor"]) == 1
+    stream.flush()
+    assert "✗ melt" in pipe.getvalue().decode("utf-8")
+
+
+def test_cli_leaves_a_stream_that_can_already_encode_the_marks_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the stream that would crash is touched — a UTF-16 console, or
+    anything a caller configured on purpose, keeps its encoding."""
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="utf-16")
+    monkeypatch.setattr(sys, "stdout", stream)
+    fine = {
+        "lucid": "0.0.0",
+        "ok": True,
+        "required": [],
+        "optional": [],
+        "display": {"ok": True, "how": "a Wayland session"},
+        "caption_font": {"ok": True, "font": "Outfit", "resolves_to": "Outfit"},
+    }
+    monkeypatch.setattr(ops, "doctor", lambda: fine)
+    main(["doctor", "--json"])
+    assert stream.encoding == "utf-16"
 
 
 def test_cli_doctor_json_is_the_same_dict_the_tool_returns(

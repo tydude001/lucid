@@ -614,3 +614,65 @@ def test_the_agent_pane_spawns_the_claude_doctor_found(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
     assert webui._agent_bin() == "claude", "unresolved, the spawn's own error names it"
+
+
+def test_the_probe_names_what_libass_drew_by_file_never_by_path() -> None:
+    """Outfit did not draw on the Windows runner, and all the probe could say
+    was "not Outfit". libass logs its provider and every face it picks under
+    `-v verbose`, and the probe carries both. The Linux lines are verbatim from
+    this box; the Windows line is **constructed** in the same shape — no
+    DirectWrite log has been read yet, so this pins the parse, not the OS."""
+    stderr = (
+        "[Parsed_ass_0 @ 0x55] Using font provider fontconfig\n"
+        "[Parsed_ass_0 @ 0x7f] fontselect: (lucid No Such Face 0000, 400, 0) -> "
+        "/usr/share/fonts/google-noto-vf/NotoSansArabic[wght].ttf, 0, NotoSansArabic-Regular\n"
+        "[Parsed_ass_0 @ 0x7f] Glyph 0x48 not found, selecting one more font for "
+        "(lucid No Such Face 0000, 400, 0)\n"
+        "[Parsed_ass_0 @ 0x7f] fontselect: (lucid No Such Face 0000, 400, 0) -> "
+        "/usr/share/fonts/google-noto/NotoSans-Regular.ttf, 0, NotoSans-Regular\n"
+    )
+    chose = fonts._libass_choices(stderr)
+    assert chose["provider"] == "fontconfig"
+    assert chose["faces"] == [
+        {"file": "NotoSansArabic[wght].ttf", "face": "NotoSansArabic-Regular"},
+        {"file": "NotoSans-Regular.ttf", "face": "NotoSans-Regular"},
+    ]
+
+    windows = fonts._libass_choices(
+        "[Parsed_ass_0 @ 0000] Using font provider directwrite (with GDI)\n"
+        "[Parsed_ass_0 @ 0000] fontselect: (Outfit, 400, 0) -> "
+        r"C:\Users\runneradmin\AppData\Local\Microsoft\Windows\Fonts\Outfit[wght].ttf, 0, Outfit-Regular"
+    )
+    assert windows["provider"] == "directwrite"
+    assert windows["faces"] == [{"file": "Outfit[wght].ttf", "face": "Outfit-Regular"}]
+    assert "runneradmin" not in json.dumps(windows)
+
+    assert fonts._libass_choices("ffmpeg version n7.1\n") == {"provider": None, "faces": []}
+
+
+def test_doctors_font_cross_says_what_drew_instead(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ✗ that names the substitute is a finding; one that says only "not
+    Outfit" is where the Windows run stopped."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        doctor.fonts,
+        "probe",
+        lambda family, **kw: {
+            "drew": False,
+            "warning": "substituting",
+            "font_provider": "directwrite",
+            "drawn_with": [{"file": "arial.ttf", "face": "ArialMT"}],
+        },
+    )
+    font = doctor._caption_font()
+    text = doctor.render(
+        {
+            "lucid": "0.0.0",
+            "ok": False,
+            "required": [],
+            "optional": [],
+            "display": {"ok": True, "how": "native"},
+            "caption_font": font,
+        }
+    )
+    assert "libass (directwrite) drew it with: ArialMT (arial.ttf)" in text

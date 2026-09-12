@@ -262,11 +262,16 @@ def test_http_allow_remote_host_admits_named_host_not_the_wildcard(tmp_path: Pat
         "--allow-remote-host",
         "192.168.1.50",
     )
+    # Dial loopback at the bound port: the Host header is what is under test,
+    # and a wildcard is a bind address, never a destination — Linux connects
+    # to 0.0.0.0 as if it were loopback, Windows refuses (`WinError 10049`).
+    dial = url.replace("://0.0.0.0:", "://127.0.0.1:", 1)
+    assert dial != url, url
     try:
 
         def _status(host_header: str) -> int:
             request = urllib.request.Request(
-                url=url,
+                url=dial,
                 data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode(),
                 method="POST",
                 headers={

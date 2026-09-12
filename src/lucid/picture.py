@@ -299,6 +299,18 @@ def parse_melt_xml(document: str) -> int:
     )
 
 
+#: How much of a misbehaving binary's output a refusal quotes.
+_HEAD_CHARS = 300
+
+
+def _head(text: str | None) -> str:
+    """The start of `text`, repr'd so a BOM or a stray control byte is visible."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    return repr(text[:_HEAD_CHARS]) + (" …" if len(text) > _HEAD_CHARS else "")
+
+
 def project_frames(project: Path | str) -> int:
     """Ask melt how many frames it would render `project` to.
 
@@ -338,7 +350,17 @@ def project_frames(project: Path | str) -> int:
             f"melt printed no timeline for {path}.\n{detail}"
             f"{_TMP_HINT if _invisible_to_flatpak(path, command) else ''}"
         )
-    return parse_melt_xml(completed.stdout)
+    try:
+        return parse_melt_xml(completed.stdout)
+    except PictureError as exc:
+        # Something answered to `melt` and printed a timeline that is not one.
+        # The first Windows CI run hit exactly this six times and the log said
+        # only "syntax error: line 1, column 0" — never which binary answered
+        # or what it said, which were the two things needed to fix it.
+        said = _head(completed.stdout) or _head(completed.stderr)
+        raise PictureError(
+            f"{exc}\nran: {' '.join(command)}\nit printed: {said}"
+        ) from exc
 
 
 _TMP_HINT = (

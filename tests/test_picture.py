@@ -92,6 +92,31 @@ def test_an_unreadable_or_countless_document_raises_rather_than_guesses() -> Non
         picture.parse_melt_xml('<mlt version="7.40.0"><playlist id="p"/></mlt>')
 
 
+def test_a_melt_that_prints_no_document_is_named_and_quoted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Six Windows renders failed with only "syntax error: line 1, column 0",
+    which says neither what answered to `melt` nor what it said. The refusal
+    carries both, repr'd, so a BOM or a banner is visible in a CI log."""
+    project = tmp_path / "p.mlt"
+    project.write_text("<mlt/>")
+    monkeypatch.setattr(picture, "melt_command", lambda: [r"C:\somewhere\melt"])
+    monkeypatch.setattr(picture, "display_env", dict)
+    monkeypatch.setattr(
+        picture.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, "\ufeffNot melt 1.0 usage: melt FILE", ""
+        ),
+    )
+    with pytest.raises(picture.PictureError) as caught:
+        picture.project_frames(project)
+    message = str(caught.value)
+    assert "readable MLT document" in message
+    assert r"C:\somewhere\melt" in message
+    assert "\\ufeffNot melt 1.0" in message
+
+
 def test_a_wayland_socket_travels_with_the_directory_it_lives_in(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

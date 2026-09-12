@@ -571,6 +571,10 @@ def _caption_font() -> dict[str, Any]:
     report["font_system"] = native or "fontconfig"
     matched = {} if native else captions.font_match(family)
     report["drew"] = drew.get("drew")
+    # libass's own account of the burn. On a ✗ it is the only thing saying
+    # *what* drew — the Windows run could report only "not Outfit".
+    report["font_provider"] = drew.get("font_provider")
+    report["drawn_with"] = drew.get("drawn_with") or []
     report["resolves_to"] = matched.get("resolves_to")
     report["fontconfig_available"] = matched.get("available")
     report["ok"] = drew.get("drew") is True
@@ -757,6 +761,11 @@ def render(payload: dict[str, Any]) -> str:
     else:
         lines.append(f"  {_CROSS} {font['font']}")
         lines += _wrap(font["why"], indent="      ")
+        # `.get`: hand-built payloads predate both keys.
+        if font.get("drawn_with"):
+            faces = ", ".join(f"{f['face']} ({f['file']})" for f in font["drawn_with"])
+            provider = font.get("font_provider") or "unknown provider"
+            lines += _wrap(f"libass ({provider}) drew it with: {faces}", indent="      ")
         lines += _wrap(f"fix: {font['fix']}", indent="      ")
 
     # `.get`, because the section is younger than the report's other keys and

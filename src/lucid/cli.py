@@ -3025,7 +3025,29 @@ _EXPECTED = (
 )
 
 
+def _utf8_output() -> None:
+    """Write UTF-8 to any standard stream whose own encoding cannot carry ✓.
+
+    Windows encodes a *piped* stdout as the ANSI code page (cp1252), which has
+    no byte for ✓ or ✗, so `lucid doctor > out.txt` — and CI's doctor step, and
+    the paste LAUNCH.md step 2 asks a tester for — died with
+    `UnicodeEncodeError` before printing a line. Replacing the glyphs would
+    lose the one thing a paste is read for; UTF-8 is what a CI log, a file and
+    a paste all decode. A console, and every stream already able to encode the
+    marks, is left exactly as it was.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        encoding = getattr(stream, "encoding", None) or "ascii"
+        try:
+            "✓✗–".encode(encoding)
+        except (UnicodeEncodeError, LookupError):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_output()
     args = _build_parser().parse_args(argv)
     # `-C` defaults here rather than in argparse because `init` is the one
     # subcommand whose directory is an *argument* rather than a lookup, so it

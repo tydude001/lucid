@@ -116,7 +116,7 @@ def test_build_shots_maps_cues_through_the_edit_and_runs_each_to_the_next(
     assert shots[0]["asset_path"].endswith("clipa.mp4")
     assert shots[1]["asset"] == "card:outro"
     assert shots[1]["is_image"] is True
-    assert shots[1]["asset_path"].endswith("assets/cards/outro.png")
+    assert Path(shots[1]["asset_path"]).as_posix().endswith("assets/cards/outro.png")
 
 
 def test_build_shots_refuses_a_cue_whose_word_was_cut(project: Project) -> None:

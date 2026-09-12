@@ -36,6 +36,7 @@ can never quietly move a render by installing something first.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -317,8 +318,43 @@ def _run_tool(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str
         raise FontError(f"{argv[0]} not found — the font probe needs it on PATH") from None
 
 
-def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -> None:
-    """Burn one frame of `PROBE_TEXT` in `family`, on black.
+#: libass's own account of a burn, under `ffmpeg -v verbose`: which font
+#: provider it loaded, and every face it picked — a primary, then one more line
+#: per glyph the primary lacked. The pixels say *whether* a family drew; these
+#: lines say *what* drew instead, which is the half a CI log on an OS nobody
+#: here can sit at needs (Outfit not drawing on Windows, 2026-09-11).
+_PROVIDER_RE = re.compile(r"Using font provider (\S+)")
+_FONTSELECT_RE = re.compile(
+    r"fontselect: \((?P<asked>.+?), (?P<weight>\d+), (?P<italic>\d+)\) -> "
+    r"(?P<path>.+), (?P<index>-?\d+), (?P<face>\S+)\s*$"
+)
+
+
+def _libass_choices(stderr: str) -> dict[str, Any]:
+    """`{"provider", "faces"}` out of a verbose burn's stderr.
+
+    A face is named by its **file name and PostScript name, never its path** —
+    the report is a doctor paste, and a path names the user it was installed
+    for. Empty rather than raising when libass said nothing: an ffmpeg built
+    without verbose libass logging still produces a probe worth scoring.
+    """
+    provider = None
+    faces: list[dict[str, str]] = []
+    for line in stderr.splitlines():
+        if provider is None and (found := _PROVIDER_RE.search(line)):
+            provider = found.group(1)
+        if picked := _FONTSELECT_RE.search(line):
+            faces.append(
+                {
+                    "file": re.split(r"[\\/]", picked["path"])[-1],
+                    "face": picked["face"],
+                }
+            )
+    return {"provider": provider, "faces": faces}
+
+
+def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -> dict[str, Any]:
+    """Burn one frame of `PROBE_TEXT` in `family`, on black, and say what libass chose.
 
     The ASS is staged beside the output under a fixed name and ffmpeg is run
     from that directory, for the reason `captions.burn` does the same: the
@@ -329,7 +365,7 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
     script.write_text(_probe_ass(family, size=size, width=width, height=height), encoding="utf-8")
     done = _run_tool(
         [
-            "ffmpeg", "-v", "error", "-y",
+            "ffmpeg", "-v", "verbose", "-y",
             "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:d=1",
             "-vf", "ass=probe.ass",
             "-frames:v", "1", out.name,
@@ -344,6 +380,7 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
             f"could not burn a probe for {family!r}: "
             f"{(done.stderr or '').strip()[-400:] or 'ffmpeg wrote nothing'}"
         )
+    return _libass_choices(done.stderr or "")
 
 
 def _rmse(a: Path, b: Path) -> float:
@@ -405,8 +442,8 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
     with tempfile.TemporaryDirectory(prefix="lucid-font-probe-") as tmp:
         root = Path(tmp)
         named, control = root / "named.png", root / "control.png"
-        _burn_probe(family, named, size=size, width=width, height=height)
-        _burn_probe(IMPOSSIBLE_FAMILY, control, size=size, width=width, height=height)
+        chose = _burn_probe(family, named, size=size, width=width, height=height)
+        control_chose = _burn_probe(IMPOSSIBLE_FAMILY, control, size=size, width=width, height=height)
         difference = _rmse(named, control)
         ink = _ink(named)
         control_ink = _ink(control)
@@ -420,6 +457,11 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
         "ink": round(ink, 6),
         "control_ink": round(control_ink, 6),
         "control_family": IMPOSSIBLE_FAMILY,
+        # What libass says it picked, beside the pixels and never instead of
+        # them: the verdict is `drew`, and this is what to read when it is False.
+        "font_provider": chose["provider"],
+        "drawn_with": chose["faces"],
+        "control_drawn_with": control_chose["faces"],
     }
     if blank:
         report["warning"] = (
