@@ -455,8 +455,9 @@ lacks. A splice registers the winner as `synth-<key>-s<seed>` and goes through
 `restore` refuses across the seam, and `covered_by` names any picture now
 running over the new seconds.
 
-The synthesiser is a subprocess in another interpreter (`LUCID_TTS`, then the
-voice-clone venv under `~/lucid-work/voice-clone/`; `LUCID_TTS_MODEL` likewise).
+The synthesiser is a subprocess in another interpreter: `LUCID_TTS` names it
+and `LUCID_TTS_MODEL` the Qwen3-TTS model directory, with no fallback for
+either.
 **The voice is yours to supply** — `--voice` or `LUCID_TTS_VOICE`; lucid ships
 no reference clip and has no default voice. `lucid vo-synth … --plan` reports
 what it resolved. Why a reference clip and not a fine-tuned model: HISTORY.md

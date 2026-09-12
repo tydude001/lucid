@@ -4166,15 +4166,19 @@ def test_a_load_failure_toast_and_a_planned_cut_are_retired_by_what_supersedes_t
     two source-level facts the way the toast-dismiss test above does."""
     _, _, app = _get(f"{server}/static/app.js")
     assert b"load.failed = true" in app and b"load.failed = false" in app
-    # A fresh project's "no timeline yet" is advice, so it takes the severity
-    # that auto-dismisses; a real load failure stays red until a load succeeds.
+    # A fresh project's "no timeline yet" is not a failure: it draws an empty
+    # state and raises no toast; a real load failure stays red until a load
+    # succeeds.
     assert b"/no timeline yet/.test(err.message)" in app
     # And the pane balancer measures in layout pixels only: a bounding rect is
     # in the transformed frame, and the two disagree under any ancestor transform.
     _, _, player = _get(f"{server}/static/player.js")
     assert b"const workspaceH = workspace.offsetHeight;" in player
     assert b"workspace.getBoundingClientRect().height" not in player
-    assert b'severity: fresh ? "warn" : "error"' in app
+    fresh_branch = app[app.index(b"/no timeline yet/.test(err.message)") :]
+    fresh_branch = fresh_branch[: fresh_branch.index(b"return;")]
+    assert b"toast(" not in fresh_branch
+    assert b'toast({ message: err.message, severity: "error" });' in app
     # A fresh project draws an empty state and still fills the assets pane,
     # which needs no timeline — rather than panes frozen on "Loading…".
     assert b"transcript.unseeded();" in app

@@ -57,6 +57,7 @@ def test_ok_reads_the_required_section_alone(monkeypatch: pytest.MonkeyPatch) ->
         doctor, "_face_entry", lambda: doctor._entry("LUCID_FACE", "reframe", ok=False)
     )
     monkeypatch.setattr(doctor, "_tts_entry", lambda: doctor._entry("LUCID_TTS", "vo", ok=False))
+    monkeypatch.setattr(doctor, "_magick_entry", lambda: doctor._entry("magick", "cards", ok=False))
     payload = doctor.report()
     assert payload["ok"] == all(r["ok"] for r in payload["required"])
     assert not any(r["ok"] for r in payload["optional"])
@@ -211,6 +212,20 @@ def test_missing_magick_says_everything_else_works(monkeypatch: pytest.MonkeyPat
     assert "everything else works" in row["fix"]
 
 
+def test_missing_magick_is_unavailable_and_never_moves_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ubuntu 24.04 packages only ImageMagick 6, so a stranger there could never
+    see `ok` although DEMO.md draws no card. Cards are one feature, like the
+    other optional rows. HISTORY.md § A stranger's install, on a clean Ubuntu."""
+    monkeypatch.setattr(
+        doctor, "_magick_entry", lambda: doctor._entry("magick", "cards", ok=False, why="absent")
+    )
+    payload = doctor.report()
+    assert "magick" not in {r["name"] for r in payload["required"]}
+    assert "magick" in {r["name"] for r in payload["optional"]}
+    assert payload["ok"] == all(r["ok"] for r in payload["required"])
+    assert "– magick" in doctor.render(payload)
+
+
 # -- the voice, which is a person and not tooling ------------------------
 
 
@@ -271,6 +286,24 @@ def test_missing_synthesiser_is_reported_before_the_voice(
     row = doctor._tts_entry()
     assert row["ok"] is False
     assert "synthesiser" in row["why"]
+
+
+def test_the_synthesiser_resolves_from_the_environment_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A clean Ubuntu's doctor printed `/home/you/lucid-work/voice-clone/…` —
+    this box's layout, read back to a stranger. `LUCID_TTS` and
+    `LUCID_TTS_MODEL` are the whole search now, `describe.vlm_python`'s rule.
+    HISTORY.md § A stranger's install, on a clean Ubuntu."""
+    monkeypatch.delenv("LUCID_TTS", raising=False)
+    monkeypatch.delenv("LUCID_TTS_MODEL", raising=False)
+    with pytest.raises(tts.TTSError) as venv:
+        tts.tts_python()
+    with pytest.raises(tts.TTSError) as model:
+        tts.model_dir()
+    row = doctor._tts_entry()
+    for text in (str(venv.value), str(model.value), json.dumps(row)):
+        assert "lucid-work" not in text
 
 
 # -- display --------------------------------------------------------------

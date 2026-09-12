@@ -12949,3 +12949,28 @@ Found and **not** acted on, because each is Tyler's call:
   fallback is documented there as deliberate.
 - **The "no timeline yet" toast** still sits over the fresh-project empty
   state (§ The launch clip's product defects, fixed).
+
+## The Ubuntu run's three calls, taken — 2026-09-12
+
+Tyler took all three recommendations from § A stranger's install, on a clean
+Ubuntu.
+
+- **`magick` is optional.** It draws cards and nothing else, so doctor lists
+  it with the other features that gate one capability, and a missing
+  ImageMagick 7 no longer moves `ok`. README's Requirements moves it the same
+  way. The stdio test's required set loses it and now asserts it sits in
+  `optional`.
+- **`LUCID_TTS` and `LUCID_TTS_MODEL` resolve from the environment alone**,
+  following `describe.vlm_python`'s 2026-09-10 precedent. `tts.SIBLING_VENV`
+  and `SIBLING_MODEL` are gone, so no refusal and no doctor row can name
+  `~/lucid-work` any more. The new test fails against the old code on this
+  box, where the venv exists. This box keeps working through two lines added
+  to `~/.config/environment.d/60-lucid.conf`, which `~/.bashrc.d/60-lucid.sh`
+  sources for new terminals. Doctor, read through that file, finds the
+  interpreter and `Qwen3-TTS-12Hz-1.7B-Base`.
+- **A fresh project raises no toast.** The empty state is the whole message.
+  Any other load failure still toasts red until a load succeeds. The HTTP
+  test now asserts there is no `toast(` in the fresh branch, and it fails
+  against the old `app.js`. Driven live: the toast stayed hidden, the
+  transcript drew the empty state, and a CLI `import` plus `seed` loaded the
+  timeline into the open page (4 segments) with no reload.

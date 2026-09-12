@@ -828,9 +828,12 @@ absent optional capability is "unavailable", never a failure, and never moves
       the same — it is the recipe, not the data, and **do not reach for a
       fine-tune to fix likeness** (local-llm `notes/voice-clone-zero-shot.md`
       § Round 4). `tts.py` is the fourth interpreter-behind-an-env
-      (`LUCID_TTS`/`LUCID_TTS_MODEL` default into `~/lucid-work/voice-clone/`
-      — **which is therefore a runtime dependency and stays where it is, never
-      archived as a finished spike** — but **the voice has no default on
+      (`LUCID_TTS`/`LUCID_TTS_MODEL` from the environment alone since
+      2026-09-12, when a clean Ubuntu's doctor printed the old fallback into
+      `~/lucid-work` back to a stranger; this box sets both in
+      `~/.config/environment.d/60-lucid.conf`, pointing into
+      `~/lucid-work/voice-clone/` — **which is therefore a runtime dependency
+      and stays where it is, never archived as a finished spike** — but **the voice has no default on
       purpose**: `--voice`/`LUCID_TTS_VOICE` or it refuses, so a public
       checkout holds neither a reference clip nor a path to one). Seed moves
       a render more than the reference does, so the op renders N and ranks by

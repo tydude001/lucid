@@ -113,9 +113,9 @@ def doctor() -> dict[str, Any]:
     *before* there is one: can this machine run lucid at all. Report-only —
     it installs nothing, writes nothing, and opens no project.
 
-    `ok` reads the **required** section alone. The three optional
-    capabilities gate one feature each (`describe`, `reframe-detect`,
-    `vo-synth`), and everything lucid promises works without all three, so a
+    `ok` reads the **required** section alone. The four optional
+    capabilities gate one feature each (cards, `describe`, `reframe-detect`,
+    `vo-synth`), and everything lucid promises works without all four, so a
     box with none of them still gets a clean bill of health.
 
     The value is not the ✓/✗ — it is the sentence after a ✗. Every failure

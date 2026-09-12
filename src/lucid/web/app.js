@@ -127,18 +127,18 @@ async function load(clipId) {
   } catch (err) {
     // A project with no timeline yet is the ordinary state of a fresh one,
     // not a failure — it sat as a red error over the first three recorded
-    // agent runs' opening seconds. Advice auto-dismisses; everything else
-    // stays until a load succeeds (below).
-    const fresh = /no timeline yet/.test(err.message);
-    toast({ message: err.message, severity: fresh ? "warn" : "error" });
+    // agent runs' opening seconds, then as an amber one over v3 of the launch
+    // clip. It is where a newcomer starts, so it gets an empty state and no
+    // toast at all: the transcript says what is missing, and the assets pane,
+    // which needs no timeline, fills because that is where the next step is.
     load.failed = true;
-    // And a fresh project is where a newcomer starts, so it gets an empty
-    // state rather than panes frozen on "Loading…" — including the assets
-    // pane, which needs no timeline and is exactly where the next step is.
-    if (fresh) {
+    if (/no timeline yet/.test(err.message)) {
       transcript.unseeded();
       assets.update(null);
+      return;
     }
+    // Anything else stays up until a load succeeds (below).
+    toast({ message: err.message, severity: "error" });
     return;
   }
   // A toast about a load that failed is a claim about the project's state,

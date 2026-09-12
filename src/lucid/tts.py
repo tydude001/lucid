@@ -26,13 +26,15 @@ as `capped` rather than trusted.
 
 **The model is a subprocess, resolved the way whisper, the VLM and the face
 detector are.** `LUCID_TTS` names a Python interpreter with `qwen_tts` and a
-CUDA torch in it; failing that, the voice-clone spike's venv, which is the one
-this box actually has. lucid's own venv stays free of torch (`asr.py`'s
-argument). `LUCID_TTS_MODEL` overrides the model directory the same way.
+CUDA torch in it, and nothing after it. lucid's own venv stays free of torch
+(`asr.py`'s argument). `LUCID_TTS_MODEL` names the model directory the same
+way. Both used to fall back to the voice-clone spike under `~/lucid-work`,
+which is one machine's layout, and a clean Ubuntu's doctor printed that path
+back to a stranger. This box sets both in `~/.config/environment.d/60-lucid.conf`.
 
 **The voice is configuration, never a default in this file.** A voice is one
 person's identity, so unlike the interpreter and the stock model there is no
-sibling fallback for it: `vo_synth` takes `voice=` or reads `LUCID_TTS_VOICE`,
+fallback for it at all: `vo_synth` takes `voice=` or reads `LUCID_TTS_VOICE`,
 and with neither it refuses by name. A checkout of this repo holds no
 reference clip and no path to one.
 
@@ -50,17 +52,6 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-
-#: The interpreter that actually exists here — the voice-clone spike's venv
-#: (`~/lucid-work/voice-clone/`, built inside the `bonsai` distrobox but its
-#: cu128 torch runs on the host directly). Cross-repo and recorded in the wiki
-#: (`tooling.md` § Voice clone); this is only the path.
-SIBLING_VENV = Path.home() / "lucid-work" / "voice-clone" / "venv-qwen" / "bin" / "python"
-
-#: Where the stock model was downloaded for the spike. Nothing here downloads
-#: it — a synth that silently reaches for 3.7 GB on first call is a synth that
-#: fails in a way nobody attributes to synthesis (`faces.MODEL`'s rule).
-SIBLING_MODEL = Path.home() / "lucid-work" / "voice-clone" / "models" / "Qwen3-TTS-12Hz-1.7B-Base"
 
 #: Qwen3-TTS's 12 Hz codec, measured: `max_new_tokens=420` rendered 33.5 s.
 TOKENS_PER_SECOND = 12.5
@@ -100,7 +91,7 @@ def platform_refusal() -> str | None:
 
 
 def tts_python() -> Path:
-    """Locate an interpreter that can run the synthesiser — `LUCID_TTS`, then the spike's venv.
+    """Locate an interpreter that can run the synthesiser — `LUCID_TTS`, and nothing after it.
 
     No PATH step, for `describe.vlm_python`'s reason: `python` is always on PATH
     and is almost never the one with a CUDA torch in it.
@@ -108,26 +99,26 @@ def tts_python() -> Path:
     override = os.environ.get("LUCID_TTS")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
-    if SIBLING_VENV.exists():
-        return SIBLING_VENV
     raise TTSError(
-        "no interpreter with a voice synthesiser. Looked at $LUCID_TTS "
-        f"({override or 'unset'}), then {SIBLING_VENV}. Set LUCID_TTS to the "
+        f"no interpreter with a voice synthesiser. $LUCID_TTS is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set LUCID_TTS to the "
         "python in a venv that has qwen-tts and a CUDA torch."
     )
 
 
 def model_dir() -> Path:
-    """The stock Qwen3-TTS model directory — `LUCID_TTS_MODEL`, then the spike's download."""
+    """The stock Qwen3-TTS model directory — `LUCID_TTS_MODEL`, and nothing after it.
+
+    Nothing here downloads it: a synth that silently reaches for 3.7 GB on first
+    call fails in a way nobody attributes to synthesis (`faces.MODEL`'s rule).
+    """
     override = os.environ.get("LUCID_TTS_MODEL")
     if override and Path(override).expanduser().is_dir():
         return Path(override).expanduser()
-    if SIBLING_MODEL.is_dir():
-        return SIBLING_MODEL
     raise TTSError(
-        "no Qwen3-TTS model directory. Looked at $LUCID_TTS_MODEL "
-        f"({override or 'unset'}), then {SIBLING_MODEL}. Set LUCID_TTS_MODEL to a "
-        "local snapshot of Qwen/Qwen3-TTS-12Hz-1.7B-Base."
+        f"no Qwen3-TTS model directory. $LUCID_TTS_MODEL is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set LUCID_TTS_MODEL "
+        "to a local snapshot of Qwen/Qwen3-TTS-12Hz-1.7B-Base."
     )
 
 

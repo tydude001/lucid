@@ -225,9 +225,10 @@ def test_doctor_reachable_over_stdio() -> None:
         "whisper",
         "auto-editor",
         "melt",
-        "magick",
     }
-    # Optional entries never move the verdict — each gates one feature.
+    # magick is optional: cards are one feature (HISTORY.md § A stranger's
+    # install, on a clean Ubuntu). Optional entries never move the verdict.
+    assert "magick" in {r["name"] for r in payload["optional"]}
     assert payload["ok"] == all(r["ok"] for r in payload["required"])
 
 

@@ -413,7 +413,10 @@ def _tts_entry() -> dict[str, Any]:
     sharing; that it is set is the whole answer anyone needs. It has no
     default on purpose, so unset is an expected refusal rather than an error.
     """
-    looked_for = f"$LUCID_TTS ({os.environ.get('LUCID_TTS') or 'unset'}), then {tts.SIBLING_VENV}"
+    looked_for = (
+        f"$LUCID_TTS ({os.environ.get('LUCID_TTS') or 'unset'}), "
+        f"$LUCID_TTS_MODEL ({os.environ.get('LUCID_TTS_MODEL') or 'unset'})"
+    )
     row = _entry(
         "LUCID_TTS",
         "vo-synth — synthesising a line in the project's own voice",
@@ -674,7 +677,7 @@ def report() -> dict[str, Any]:
     Report-only: nothing is installed, nothing is written, and no project is
     opened or needed. `ok` reads the **required** section alone — an optional
     capability that is absent is a feature that is unavailable, not a broken
-    install, and everything lucid promises works without all three of them.
+    install, and everything lucid promises works without all four of them.
     """
     from lucid import __version__
 
@@ -684,9 +687,12 @@ def report() -> dict[str, Any]:
         _whisper_entry(),
         _auto_editor_entry(),
         _melt_entry(),
-        _magick_entry(),
     ]
-    optional = [_vlm_entry(), _face_entry(), _tts_entry()]
+    # magick draws cards and nothing else, so it gates one feature like the
+    # rest of this list. It sat in `required` until a clean Ubuntu 24.04, whose
+    # apt has only ImageMagick 6, could never read `ok` for a demo that draws
+    # no card (HISTORY.md § A stranger's install, on a clean Ubuntu).
+    optional = [_magick_entry(), _vlm_entry(), _face_entry(), _tts_entry()]
     return {
         "lucid": __version__,
         "ok": all(entry["ok"] for entry in required),

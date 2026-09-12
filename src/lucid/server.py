@@ -357,9 +357,9 @@ def doctor() -> dict[str, Any]:
 
     Takes no project — it answers the question asked before there is one.
     Report-only: nothing is installed and nothing is written. `ok` reads the
-    required section alone; the three optional entries each gate one feature
-    (`describe`, `reframe_detect`, `vo_synth`) and everything else works
-    without them.
+    required section alone; the four optional entries each gate one feature
+    (cards, `describe`, `reframe_detect`, `vo_synth`) and everything else
+    works without them.
 
     Every failing entry carries the fix, not just the ✗ — where melt actually
     lives, why PyPI's auto-editor is the wrong program, what to set on a box

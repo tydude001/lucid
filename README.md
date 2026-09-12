@@ -64,7 +64,6 @@ never been run on macOS or Windows. What a port would take is
 - **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). Your
   distribution's `melt` package, or a Kdenlive install (the flatpak's own is
   found automatically); `LUCID_MELT` overrides both.
-- **ImageMagick (`magick`)** — rasterises title and end cards.
 
 Run `lucid doctor` to check all of this at once — it probes every binary,
 reports what it found and where, and names the fix for anything missing.
@@ -72,6 +71,9 @@ reports what it found and where, and names the fix for anything missing.
 Optional, feature-gated — `lucid doctor` reports each as available or not,
 and everything else works without them:
 
+- **ImageMagick 7 (`magick`)** — rasterises title and end cards. Distributions
+  that still package ImageMagick 6 (Ubuntu 24.04 does) need
+  ImageMagick's own build; IM6's `convert` is not used.
 - **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`,
   logged in) — the agent pane in the workspace. `lucid mcp` works with any
   MCP client; only the pane spawns `claude` itself.
