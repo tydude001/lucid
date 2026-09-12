@@ -12751,3 +12751,11 @@ plan asks for: the registry's published JSON schema, and code.claude.com's
 plugin and marketplace references. The plugin manifest's `mcpServers` may be
 inline or a path; inline is used, since the config is six lines and a second
 file would be a second place to keep the command in step.
+
+**Addendum, same day.** Those three files put the version literal into four
+more hand-typed places (`marketplace.json` states it twice), which took
+CLAUDE.md's "a literal in two places" rule from true to stale and left the
+four new copies unguarded — a bump that missed one would advertise a version
+the release does not have, and nothing else reads them, so nothing else would
+notice. `tests/test_version.py` now holds all six together; verified by
+drifting `server.json` to 0.21.0 and watching it fail by name.

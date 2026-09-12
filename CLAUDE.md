@@ -242,6 +242,11 @@ absent optional capability is "unavailable", never a failure, and never moves
     draws the init event's `mcp_servers` when lucid is not connected, because
     the next thing that breaks this will break it silently too. HISTORY.md
     § The agent panel had no tools at all.
+    - **The Claude Code plugin manifest is static JSON, so it cannot name
+      `sys.executable` and must never name a bare `lucid`** — it is
+      `uv run --project ${CLAUDE_PLUGIN_ROOT} lucid mcp`, which for a plugin
+      sourced at the repo root resolves to the checkout. HISTORY.md § The
+      registry entry and the plugin manifest.
   - **`--model` bakes into `claude -p`'s argv at spawn, so there is no way to
     hot-swap a running turn's model.** `#agent-model-select` (`agent.js`)
     rides it along with every `POST /api/agent {prompt, model}` rather than a
@@ -683,9 +688,11 @@ absent optional capability is "unavailable", never a failure, and never moves
     pre-rewrite objects. **And never merge a PR on GitHub** — the next sync
     force-pushes over it; the route is wiki `git-server.md` § GitHub push
     mirrors. HISTORY.md § The repo, readied for strangers.
-- **The version is a hand-typed literal in two places and is bumped
-  deliberately, never derived.** `pyproject.toml` and `lucid/__init__.py`,
-  held together by `tests/test_version.py` — a VCS-derived or
+- **The version is a hand-typed literal in six places and is bumped
+  deliberately, never derived.** `pyproject.toml`, `lucid/__init__.py`, and
+  the four launch listings (`server.json`, `.claude-plugin/plugin.json`, and
+  `.claude-plugin/marketplace.json` twice), held together by
+  `tests/test_version.py` — a VCS-derived or
   `importlib.metadata` version reads the *installed* dist-info, so an
   editable checkout reports whatever the last `uv sync` wrote. Bump the minor
   when something new becomes callable, `uv sync` behind it, tag, and name the
