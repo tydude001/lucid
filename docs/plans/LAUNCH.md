@@ -102,10 +102,11 @@ every platform below autoplays muted.
 4. picture hung off phrases, the shot sheet coming back as an image the agent
    reads;
 5. `export`, then `verify` and `check_frames` reporting agreement — the
-   "it checked its own work" beat. It is lucid's strongest, and not a claim
-   of uniqueness: kinocut pitches "quality gates", and whether its gate
-   compares a render against its own edit is unchecked
-   (`~/lucid-work/launch-listings/LISTINGS.md` § The positioning finding);
+   "it checked its own work" beat, said specifically: the render was
+   transcribed and its words diffed against the timeline's, and its frames
+   counted against the timeline's. kinocut says "quality gates", and read
+   from source those score brightness and loudness, not agreement with the
+   edit (`~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read);
 6. a title card, made by `card_new`, saying the name and the tagline.
 
 **The instrument already exists.** `scripts/agent_trial.py` runs exactly
@@ -326,9 +327,12 @@ reasoning if anyone wants it, and it is public.
   same primitives, local, with an agent surface. Don't name a competitor the
   README does not.
 - *"How is this different from kinocut / FableCut?"* — the question the
-  Multimedia section guarantees. The answer is not ready. It needs kinocut's
-  quality gate read first. LISTINGS.md § The positioning finding has what is
-  known.
+  Multimedia section guarantees. Answer with the mechanism, not a
+  superlative: lucid re-transcribes the render and diffs it word for word
+  against the timeline, and counts its frames against the timeline's.
+  kinocut's gate scores signal levels (brightness, saturation, loudness) and
+  its receipts are hashes. FableCut is a browser NLE an agent edits live, with
+  no transcript addressing. Credit both. LISTINGS.md § kinocut's gate, read.
 - *"Isn't this just a wrapper around ffmpeg?"* — yes, and around six other
   things, and the value is that an agent can drive them and *verify the
   result*: `verify`, `check_frames`, `film_check`. Point at the clip's last

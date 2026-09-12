@@ -320,8 +320,14 @@ run.
   quotes lucid's.
 
 kinocut moved from 101★ to 146★ since the entry above and now pitches "quality
-gates". What that gate compares was not read, and it decides whether "the render
-is checked against the edit" is still lucid's alone.
+gates". **Read from source the same day (`faaecc2`), the gate scores signal
+levels**: brightness, contrast, saturation, colour balance, motion and
+loudness, against fixed ranges. Its receipts are sha256 provenance. The one
+output-against-plan check found is silence removal's duration, within 0.15s.
+No path was found that transcribes a render against intended words or counts
+frames against a timeline, so that pair (`verify`, `check_frames`) stays
+lucid's, stated narrowly. Grep and reading, not a run:
+`~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read.
 
 ## Stateless-ffmpeg MCP servers
 
