@@ -102,7 +102,10 @@ every platform below autoplays muted.
 4. picture hung off phrases, the shot sheet coming back as an image the agent
    reads;
 5. `export`, then `verify` and `check_frames` reporting agreement — the
-   "it checked its own work" beat is the one no competitor has;
+   "it checked its own work" beat. It is lucid's strongest, and not a claim
+   of uniqueness: kinocut pitches "quality gates", and whether its gate
+   compares a render against its own edit is unchecked
+   (`~/lucid-work/launch-listings/LISTINGS.md` § The positioning finding);
 6. a title card, made by `card_new`, saying the name and the tagline.
 
 **The instrument already exists.** `scripts/agent_trial.py` runs exactly
@@ -226,8 +229,15 @@ Security tab shows "Report a vulnerability", and a release exists.
 
 ## Step 4 — the MCP directories, listed quietly
 
-"An MCP server that edits video" is a category of one, and the MCP ecosystem
-is the one channel where lucid's shape is the pitch rather than a curiosity.
+"An MCP server that edits video" is **not** a category of one. The
+awesome-mcp-servers Multimedia section holds several on 2026-09-12, FableCut
+(667★, a browser NLE an agent drives live) and kinocut among them. PRIOR-ART.md
+had said so on 2026-08-25, before this sentence claimed the opposite. The MCP
+ecosystem is still the channel whose audience wants the shape, but a listing
+has to say what lucid does that the line above it does not. What each
+directory actually takes today — PulseMCP paused and reading the registry,
+Smithery local-only as `.mcpb`, Glama scoring tool descriptions — and the
+drafted awesome-list line: `~/lucid-work/launch-listings/LISTINGS.md`.
 List it a week *before* Show HN so the first strangers arrive in ones and
 twos, with time to fix what they find.
 
@@ -315,6 +325,10 @@ reasoning if anyone wants it, and it is public.
   first section: those are desktop apps around a metered cloud; this is the
   same primitives, local, with an agent surface. Don't name a competitor the
   README does not.
+- *"How is this different from kinocut / FableCut?"* — the question the
+  Multimedia section guarantees. The answer is not ready. It needs kinocut's
+  quality gate read first. LISTINGS.md § The positioning finding has what is
+  known.
 - *"Isn't this just a wrapper around ffmpeg?"* — yes, and around six other
   things, and the value is that an agent can drive them and *verify the
   result*: `verify`, `check_frames`, `film_check`. Point at the clip's last

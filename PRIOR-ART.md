@@ -298,6 +298,31 @@ OTIO→ffmpeg rendering inside an agent loop.** That is the argument for spiking
 render before building on top of the assumption — if the project continues
 past the OpenChatCut trial gate.
 
+## Two neighbours the survey did not have — 2026-09-12
+
+Found while drafting the launch listings, in awesome-mcp-servers' Multimedia
+Process section. Read from each README and the GitHub API that day. Neither was
+run.
+
+- **[ronak-create/FableCut](https://github.com/ronak-create/FableCut)** · 667★ ·
+  MIT · JavaScript · created 2026-07-06. A Premiere-style NLE in the browser
+  whose whole timeline is one `project.json`. An agent edits that document over
+  MCP or REST, and the open UI hot-reloads it over SSE, so a person watches the
+  agent's cut land. That is `lucid web`'s agent pane from the other end: no
+  transcript addressing, no OTIO, render in the browser. It is already in the
+  official registry, the awesome list and Glama, which is the listing path lucid
+  is about to take.
+- **[Cassette-Editor/oh-my-cassette](https://github.com/Cassette-Editor/oh-my-cassette)**
+  · 132★ · MIT · Python. A Claude Code, Codex and OpenCode plugin plus MCP server.
+  It returns a timeline digest and a contact sheet every turn, and renders
+  nothing until the plan is approved. It needs a Cassette account, so the edit
+  is not local. It quotes its own session cost ($4 on Opus 5), the way TRIAL.md
+  quotes lucid's.
+
+kinocut moved from 101★ to 146★ since the entry above and now pitches "quality
+gates". What that gate compares was not read, and it decides whether "the render
+is checked against the edit" is still lucid's alone.
+
 ## Stateless-ffmpeg MCP servers
 
 Useful only as reference for tool naming and parameter conventions. None carries
