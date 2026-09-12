@@ -258,9 +258,10 @@ twos, with time to fix what they find.
   cannot name `sys.executable`, and a bare `lucid` is the silent `tools: []`
   failure HISTORY.md § The agent panel had no tools at all measured — and it
   was driven over stdio with the repo's venv scrubbed from PATH: 90 tools.
-  What remains is a user-facing line in the README once the repo is public,
-  since `/plugin marketplace add tydude001/lucid` 404s until then. Shipped —
-  see HISTORY.md § The registry entry and the plugin manifest.
+  README.md § Try it carries the two install commands
+  (`/plugin marketplace add tydude001/lucid`, `/plugin install lucid@lucid`),
+  which 404 until the flip and need nothing else afterwards. Shipped — see
+  HISTORY.md § The registry entry and the plugin manifest.
 
 **What to watch.** Each listing reports something — installs, stars,
 "tried it" comments. Record which ones actually sent a stranger (an issue, a
