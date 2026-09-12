@@ -335,7 +335,10 @@ reasoning if anyone wants it, and it is public.
   against the timeline, and counts its frames against the timeline's.
   kinocut's gate scores signal levels (brightness, saturation, loudness) and
   its receipts are hashes. FableCut is a browser NLE an agent edits live, with
-  no transcript addressing. Credit both. LISTINGS.md § kinocut's gate, read.
+  no transcript addressing, and its export runs in the open browser tab — so
+  its agent cannot render or check a cut on its own. Credit both, and concede
+  FableCut's hand editing and its one-command install, which are real.
+  LISTINGS.md § kinocut's gate, read; PRIOR-ART.md § FableCut, read.
 - *"Isn't this just a wrapper around ffmpeg?"* — yes, and around six other
   things, and the value is that an agent can drive them and *verify the
   result*: `verify`, `check_frames`, `film_check`. Point at the clip's last

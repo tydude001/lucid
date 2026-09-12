@@ -311,7 +311,8 @@ run.
   agent's cut land. That is `lucid web`'s agent pane from the other end: no
   transcript addressing, no OTIO, render in the browser. It is already in the
   official registry, the awesome list and Glama, which is the listing path lucid
-  is about to take.
+  is about to take. Read from source the same day, below: § FableCut, read —
+  and why lucid does not merge with it.
 - **[Cassette-Editor/oh-my-cassette](https://github.com/Cassette-Editor/oh-my-cassette)**
   · 132★ · MIT · Python. A Claude Code, Codex and OpenCode plugin plus MCP server.
   It returns a timeline digest and a contact sheet every turn, and renders
@@ -328,6 +329,60 @@ No path was found that transcribes a render against intended words or counts
 frames against a timeline, so that pair (`verify`, `check_frames`) stays
 lucid's, stated narrowly. Grep and reading, not a run:
 `~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read.
+
+## FableCut, read — and why lucid does not merge with it
+
+Asked 2026-09-12: is FableCut the same thing, is it better, should lucid merge
+into it. Read from source at `6ed70b0` (v1.7.0, pushed 2026-09-11; 667★, 67
+forks, 7 contributors). Grep and reading, not a run.
+
+**Same neighbourhood, a different product.** FableCut is a human's NLE with an
+agent as co-editor; lucid is an agent's editing toolkit with a window a human
+watches through.
+
+| | FableCut | lucid |
+|---|---|---|
+| Agent surface | 8 MCP tools, mostly get/patch/set of `project.json` — clips placed in seconds | 93 `@_tool()` tools, each with a CLI twin, ranges addressed by transcript word |
+| Speech | None in the editor. `examples/auto-captions/` turns someone else's STT word timestamps into karaoke text clips — captions, never addressing | whisper at import; cut, cue, caption and verify all resolve through words |
+| Render | Browser compositor → server ffmpeg (`/api/export/begin`/`frame`/`audio`/`end`); its own CLAUDE.md: "the user previews/exports from the UI". No MCP export tool | Headless — auto-editor single-source, `melt` multi-source |
+| Checking the output | None found against the plan | `verify` transcribes the render, `check_frames` counts it against the timeline |
+| Stack | Node ≥18, zero npm deps, one 8,345-line vanilla `app.js` | Python ops layer plus whisper, the Kdenlive flatpak's melt, auto-editor |
+| Licence | MIT | PolyForm Shield |
+
+**Where it is ahead, measured rather than conceded:**
+
+- **Distribution.** HN front page, the official registry, awesome-mcp-servers,
+  Glama, a Discord, five README translations — the whole of
+  docs/plans/LAUNCH.md, already done.
+- **Hand editing.** Keyframes, transitions, marquee multi-select, on-monitor
+  move/resize/rotate, multi-channel audio stems, in/out work area. lucid's
+  window has direct-manipulation gestures; it is not a Premiere.
+- **Install.** `node server.js` against lucid's three external binaries. Of
+  everything here, this is the gap most likely to cost lucid a stranger.
+
+**Where lucid is ahead:** an unattended agent can cut, render and check its own
+cut. FableCut's agent cannot render without a browser tab open, and nothing
+compares what it rendered to what was meant. Word-addressed editing,
+framing detection, the timeline-derived captions, cards and the TTS splice have
+no counterpart, and its "any process that writes JSON edits the video" design
+points away from them rather than toward them.
+
+**Why not merge.** Three reasons, any one sufficient:
+
+1. **Nothing ports.** A merge is lucid's ideas rewritten into a single JS file
+   on a different runtime; none of `ops.py`, whisper or the melt writer
+   crosses over.
+2. **The licence.** Code contributed there is MIT, which undoes the PolyForm
+   Shield choice (HISTORY.md § The licence, chosen, and wiki `decisions.md`).
+3. **The designs are opposites.** "The project file is the interface" lets
+   any writer place anything; lucid routes every mutation through one `ops`
+   function and verifies the render. Blending them keeps neither guarantee.
+
+**What to take instead:** its install story and its listing path, both named
+in LAUNCH.md. Interop is the one bridge that makes sense — lucid writing a
+FableCut `project.json` so a word-cut film can be hand-finished there, the way
+`import_edit` already reads a `.kdenlive` — and it is **not queued**: build it
+when someone asks, not on speculation.
 
 ## Stateless-ffmpeg MCP servers
 
