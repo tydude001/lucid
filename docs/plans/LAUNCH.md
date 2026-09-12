@@ -199,10 +199,12 @@ Tyler's hand, in this order, the same afternoon:
    unfurls to on X, Bluesky and Slack. It is already screened for footage and
    paths (CLAUDE.md § Conventions, the screenshot rule).
 6. Tag a release: `v0.22.0`, at the tip that goes public. `v0.21.0`
-   predates the licence change. **The two version literals are already at
+   predates the licence change. **All six version literals are already at
    0.22.0** (2026-09-12, `uv sync` behind them, `tests/test_version.py`
-   green), so this item is the annotated tag and the GitHub release, not the
-   bump. A GitHub release with notes gives the
+   holding them together and green), so this item is the annotated tag and
+   the GitHub release, not the bump. It read "two" until `b217b18`, when
+   step 4's own manifests added four more — CLAUDE.md § Conventions names
+   all six. A GitHub release with notes gives the
    directories in step 4 something to cite and the HN post a permalink that
    will not move. Release notes are the HISTORY.md section names since the
    last tag, one line each — not a changelog, which the repo does not keep
