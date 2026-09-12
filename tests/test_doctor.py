@@ -289,6 +289,20 @@ def test_no_display_names_offscreen_rather_than_just_refusing(
     assert "still exit 0" in display["why"]
 
 
+def test_a_headless_qt_that_draws_nothing_is_not_a_display(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ubuntu 24.04's MLT 7.22 ignores QT_QPA_PLATFORM=offscreen, so the ✓ for a
+    headless box has to come from what the probe drew. HISTORY.md § A stranger's
+    install, on a clean Ubuntu."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(doctor.picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})
+    monkeypatch.setattr(doctor.picture, "qt_draws", lambda env: False)
+    display = doctor._display()
+    assert display["ok"] is False
+    assert "xvfb-run" in display["fix"]
+    monkeypatch.setattr(doctor.picture, "qt_draws", lambda env: True)
+    assert doctor._display()["ok"] is True
+
+
 def test_headless_qt_counts_as_a_display(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(doctor.picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})

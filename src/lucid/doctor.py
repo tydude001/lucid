@@ -154,7 +154,9 @@ def _whisper_entry() -> dict[str, Any]:
                 "install openai-whisper (`uv tool install openai-whisper`, or "
                 "into any venv) and put its `whisper` on PATH, or point "
                 "LUCID_WHISPER at the binary. lucid never imports it — it is a "
-                "subprocess, so it does not have to live in lucid's own venv."
+                "subprocess, so it does not have to live in lucid's own venv. "
+                "With no NVIDIA GPU, add `--torch-backend cpu`: the default pulls "
+                "CUDA torch, 5.5 GB against 1.9 GB, for a card that is not there."
             ),
         )
     out, err, code = _run([str(binary), "--help"])
@@ -515,6 +517,28 @@ def _display() -> dict[str, Any]:
         "why": None,
         "fix": None,
     }
+    if report["ok"] and headless and not (wayland or x11):
+        # The variable is a request; whether MLT honours it is the build's call.
+        # Ubuntu 24.04's MLT 7.22 does not, and drops every `qtblend` at exit 0,
+        # so a headless-only box is judged by a one-frame probe render.
+        draws = picture.qt_draws(env)
+        report["qt_probe"] = draws
+        if draws is False:
+            report["ok"] = False
+            report["how"] = None
+            report["why"] = (
+                "QT_QPA_PLATFORM is set, but this melt's Qt module does not draw "
+                "under it — a one-frame probe came back with its `qtblend` filter "
+                "dropped, so a layered render would lose every card and crop and "
+                "still exit 0."
+            )
+            report["fix"] = (
+                "run renders under a virtual X display: `xvfb-run -a lucid …` "
+                "(`apt install xvfb`). Some MLT builds want X11 whatever "
+                "QT_QPA_PLATFORM says; Ubuntu 24.04's MLT 7.22 is one. "
+                "`lucid export --render` refuses rather than rendering without it."
+            )
+            return report
     if report["ok"]:
         report["how"] = (
             "QT_QPA_PLATFORM draws with no display server"

@@ -105,6 +105,15 @@ def test_linux_still_looks_at_the_flatpak_and_no_bundle(monkeypatch: pytest.Monk
     assert "flatpak install org.kde.kdenlive" in install
 
 
+def test_linux_melt_advice_leads_with_the_distribution_package(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clean Ubuntu 24.04 told only about the flatpak had a working `apt install
+    melt` one line away. HISTORY.md § A stranger's install, on a clean Ubuntu."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    _, install = picture.melt_search()
+    assert "apt install melt" in install
+    assert install.index("apt install melt") < install.index("flatpak install")
+
+
 @pytest.mark.parametrize(
     ("platform", "note"),
     [("darwin", "Linux-only"), ("win32", "Linux-only"), ("linux", "systemd-run is not available")],
@@ -141,6 +150,51 @@ def test_the_uncapped_render_note_says_why_for_the_platform(
     result = picture.render(project, tmp_path / "out.mp4", expect_frames=150)
     assert result["memory_cap"] is None
     assert any(note in n for n in result["notes"])
+
+
+@pytest.mark.parametrize("bus", [False, True])
+def test_the_memory_cap_needs_a_user_bus_not_just_systemd_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bus: bool
+) -> None:
+    """A clean Ubuntu container has `systemd-run` on PATH and no user session
+    bus, so every capped render died with "Failed to connect to bus" before melt
+    started, and was reported as "melt rendered nothing". On PATH is not the
+    same as usable. HISTORY.md § A stranger's install, on a clean Ubuntu."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.setattr(picture, "qt_draws", lambda env: True)
+    runtime = tmp_path / "run"
+    runtime.mkdir()
+    if bus:
+        (runtime / "bus").write_bytes(b"")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
+    monkeypatch.setattr(picture.shutil, "which", lambda name: f"/usr/bin/{name}")
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> object:
+        commands.append(command)
+        target = next(a for a in command if a.startswith("avformat:")).removeprefix("avformat:")
+        Path(target).write_bytes(b"a render")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(picture.subprocess, "run", fake_run)
+    monkeypatch.setattr(picture.media, "probe", lambda p: _PROBE)
+    monkeypatch.setattr(
+        picture.media,
+        "count_frames",
+        lambda p: {"frames": 150, "container_frames": 150, "duration": 5.0, "has_video": True},
+    )
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    result = picture.render(project, tmp_path / "out.mp4", expect_frames=150)
+    assert (commands[0][0] == "systemd-run") is bus
+    assert (result["memory_cap"] is not None) is bus
+    if not bus:
+        assert any("user session bus" in n for n in result["notes"])
 
 
 # -- auto-editor -------------------------------------------------------------
@@ -676,3 +730,23 @@ def test_doctors_font_cross_says_what_drew_instead(monkeypatch: pytest.MonkeyPat
         }
     )
     assert "libass (directwrite) drew it with: ArialMT (arial.ttf)" in text
+
+
+def test_a_headless_qt_that_draws_nothing_refuses_the_render(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ubuntu 24.04's MLT 7.22 Qt module ignores QT_QPA_PLATFORM=offscreen and
+    wants X11: a 9:16 render dropped its crop filter, letterboxed the footage,
+    and still agreed with the timeline frame for frame. So a headless Qt is
+    judged by what it draws, not by the variable. HISTORY.md § A stranger's
+    install, on a clean Ubuntu."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})
+    monkeypatch.setattr(picture, "qt_draws", lambda env: False)
+    monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+    with pytest.raises(picture.PictureError, match="xvfb-run"):
+        picture.render(project, tmp_path / "out.mp4", expect_frames=150)

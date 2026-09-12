@@ -12882,3 +12882,70 @@ same input.
 
 `glama.json` went in at the same time (LAUNCH.md step 4). It is inert until
 Glama can read a public repo.
+
+## A stranger's install, on a clean Ubuntu — 2026-09-12
+
+LAUNCH.md step 2 leaves one question open that the Mac kit cannot answer,
+because the kit installs everything for the tester: can a stranger get from a
+bare machine to a verified render by following `lucid doctor`'s printed
+fixes? This ran that question on Linux, in a fresh `ubuntu:24.04` container
+as a new non-root user. The user had only `git` and `curl`, cloned a bundle of
+`baa5c30`, then followed README and DEMO.md literally, applying each fix
+doctor printed and nothing else. Logs: `~/lucid-work/prelaunch/stranger-*.txt`.
+
+**It reaches a verified render**, with one step no doc named: 34 of 34 words
+heard, similarity 1.0, frames agreeing at delta 0. Numbers against DEMO.md's:
+seed 16.7 s (16.67), the planned cut removes 4.76 (4.7), the padded cut 4.86
+(4.8), timeline 11.84 s (11.866), 284 frames (286), similarity 1.0 (0.971).
+Word indices 11–23 and 19–23 match exactly. Doctor's fixes, followed: apt's
+`ffmpeg`, `melt` (7.22) and `espeak-ng`, `uv tool install openai-whisper`, and
+auto-editor 31.6.0 from the release. That leaves one required ✗, `magick`,
+because Ubuntu 24.04 packages only ImageMagick 6.
+
+What it found, in the order a stranger meets it:
+
+- **`systemd-run` on PATH is not a usable memory cap.** The container has the
+  binary and no user session bus, so the capped render died with "Failed to
+  connect to bus" before melt started. lucid reported it as "melt rendered
+  nothing", an error about the wrong program. Every render in a container, in
+  CI, or over SSH without a login session fails this way. **Fixed:**
+  `picture.user_bus` reads `DBUS_SESSION_BUS_ADDRESS`, else
+  `$XDG_RUNTIME_DIR/bus`, the way sd-bus finds it. Without a bus the render
+  runs uncapped, with a note that names the reason. Measured: True here, False
+  in the container.
+- **`QT_QPA_PLATFORM=offscreen` is not enough for every MLT.** Doctor
+  recommends it for a headless box. Ubuntu's MLT 7.22 Qt module prints
+  "requires a X11 environment" and drops every `qtblend`. The demo's own
+  render survived that, because its picture is full-frame, but a 9:16 canvas
+  came out **letterboxed with all four corner labels**, where the flatpak's
+  melt on this box, just as headless, crops. Both renders reported 284/285
+  frames agreeing, so every check was clean. `xvfb-run -a` crops correctly.
+  **Fixed:** `picture.qt_draws` renders a 64x36 frame, a red producer that a
+  `qtblend` filter squeezes into the left half, and reads two pixels. The
+  right half is black where Qt drew and red where the filter was dropped.
+  Measured three ways: flatpak headless draws (0.9 s), Ubuntu headless does
+  not, Ubuntu under xvfb does. The flatpak with no platform set also reads
+  False, so the probe can say no on this build too. A headless-only render
+  that fails the probe refuses and names `xvfb-run`, and doctor's Display row
+  goes ✗ with the same fix. A probe that cannot conclude (no melt, no frame)
+  returns None and never refuses.
+- **Doctor's melt fix offered only the Kdenlive flatpak**, and said melt "has
+  no host package on many boxes". `apt install melt` was one line away and
+  renders. **Fixed:** the distribution package leads.
+- **`uv tool install openai-whisper` pulls CUDA torch on a box with no GPU**:
+  5.5 GB, the largest single cost of the install. `--torch-backend cpu` is
+  1.9 GB and transcribed the demo VO to its 47 words in 33 s. **Fixed in the
+  advice:** README and doctor's whisper fix both name it.
+
+Found and **not** acted on, because each is Tyler's call:
+
+- **`magick` is Required, and Ubuntu LTS cannot satisfy it from apt.** A
+  stranger on 24.04 never sees `ok`, although DEMO.md draws no card. Doctor's
+  own wording already says "everything else works" without it.
+- **Doctor prints this box's voice-clone path to strangers.** `LUCID_TTS`
+  falls back to `~/lucid-work/voice-clone/venv-qwen/bin/python`, and the
+  container's doctor showed `/home/you/lucid-work/voice-clone/…`. It is the
+  same leak class as the `~/projects` resolver rule in CLAUDE.md, and the
+  fallback is documented there as deliberate.
+- **The "no timeline yet" toast** still sits over the fresh-project empty
+  state (§ The launch clip's product defects, fixed).

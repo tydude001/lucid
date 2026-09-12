@@ -1039,7 +1039,17 @@ absent optional capability is "unavailable", never a failure, and never moves
       not need. The Kdenlive flatpak ships **no** `xvfb-run` — a goodsometimes
       note claiming its `melt` wrapped one was wrong about the mechanism — so
       this is the route for every unattended render. Set it alongside
-      `DISPLAY`/`WAYLAND_DISPLAY` only if you want; it is sufficient alone.
+      `DISPLAY`/`WAYLAND_DISPLAY` only if you want; it is sufficient alone
+      **for the flatpak's MLT, and not for every build**: Ubuntu 24.04's
+      packaged MLT 7.22 ignores it, wants X11, and dropped a 9:16 crop at
+      exit 0 with every frame counted and agreeing. So a headless-only render
+      is gated on `picture.qt_draws` — a one-frame `qtblend` probe judged by
+      two pixels, never by the variable — and `xvfb-run -a` is that build's
+      route. HISTORY.md § A stranger's install, on a clean Ubuntu.
+      - **`systemd-run` on PATH is not a usable memory cap**: with no user
+        session bus (a container, CI, SSH without a login) the scope fails
+        before melt starts and read as "melt rendered nothing".
+        `picture.user_bus` decides, and the render runs uncapped with a note.
     - So **a session with no desktop behind it cannot run the seven
       melt-rendering tests in `test_server_stdio.py`** without that variable — `export` refuses with
       "no display for MLT's Qt module to open", correctly, and they fail as a

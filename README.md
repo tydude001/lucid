@@ -58,7 +58,9 @@ never been run on macOS or Windows. What a port would take is
 - **whisper** — transcription and render verification. A subprocess, never an
   import: any `openai-whisper` install works (`uv tool install
   openai-whisper` is the short route), resolved via `LUCID_WHISPER`, then
-  `PATH`.
+  `PATH`. Without an NVIDIA GPU, add `--torch-backend cpu`. The default pulls
+  CUDA torch, 5.5 GB against 1.9 GB. The CPU build transcribed the demo's
+  19-second voiceover in 33 seconds.
 - **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). Your
   distribution's `melt` package, or a Kdenlive install (the flatpak's own is
   found automatically); `LUCID_MELT` overrides both.
@@ -207,9 +209,11 @@ uv run pytest
 The suite spawns a real `lucid mcp` subprocess and speaks MCP over its stdio,
 so expect it to be a little slower than a pure unit suite. Tests that need
 whisper, auto-editor, melt or ImageMagick skip where the binary is absent. The
-seven tests that render through `melt` also need a desktop session (or
-`QT_QPA_PLATFORM=offscreen`); on a headless box they fail with "no display for
-MLT's Qt module to open", which is the environment, not a regression.
+seven tests that render through `melt` also need a desktop session, or on a
+headless box `QT_QPA_PLATFORM=offscreen` where your MLT honours it and
+`xvfb-run -a` where it does not (`lucid doctor` renders a probe frame to tell
+you which). Without one they fail with "no display for MLT's Qt module to
+open", which is the environment, not a regression.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) has the rules a pull request is checked
 against, and [SECURITY.md](SECURITY.md) how to report a vulnerability.

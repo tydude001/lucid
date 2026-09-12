@@ -155,10 +155,38 @@ def melt_search() -> tuple[str, str]:
     return (
         f"the Kdenlive flatpak ({KDENLIVE_FLATPAK})",
         (
-            "melt has no host package on many boxes — it ships inside Kdenlive. "
-            "`flatpak install org.kde.kdenlive`, or set LUCID_MELT to a melt command."
+            # The distribution package leads: a clean Ubuntu 24.04 following the
+            # flatpak-only advice had `apt install melt` (7.22, renders) one line
+            # away. HISTORY.md § A stranger's install, on a clean Ubuntu.
+            "Install your distribution's melt package (`apt install melt` on "
+            "Debian/Ubuntu), or Kdenlive's flatpak, which ships melt inside it and "
+            "is found on its own (`flatpak install org.kde.kdenlive`) — or set "
+            "LUCID_MELT to a melt command."
         ),
     )
+
+
+def user_bus(env: dict[str, str]) -> bool:
+    """Whether `systemd-run --user` has a user session bus to reach.
+
+    On PATH is not the same as usable. A clean Ubuntu container has the binary
+    and no bus, so a capped render died with "Failed to connect to bus" before
+    melt ever started, and was reported as melt rendering nothing. sd-bus finds
+    the user bus through `DBUS_SESSION_BUS_ADDRESS`, else `$XDG_RUNTIME_DIR/bus`.
+    Only a `unix:path=` address can be checked from here; any other form is
+    taken at its word.
+    """
+    address = env.get("DBUS_SESSION_BUS_ADDRESS", "")
+    if address:
+        path = next(
+            (part.removeprefix("unix:path=") for part in address.split(";") if part.startswith("unix:path=")),
+            None,
+        )
+        return path is None or Path(path.split(",")[0]).exists()
+    runtime = env.get("XDG_RUNTIME_DIR") or (
+        f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else ""
+    )
+    return bool(runtime) and (Path(runtime) / "bus").exists()
 
 
 def melt_command() -> list[str]:
@@ -264,6 +292,80 @@ def qt_is_headless(env: dict[str, str] | None = None) -> bool:
     """Is Qt told to draw without a display? (`QT_QPA_PLATFORM=offscreen`)."""
     value = (env if env is not None else os.environ).get("QT_QPA_PLATFORM", "")
     return value.split(":", 1)[0].strip().lower() in HEADLESS_QT_PLATFORMS
+
+
+#: One frame, 64x36: a red colour producer squeezed into the left half by a
+#: `qtblend` filter. Where the Qt module draws, the right half comes out black;
+#: where it refused to load, the filter is dropped and the frame is red edge to
+#: edge — with melt exiting 0 either way.
+_QT_PROBE = """<?xml version="1.0" encoding="utf-8"?>
+<mlt>
+  <profile description="lucid-qt-probe" width="64" height="36" progressive="1"
+    sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="16"
+    display_aspect_den="9" frame_rate_num="25" frame_rate_den="1" colorspace="709"/>
+  <producer id="red" in="0" out="0">
+    <property name="mlt_service">color</property>
+    <property name="resource">#ffff0000</property>
+    <filter>
+      <property name="mlt_service">qtblend</property>
+      <property name="rect">0 0 32 36 1</property>
+    </filter>
+  </producer>
+</mlt>
+"""
+
+_qt_draws_cache: dict[tuple[str, ...], bool] = {}
+
+
+def qt_draws(env: dict[str, str]) -> bool | None:
+    """Does this melt's Qt module actually draw in this environment?
+
+    `QT_QPA_PLATFORM=offscreen` is a request, and whether MLT honours it is up
+    to the build. The Kdenlive flatpak's does (measured 2026-08-23). Ubuntu
+    24.04's MLT 7.22 does not: its Qt module prints "requires a X11
+    environment", drops every `qtblend`, and a 9:16 render came out letterboxed
+    with every frame counted and agreeing. `xvfb-run -a` fixed that one. So
+    this renders `_QT_PROBE` and reads two pixels back.
+
+    True or False is a measurement and is cached per melt and platform. None
+    means the probe itself could not conclude (no melt, no ffmpeg, nothing
+    written). That is never grounds for a refusal: the render's own checks
+    still speak for it.
+    """
+    try:
+        melt = melt_command()
+    except PictureError:
+        return None
+    key = (*melt, env.get("QT_QPA_PLATFORM", ""))
+    if key in _qt_draws_cache:
+        return _qt_draws_cache[key]
+    work = scratch("render-")
+    try:
+        document = work / "qt-probe.mlt"
+        frame = work / "qt-probe.png"
+        document.write_text(_QT_PROBE, encoding="utf-8")
+        subprocess.run(
+            [*melt, str(document), "-consumer", f"avformat:{frame}", "vcodec=png"],
+            capture_output=True, env=env, timeout=60, check=False,
+        )  # fmt: skip
+        if not frame.exists() or frame.stat().st_size == 0:
+            return None
+        pixels = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(frame), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+            capture_output=True, timeout=30, check=False,
+        ).stdout  # fmt: skip
+        if len(pixels) != 64 * 36 * 3:
+            return None
+        left, right = pixels[(18 * 64 + 8) * 3], pixels[(18 * 64 + 56) * 3]
+        if left < 128:
+            return None  # not even the red came out; the probe says nothing
+        draws = right < 64
+    except Exception:  # noqa: BLE001 — an inconclusive probe is never a refusal
+        return None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    _qt_draws_cache[key] = draws
+    return draws
 
 
 def parse_melt_xml(document: str) -> int:
@@ -591,12 +693,26 @@ def render(
             "set QT_QPA_PLATFORM=offscreen — measured 2026-08-23 to draw a "
             "`qimage` producer with no session at all."
         )
+    if (
+        not native_qt_platform()
+        and not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"))
+        and qt_draws(env) is False
+    ):
+        raise PictureError(
+            "QT_QPA_PLATFORM is set, but this melt's Qt module does not draw under "
+            "it: a one-frame probe came back with its `qtblend` filter dropped. A "
+            "render here would lose every card, crop and composite and still exit "
+            "0. Some MLT builds want a real X display (Ubuntu 24.04's MLT 7.22 "
+            "does), so run the render under a virtual one: `xvfb-run -a lucid …` "
+            "(`apt install xvfb`)."
+        )
 
     work = scratch("render-")
     staged = work / (destination.name or "render.mp4")
     melt = melt_command()
     command = [*melt, str(path), "-consumer", f"avformat:{staged}", *consumer_args]
-    capped = bool(max_memory) and shutil.which("systemd-run") is not None
+    has_systemd_run = shutil.which("systemd-run") is not None
+    capped = bool(max_memory) and has_systemd_run and user_bus(env)
     if capped:
         command = [
             "systemd-run", "--user", "--scope", "--quiet",
@@ -663,13 +779,22 @@ def render(
             "and its duration was compared instead"
         )
     if max_memory and not capped:
-        notes.append(
-            f"systemd-run is not available here, so the render ran without the "
-            f"{max_memory} memory cap"
-            if sys.platform.startswith("linux")
-            else f"the {max_memory} memory cap is a systemd scope and Linux-only, so "
-            "this render ran without one"
-        )
+        if not sys.platform.startswith("linux"):
+            notes.append(
+                f"the {max_memory} memory cap is a systemd scope and Linux-only, so "
+                "this render ran without one"
+            )
+        elif has_systemd_run:
+            notes.append(
+                f"systemd-run is here but there is no user session bus for it to reach "
+                f"(a container, or a login without one), so the render ran without the "
+                f"{max_memory} memory cap"
+            )
+        else:
+            notes.append(
+                f"systemd-run is not available here, so the render ran without the "
+                f"{max_memory} memory cap"
+            )
     return {
         "output": str(destination),
         "project": str(path),

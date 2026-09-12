@@ -22,6 +22,12 @@ uv run lucid doctor
 It probes all of them and, for anything missing, prints the fix rather than
 just a ✗.
 
+On a box with no desktop (a server, a container, SSH), step 6's render needs
+Qt to draw without one. `lucid doctor`'s Display row renders a probe frame and
+says whether `QT_QPA_PLATFORM=offscreen` is enough for your MLT. Where it is
+not, as with Ubuntu 24.04's packaged melt, run the render as
+`xvfb-run -a uv run lucid …` (`apt install xvfb`).
+
 ## 1. Make the footage
 
 ```sh
