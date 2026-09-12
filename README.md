@@ -136,6 +136,12 @@ server, so the 90 editing tools are there without an `mcp add` of your own:
 /plugin install lucid@lucid
 ```
 
+The plugin's first start downloads lucid's Python and its dependencies, about
+175 MB, and Claude Code gives a server 30 seconds to connect. On a slower
+line, start that first session as `MCP_TIMEOUT=300000 claude`; if `/mcp`
+already shows lucid as failed, reconnect it there — the download keeps what
+it fetched.
+
 ## What's in the box
 
 One line each here; the [manual](docs/MANUAL.md) walks every one of these

@@ -53,8 +53,9 @@ file, burying your actual change.
 
 The full suite takes about ten minutes. Tests that need a binary you don't
 have (whisper, auto-editor, melt, ImageMagick) skip rather than fail. The
-seven tests that render through `melt` also need a display, or
-`QT_QPA_PLATFORM=offscreen`.
+seven tests that render through `melt` also need a display. Without one, try
+`QT_QPA_PLATFORM=offscreen`, and run the suite under `xvfb-run -a` where
+`lucid doctor`'s Display row says your MLT ignores it.
 
 ## Commits
 

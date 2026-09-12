@@ -12974,3 +12974,44 @@ Ubuntu.
   against the old `app.js`. Driven live: the toast stayed hidden, the
   transcript drew the empty state, and a CLI `import` plus `seed` loaded the
   timeline into the open page (4 segments) with no reload.
+
+## The plugin, installed the way a stranger installs it — 2026-09-12
+
+§ The registry entry and the plugin manifest drove the plugin's server
+command over stdio by hand. Nobody had put the manifest through Claude Code's
+own loader. Measured on 2.1.270, each run in a throwaway `CLAUDE_CONFIG_DIR`,
+since `/plugin marketplace add tydude001/lucid` 404s until the flip:
+
+- **A git source is the GitHub route's shape, and it works.** `claude plugin
+  marketplace add` against Gitea's clone URL, then `plugin install
+  lucid@lucid`. `${CLAUDE_PLUGIN_ROOT}` resolved to the install cache
+  (`plugins/cache/lucid/lucid/0.22.0`), `uv run` built a `.venv` there from
+  an empty uv cache, and the `claude -p` init event listed
+  `plugin:lucid:lucid` as `connected` with **90 tools**. A local-directory
+  source works too, but it points the root at the source checkout rather
+  than the cache, so it is not the stranger's shape. A `file://` URL is
+  refused as a source format.
+- **The first start is a 175 MB download, and Claude Code waits 30 seconds.**
+  A cold `uv sync` fetched 107 MB of managed Python 3.13 and 68 MB of wheels.
+  That took 1.3 s here, but a line under about 50 Mbit cannot finish in 30 s.
+  A server sleeping 45 s failed `claude mcp list` with "connection timed out
+  after 30000ms". The same server connected with `MCP_TIMEOUT=90000`, and a
+  20 s one connected untouched. `claude -p` does not wait at all: it reports
+  a slow server as `pending` with 0 tools. A `uv sync` killed partway kept
+  82 MB of the Python download, and the retry finished. README § Try it now
+  says both routes: `MCP_TIMEOUT=300000 claude` for the first session, or
+  reconnect from `/mcp`.
+
+Two smaller launch-thread items in the same pass:
+
+- **Issue forms.** `.github/ISSUE_TEMPLATE/` has an install form built around
+  a `lucid doctor` paste, a bug form that asks what is wrong in the file
+  rather than the exit code, and a config linking security reports to private
+  vulnerability reporting, the route SECURITY.md already names. All three
+  validate against schemastore's issue-forms and issue-config schemas. The
+  doctor fields say the paste prints local paths, so a username can be
+  edited out.
+- **CONTRIBUTING's headless line** said `QT_QPA_PLATFORM=offscreen` was
+  enough for the melt tests, which § A stranger's install, on a clean Ubuntu
+  measured false for Ubuntu's MLT. It now points at doctor's Display row and
+  `xvfb-run -a`.

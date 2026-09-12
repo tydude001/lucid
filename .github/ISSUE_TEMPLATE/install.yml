@@ -1,0 +1,51 @@
+name: Install trouble, or doctor shows ✗
+description: lucid will not start, or `lucid doctor` marks something required as missing.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying lucid. The fastest report is doctor's own output — it names
+        every binary lucid looked for, where it looked, and what it found.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `uv run lucid doctor`
+      description: |
+        Paste all of it. It prints paths on your machine, so edit out your username if
+        you like; keep the rest. If `uv run lucid doctor` itself fails, paste that instead.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version or distribution
+      placeholder: macOS 15.3, Ubuntu 24.04, Fedora 42, …
+  - type: dropdown
+    id: route
+    attributes:
+      label: How you installed it
+      options:
+        - git clone, then uv sync
+        - Claude Code plugin (/plugin install lucid@lucid)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: stopped
+    attributes:
+      label: Where it stopped
+      description: The command you ran last, and what it printed. docs/DEMO.md step names help.
+      render: text
