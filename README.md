@@ -124,6 +124,14 @@ To let an agent drive the same project over MCP:
 claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
 ```
 
+In Claude Code, the plugin is the shorter route — it registers the same MCP
+server, so the 90 editing tools are there without an `mcp add` of your own:
+
+```
+/plugin marketplace add tydude001/lucid
+/plugin install lucid@lucid
+```
+
 ## What's in the box
 
 One line each here; the [manual](docs/MANUAL.md) walks every one of these
