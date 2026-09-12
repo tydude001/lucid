@@ -451,6 +451,45 @@ def test_every_tool_is_registered() -> None:
     assert {tool.name for tool in tools.tools} == EXPECTED_TOOLS
 
 
+def test_every_tool_says_what_it_does_to_the_project() -> None:
+    """The MCP hints, read off the wire the way a client or a directory reads
+    them — a table in `server.py` that never reached `tools/list` would pass
+    any in-process check. All four hints are set on every tool, because an
+    unset one means the spec's default, and for `destructive_hint` that
+    default is `true`. The pinned rows are the ones a wrong table would
+    most plausibly get wrong: a cut that moves under itself, a check that
+    only reads, a create that refuses rather than replaces."""
+
+    async def body(session: ClientSession) -> Any:
+        return await session.list_tools()
+
+    tools = {tool.name: tool.annotations for tool in anyio.run(_with_server, body).tools}
+    for name, hints in tools.items():
+        assert hints is not None, name
+        values = (hints.read_only_hint, hints.destructive_hint, hints.idempotent_hint, hints.open_world_hint)
+        assert None not in values, name
+        assert hints.open_world_hint is False, name
+        if hints.read_only_hint:
+            assert hints.destructive_hint is False, name
+
+    assert tools["cut_by_time"].destructive_hint and not tools["cut_by_time"].idempotent_hint
+    assert tools["undo"].destructive_hint and not tools["undo"].idempotent_hint
+    assert tools["verify"].read_only_hint
+    assert tools["init"].destructive_hint is False and not tools["init"].read_only_hint
+    assert tools["shot_sheet"].read_only_hint is False  # `out` writes a file
+
+
+def test_a_tool_missing_from_the_hint_table_refuses_to_register() -> None:
+    """The table is only a contract if a new tool cannot skip it."""
+    from lucid import server
+
+    def not_a_classified_tool(path: str | None = None) -> dict[str, Any]:
+        return {}
+
+    with pytest.raises(RuntimeError, match="_ANNOTATIONS"):
+        server._tool()(not_a_classified_tool)
+
+
 #: MCP tool -> CLI subcommand. Tool names are spelled for an agent reading a
 #: tool list; subcommands are spelled for a human typing them. Where the two
 #: differ the mapping is recorded here and asserted in both directions, so a

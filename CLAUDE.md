@@ -291,6 +291,11 @@ absent optional capability is "unavailable", never a failure, and never moves
     prior expects works, advertises an identical schema, and is silently
     unconfined; a test asserts against it. HISTORY.md § Binding the agent's
     MCP server to its project.
+  - **`_tool()` also refuses a tool with no row in `server._ANNOTATIONS`** —
+    the MCP read/destructive/idempotent hints. Classify by what the tool does
+    when it *writes* (`apply`/`plan`/`out` included), and claim
+    `destructive_hint=False` only for an op read to refuse rather than replace.
+    HISTORY.md § Every tool says what it does to the project.
   - **`path` is optional everywhere (`str | None = None`) and defaults to
     the bound project** — under `-C` it is ceremony with one accepted value,
     and an agent measured on the real trial passed it on every one of 29

@@ -28,6 +28,7 @@ from typing import Any, TypeVar
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
+from mcp.types import ToolAnnotations
 from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -209,6 +210,86 @@ def _confine(path: str | None) -> str | None:
     return str(resolved)
 
 
+#: What each tool does to the project, as the MCP spec's hints. Nothing in
+#: lucid reads these; a client does (deciding what needs a prompt), and so do
+#: the directories that grade a server's tools (Glama's "what does it do to the
+#: world"). **The table is the whole contract, and `_tool()` refuses a tool
+#: missing from it**, so a new tool cannot register unclassified.
+#:
+#: The four shapes, and the rules they were assigned by:
+#:
+#: - READ changes no project state. A tool that writes only a regenerable
+#:   cache (`cache/thumbs`, `cache/sheets`, `cache/frames`) is still READ,
+#:   because nothing a later op reads back as authored state moved.
+#: - ADD only creates, and refuses rather than replaces: `init` refuses an
+#:   existing project, `cue_add` a word that already has a cue, `unspoken_add`
+#:   a word already marked, which is also why a repeat is idempotent: the
+#:   second call refuses. **`destructive_hint=False` is claimed only where
+#:   that refusal was read in the op**; an op not checked gets the spec's own
+#:   default, destructive. A tool with `apply` or `plan` is classified by what
+#:   it does when told to write, never by its default.
+#: - SET replaces a value, and a repeat with the same arguments changes
+#:   nothing further (`caption_style`, `canvas`, an `export` to one `output`).
+#:   A sheet with an `out` path is SET, not READ: `out` writes a file where it
+#:   is told.
+#: - EDIT replaces or removes, and a repeat is not a no-op (`cut_by_time`
+#:   moves under its own cut; `undo` rolls back one more; a synth re-rolls).
+#: - Every tool is closed-world: lucid runs local binaries over local files
+#:   and calls no service.
+_READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+_ADD = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+_SET = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False)
+_EDIT = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
+
+_ANNOTATIONS: dict[str, ToolAnnotations] = {
+    **dict.fromkeys(
+        [
+            "ping", "doctor", "list_media", "hear", "get_transcript", "resolve_phrase",
+            "transcript_checks", "describe_ls", "card_templates", "card_safe_zones",
+            "pack_show", "pack_status", "cue_ls", "assets", "unspoken_ls", "build_shots",
+            "locate", "timeline_status", "timeline_view", "properties", "finish_report",
+            "caption_view", "hold_ls", "hold_check", "finish_check", "reframe_coverage",
+            "continuity_check", "continuity_ls", "thumbnail", "contact_sheet",
+            "broll_brief", "verify", "check_frames", "check_black", "spot_frames",
+            "speech_overlap", "review_list",
+        ],
+        _READ,
+    ),
+    **dict.fromkeys(
+        [
+            "init", "import_media", "cue_add", "unspoken_add", "continuity_accept",
+            # `apply` writes a label only where none is set, and never over one.
+            "attribute_speakers",
+            # `apply` never writes over an existing override (CLAUDE.md).
+            "reframe_detect",
+            # A preview-only cache, skipped when current; never the manifest.
+            "proxy_transcode",
+        ],
+        _ADD,
+    ),
+    **dict.fromkeys(
+        [
+            "migrate_project", "clip_role", "attach_transcript", "describe", "fonts",
+            "card_new", "card_render", "card_reauthor", "pack_apply", "pack_activate",
+            "pack_apply_captions", "cue_reresolve", "seed_timeline", "restore", "export",
+            "add_captions", "caption_style", "canvas", "head", "tail", "music", "reframe",
+            "reframe_sheet", "shot_sheet", "footage_sheet", "synopsis", "film_check",
+            "import_edit", "review_verdict",
+        ],
+        _SET,
+    ),
+    **dict.fromkeys(
+        [
+            "clip_rm", "transcribe", "cue_rm", "unspoken_rm", "unspoken_detect",
+            "cut_by_transcript", "cut_by_time", "undo", "vo_extend", "vo_synth",
+            "hold_add", "hold_rm", "reel", "continuity_reject", "attenuate_noises",
+            "review_add",
+        ],
+        _EDIT,
+    ),
+}
+
+
 def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
     """Register a tool, routing its project-selector arguments through `_confine`.
 
@@ -234,10 +315,16 @@ def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
     names = selectors or ("path",)
 
     def decorator(fn: F) -> F:
+        if fn.__name__ not in _ANNOTATIONS:
+            raise RuntimeError(
+                f"tool {fn.__name__!r} has no entry in server._ANNOTATIONS — classify it "
+                "(read, add, set or edit) before registering it"
+            )
+        register = mcp.tool(annotations=_ANNOTATIONS[fn.__name__])
         signature = inspect.signature(fn)
         present = [name for name in names if name in signature.parameters]
         if not present:
-            return mcp.tool()(fn)
+            return register(fn)
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -253,7 +340,7 @@ def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
                 bound.arguments[name] = _confine(bound.arguments[name])
             return fn(*bound.args, **bound.kwargs)
 
-        return mcp.tool()(wrapper)
+        return register(wrapper)
 
     return decorator
 
@@ -284,7 +371,14 @@ def doctor() -> dict[str, Any]:
 @_tool()
 def init(path: str | None = None,
     *, name: str | None = None) -> dict[str, Any]:
-    """Create a lucid project directory at `path`."""
+    """Create a lucid project directory at `path`.
+
+    Writes `lucid.json` and the empty `assets/`, `cache/`, `media/` and
+    `renders/` directories, and nothing else — no media, no timeline. Refuses
+    a directory that already holds a project rather than resetting it, so it
+    is safe to call when unsure. Next is `import_media`, then a transcript,
+    then `seed_timeline`.
+    """
     return ops.init(path, name=name)
 
 
@@ -955,8 +1049,14 @@ def cue_rm(
     after: int = -1,
     occurrence: int | None = None,
 ) -> dict[str, Any]:
-    """Remove the cue at `clip_id` word `word_index` — or wherever `phrase`
-    resolves to (its first word, `cue_add`'s own binding)."""
+    """Remove one picture cue, addressed the way `cue_add` placed it.
+
+    Give `word_index`, or `phrase` to resolve against `clip_id`'s transcript
+    (its first word, `cue_add`'s own binding). Refuses, listing every cue,
+    when none sits at that word — `cue_ls` shows the table first. Shots
+    re-project from the cues that remain; no other cue moves. Replacing a cue's asset is `cue_rm` then `cue_add`, since `cue_add`
+    refuses an occupied word. `undo` puts it back.
+    """
     return ops.cue_rm(path, clip_id, word_index, phrase=phrase, after=after, occurrence=occurrence)
 
 
@@ -1058,7 +1158,13 @@ def unspoken_rm(
     after: int = -1,
     occurrence: int | None = None,
 ) -> dict[str, Any]:
-    """Unmark a word, putting it back into captions and into `verify`."""
+    """Unmark a word `unspoken_add` marked, putting it back into captions and `verify`.
+
+    Address it by `word_index`, or by a `phrase` resolving to exactly one
+    word. Refuses a word that is not marked. The transcript file is never
+    edited either way — a mark is a manifest entry — so no cue or caption
+    renumbers. `unspoken_ls` lists the marks; `undo` restores one.
+    """
     return ops.unspoken_rm(
         path, clip_id, word_index, phrase=phrase, after=after, occurrence=occurrence
     )
@@ -1461,7 +1567,16 @@ def finish_report(
 
 @_tool()
 def undo(path: str | None = None) -> dict[str, Any]:
-    """Roll the timeline back to the state before the last mutation."""
+    """Roll the project back one mutation — the timeline, the manifest, or both.
+
+    Mutating tools snapshot first (`migrate_project` keeps its own backup
+    instead), so this undoes cuts, cues, framing, the music bed, caption style
+    and the rest alike; call it again to go back further. The reply says what came back: `timeline_restored`,
+    `manifest_restored`, and `timeline_removed` when undoing a `seed_timeline`
+    leaves no timeline at all. Undoing an import un-registers the clip but
+    leaves its media on disk. There is no redo, so read `undo_depth` first
+    when stepping back more than once.
+    """
     return ops.undo(path)
 
 

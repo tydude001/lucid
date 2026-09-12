@@ -12800,3 +12800,33 @@ with a control against the old code where one reproduces.
 Suite on this box: 2035 passed. The next Windows run needs the GitHub mirror
 synced; its log should be read for doctor's melt row, the melt refusal's
 `it printed:` line, and the font probe's `font_provider`.
+
+## Every tool says what it does to the project — 2026-09-12
+
+The launch listings (`~/lucid-work/launch-listings/LISTINGS.md`) found that
+Glama scores a server by its tool descriptions, including "what does it do to
+the world". None of lucid's 90 tools carried the MCP hints that answer that
+(`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), and
+four tools that change a project had one-line descriptions.
+
+**`server._ANNOTATIONS` is the table, and `_tool()` refuses a tool that is not
+in it**, so a new tool cannot register unclassified. There are four shapes:
+37 READ, 8 ADD, 29 SET, 16 EDIT. All 90 are closed-world. The rules that
+matter are in the table's comment:
+
+- **A regenerable cache is not a state change.** Thumbnails, sheets without
+  `out` and spot frames stay READ.
+- **`destructive_hint=False` is claimed only where the op was read and found
+  to refuse rather than replace.** `init` refuses an existing project
+  (checked by running it twice), `cue_add` an occupied word, `unspoken_add` a
+  marked one. Everything unchecked keeps the spec's own default, destructive.
+- **A tool with `apply` or `plan` is classified by what it does when it
+  writes**, never by its default. A sheet with an `out` path is SET, not READ.
+
+`init`, `undo`, `cue_rm` and `unspoken_rm` got full descriptions: what each
+writes, what it refuses, and what undoes it. `undo`'s now says there is no
+redo, which nothing had told an agent.
+
+The stdio test reads the hints off `tools/list`, the way a client or a
+directory reads them. It fails against the old `server.py` on the first tool
+(`ping`), and the refusal test does not raise there.
