@@ -1049,6 +1049,13 @@ absent optional capability is "unavailable", never a failure, and never moves
       is gated on `picture.qt_draws` — a one-frame `qtblend` probe judged by
       two pixels, never by the variable — and `xvfb-run -a` is that build's
       route. HISTORY.md § A stranger's install, on a clean Ubuntu.
+      - **On Fedora, `melt` is not melt.** The `melt` package is freeze, a
+        compression tool, and MLT's `mlt` package installs only `mlt-melt` and
+        `melt-7`, whose banners name themselves — so `picture.MELT_NAMES`
+        searches the unambiguous names first and doctor's banner match takes
+        all three. Its default `ffmpeg-free` also has no `libx264`, which every
+        render asks for; doctor's ffmpeg row checks the encoder list.
+        HISTORY.md § A stranger's install, on a clean Fedora.
       - **`systemd-run` on PATH is not a usable memory cap**: with no user
         session bus (a container, CI, SSH without a login) the scope fails
         before melt starts and read as "melt rendered nothing".

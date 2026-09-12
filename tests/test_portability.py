@@ -112,6 +112,23 @@ def test_linux_melt_advice_leads_with_the_distribution_package(monkeypatch: pyte
     _, install = picture.melt_search()
     assert "apt install melt" in install
     assert install.index("apt install melt") < install.index("flatpak install")
+    assert "dnf install mlt" in install
+
+
+def test_fedoras_mlt_is_found_ahead_of_its_freeze_melt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fedora's `mlt` installs `mlt-melt` and `melt-7` and no `melt`, and its
+    `melt` package is freeze, a compression tool. With both installed, a bare
+    `melt` searched first rendered through freeze. HISTORY.md § A stranger's
+    install, on a clean Fedora."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("LUCID_MELT", raising=False)
+    fedora = {"melt": "/usr/bin/melt", "melt-7": "/usr/bin/melt-7", "mlt-melt": "/usr/bin/mlt-melt"}
+    monkeypatch.setattr(picture.shutil, "which", fedora.get)
+    assert picture.melt_command() == ["/usr/bin/mlt-melt"]
+
+    only_mlt = {"melt-7": "/usr/bin/melt-7"}
+    monkeypatch.setattr(picture.shutil, "which", only_mlt.get)
+    assert picture.melt_command() == ["/usr/bin/melt-7"]
 
 
 @pytest.mark.parametrize(

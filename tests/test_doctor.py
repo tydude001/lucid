@@ -80,6 +80,41 @@ def test_missing_ffmpeg_names_the_fix(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "install ffmpeg" in row["fix"]
 
 
+_FFMPEG_VERSION = "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers\n"
+_ENCODERS_FREE = (
+    "Encoders:\n V....D libopenh264          OpenH264 H.264 / AVC (codec h264)\n"
+    " V....D h264_vaapi           H.264/AVC (VAAPI) (codec h264)\n A....D aac  AAC (Advanced Audio Coding)\n"
+)
+_ENCODERS_FULL = _ENCODERS_FREE + " V....D libx264              libx264 H.264 / AVC (codec h264)\n"
+
+
+def _ffmpeg_answers(monkeypatch: pytest.MonkeyPatch, encoders: str) -> None:
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        doctor, "_run", lambda cmd: ((encoders if "-encoders" in cmd else _FFMPEG_VERSION), "", 0)
+    )
+
+
+def test_an_ffmpeg_without_libx264_is_not_ffmpeg_enough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fedora's default `ffmpeg-free` ran, printed its banner and was called ✓,
+    and the demo's first command died on `Unknown encoder 'libx264'`.
+    HISTORY.md § A stranger's install, on a clean Fedora."""
+    _ffmpeg_answers(monkeypatch, _ENCODERS_FREE)
+    row = doctor._ffmpeg_entry("ffmpeg", "everything")
+    assert row["ok"] is False
+    assert "libx264" in row["why"]
+    assert "dnf swap ffmpeg-free ffmpeg" in row["fix"]
+
+
+@pytest.mark.parametrize("encoders", [_ENCODERS_FULL, ""])
+def test_libx264_or_an_unanswered_listing_passes_ffmpeg(monkeypatch: pytest.MonkeyPatch, encoders: str) -> None:
+    """An empty listing is a probe that did not answer, never a missing encoder."""
+    _ffmpeg_answers(monkeypatch, encoders)
+    row = doctor._ffmpeg_entry("ffmpeg", "everything")
+    assert row["ok"] is True
+    assert row["version"] == "8.1.2"
+
+
 def test_missing_whisper_carries_the_resolution_chain(monkeypatch: pytest.MonkeyPatch) -> None:
     """The chain is three steps and none of them is obvious, so it is printed."""
 
@@ -174,6 +209,25 @@ def test_melt_banner_is_what_passes_it(monkeypatch: pytest.MonkeyPatch) -> None:
     row = doctor._melt_entry()
     assert row["ok"] is True
     assert row["version"] == "7.40.0"
+
+
+@pytest.mark.parametrize("banner", ["mlt-melt 7.40.0", "melt-7 7.40.0"])
+def test_fedoras_melt_banner_passes_it_too(monkeypatch: pytest.MonkeyPatch, banner: str) -> None:
+    """melt names itself after argv[0], and Fedora's MLT has no `melt` to run."""
+    monkeypatch.setattr(doctor.picture, "melt_command", lambda: ["/usr/bin/mlt-melt"])
+    monkeypatch.setattr(doctor, "_run", lambda cmd: (f"{banner}\nCopyright (C) 2002-2026 Meltytech, LLC\n", "", 0))
+    row = doctor._melt_entry()
+    assert row["ok"] is True
+    assert row["version"] == "7.40.0"
+
+
+def test_freezes_melt_is_not_melt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What Fedora's `melt` package answers `-version` with, measured."""
+    monkeypatch.setattr(doctor.picture, "melt_command", lambda: ["/usr/bin/melt"])
+    monkeypatch.setattr(
+        doctor, "_run", lambda cmd: ("Unknown flag: 'e'; \nUsage: freeze [-cdfvVg] [file | +type ...]\n", "", 0)
+    )
+    assert doctor._melt_entry()["ok"] is False
 
 
 def test_missing_melt_says_what_still_works(monkeypatch: pytest.MonkeyPatch) -> None:

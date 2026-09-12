@@ -13015,3 +13015,59 @@ Two smaller launch-thread items in the same pass:
   enough for the melt tests, which § A stranger's install, on a clean Ubuntu
   measured false for Ubuntu's MLT. It now points at doctor's Display row and
   `xvfb-run -a`.
+
+## A stranger's install, on a clean Fedora — 2026-09-12
+
+§ A stranger's install, on a clean Ubuntu, repeated on
+`registry.fedoraproject.org/fedora:latest` (Fedora 44), the distribution this
+box's own desktop is built on. The setup was the same: a new non-root user with
+`git`, uv from its installer, a bundle of `32adad4`, and README, DEMO.md and
+doctor's printed fixes followed literally. Logs:
+`~/lucid-work/prelaunch/fedora/fedora-*.txt`.
+
+**It reaches a verified render, and its numbers are DEMO.md's to the digit.**
+Seed 16.67 s, the planned cut removes 4.7, the padded cut 4.8, timeline
+11.866 s, 286 frames, 34 of 34 words heard, similarity 0.971, delta 0. The
+render was read back as pixels too: blue `(27,60,92)` against the source's
+`#1b3a5c` through the first shot, rust `(120,51,25)` at 11 s. CPU whisper
+transcribed in 29–51 s. It got there only past three defects, and doctor
+misreported two of them:
+
+- **`dnf install ffmpeg` gets `ffmpeg-free`, which has no `libx264`, and
+  doctor called it ✓.** DEMO.md's first command died on `Unknown encoder
+  'libx264'`, and `picture.RENDER_ARGS`, the export presets and the preview
+  proxy all ask for the same encoder. The build has `libopenh264` and the
+  hardware encoders, nothing lucid uses. **Fixed:** doctor's ffmpeg row reads
+  `-encoders` and refuses a listing without `libx264`, naming RPM Fusion and
+  `dnf swap ffmpeg-free ffmpeg --allowerasing`. An empty listing still passes,
+  since a probe that did not answer is not a missing encoder. The swap also
+  removed `libavcodec-free` and the rest of the `-free` libraries MLT links
+  against, and the render after it was the one measured above. Measured in a
+  second container left on `ffmpeg-free`: ✗ with that fix.
+- **`dnf install melt` installs freeze, a compression tool, at
+  `/usr/bin/melt`.** MLT is `mlt` (7.40.0), and it installs `melt-7` and
+  `mlt-melt` but no `melt`. So doctor's `apt install melt` advice, carried
+  over to dnf, gets a program that answers `-version` with `Unknown flag:
+  'e'`. Doctor did reject that (the banner rule held), but with `mlt` also
+  installed lucid still found only freeze. **Fixed:** `picture.MELT_NAMES`
+  searches `mlt-melt`, `melt-7`, then `melt`, unambiguous names first. The
+  Linux advice names `dnf install mlt` and says what Fedora's `melt` is.
+- **The banner names argv[0]**, so the real MLT printed `mlt-melt 7.40.0`, and
+  doctor's `startswith("melt ")` refused it with `LUCID_MELT=mlt-melt` set by
+  hand. **Fixed:** the banner match takes all three names. With no override,
+  the fixed doctor found `/usr/bin/mlt-melt` and the demo passed.
+
+Also measured, no code change:
+
+- **`QT_QPA_PLATFORM=offscreen` does not draw on Fedora's MLT 7.40 either.**
+  `picture.qt_draws` said so, and `xvfb-run -a` rendered. The package is
+  `xorg-x11-server-Xvfb`, now named beside `apt install xvfb` in doctor's
+  Display fix, the render refusal and DEMO.md.
+- **The Outfit caption row is ✗ on a fresh clone, as it was on Ubuntu**,
+  until `lucid fonts --install`. Doctor already prints that fix, and the demo
+  burns no captions.
+
+Seven new test cases and one assertion added to the melt-advice test. Five
+of them fail against the old `src/`. The other three passed before too, and
+pin what the fixes had to keep: freeze's real `-version` output refused, and
+a full or unanswered encoder listing passed.

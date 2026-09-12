@@ -158,10 +158,14 @@ def melt_search() -> tuple[str, str]:
             # The distribution package leads: a clean Ubuntu 24.04 following the
             # flatpak-only advice had `apt install melt` (7.22, renders) one line
             # away. HISTORY.md § A stranger's install, on a clean Ubuntu.
+            # Fedora names it `mlt`; its `melt` package is freeze, a compression
+            # tool that owns /usr/bin/melt. HISTORY.md § A stranger's install, on
+            # a clean Fedora.
             "Install your distribution's melt package (`apt install melt` on "
-            "Debian/Ubuntu), or Kdenlive's flatpak, which ships melt inside it and "
-            "is found on its own (`flatpak install org.kde.kdenlive`) — or set "
-            "LUCID_MELT to a melt command."
+            "Debian/Ubuntu, `dnf install mlt` on Fedora — Fedora's own `melt` "
+            "package is an unrelated compression tool), or Kdenlive's flatpak, "
+            "which ships melt inside it and is found on its own (`flatpak install "
+            "org.kde.kdenlive`) — or set LUCID_MELT to a melt command."
         ),
     )
 
@@ -189,6 +193,14 @@ def user_bus(env: dict[str, str]) -> bool:
     return bool(runtime) and (Path(runtime) / "bus").exists()
 
 
+#: The names melt goes by on PATH, unambiguous ones first. Fedora's `mlt`
+#: installs `melt-7` and `mlt-melt` and no `melt` at all, while its `melt`
+#: package is freeze — so a bare `melt` searched first finds a compression tool
+#: on exactly the box that also has the real one. HISTORY.md § A stranger's
+#: install, on a clean Fedora.
+MELT_NAMES = ("mlt-melt", "melt-7", "melt")
+
+
 def melt_command() -> list[str]:
     """The argv prefix that runs `melt`, however it is installed here.
 
@@ -198,9 +210,10 @@ def melt_command() -> list[str]:
     override = os.environ.get("LUCID_MELT")
     if override:
         return shlex.split(override)
-    found = shutil.which("melt")
-    if found:
-        return [found]
+    for name in MELT_NAMES:
+        found = shutil.which(name)
+        if found:
+            return [found]
     for bundle in melt_bundles():
         if bundle.is_file():
             return [str(bundle)]
@@ -212,7 +225,7 @@ def melt_command() -> list[str]:
             return ["flatpak", "run", "--command=melt", KDENLIVE_FLATPAK]
     where, install = melt_search()
     raise PictureError(
-        f"melt not found. Looked at $LUCID_MELT, then PATH, then {where}. "
+        f"melt not found. Looked at $LUCID_MELT, then PATH ({', '.join(MELT_NAMES)}), then {where}. "
         f"{install} Without it the timeline's own frame total is still reported; "
         "only the comparison against melt needs melt."
     )
@@ -704,7 +717,7 @@ def render(
             "render here would lose every card, crop and composite and still exit "
             "0. Some MLT builds want a real X display (Ubuntu 24.04's MLT 7.22 "
             "does), so run the render under a virtual one: `xvfb-run -a lucid …` "
-            "(`apt install xvfb`)."
+            "(`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`)."
         )
 
     work = scratch("render-")

@@ -51,7 +51,9 @@ never been run on macOS or Windows. What a port would take is
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and
   OpenTimelineIO).
-- **ffmpeg / ffprobe** on `PATH` — every media operation goes through them.
+- **ffmpeg / ffprobe** on `PATH`, built with `libx264` — every media operation
+  goes through them. Fedora's default `ffmpeg-free` has no `libx264`; swap in
+  RPM Fusion's `ffmpeg`.
 - **[auto-editor](https://github.com/WyattBlue/auto-editor) 31+** — silence
   removal and single-source rendering. Install the upstream binary; the PyPI
   package is a stale 29.x.
@@ -62,7 +64,8 @@ never been run on macOS or Windows. What a port would take is
   CUDA torch, 5.5 GB against 1.9 GB. The CPU build transcribed the demo's
   19-second voiceover in 33 seconds.
 - **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). Your
-  distribution's `melt` package, or a Kdenlive install (the flatpak's own is
+  distribution's `melt` package (`mlt` on Fedora, whose `melt` package is an
+  unrelated compression tool), or a Kdenlive install (the flatpak's own is
   found automatically); `LUCID_MELT` overrides both.
 
 Run `lucid doctor` to check all of this at once — it probes every binary,

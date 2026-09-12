@@ -28,6 +28,7 @@ would resolve rather than a second opinion about it.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -100,6 +101,13 @@ def _entry(name: str, what: str, **fields: Any) -> dict[str, Any]:
 # -- required ------------------------------------------------------------
 
 
+#: The encoder every lucid render asks for — `picture.RENDER_ARGS`, the export
+#: presets, the preview proxy and `scripts/make_demo.py`. Fedora's default
+#: `ffmpeg-free` lacks it, and doctor called that ffmpeg ✓ while the demo's
+#: first command died on it. HISTORY.md § A stranger's install, on a clean Fedora.
+H264_ENCODER = "libx264"
+
+
 def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
     """ffmpeg or ffprobe, both of which lucid calls by bare name on PATH."""
     found = shutil.which(binary)
@@ -131,6 +139,29 @@ def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
                 "`ffmpeg -version` should print `ffmpeg version …` on its first line"
             ),
         )
+    if binary == "ffmpeg":
+        encoders, _, _ = _run([found, "-hide_banner", "-encoders"])
+        # An empty listing is a probe that did not answer, not an encoder that is
+        # missing, so only a listing without it refuses.
+        if encoders.strip() and not re.search(rf"\s{H264_ENCODER}\s", encoders):
+            return _entry(
+                binary,
+                what,
+                looked_for="PATH",
+                found=found,
+                version=version,
+                why=(
+                    f"this ffmpeg has no {H264_ENCODER} encoder, and every render, "
+                    "preview proxy and the demo's own footage encode with it — "
+                    "each would stop at `Unknown encoder`"
+                ),
+                fix=(
+                    "install an ffmpeg built with libx264. Fedora's default "
+                    "`ffmpeg-free` is built without it: enable RPM Fusion, then "
+                    "`dnf swap ffmpeg-free ffmpeg --allowerasing`. That swap replaces "
+                    "the libraries MLT renders through as well."
+                ),
+            )
     return _entry(binary, what, ok=True, looked_for="PATH", found=found, version=version)
 
 
@@ -257,6 +288,9 @@ def _major(version: str) -> int | None:
     return int(head) if head.isdigit() else None
 
 
+_MELT_BANNER = re.compile(r"^(?:mlt-)?melt(?:-\d+)? (\d\S*)")
+
+
 def _melt_entry() -> dict[str, Any]:
     """melt, probed by its banner — **never by its exit code** (CLAUDE.md).
 
@@ -265,7 +299,10 @@ def _melt_entry() -> dict[str, Any]:
     stdout carries melt's own `melt <version>` line.
     """
     where, install = picture.melt_search()
-    looked_for = f"$LUCID_MELT ({os.environ.get('LUCID_MELT') or 'unset'}), then PATH, then {where}"
+    looked_for = (
+        f"$LUCID_MELT ({os.environ.get('LUCID_MELT') or 'unset'}), "
+        f"then PATH ({', '.join(picture.MELT_NAMES)}), then {where}"
+    )
     fix = (
         f"{install} Without it, single-source cuts still render through "
         "auto-editor; anything layered (b-roll, cards, music) does not."
@@ -281,7 +318,8 @@ def _melt_entry() -> dict[str, Any]:
             fix=fix,
         )
     out, err, code = _run([*command, "-version"])
-    banner = next((ln for ln in (out + err).splitlines() if ln.startswith("melt ")), None)
+    # The banner names argv[0]: Fedora's prints `mlt-melt 7.40.0` or `melt-7 7.40.0`.
+    banner = next((ln for ln in (out + err).splitlines() if _MELT_BANNER.match(ln)), None)
     if banner is None:
         return _entry(
             "melt",
@@ -301,7 +339,7 @@ def _melt_entry() -> dict[str, Any]:
         ok=True,
         looked_for=looked_for,
         found=" ".join(command),
-        version=banner.split(" ", 1)[1].strip(),
+        version=_MELT_BANNER.match(banner).group(1),
     )
 
 
@@ -537,8 +575,9 @@ def _display() -> dict[str, Any]:
             )
             report["fix"] = (
                 "run renders under a virtual X display: `xvfb-run -a lucid …` "
-                "(`apt install xvfb`). Some MLT builds want X11 whatever "
-                "QT_QPA_PLATFORM says; Ubuntu 24.04's MLT 7.22 is one. "
+                "(`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`). Some MLT "
+                "builds want X11 whatever QT_QPA_PLATFORM says; Ubuntu 24.04's MLT "
+                "7.22 and Fedora 44's MLT 7.40 are two. "
                 "`lucid export --render` refuses rather than rendering without it."
             )
             return report
