@@ -2282,8 +2282,17 @@ textarea {
    look (no new wrapper styling needed) and just lays its children out. */
 .agent-thumbs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* A flex item shrinks below its text, so at a 1280 layout "Helpful" broke
+   mid-word into "Helpfu / l". Buttons keep their label whole; the row wraps. */
+.agent-thumbs > button,
+.agent-thumbs > span {
+  flex: none;
+  white-space: nowrap;
 }
 
 .agent-composer textarea {

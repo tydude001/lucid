@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.timeline import Edit, Segment, TimelineError, from_otio, to_otio
+from lucid.timeline import EPSILON, Edit, Segment, TimelineError, from_otio, to_otio
 
 CLIPS = {
     "vo": {"clip_id": "vo", "source": "/tmp/vo.wav", "duration": 60.0, "has_video": False, "has_audio": True},
@@ -378,6 +378,29 @@ def test_covers_measures_surviving_overlap() -> None:
     assert edit.covers("vo", 4.0, 6.0) == pytest.approx(0.0)
 
 
+def test_a_cut_word_does_not_survive_as_float_noise_after_a_save() -> None:
+    """The launch clip's "In In July": a cut from a word's own start, saved.
+
+    Whisper stored the first word's start as 0.6199999999999994. The cut
+    removed from there, and `to_otio` wrote the kept head's end on the project's
+    millisecond grid, which reads back as 0.62 — so the word overlapped the head
+    by 6e-16 s and was reported present: drawn unstruck in the transcript and
+    burned into the captions as a zero-length duplicate of the retake's "In".
+    """
+    edit = _edit((0.0, 23.24))
+    edit.remove("vo", 0.6199999999999994, 9.64)
+    saved = from_otio(to_otio(edit, CLIPS, rate=1000.0))
+    assert _spans(saved)[0][1] == 0.62
+
+    assert saved.timeline_span("vo", 0.6199999999999994, 1.18) is None
+    assert saved.covers("vo", 0.6199999999999994, 1.18) == 0.0
+    assert saved.timeline_spans("vo", 0.6199999999999994, 1.18) == []
+    # The kept retake's own first word is untouched, and a range reaching past
+    # the noise into it resolves to it rather than to the head it grazed.
+    assert saved.timeline_span("vo", 9.64, 10.2) == pytest.approx((0.62, 1.18))
+    assert saved.timeline_span("vo", 0.6199999999999994, 10.2) == pytest.approx((0.62, 1.18))
+
+
 def test_source_spans_matches_a_simple_offset_inside_one_segment() -> None:
     edit = _edit((10.0, 20.0))
     assert edit.source_spans(2.0, 5.0) == [("vo", 12.0, 15.0)]
@@ -524,12 +547,14 @@ def test_a_cut_seam_still_counts_as_contiguous() -> None:
 
 
 def _walk_span(edit: Edit, clip_id: str, start: float, end: float):
-    """The pre-index implementation, kept here as the control it is."""
+    """The pre-index implementation, kept here as the control it is — with
+    the one semantic the index gained since, an overlap of float noise not
+    being an overlap (`EPSILON`)."""
     offset = 0.0
     for seg in edit.segments:
         if seg.clip_id == clip_id:
             a, b = max(seg.start, start), min(seg.end, end)
-            if b > a:
+            if b - a > EPSILON:
                 return offset + (a - seg.start), offset + (b - seg.start)
         offset += seg.duration
     return None

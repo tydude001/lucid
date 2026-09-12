@@ -34,6 +34,16 @@ import opentimelineio as otio
 #: landing on top of an existing one.
 MIN_SEGMENT = 0.001
 
+#: An overlap this small is float noise, never material. A saved timeline's
+#: boundaries are grid values (`to_otio` rounds to the timebase) and a
+#: transcript's are whatever whisper's arithmetic left, so a cut made from a
+#: word's own start reads back overlapping that word by ~1e-16 s — and a word
+#: overlapping by anything was reported present, drawn unstruck and captioned
+#: as a zero-length duplicate. Every overlap test in this module is `> EPSILON`
+#: rather than `> 0`. Far below `MIN_SEGMENT` on purpose: a zero-width word
+#: widened to `captions.MIN_WORD` must still count.
+EPSILON = 1e-9
+
 
 class TimelineError(Exception):
     """Raised when an edit operation cannot be applied."""
@@ -157,12 +167,14 @@ class _SpanIndex:
             # `ends` rises strictly under the precondition, so this is the
             # first segment that has not already finished by `start`. If it
             # begins at or after `end`, so does every segment behind it.
-            j = bisect.bisect_right(ends, start)
-            if j < len(starts) and starts[j] < end and min(ends[j], end) > max(starts[j], start):
+            # Bisecting on `start + EPSILON` skips a segment that only grazes
+            # it, so the next one — which may really overlap — is the one tested.
+            j = bisect.bisect_right(ends, start + EPSILON)
+            if j < len(starts) and min(ends[j], end) - max(starts[j], start) > EPSILON:
                 return j
             return None
         for j in range(len(starts)):
-            if min(ends[j], end) > max(starts[j], start):
+            if min(ends[j], end) - max(starts[j], start) > EPSILON:
                 return j
         return None
 
@@ -292,7 +304,7 @@ class Edit:
         placements: list[Placement] = []
         for j, (seg_start, seg_end) in enumerate(zip(starts, ends, strict=True)):
             a, b = max(seg_start, start), min(seg_end, end)
-            if b > a:
+            if b - a > EPSILON:
                 placements.append(
                     Placement(
                         timeline_start=offsets[j] + (a - seg_start),
@@ -334,7 +346,7 @@ class Edit:
             if seg.clip_id != clip_id:
                 continue
             overlap = min(seg.end, end) - max(seg.start, start)
-            if overlap > 0:
+            if overlap > EPSILON:
                 total += overlap
         return total
 

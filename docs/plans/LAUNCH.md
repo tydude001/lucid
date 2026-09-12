@@ -256,7 +256,10 @@ twos, with time to fix what they find.
 - **The community directories** — PulseMCP, Glama, Smithery, and a pull
   request to the `awesome-mcp-servers` list under its media/video heading.
   Each takes the repo URL, the description and the release; none needs
-  anything built.
+  anything built. **Glama's ownership claim, `glama.json`, is already at the
+  repo root** (2026-09-12, checked against its published schema), so after
+  the flip nothing is left to add but the listing itself. Shipped — see
+  HISTORY.md § The launch clip's product defects, fixed.
 - **A Claude Code plugin.** The agent pane already spawns `claude` against a
   generated MCP config (`webui._agent_bin`), so the one-command install for a
   Claude Code user is a plugin manifest naming `lucid mcp` as its server.

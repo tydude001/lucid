@@ -185,20 +185,35 @@ def group(
     if max_words < 1:
         raise CaptionError("max_words must be at least 1")
 
-    lines: list[list[CueWord]] = []
+    # Two passes, because the word limit is the one break with a choice in it.
+    # A silence, a sentence end or an over-long line says exactly where to
+    # break; a count only says how many lines a run needs. Filling each line to
+    # the limit spends that choice badly — eight words at seven left "moon." on
+    # a line of its own in the launch clip — so a run is split into as few lines
+    # as the limit allows, as evenly as they go.
+    runs: list[list[CueWord]] = []
     current: list[CueWord] = []
     for word in words:
         if current and (
-            len(current) >= max_words
-            or word.start - current[-1].end > max_gap
+            word.start - current[-1].end > max_gap
             or word.end - current[0].start > max_duration
             or _SENTENCE_END.search(current[-1].text) is not None
         ):
-            lines.append(current)
+            runs.append(current)
             current = []
         current.append(word)
     if current:
-        lines.append(current)
+        runs.append(current)
+
+    lines: list[list[CueWord]] = []
+    for run in runs:
+        count = -(-len(run) // max_words)
+        size, extra = divmod(len(run), count)
+        at = 0
+        for n in range(count):
+            step = size + (1 if n < extra else 0)
+            lines.append(run[at : at + step])
+            at += step
 
     return [
         Cue(words=tuple(line), end=_hold(line, lines[n + 1] if n + 1 < len(lines) else None, hold))

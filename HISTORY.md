@@ -12830,3 +12830,55 @@ redo, which nothing had told an agent.
 The stdio test reads the hints off `tools/list`, the way a client or a
 directory reads them. It fails against the old `server.py` on the first tool
 (`ping`), and the refusal test does not raise there.
+
+## The launch clip's product defects, fixed — 2026-09-12
+
+The rejected v3 launch clip (`~/lucid-work/launch-v4-review/PIN.md`) recorded
+four defects on camera that any stranger running the demo would hit too, and
+none depended on Tyler's calls about v4. All four were measured before and
+after on real data, and the "before" in each case is the old code run on the
+same input.
+
+- **A cut from a word's own start left that word "present" as float noise.**
+  Whisper stored the demo VO's first word at 0.6199999999999994. The agent cut
+  words 0–21, and `to_otio` wrote the kept head's end on the millisecond grid,
+  which reads back as 0.62. The word overlapped the head by 6e-16 s, so it was
+  drawn unstruck in the transcript and burned into the captions as "In In
+  July". The agent had hidden it with `unspoken_add`. **Every overlap test in
+  `timeline.py` is now `> EPSILON` (1e-9), not `> 0`.** The ordered bisect
+  searches on `start + EPSILON`, so a segment that only grazes the range hands
+  the test to the next one. EPSILON sits far below `MIN_SEGMENT` because a
+  zero-width word widened to `captions.MIN_WORD` still has to count. Across
+  the 43 projects under `~/lucid-*` exactly one word was affected, this one.
+  The 30 fps grid would leave a real sliver of up to half a frame, but no
+  project on disk saves at a frame rate that produced one. On the demo project
+  the old code captions `In In July`, and the new code captions `In July` and
+  reads word 0 as cut. The 0.62 s head segment on A1 stays: it is the silence
+  before the first word, which the cut was not asked to remove.
+- **Caption lines filled greedily, so a sentence's last word could sit alone on
+  a line.** v3's "people watched three men leave for the" / "moon." was eight
+  words at a limit of seven. `captions.group` now breaks on silence, sentence
+  end and duration first. A run the word limit still has to split goes into as
+  few lines as the limit allows, as evenly as they go: eight words become 4 + 4.
+  No maximum is loosened. On the shipped film's project (`~/lucid-final-cut/proj`),
+  one-word lines go from 15 to 11 (the rest are one-word sentences or lines
+  broken by a gap) and two-word lines from 16 to 3, over 178 → 191 lines. The
+  real-footage trial's goes from 3 to 0. **A re-burn of any existing project
+  groups differently from its last burn.**
+- **The "Rate this turn" buttons broke mid-word ("Helpfu / l") at the 1280
+  layout.** A flex item shrinks below its text. The buttons now keep their
+  labels whole and the row wraps. Measured in the live page at 1280x720 with
+  the row's own markup: 45 px two-line buttons with the old rules, 27 px
+  single-line ones with the new.
+- **A fresh project opened to panes frozen on "Loading…".** `/api/view`
+  refuses an unseeded project, so `load()` returned before any pane was
+  updated, and that included the assets pane, which needs no timeline. The
+  transcript now reads "No timeline yet. Add footage in the Assets tab, or ask
+  the agent to start the edit." and the assets pane fills. Driven live on a
+  `lucid init` project: the assets pane read `CLIPS · 0`, and after a CLI
+  `import` it read `CLIPS · 1` with no reload. The amber "no timeline yet"
+  toast still shows alongside. `test_a_load_failure_toast_…` pins its warn
+  severity, and removing it is a call about that test, not something to slip in.
+
+`glama.json` went in at the same time (LAUNCH.md step 4). It is inert until
+Glama can read a public repo.

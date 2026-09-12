@@ -132,6 +132,13 @@ async function load(clipId) {
     const fresh = /no timeline yet/.test(err.message);
     toast({ message: err.message, severity: fresh ? "warn" : "error" });
     load.failed = true;
+    // And a fresh project is where a newcomer starts, so it gets an empty
+    // state rather than panes frozen on "Loading…" — including the assets
+    // pane, which needs no timeline and is exactly where the next step is.
+    if (fresh) {
+      transcript.unseeded();
+      assets.update(null);
+    }
     return;
   }
   // A toast about a load that failed is a claim about the project's state,

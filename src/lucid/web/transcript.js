@@ -1008,6 +1008,23 @@ export function init(passedCtx) {
   });
 }
 
+/** The project has no timeline yet — `/api/view` refused, so there is no
+ * state to draw. Says what is missing and where the next step is. */
+export function unseeded() {
+  const pane = $("transcript");
+  pane.textContent = "";
+  pane.append(
+    el(
+      "p",
+      "pane-placeholder",
+      "No timeline yet. Add footage in the Assets tab, or ask the agent to start the edit.",
+    ),
+  );
+  sel = null;
+  wordIndexMap = new Map();
+  focusedIndex = null;
+}
+
 export function update(state) {
   const pane = $("transcript");
 

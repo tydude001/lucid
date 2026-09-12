@@ -109,6 +109,24 @@ def test_grouping_breaks_at_the_word_limit() -> None:
     assert [c.text for c in cues] == ["w0 w1", "w2"]
 
 
+def test_grouping_balances_a_run_instead_of_orphaning_its_last_word() -> None:
+    """The launch clip's lone "moon.": eight words at a limit of seven filled
+    the first line and left the sentence's last word on a line of its own.
+    A run the limit must split is split into as few lines as the limit allows,
+    as evenly as they go."""
+    words = [CueWord(t, i * 0.3, i * 0.3 + 0.25) for i, t in enumerate(
+        ["people", "watched", "three", "men", "leave", "for", "the", "moon."]
+    )]
+    assert [c.text for c in group(words, max_words=7, hold=0.0)] == [
+        "people watched three men",
+        "leave for the moon.",
+    ]
+    ten = _words(*[(i * 0.3, i * 0.3 + 0.25) for i in range(10)])
+    assert [len(c.words) for c in group(ten, max_words=7, hold=0.0)] == [5, 5]
+    fifteen = _words(*[(i * 0.3, i * 0.3 + 0.25) for i in range(15)])
+    assert [len(c.words) for c in group(fifteen, max_words=7, max_duration=60, hold=0.0)] == [5, 5, 5]
+
+
 def test_grouping_breaks_on_a_silence() -> None:
     cues = group(_words((0.0, 0.4), (2.0, 2.4)), max_gap=0.5, hold=0.0)
     assert len(cues) == 2

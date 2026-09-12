@@ -4175,6 +4175,12 @@ def test_a_load_failure_toast_and_a_planned_cut_are_retired_by_what_supersedes_t
     assert b"const workspaceH = workspace.offsetHeight;" in player
     assert b"workspace.getBoundingClientRect().height" not in player
     assert b'severity: fresh ? "warn" : "error"' in app
+    # A fresh project draws an empty state and still fills the assets pane,
+    # which needs no timeline — rather than panes frozen on "Loading…".
+    assert b"transcript.unseeded();" in app
+    assert b"assets.update(null);" in app
+    _, _, transcript_js = _get(f"{server}/static/transcript.js")
+    assert b"export function unseeded()" in transcript_js
     _, _, agent = _get(f"{server}/static/agent.js")
     assert b'ctx.emit("agent-plan", null)' in agent
 
