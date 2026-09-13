@@ -55,7 +55,7 @@ git clone https://github.com/tydude001/lucid
 bash lucid/scripts/mac_trial.sh
 ```
 
-It installs `uv`, `ffmpeg`, `espeak-ng` and `auto-editor` with Homebrew (and
+It installs `uv`, `ffmpeg-full`, `espeak-ng` and `auto-editor` with Homebrew (and
 Homebrew, if you have none), the Shotcut app for its renderer, and whisper,
 and it asks before starting. It keeps a list of what it added, and `bash
 lucid/scripts/mac_trial.sh --uninstall` removes exactly that and nothing you

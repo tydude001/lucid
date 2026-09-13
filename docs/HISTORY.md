@@ -13187,6 +13187,12 @@ controls each failed, for the reason they were built to:
 - similarity 0.62 with `agrees: false`;
 - a black frame at 3 s: 112 away.
 
-**Unrun on GitHub.** Nothing here has touched a real macOS runner yet. The
-open question is whether Shotcut's melt draws on a runner at all, since
-nothing has measured whether a CI session gives Qt's cocoa platform a display.
+**The first run stopped at the demo's first command, and the check caught
+it.** `make_demo.py` died on `No such filter: 'drawtext'`, 2 min 35 s in,
+while `lucid doctor` had just called everything required present: Homebrew's
+`ffmpeg` 9.0.1 is built without freetype or libass. The kit exited 0, and
+`mac_trial_check.py` failed all five checks. The kit now installs
+`ffmpeg-full`, which has both, and puts it first on PATH, because it is
+keg-only and auto-editor still pulls in the plain `ffmpeg`. Doctor's ffmpeg
+row checks `libx264` and not these two filters, so it still calls the plain
+build fine. Whether Shotcut's melt draws on a runner is still unmeasured.
