@@ -153,9 +153,9 @@ GitHub's cap on a free plan is 10 MB.
 **What it is.** A person who is not Tyler clones the repo, runs `uv sync`,
 `lucid doctor`, and docs/DEMO.md end to end on a machine Tyler does not own,
 and reports every ✗ and every wrong number. A Mac, because that is where the
-HN / X / Claude Code audience mostly is, and lucid has never been run on one
-by anybody (README.md § Requirements says so, and must keep saying so until
-this step passes).
+HN / X / Claude Code audience mostly is, and no person has run lucid on one
+(README.md § Requirements says so, and must keep saying so until this step
+passes — GitHub's runner is not a person, § The Mac test in CI below).
 
 **Why it gates Show HN.** The launch thread is where first-run failures are
 reported publicly and permanently. Each "doctor said ✗ five times" comment
@@ -228,8 +228,8 @@ it means the stranger's run is a check of the install path rather than a
 first contact with macOS. HISTORY.md § The Mac test in CI.
 
 **Done when:** one Mac run reaches `verify` agreeing with the timeline, its
-queue is closed or recorded, and README.md's "never been run on macOS"
-sentence is replaced by what was measured.
+queue is closed or recorded, and README.md's "no person has run it on a
+Mac yet" is replaced by what was measured.
 
 ## Step 3 — the flip, and the ten minutes after it
 
@@ -247,12 +247,19 @@ upload belongs to that draft's notes, so **item 6 publishes that draft and
 never deletes or recreates it**, and the notes it publishes keep the video
 line. While the repo is private the URL answers 404 to anyone logged out,
 which is GitHub's documented rule for private uploads, not a broken link.
-After item 2, open it logged out (a private window) and it has to play; if
+After item 1, open it logged out (a private window) and it has to play; if
 it does not, the README's first screen is a dead link on launch day.
 
-1. Sync the GitHub mirror so the public repo is at the tip (wiki
+1. Flip `tydude001/lucid` public.
+2. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
-2. Flip `tydude001/lucid` public.
+   **Flip first, then sync** (2026-09-13): the account's included Actions
+   minutes are spent, and a sync touching `src/` runs ci and both demo
+   workflows — about 250 billed minutes of overage on a private repo and
+   nothing on a public one. The repo sits public at the previous sync for
+   the minutes between, so that commit has to pass the same scrub as the
+   tip. **Push the `v0.22.0` tag to Gitea before this sync**, or item 6's
+   release creates it on GitHub alone and the sync after that prunes it.
 3. Enable private vulnerability reporting — SECURITY.md already points at it
    and is wrong until this is on.
 4. Repo description: `Source-available, local-first AI video editor — an MCP

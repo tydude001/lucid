@@ -65,9 +65,11 @@ stops is the finding.
 
 ## Requirements
 
-lucid is developed and tested on Linux only (a Fedora-based desktop); it has
-never been run on macOS or Windows. What a port would take is
-[docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
+lucid is developed on Linux (a Fedora-based desktop). On macOS the test
+suite passes on CI and GitHub's macOS runner takes the demo to a checked
+render, but no person has run it on a Mac yet. Windows is in progress: its
+CI run still fails the caption-font tests. What a port takes, and where each
+OS stands, is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
 
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and
