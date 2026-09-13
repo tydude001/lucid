@@ -56,7 +56,9 @@ installed package or the upstream repo, not your memory.
 
 **`lucid doctor` probes every binary below and prints the fix under each ✗.**
 Three rules it holds to and anything added to it must: judge melt by its
-`-version` banner and never its exit code; *run* whisper rather than find it
+`-version` banner and never its exit code (`picture.MELT_BANNER`, which
+`melt_command` also holds every PATH and bundle candidate to — Windows ships
+WiX's `melt.EXE`, and a real one names itself `melt.exe`); *run* whisper rather than find it
 (a venv that has lost torch resolves fine and dies minutes into a job); and
 never print the TTS voice path — a voice is somebody's recorded speech. An
 absent optional capability is "unavailable", never a failure, and never moves
@@ -1119,6 +1121,12 @@ absent optional capability is "unavailable", never a failure, and never moves
       `fontselect` line; a caption font that resolves in one pick with no
       fallback is the only kind that has been settled. HISTORY.md § The
       approvals round, answered.
+    - **A Windows burn gives libass its own font directory
+      (`fonts.libass_fontsdir`), and a variable font cannot go there**:
+      libass names a face in it by name ID 1, so `Outfit[wght].ttf` registers
+      as `Outfit Thin` and `Outfit` falls through at exit 0. It stages the
+      static pair in `fonts/static/`, which `vendored()` never scans so
+      fontconfig never sees it. HISTORY.md § The first windows-demo run.
 - **Cards rasterise through `magick`, and the size knob goes *before* the
   input.** `-size` is a vector render and **fits, never distorts**; `-resize`
   after the input resamples the pixels and wrecks text, so `render_svg` has no
