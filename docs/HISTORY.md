@@ -13267,3 +13267,36 @@ nobody reads its instructions, so README.md's "never been run on macOS"
 stands until a person's report. The friend's kit is repacked at `a5ec829`
 (`~/lucid-work/mac-trial/lucid-mac-test.a5ec829.sh`). Both earlier packs
 install the plain `ffmpeg` and stop at the demo's first command.
+
+## The Windows run that answered — 2026-09-13
+
+§ The Windows queue, made to say what it could not left two questions for the
+next Windows log. GitHub run 34778624429 (lucid `f8f2ffb`, windows-latest)
+answered both, with 9 failed and 2007 passed:
+
+- **The melt was WiX's.** Six render tests ran
+  `C:\Program Files (x86)\WiX Toolset v3.14\bin\melt.EXE`, the WiX
+  installer toolset's MSI tool. It printed `error MELT0240 : The file '.mlt'
+  has an unexpected extension`. This is Fedora's freeze trap on a second OS: a
+  bare `melt` on PATH is not MLT. Doctor's banner rule refuses it, but
+  `picture.melt_command` takes the first PATH hit without asking, and so does
+  the suite's `needs_melt` gate, which calls it.
+- **Outfit is registered and still not drawn.** `lucid fonts --install`
+  reported `registered: true`. The probe then read `font_provider:
+  directwrite`, with `ArialMT` drawn for Outfit and for the impossible family
+  alike (RMSE 0.0). libass's DirectWrite provider on desktop Windows
+  enumerates fonts through GDI (`EnumFontFamiliesExW`, then
+  `IDWriteGdiInterop_CreateFontFaceFromHdc`, libass `ass_directwrite.c`). GDI
+  reads a per-user font from HKCU at logon only, so a font registered
+  mid-session is on the list and invisible until `AddFontResourceW` loads it.
+  Windows' own Install does that, and lucid does not. The previous section
+  deferred that fix until `font_provider` spoke; it has now.
+
+Read off this box, not that log: **`LUCID_MELT` and `LUCID_MAGICK` cannot name
+a Windows path.** Both go through `shlex.split`, which in POSIX mode eats
+backslashes: `C:\Users\runner\melt.exe` becomes `C:Usersrunnermelt.exe`
+(checked with `shlex.split` here). Every doctor
+fix line that tells a Windows user to set one is advice that cannot work.
+
+What to do about all three, and the Windows test kit behind them:
+PORTABILITY.md § Step 5.

@@ -19,7 +19,8 @@ named section, the step here gains a one-line "Shipped — see HISTORY.md §
 
 - **Steps 1–3 are code and can ship from this box.** Steps 4–6 need a
   machine of the OS in question and cannot be marked done from Linux under
-  any reading of "verified".
+  any reading of "verified". Step 5's code halves (5a–5c) are written here,
+  and each is verified by a GitHub Windows run, never by the Linux suite.
 - **Every step starts with its "Verify first" list.** The line references
   below were read on 2026-09-10 and code moves; a claim here is a lead,
   never a fact to build on unread.
@@ -220,9 +221,98 @@ mechanism underneath it is different on macOS.
   green with no `QT_QPA_PLATFORM` set — that is step 1's gate proven on a
   real Qt platform.
 
-## Step 5 — measure on Windows (needs a Windows box)
+## Step 5 — Windows: the three bugs, a test kit, and a stranger's run
 
-Everything in step 4 again, plus the class of defects only Windows has:
+Written 2026-09-13, after GitHub run 34778624429 answered the last two open
+questions (HISTORY.md § The Windows run that answered). The shape is the Mac's
+(LAUNCH.md § Step 2, HISTORY.md § The Mac test in CI): fix what CI found, give
+the demo a kit a person can run, prove the kit on a runner, then ask for a
+report. **No Windows box is reachable from here, so a Windows claim is settled
+only by a CI log or a tester's report**, and every CI reading needs Tyler to
+sync the GitHub mirror. So batch the code fixes (5a) and the kit (5b) into
+one sync where possible.
+
+**5a — the three bugs.** Each gets a test that fails against the old code.
+
+1. **`melt_command` takes a PATH `melt` that is not MLT.** WiX's `melt.EXE`
+   on Windows; freeze's `melt` on Fedora. Hold every PATH and bundle
+   candidate to doctor's banner rule and skip one that fails it. Move
+   `doctor._MELT_BANNER` into `picture` so there is one copy, and cache the
+   verdict per `(path, mtime)`, because `melt_command` runs several times per
+   render. `LUCID_MELT` and the flatpak are not probed. When only impostors
+   were found, the refusal names each by path. The suite's `needs_melt` gate
+   then skips on the Windows runner, which has no MLT. Test with
+   `tests/stubs.py`'s `write_stub`: an impostor `melt` ahead of a real-banner
+   one picks the second, and an impostor alone refuses by name.
+2. **A registered font GDI has not loaded.** After the HKCU write,
+   `_register_windows` calls `gdi32.AddFontResourceW` on each face through
+   `ctypes` and broadcasts `WM_FONTCHANGE` (`SendMessageTimeoutW`,
+   `HWND_BROADCAST`, `SMTO_ABORTIFHUNG`). It reports how many loaded, beside
+   `registered`, never folded into it. **Unverified:** that a load from the
+   `fonts --install` process is still visible to a later ffmpeg in the same
+   session. The docs say the load lasts for the session, not the process. CI
+   runs `fonts --install` and the probe as separate steps, so the next
+   Windows log answers it: the three font tests go green or they do not. If
+   they do not, the fallback is libass's own font directory (ffmpeg's `ass`
+   filter `fontsdir=`, relative to the burn's cwd, never a drive letter),
+   and it changes what the Linux burn measured, so it is a decision rather
+   than a patch.
+3. **`LUCID_MELT` and `LUCID_MAGICK` go through POSIX `shlex.split`.** Where
+   `os.name == "nt"`, an override naming an existing file is taken whole as
+   one argv element. Anything else splits with `posix=False` and strips one
+   layer of surrounding quotes. Grep for every other `LUCID_*` that is split
+   rather than taken as a path before calling this done.
+
+Then read the in-flight and next Windows logs for anything else. Doctor's
+new text-filter row on Chocolatey's ffmpeg is the one reading nobody has
+seen.
+
+**5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
+`mac_trial.sh`: it asks before starting, records everything it adds,
+`-Uninstall` removes exactly that, it runs DEMO.md's commands verbatim and
+stops at the first failure, and it zips a report with the home folder
+replaced by `~`. Its own shape, recommended:
+
+- **Portable downloads into one folder under `%LOCALAPPDATA%`, not winget.**
+  winget is not on every Windows 10, is not guaranteed on the runner, and
+  its uninstall is per-package. A folder makes the runner and a person's PC
+  run the same code, needs no admin, and uninstalls by deleting it. The
+  pieces are uv's `install.ps1` (or its zip), a gyan.dev ffmpeg build
+  (confirm libx264, drawtext and `ass` with doctor's own row), auto-editor's
+  `-windows-x86_64` release binary, the espeak-ng MSI unpacked with
+  `msiexec /a` (no install and no admin; verify that it runs from the
+  unpacked tree), Shotcut's portable zip for `melt.exe`, and whisper by
+  `uv tool install`. Pin each URL and SHA-256 in the script.
+- Portable Shotcut sits outside `melt_bundles()`, so the kit sets
+  `LUCID_MELT`, which is the reason 5a.3 comes first.
+- PowerShell 5.1 syntax, since that is what a stock Windows has. Write for
+  `-ExecutionPolicy Bypass -File`, the README's one-line invocation.
+- `--pack` stays on the bash kit's side unless a friend needs one. The
+  public README route is a clone.
+- Syntax-check it here with a PowerShell tarball under `~/lucid-work/`
+  (`pwsh` is not installed on this box). That is a parse, not a run.
+
+**5c — `.github/workflows/windows-demo.yml`.** mac-demo.yml's twin: it runs the
+kit on `windows-latest` with no prompts, then `scripts/mac_trial_check.py`,
+which is OS-neutral already and is renamed `trial_check.py` in the same
+commit, with mac-demo.yml updated. It uploads the zip. Its path triggers
+include the kit. It is green when the check passes, never on the kit's exit
+code. **Then decide the ci.yml Windows job.** If 5a leaves it green there is
+nothing to decide. If not, recommend `continue-on-error` on that matrix leg
+only, so a Windows finding stops failing the run while the log still shows
+it.
+
+**5d — README.md § Help wanted, and the issue form.** Once windows-demo is
+green, add a Windows paragraph beside the Mac one: a clone plus one
+`powershell -ExecutionPolicy Bypass -File lucid\scripts\windows_trial.ps1`
+line, what it installs, that `-Uninstall` reverses it, and a link to
+`.github/ISSUE_TEMPLATE/windows-test.yml`. That form is `mac-test.yml`'s
+twin, with Windows 10/11 and x64/ARM64 in place of the chip. Launch step 9's
+label-and-pin applies to a `windows-test` label too. Requirements keeps
+"never been run on Windows" until a person's report arrives (Step 6).
+
+**5e — measure what the demo does not reach.** Everything in step 4 again,
+plus the class of defects only Windows has:
 
 - **Drive letters and backslashes inside MLT XML.** MLT accepts forward
   slashes on Windows; whether `mlt.py`'s `str(Path)` output (backslashes)
