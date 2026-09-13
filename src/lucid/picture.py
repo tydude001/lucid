@@ -200,10 +200,14 @@ def user_bus(env: dict[str, str]) -> bool:
 #: install, on a clean Fedora.
 MELT_NAMES = ("mlt-melt", "melt-7", "melt")
 
-#: melt's own `-version` line. The banner names argv[0], so Fedora's prints
-#: `mlt-melt 7.40.0` or `melt-7 7.40.0`. Stated once: `doctor` reads a melt's
-#: version off it, and `melt_command` holds every candidate it finds to it.
-MELT_BANNER = re.compile(r"^(?:mlt-)?melt(?:-\d+)? (\d\S*)")
+#: melt's own `-version` line. The banner is `basename(argv[0])`, so Fedora's
+#: prints `mlt-melt 7.40.0` or `melt-7 7.40.0` — and on Windows the basename
+#: keeps its extension, in whatever case the caller spelled it: Shotcut
+#: 26.8.1's `melt.exe` carries the format `%s 7.41.0`, and the first
+#: windows-demo run's doctor refused it for want of a banner. Stated once:
+#: `doctor` reads a melt's version off it, and `melt_command` holds every
+#: candidate it finds to it.
+MELT_BANNER = re.compile(r"^(?:mlt-)?melt(?:-\d+)?(?i:\.exe)? (\d\S*)")
 
 #: Seconds to wait on a candidate's `-version`. A PATH or bundle binary, never
 #: the flatpak, so there is no cold start to wait out.

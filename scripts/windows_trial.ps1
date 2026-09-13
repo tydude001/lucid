@@ -367,24 +367,27 @@ try {
 
     $proj = Join-Path $DEMO 'proj'
     $L = @('run', 'lucid', '-C', $proj)
+    # Each step's arguments are parenthesised: `,` binds tighter than `+`, so `'name', $L + @(...)`
+    # is `('name', $L) + @(...)`, and the step ran `lucid -C proj` with its command dropped
+    # (the first windows-demo run).
     $demoSteps = @(
         @('DEMO 1 make the footage', @('run', 'python', 'scripts\make_demo.py', $DEMO)),
         @('DEMO 2 init', @('run', 'lucid', 'init', $proj)),
-        @('DEMO 2 import vo', $L + @('import', (Join-Path $DEMO 'vo.wav'), '--clip-id', 'vo')),
-        @('DEMO 2 import blue', $L + @('import', (Join-Path $DEMO 'broll-blue.mp4'), '--clip-id', 'blue')),
-        @('DEMO 2 import rust', $L + @('import', (Join-Path $DEMO 'broll-rust.mp4'), '--clip-id', 'rust')),
-        @('DEMO 2 transcribe (first run downloads a 1.5 GB speech model)', $L + @('transcribe', 'vo')),
-        @('DEMO 2 seed', $L + @('seed', 'vo')),
-        @('DEMO 3 find the retake', $L + @('transcript', 'vo', '--search', 'let me try that again')),
-        @('DEMO 3 read around it', $L + @('transcript', 'vo', '--first', '8', '--last', '26')),
-        @('DEMO 4 cut --plan', $L + @('cut', 'vo', '11:23', '--plan')),
-        @('DEMO 4 cut', $L + @('cut', 'vo', '11:23', '--pad', '0.1')),
-        @('DEMO 5 cue blue', $L + @('cue', 'add', 'vo', '--phrase', 'Every cut you make names a word', 'blue')),
-        @('DEMO 5 cue rust', $L + @('cue', 'add', 'vo', '--phrase', 'the render can be checked', 'rust')),
-        @('DEMO 5 shots', $L + @('shots')),
-        @('DEMO 6 render (melt)', $L + @('export', (Join-Path $DEMO 'demo.mp4'), '--render')),
-        @('DEMO 6 verify', $L + @('verify', (Join-Path $DEMO 'demo.mp4'))),
-        @('DEMO 6 frames', $L + @('frames', (Join-Path $DEMO 'demo.mp4')))
+        @('DEMO 2 import vo', ($L + @('import', (Join-Path $DEMO 'vo.wav'), '--clip-id', 'vo'))),
+        @('DEMO 2 import blue', ($L + @('import', (Join-Path $DEMO 'broll-blue.mp4'), '--clip-id', 'blue'))),
+        @('DEMO 2 import rust', ($L + @('import', (Join-Path $DEMO 'broll-rust.mp4'), '--clip-id', 'rust'))),
+        @('DEMO 2 transcribe (first run downloads a 1.5 GB speech model)', ($L + @('transcribe', 'vo'))),
+        @('DEMO 2 seed', ($L + @('seed', 'vo'))),
+        @('DEMO 3 find the retake', ($L + @('transcript', 'vo', '--search', 'let me try that again'))),
+        @('DEMO 3 read around it', ($L + @('transcript', 'vo', '--first', '8', '--last', '26'))),
+        @('DEMO 4 cut --plan', ($L + @('cut', 'vo', '11:23', '--plan'))),
+        @('DEMO 4 cut', ($L + @('cut', 'vo', '11:23', '--pad', '0.1'))),
+        @('DEMO 5 cue blue', ($L + @('cue', 'add', 'vo', '--phrase', 'Every cut you make names a word', 'blue'))),
+        @('DEMO 5 cue rust', ($L + @('cue', 'add', 'vo', '--phrase', 'the render can be checked', 'rust'))),
+        @('DEMO 5 shots', ($L + @('shots'))),
+        @('DEMO 6 render (melt)', ($L + @('export', (Join-Path $DEMO 'demo.mp4'), '--render'))),
+        @('DEMO 6 verify', ($L + @('verify', (Join-Path $DEMO 'demo.mp4')))),
+        @('DEMO 6 frames', ($L + @('frames', (Join-Path $DEMO 'demo.mp4'))))
     )
     foreach ($s in $demoSteps) {
         if (-not (Step $s[0] $uv $s[1])) { break }

@@ -53,7 +53,10 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows_trial.ps1 -Unattended
       # The runner's own Python, since the check is stdlib-only and the kit may
       # have stopped before uv arrived; the kit's ffmpeg, since the check reads
-      # the frames with it and the runner has none on PATH.
+      # the frames with it and the runner has none on PATH. report.txt is
+      # copied beside the zip first: the kit's folder is on C: and runner.temp
+      # on D:, and upload-artifact refuses paths with no common parent (the
+      # first windows-demo run uploaded nothing).
       - name: judge the run
         if: always()
         shell: pwsh
@@ -61,6 +64,7 @@ jobs:
           PYTHONUTF8: "1"
         run: |
           $trial = Join-Path $env:LOCALAPPDATA 'lucid-windows-trial'
+          Copy-Item -LiteralPath (Join-Path $trial 'report.txt') -Destination $env:RUNNER_TEMP -ErrorAction SilentlyContinue
           $ffmpeg = Get-ChildItem -LiteralPath (Join-Path $trial 'tools\ffmpeg') -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($ffmpeg) { $env:PATH = "$($ffmpeg.DirectoryName);$env:PATH" }
           python scripts\trial_check.py $trial
@@ -71,5 +75,5 @@ jobs:
           name: lucid-windows-report
           path: |
             ${{ runner.temp }}\lucid-windows-report.zip
-            ~\AppData\Local\lucid-windows-trial\report.txt
+            ${{ runner.temp }}\report.txt
           if-no-files-found: warn

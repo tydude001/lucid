@@ -28,7 +28,8 @@ disagree, and why a probe has to compare against the machine's own substitute
 rather than against any particular wrong answer: there are at least two
 distinct flavours of wrong here and they do not look like each other.
 
-No lucid imports on purpose. Nothing in `captions` calls into this module —
+No lucid imports on purpose. `captions` calls into this module for one thing,
+`libass_fontsdir`, which writes only into the burn's own temporary directory —
 installing a face is a write into `$HOME` and stays an explicit op, so a burn
 can never quietly move a render by installing something first.
 """
@@ -46,6 +47,11 @@ from typing import Any
 
 #: Where the faces ship inside the package.
 VENDORED_DIR = Path(__file__).parent / "fonts"
+
+#: Static instances of the vendored variable face, for libass's own font
+#: directory and nothing else (`libass_fontsdir`). Outside `vendored()`'s scan
+#: on purpose, so `install` never puts them where fontconfig looks.
+STATIC_DIR = VENDORED_DIR / "static"
 
 #: A family name no box can have. `probe` burns a second frame under this to
 #: calibrate itself: whatever libass draws for a name that cannot resolve is
@@ -268,6 +274,49 @@ def _load_windows(paths: list[Path]) -> int | None:
     return loaded
 
 
+#: The folder, inside a burn's working directory, that `libass_fontsdir` stages
+#: faces into. Relative on purpose: the `ass=` argument is a filtergraph, where
+#: a drive letter's colon ends the option.
+LIBASS_FONTS_DIRNAME = "fonts"
+
+
+def libass_fontsdir(cwd: Path) -> str:
+    """The `:fontsdir=` option for an `ass=` filter run from `cwd`; "" off Windows.
+
+    On Windows a registered, GDI-loaded face still does not draw: the CI run
+    after `_load_windows` shipped reported `registered: true, loaded: 1` and
+    libass under DirectWrite drew ArialMT for Outfit anyway. libass's own font
+    directory skips the OS font system — a face loaded from it is matched
+    before the provider is asked — so on Windows the burn stages faces into
+    `cwd` and names the folder.
+
+    **The staged Outfit is a static instance, never the variable file.** libass
+    names a face in its font directory by its legacy family (name ID 1), and
+    the variable file's default instance is Thin, so it registers as `Outfit
+    Thin` and a request for `Outfit` falls through to a substitute — measured
+    on libass 0.17.4, where the static `Outfit-Regular` and `Outfit-Bold` in
+    `STATIC_DIR` are what `(Outfit, 400)` and `(Outfit, 700)` select, ahead of
+    fontconfig's own variable Outfit. Faces `install` put in the per-user
+    directory (a pack's among them) are staged beside them. HISTORY.md § The
+    first windows-demo run.
+
+    **Windows only, deliberately.** On Linux and macOS the burn resolves through
+    fontconfig and CoreText as it always has, so nothing CLAUDE.md measured
+    about which face draws there moves. Tyler's call, 2026-09-13.
+    """
+    if sys.platform != "win32":
+        return ""
+    faces = {face.name: face for face in vendored(user_font_dir())}
+    faces.update({face.name: face for face in vendored(STATIC_DIR)})
+    if not faces:
+        return ""
+    staged = cwd / LIBASS_FONTS_DIRNAME
+    staged.mkdir(exist_ok=True)
+    for name, face in faces.items():
+        shutil.copyfile(face, staged / name)
+    return f":fontsdir={LIBASS_FONTS_DIRNAME}"
+
+
 def _on_search_path(directory: Path) -> bool | None:
     """Does fontconfig actually search `directory`?
 
@@ -422,11 +471,13 @@ def _burn_probe(family: str, out: Path, *, size: int, width: int, height: int) -
     """
     script = out.parent / "probe.ass"
     script.write_text(_probe_ass(family, size=size, width=width, height=height), encoding="utf-8")
+    # The probe asks what a burn would draw, so it stages the same fonts a burn does.
+    fontsdir = libass_fontsdir(out.parent)
     done = _run_tool(
         [
             "ffmpeg", "-v", "verbose", "-y",
             "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:d=1",
-            "-vf", "ass=probe.ass",
+            "-vf", f"ass=probe.ass{fontsdir}",
             "-frames:v", "1", out.name,
         ],
         cwd=out.parent,

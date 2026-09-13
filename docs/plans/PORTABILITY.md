@@ -282,6 +282,14 @@ failures as run 34778624429 and nothing new among them, 6 on WiX's
   Ubuntu. At 2x billing while the repo is private, that is ~50 billed
   minutes per push, before windows-demo's own run.
 
+**What the first sync answered** (HISTORY.md § The first windows-demo run):
+5a.1 skips WiX's melt on the runner. 5a.2's GDI load did not make Outfit
+draw, so the fallback above was taken, Windows only. It had to stage static
+instances rather than the variable file, because libass names a face in its
+font directory by name ID 1, `Outfit Thin`. Shotcut's melt names itself
+`melt.exe` in its banner, which doctor had never accepted. The ci.yml Windows
+leg is `continue-on-error`.
+
 **5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
 `mac_trial.sh`: it asks before starting, records everything it adds,
 `-Uninstall` removes exactly that, it runs DEMO.md's commands verbatim and

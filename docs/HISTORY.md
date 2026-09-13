@@ -13429,3 +13429,86 @@ Measured here, and none of it is a Windows run:
 **The ci.yml Windows job is not decided yet.** If 5a turns it green there is
 nothing to decide. If it does not, PORTABILITY.md's recommendation stands:
 `continue-on-error` on that matrix leg only.
+
+## The first windows-demo run — 2026-09-13
+
+The sync of `1e0956b` ran all three workflows. mac-demo was cancelled to save
+billed minutes, so 5a.1 has not been re-checked against Shotcut's melt on
+macOS. It can be re-run by hand.
+
+**ci.yml's Windows job (run 34781717764): 3 failed, 2034 passed, 43 skipped**,
+down from 9 failed.
+
+- **5a.1 held.** Doctor's refusal reads "Skipped C:\Program Files (x86)\WiX
+  Toolset v3.14\bin\melt.EXE: it prints no `melt <version>` banner", and the
+  six render tests skip instead of running an MSI tool.
+- **5a.2 did not fix the font.** `fonts --install` reported `registered: true,
+  loaded: 1`, and its own probe, run straight after the load, still drew
+  ArialMT for Outfit. So did the three font tests a step later. A GDI load was
+  not what libass's DirectWrite provider needed. The load stays: it is what
+  Windows' own Install does, and `loaded` is reported, not trusted.
+
+**windows-demo (run 34781717719) stopped at `DEMO 2 import vo`.** It ran
+Windows Server 2025 Datacenter 10.0.26100 on 8 GB, under PowerShell 5.1.26100.
+Every step before the demo worked on the first run:
+
+- all five downloads matched their pinned SHA-256s (36 s);
+- `espeak-ng --version` ran from the unpacked MSI and named its data folder;
+- whisper installed in 34 s;
+- `uv sync` took 5 s;
+- `make_demo.py` wrote the voiceover and both b-roll clips, so gyan.dev's
+  `drawtext` with `font=sans` resolves on Windows.
+
+Three defects, fixed in the next commit:
+
+1. **The kit's argument lists fell apart.** In PowerShell `,` binds tighter
+   than `+`, so `@('DEMO 2 import vo', $L + @('import', …))` was
+   `('DEMO 2 import vo', $L) + @('import', …)`, and the step ran `lucid -C
+   proj` with its command dropped. The function probe had exercised `Step`
+   and never the table. Each list is parenthesised now, checked by
+   evaluating the table under pwsh.
+2. **Shotcut's melt names itself `melt.exe`.** Doctor called
+   `…\Shotcut\melt.exe -version` "exited 0 and printed no banner". The binary
+   holds the format `%s 7.41.0` and a statically linked `basename`, and
+   mingw-w64's `basename` strips the directory and keeps the extension. So the banner is `melt.exe 7.41.0`, and `MELT_BANNER` wanted a
+   space right after `melt`. It takes `(?i:\.exe)?` now. **This predates
+   5a**: doctor has refused every Shotcut melt on Windows since the banner
+   rule was written, and 5a.1 would have extended that refusal to rendering.
+   Read off the binary here, never run.
+3. **The report never uploaded.** The kit's folder is on C: and `runner.temp`
+   is on D:. `upload-artifact` takes the common ancestor of its paths, and
+   there is none across drives. `report.txt` is copied beside the zip first.
+
+**The font, measured here before its fix shipped.** Tyler chose libass's own
+font directory, Windows only, over GDI. The first build staged the vendored
+variable `Outfit[wght].ttf` there. A burn under that build on this box
+**drew the substitute**: libass logged `Loading font file
+'fonts/…ttf'` and then `fontselect: (…, 400, 0) -> NotoSansArabic`.
+
+libass names a face in its font directory by its legacy family, name ID 1.
+The variable file's default instance is Thin, so its ID 1 is `Outfit Thin`;
+only its typographic family (ID 16, which fontconfig reads) is `Outfit`.
+Asking for `… Thin` selected the file, and a static Regular instance with
+ID 1 plain `Outfit` matched. The same naming may be why DirectWrite drew
+ArialMT on Windows. That is a hypothesis about Windows, not a measurement.
+
+So the Windows burn stages static instances, a second decision of Tyler's.
+Upstream Outfit-Fonts ships `Outfit-Regular.ttf` and `Outfit-Bold.ttf`, and
+its variable file at the same commit has the vendored file's md5. They live
+in `src/lucid/fonts/static/`, outside `vendored()`'s scan, so `install` never
+hands them to fontconfig. On libass 0.17.4 here, with fontconfig's variable
+Outfit installed too:
+
+- with the staging, `(Outfit, 400)` selects `Outfit-Regular` from the
+  directory and `(Outfit, 700)` selects `Outfit-Bold`;
+- without it, fontconfig's `Outfit[wght].ttf` draws `Outfit_400wght`.
+
+`test_libass_draws_the_staged_static_outfit` asserts the first pair on a real
+burn. With the variable file staged in their place, the first build, it fails
+on `Outfit_400wght` and `Outfit_700wght`. `captions.burn` and the font probe
+both call `fonts.libass_fontsdir`, so doctor asks what a burn would draw.
+Linux and macOS burns pass no `fontsdir` and are unchanged.
+
+**The ci.yml Windows leg is `continue-on-error`** (Tyler's call, as
+PORTABILITY.md recommended): its failures stay in the log and stop failing
+the run. Take it off once that leg is green on its own.

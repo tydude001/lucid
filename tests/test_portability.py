@@ -232,6 +232,26 @@ def test_lucid_melt_is_taken_at_its_word_and_never_probed(monkeypatch: pytest.Mo
     assert picture.melt_command()[0] == "flatpak"
 
 
+@pytest.mark.parametrize("banner", ["melt.exe 7.41.0", "melt.EXE 7.41.0", "mlt-melt.exe 7.41.0"])
+def test_a_windows_melt_names_itself_with_its_extension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, banner: str
+) -> None:
+    """melt prints `basename(argv[0])`, and on Windows that keeps `.exe`: Shotcut
+    26.8.1's `melt.exe` exited 0 on the first windows-demo run and doctor called
+    it no melt at all."""
+    shotcut = write_stub(tmp_path / "melt", f"print({banner!r})\n")
+    _melt_on_path(monkeypatch, tmp_path)
+    monkeypatch.setattr(picture, "melt_bundles", lambda: [shotcut])
+    monkeypatch.setenv("PATH", "")
+    assert picture.melt_command() == [str(shotcut)]
+
+    monkeypatch.setattr(doctor.picture, "melt_command", lambda: [r"C:\Shotcut\melt.exe"])
+    monkeypatch.setattr(doctor, "_run", lambda cmd: (f"{banner}\nCopyright (C) 2002-2026 Meltytech, LLC\n", "", 0))
+    row = doctor._melt_entry()
+    assert row["ok"] is True
+    assert row["version"] == "7.41.0"
+
+
 def test_doctor_reads_melts_version_off_the_one_banner(monkeypatch: pytest.MonkeyPatch) -> None:
     """One copy of the banner rule, in `picture`, for doctor and the resolver."""
     assert not hasattr(doctor, "_MELT_BANNER")
@@ -680,6 +700,126 @@ def test_no_gdi_load_is_attempted_off_windows(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(fonts.subprocess, "run", lambda *a, **k: None)
     assert fonts.install(dest=tmp_path)["loaded"] is None
+
+
+# -- libass's own font directory, on Windows only ---------------------------
+
+
+def _legacy_family(ttf: Path) -> str:
+    """Name ID 1, read straight off the sfnt `name` table — what libass calls a
+    face it loads from its font directory. No fontTools in the test deps."""
+    import struct
+
+    data = ttf.read_bytes()
+    tables = struct.unpack(">H", data[4:6])[0]
+    for i in range(tables):
+        tag, _, offset, _ = struct.unpack(">4sIII", data[12 + 16 * i : 28 + 16 * i])
+        if tag != b"name":
+            continue
+        _, count, strings = struct.unpack(">HHH", data[offset : offset + 6])
+        for j in range(count):
+            platform, _, _, name_id, length, at = struct.unpack(
+                ">HHHHHH", data[offset + 6 + 12 * j : offset + 18 + 12 * j]
+            )
+            if name_id == 1 and platform == 3:
+                raw = data[offset + strings + at : offset + strings + at + length]
+                return raw.decode("utf-16-be")
+    raise AssertionError(f"no Windows-platform name ID 1 in {ttf}")
+
+
+def test_the_static_outfit_is_named_outfit_where_the_variable_one_is_not() -> None:
+    """libass names a face in its font directory by name ID 1. The variable
+    file's default instance is Thin, so staging it answers a request for
+    `Outfit` with a substitute — the first fontsdir build, measured before it
+    shipped. HISTORY.md § The first windows-demo run."""
+    assert _legacy_family(fonts.VENDORED_DIR / "Outfit[wght].ttf") == "Outfit Thin"
+    statics = sorted(p.name for p in fonts.vendored(fonts.STATIC_DIR))
+    assert statics == ["Outfit-Bold.ttf", "Outfit-Regular.ttf"]
+    for face in fonts.vendored(fonts.STATIC_DIR):
+        assert _legacy_family(face) == "Outfit"
+    # Never installed where fontconfig looks: the Linux burn keeps the variable face.
+    assert not any(p.parent == fonts.STATIC_DIR for p in fonts.vendored())
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_no_fontsdir_off_windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str) -> None:
+    """Linux and macOS burns resolve through their own font system as measured."""
+    monkeypatch.setattr(sys, "platform", platform)
+    assert fonts.libass_fontsdir(tmp_path) == ""
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_windows_burn_stages_the_static_faces_and_the_installed_ones(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    user = tmp_path / "user-fonts"
+    user.mkdir()
+    (user / "ZillaSlab-Regular.ttf").write_bytes(b"a pack's face")
+    cwd = tmp_path / "burn"
+    cwd.mkdir()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(fonts, "user_font_dir", lambda: user)
+
+    assert fonts.libass_fontsdir(cwd) == ":fontsdir=fonts"
+    staged = sorted(p.name for p in (cwd / "fonts").iterdir())
+    assert staged == ["Outfit-Bold.ttf", "Outfit-Regular.ttf", "ZillaSlab-Regular.ttf"]
+
+
+@pytest.mark.parametrize(("platform", "option"), [("win32", ":fontsdir=fonts"), ("linux", "")])
+def test_the_caption_burn_names_the_font_directory_only_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, option: str
+) -> None:
+    from lucid import captions
+
+    video = tmp_path / "in.mp4"
+    video.write_bytes(b"")
+    subs = tmp_path / "in.ass"
+    subs.write_text("[Script Info]\n", encoding="utf-8")
+    seen: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], cwd: str, **kwargs: object) -> None:
+        seen["filter"] = cmd[cmd.index("-vf") + 1]
+        seen["staged"] = sorted(p.name for p in (Path(cwd) / "fonts").glob("*.ttf"))
+
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(fonts, "user_font_dir", lambda: tmp_path / "none")
+    monkeypatch.setattr(captions.subprocess, "run", fake_run)
+    captions.burn(video, subs, tmp_path / "out.mp4")
+
+    assert seen["filter"] == f"ass=lucid.ass{option}"
+    assert seen["staged"] == (["Outfit-Bold.ttf", "Outfit-Regular.ttf"] if option else [])
+
+
+def _ffmpeg_has_libass() -> bool:
+    if shutil.which("ffmpeg") is None:
+        return False
+    listing = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, check=False)
+    return re.search(r"^\s*\S+\s+ass\s", listing.stdout, re.MULTILINE) is not None
+
+
+@pytest.mark.skipif(not _ffmpeg_has_libass(), reason="needs an ffmpeg built with libass")
+@pytest.mark.parametrize(("bold", "face"), [(False, "Outfit-Regular"), (True, "Outfit-Bold")])
+def test_libass_draws_the_staged_static_outfit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bold: bool, face: str
+) -> None:
+    """A real burn with the Windows staging: libass's own account of what it
+    picked. A face from its font directory is named by its PostScript name and
+    no path, ahead of any provider's Outfit — fontconfig's variable one on this
+    box, whatever DirectWrite has on Windows."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(fonts, "user_font_dir", lambda: tmp_path / "none")
+    if bold:
+        original = fonts._probe_ass
+
+        def bold_ass(family: str, **kw: int) -> str:
+            text = original(family, **kw)
+            return re.sub(r"^(Style: probe,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)0,", r"\g<1>-1,", text, flags=re.MULTILINE)
+
+        monkeypatch.setattr(fonts, "_probe_ass", bold_ass)
+
+    chose = fonts._burn_probe("Outfit", tmp_path / "named.png", size=72, width=640, height=120)
+    assert chose["faces"], chose
+    assert chose["faces"][0] == {"file": face, "face": face}
 
 
 @pytest.mark.parametrize(("platform", "system"), [("darwin", "CoreText"), ("win32", "DirectWrite")])

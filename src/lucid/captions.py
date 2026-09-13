@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lucid import fonts
 from lucid.timeline import Edit
 from lucid.transcript import Transcript
 
@@ -886,7 +887,7 @@ def burn(video: Path | str, subtitles: Path | str, output: Path | str) -> Path:
             "-i",
             str(source),
             "-vf",
-            "ass=lucid.ass",
+            f"ass=lucid.ass{fonts.libass_fontsdir(Path(tmp))}",
             "-c:a",
             "copy",
             str(destination.resolve()),

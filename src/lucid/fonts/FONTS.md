@@ -10,6 +10,7 @@ in for the other.
 | file | family | role | licence |
 |---|---|---|---|
 | `Outfit[wght].ttf` | Outfit (variable, 100–900) | `captions.CAPTION_FONT` — the caption default every `PRESETS` entry names | OFL-1.1 — `OFL-Outfit.txt` |
+| `static/Outfit-Regular.ttf`, `static/Outfit-Bold.ttf` | Outfit 400 and 700 (static) | the same face, staged into libass's own font directory for a **Windows** burn only (`fonts.libass_fontsdir`) | OFL-1.1 — `OFL-Outfit.txt` |
 
 ## Why one file and not the brand set
 
@@ -35,6 +36,32 @@ That is the failure this directory exists to close: the caption default
 resolved on this machine **by coincidence**, and on a fresh box it would have
 resolved to whatever fontconfig substitutes, silently, with every check still
 clean.
+
+## The static pair, and why Windows gets it
+
+On Windows a registered, GDI-loaded Outfit still did not draw: libass under
+DirectWrite picked ArialMT. So a Windows burn hands libass its own font
+directory (`ass=…:fontsdir=fonts`), and a face there is matched before the OS
+is asked. **The variable file cannot go there.** libass names a face in that
+directory by its legacy family, name ID 1, and the variable file's default
+instance is Thin, so its ID 1 is `Outfit Thin` and a request for `Outfit`
+falls through to a substitute. The static files' ID 1 is `Outfit`, and on
+libass 0.17.4 `(Outfit, 400)` and `(Outfit, 700)` select `Outfit-Regular` and
+`Outfit-Bold` from the directory, ahead of fontconfig's variable Outfit
+(HISTORY.md § The first windows-demo run).
+
+They sit in `static/` so `fonts.vendored()` does not see them, and `install`
+never puts them where fontconfig looks: the Linux and macOS burns resolve the
+variable face exactly as they were measured.
+
+Provenance: `fonts/ttf/Outfit-Regular.ttf` and `fonts/ttf/Outfit-Bold.ttf`
+from github.com/Outfitio/Outfit-Fonts at commit
+`902773808eb372f70fb34e8946dd1ffe604efc79`. That commit's
+`fonts/variable/Outfit[wght].ttf` has the vendored file's md5, so the pair is
+the same release. SHA-256: Regular
+`3b64ac4f6ab6a8eebddd4b0bc03c811c43602e11e176382ab0ee6be615ab861b`, Bold
+`f620b69582e06d7e1b3bbde74ed8c5876eadabb038390780db2a3414a1490197`. The OFL
+declares no Reserved Font Name, so the family name carries over unchanged.
 
 ## Installing it where fontconfig looks
 
