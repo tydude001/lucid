@@ -107,6 +107,15 @@ def _entry(name: str, what: str, **fields: Any) -> dict[str, Any]:
 #: first command died on it. HISTORY.md § A stranger's install, on a clean Fedora.
 H264_ENCODER = "libx264"
 
+#: The filters lucid and its demo draw text with, each naming the library an
+#: ffmpeg has to be built against to have it. `drawtext` (freetype) labels the
+#: demo's own footage, so without it DEMO.md stops at its first command; `ass`
+#: (libass) is every caption burn and the caption-font probe. Homebrew's plain
+#: `ffmpeg` has neither, and doctor called it ✓ on the first mac-demo run while
+#: `make_demo.py` died on `No such filter: 'drawtext'`. HISTORY.md § The Mac
+#: test in CI.
+TEXT_FILTERS = {"drawtext": "freetype", "ass": "libass"}
+
 
 def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
     """ffmpeg or ffprobe, both of which lucid calls by bare name on PATH."""
@@ -160,6 +169,37 @@ def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
                     "`ffmpeg-free` is built without it: enable RPM Fusion, then "
                     "`dnf swap ffmpeg-free ffmpeg --allowerasing`. That swap replaces "
                     "the libraries MLT renders through as well."
+                ),
+            )
+        filters, _, _ = _run([found, "-hide_banner", "-filters"])
+        # The encoder rule, for a listing: output that is not one (no `Filters:`
+        # header) is a probe that did not answer, never a filter that is missing.
+        missing = (
+            [name for name in TEXT_FILTERS if not re.search(rf"^[ \t]*\S+[ \t]+{name}[ \t]", filters, re.MULTILINE)]
+            if filters.lstrip().startswith("Filters:")
+            else []
+        )
+        if missing:
+            libraries = " and ".join(TEXT_FILTERS[name] for name in missing)
+            return _entry(
+                binary,
+                what,
+                looked_for="PATH",
+                found=found,
+                version=version,
+                why=(
+                    f"this ffmpeg has no {' or '.join(missing)} filter — it was built "
+                    f"without {libraries}. The demo's footage is labelled with "
+                    "drawtext and every caption burn goes through libass, so each "
+                    "would stop at `No such filter`"
+                ),
+                fix=(
+                    "install an ffmpeg built with freetype and libass. On a Mac, "
+                    "Homebrew's `ffmpeg` has neither: `brew install ffmpeg-full`, then "
+                    "put it first on PATH, since it is keg-only and a plain `ffmpeg` "
+                    "(auto-editor installs one) otherwise answers first — "
+                    '`export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"` in your '
+                    "shell profile."
                 ),
             )
     return _entry(binary, what, ok=True, looked_for="PATH", found=found, version=version)

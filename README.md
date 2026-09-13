@@ -72,9 +72,12 @@ never been run on macOS or Windows. What a port would take is
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and
   OpenTimelineIO).
-- **ffmpeg / ffprobe** on `PATH`, built with `libx264` — every media operation
-  goes through them. Fedora's default `ffmpeg-free` has no `libx264`; swap in
-  RPM Fusion's `ffmpeg`.
+- **ffmpeg / ffprobe** on `PATH`, built with `libx264`, freetype and libass —
+  every media operation goes through them, the demo labels its footage with
+  `drawtext`, and captions burn through libass. Fedora's default `ffmpeg-free`
+  has no `libx264`; swap in RPM Fusion's `ffmpeg`. Homebrew's `ffmpeg` has
+  neither freetype nor libass; install `ffmpeg-full` and put
+  `$(brew --prefix ffmpeg-full)/bin` first on `PATH`, since it is keg-only.
 - **[auto-editor](https://github.com/WyattBlue/auto-editor) 31+** — silence
   removal and single-source rendering. Install the upstream binary; the PyPI
   package is a stale 29.x.

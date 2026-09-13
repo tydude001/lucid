@@ -15,6 +15,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -113,6 +116,84 @@ def test_libx264_or_an_unanswered_listing_passes_ffmpeg(monkeypatch: pytest.Monk
     row = doctor._ffmpeg_entry("ffmpeg", "everything")
     assert row["ok"] is True
     assert row["version"] == "8.1.2"
+
+
+_FILTERS_HEAD = "Filters:\n  T.. = Timeline support\n  ------\n .. abench            A->A       Benchmark part of a filtergraph.\n"
+_FILTER_DRAWTEXT = " T. drawtext          V->V       Draw text on top of video frames using libfreetype library.\n"
+_FILTER_ASS = " .. ass               V->V       Render ASS subtitles onto input video using the libass library.\n"
+
+
+def _ffmpeg_filters(monkeypatch: pytest.MonkeyPatch, filters: str) -> None:
+    """An ffmpeg with libx264, answering `-filters` with `filters`."""
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def run(cmd: list[str]) -> tuple[str, str, int]:
+        if "-encoders" in cmd:
+            return _ENCODERS_FULL, "", 0
+        if "-filters" in cmd:
+            return filters, "", 0
+        return _FFMPEG_VERSION, "", 0
+
+    monkeypatch.setattr(doctor, "_run", run)
+
+
+def test_homebrews_plain_ffmpeg_is_not_ffmpeg_enough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Homebrew's `ffmpeg` has libx264 and no freetype or libass. Doctor called
+    it ✓ on the first mac-demo run, and `make_demo.py` died on `No such filter:
+    'drawtext'`. HISTORY.md § The Mac test in CI."""
+    _ffmpeg_filters(monkeypatch, _FILTERS_HEAD)
+    row = doctor._ffmpeg_entry("ffmpeg", "everything")
+    assert row["ok"] is False
+    assert "drawtext or ass" in row["why"]
+    assert "freetype and libass" in row["why"]
+    assert "brew install ffmpeg-full" in row["fix"]
+    assert "brew --prefix ffmpeg-full" in row["fix"]
+
+
+@pytest.mark.parametrize(
+    ("filters", "missing", "library"),
+    [(_FILTERS_HEAD + _FILTER_ASS, "drawtext", "freetype"), (_FILTERS_HEAD + _FILTER_DRAWTEXT, "ass", "libass")],
+)
+def test_ffmpeg_names_only_the_filter_it_lacks(
+    monkeypatch: pytest.MonkeyPatch, filters: str, missing: str, library: str
+) -> None:
+    _ffmpeg_filters(monkeypatch, filters)
+    row = doctor._ffmpeg_entry("ffmpeg", "everything")
+    assert row["ok"] is False
+    assert row["why"].startswith(f"this ffmpeg has no {missing} filter — it was built without {library}.")
+
+
+def test_a_filter_name_inside_a_description_is_not_the_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`subtitles` says "using the libass library" — a word in a description
+    must not stand in for the filter's own name column."""
+    decoy = " .. subtitles         V->V       Render text via drawtext or ass using libass.\n"
+    _ffmpeg_filters(monkeypatch, _FILTERS_HEAD + decoy)
+    assert doctor._ffmpeg_entry("ffmpeg", "everything")["ok"] is False
+
+
+@pytest.mark.parametrize("filters", [_FILTERS_HEAD + _FILTER_DRAWTEXT + _FILTER_ASS, "", "garbage\n"])
+def test_both_filters_or_an_unanswered_listing_passes_ffmpeg(monkeypatch: pytest.MonkeyPatch, filters: str) -> None:
+    """A listing with no `Filters:` header did not answer, the encoder rule."""
+    _ffmpeg_filters(monkeypatch, filters)
+    assert doctor._ffmpeg_entry("ffmpeg", "everything")["ok"] is True
+
+
+def test_ffprobe_is_not_asked_for_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ffprobe draws nothing; the same keg's ffprobe must not fail on ffmpeg's rule."""
+    _ffmpeg_filters(monkeypatch, _FILTERS_HEAD)
+    monkeypatch.setattr(doctor, "_run", lambda cmd: ("ffprobe version 8.1.2 Copyright\n", "", 0))
+    assert doctor._ffmpeg_entry("ffprobe", "probing")["ok"] is True
+
+
+def test_this_boxs_ffmpeg_has_both_text_filters() -> None:
+    """The listing parse against a real `ffmpeg -filters`, not only the fixtures."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        pytest.skip("no ffmpeg on PATH")
+    listing = subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True, text=True, check=False).stdout
+    if not all(re.search(rf"\s{name}\s", listing) for name in doctor.TEXT_FILTERS):
+        pytest.skip("this ffmpeg is built without freetype or libass")
+    assert "filter" not in (doctor._ffmpeg_entry("ffmpeg", "everything")["why"] or "")
 
 
 def test_missing_whisper_carries_the_resolution_chain(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -13196,3 +13196,41 @@ while `lucid doctor` had just called everything required present: Homebrew's
 keg-only and auto-editor still pulls in the plain `ffmpeg`. Doctor's ffmpeg
 row checks `libx264` and not these two filters, so it still calls the plain
 build fine. Whether Shotcut's melt draws on a runner is still unmeasured.
+
+## Doctor asks for the text filters — 2026-09-13
+
+The first mac-demo run left a hole behind its fix. The kit installs
+`ffmpeg-full` now, but a stranger who reads docs/DEMO.md rather than running
+the kit would install Homebrew's `ffmpeg`, run `lucid doctor`, read
+"Everything required is here", and stop at the demo's first command. Doctor's
+ffmpeg row checked `libx264` and nothing else, and Homebrew's plain `ffmpeg`
+9.0.1 has `x264` among its dependencies and neither `freetype` nor `libass`
+(formulae.brew.sh, read that day; `ffmpeg-full` has all three and is
+keg-only). That is the Fedora `libx264` case again, with two filters instead
+of one encoder.
+
+- **The ffmpeg row now reads `ffmpeg -filters` for `drawtext` (freetype) and
+  `ass` (libass)**, `doctor.TEXT_FILTERS`, and names only the ones missing.
+  `drawtext` labels the demo's footage and `ass` is every caption burn, so an
+  ffmpeg without either is ✗, not "unavailable". The fix line gives
+  `brew install ffmpeg-full` and the PATH export, since a keg-only formula is
+  otherwise answered by the plain `ffmpeg` auto-editor pulls in.
+- **A listing with no `Filters:` header is a probe that did not answer**, the
+  encoder rule's own, so it passes rather than refusing. The name is matched in
+  the listing's name column only: `subtitles`'s description mentions libass, and
+  a decoy line naming both filters in its prose still fails.
+- README.md § Requirements and DEMO.md § What you need say the same, DEMO.md
+  with the two commands. LAUNCH.md § Step 2 holds a one-line installer back
+  until a stranger stops at the same binary twice. This one was measured
+  first on the macOS runner, so it did not wait.
+
+Measured on this box: `lucid doctor` against `/usr/bin/ffmpeg` 8.1.2 is ✓.
+Against a wrapper that is that same ffmpeg with `drawtext` and `ass` removed
+from its filter listing, it is ✗ ("no drawtext or ass filter — it was built
+without freetype and libass"), `Missing or unusable: ffmpeg.`, exit 1
+(`~/lucid-work/doctor-textfilters/`). The wrapper hides the listing and not
+the filters, so this proves what doctor reads and nothing about a Mac. Five of
+the nine new cases in `test_doctor.py` fail against the doctor before this change, and
+the four that pass there are the ones asserting a pass. What would settle it
+for Homebrew is a runner's doctor output from before `ffmpeg-full` goes on
+PATH, and the kit does not print one.

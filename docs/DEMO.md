@@ -13,7 +13,17 @@ whisper hears, and that is the point of the last step.
 
 `uv`, `ffmpeg`, `espeak-ng` (a few megabytes, only to *build* the demo voice),
 plus **whisper** for the transcript, **auto-editor** for the silence pass and
-**melt** for the picture. If you are not sure:
+**melt** for the picture. The ffmpeg has to be built with `libx264`, freetype
+and libass: step 1 labels the footage with `drawtext`, and it stops at its
+first command without it. On a Mac that means Homebrew's `ffmpeg-full`, not
+its `ffmpeg`, and because it is keg-only, first on `PATH`:
+
+```sh
+brew install ffmpeg-full
+export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"
+```
+
+If you are not sure:
 
 ```sh
 uv run lucid doctor
