@@ -11,8 +11,8 @@ PLAN.md so the plan stays a plan. Three rules:
 - References to "the roadmap" and its numbered items cite the roadmap as it
   stood on that date; the roadmap now lives at PLAN.md § Direction and order.
 - The living layer is elsewhere: design and order in [PLAN.md](PLAN.md), the
-  parity program in [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md), guardrails in
-  [CLAUDE.md](CLAUDE.md), status in the wiki's Open items table.
+  parity program in [docs/plans/DAYDREAM.md](plans/DAYDREAM.md), guardrails in
+  [CLAUDE.md](../CLAUDE.md), status in the wiki's Open items table.
 
 ## First milestones — all seven ran — 2026-08-07
 

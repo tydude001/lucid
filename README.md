@@ -261,13 +261,13 @@ what it ships.
 
 **Live — what lucid is and what it learned.**
 
-- [PLAN.md](PLAN.md) — architecture, stack decisions, open questions.
-- [HISTORY.md](HISTORY.md) — the dated record of what shipped and what the
+- [PLAN.md](docs/PLAN.md) — architecture, stack decisions, open questions.
+- [HISTORY.md](docs/HISTORY.md) — the dated record of what shipped and what the
   evidence said, first real video included.
-- [PRIOR-ART.md](PRIOR-ART.md) — the survey of what else exists in this space
+- [PRIOR-ART.md](docs/PRIOR-ART.md) — the survey of what else exists in this space
   and what lucid does that they don't.
-- [NEXT.md](NEXT.md) — the three directions after the queues closed, ranked.
-- [TRIAL.md](TRIAL.md) — an agent cutting a video end to end, unattended and
+- [NEXT.md](docs/NEXT.md) — the three directions after the queues closed, ranked.
+- [TRIAL.md](docs/TRIAL.md) — an agent cutting a video end to end, unattended and
   scored, plus the queue its failures became.
 
 **Shipped plans — [docs/plans/](docs/plans).** Each was built to completion; they

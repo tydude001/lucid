@@ -184,7 +184,7 @@ offer, because it can't be run here at all.
 Re-surveyed in full for the parity decision — every page, the three CSS bundles, all sixteen
 homepage videos frame-sampled through ffmpeg, the docs via their Mintlify markdown mirror. The
 observed product anatomy, the workflows, and the design system live in
-[docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md) (capture method and its one limit in
+[docs/plans/DAYDREAM.md](plans/DAYDREAM.md) (capture method and its one limit in
 that file's § How this was captured). What the pass adds as *competitor* evidence: the
 homepage retitled to "AI Video Editor for Claude Code & Codex" ("for Mac" survives only
 on `/download`), still macOS-only, so the Linux asymmetry stands; the in-app chat is

@@ -1,11 +1,11 @@
 # lucid
 
-Architecture, stack decisions, and open questions live in [PLAN.md](PLAN.md).
+Architecture, stack decisions, and open questions live in [PLAN.md](docs/PLAN.md).
 The build order and the rationale behind it is PLAN.md § Direction and
 order. The competitor/dependency survey behind those decisions is in
-[PRIOR-ART.md](PRIOR-ART.md). The dated record of what shipped and what the
+[PRIOR-ART.md](docs/PRIOR-ART.md). The dated record of what shipped and what the
 evidence said — including the first real video's findings — is
-[HISTORY.md](HISTORY.md). The Daydream parity plan — the product observed,
+[HISTORY.md](docs/HISTORY.md). The Daydream parity plan — the product observed,
 its design system, the feature map and its build order — is
 [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). The Studio reshape — the
 workspace reorganized around Home/Edit/Frame/Finish with direct manipulation
@@ -30,9 +30,9 @@ became a short newcomer-facing front door; nothing was deleted in the move.
 The two-minute demo a stranger runs first is [docs/DEMO.md](docs/DEMO.md), on
 media `scripts/make_demo.py` **generates** — the repo vendors none, so there
 is no licence question and nothing to keep in step with an upstream. The three
-directions after every queue closed, ranked, are [NEXT.md](NEXT.md); the first
+directions after every queue closed, ranked, are [NEXT.md](docs/NEXT.md); the first
 of them ran the same day and its evidence and failure queue are
-[TRIAL.md](TRIAL.md) — an agent cutting a video end to end, unattended,
+[TRIAL.md](docs/TRIAL.md) — an agent cutting a video end to end, unattended,
 scored. What a macOS/Windows port would take — the one Windows crash, the
 Linux-shaped resolvers, and the melt/libass/magick measurements that have to
 be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
@@ -40,6 +40,14 @@ surveyed 2026-09-10. How a public repo gets seen — the recording, one
 stranger's Mac run, the flip, the MCP directories, Show HN, in that order —
 is [docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
 Open-item status lives in the wiki, not here.
+
+**Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
+lives under `docs/`** — the five that sat at the root moved there
+2026-09-13, so the public tree's top level is only what a tool requires
+there (`server.json` and `glama.json` included). Comments, tests and the
+docs themselves cite them by bare name (`HISTORY.md § …`), and that is
+deliberate: the names are unique in the repo, and a thousand path rewrites
+would bury any real change. A Markdown *link* is a path and must resolve.
 
 ## Things that will bite you
 

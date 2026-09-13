@@ -3,8 +3,8 @@
 Every capability, walked in the order a project meets them, with the rationale
 beside each behaviour. The short version — what lucid is, what it needs
 installed, and the quickstart — is the [README](../README.md); the design and
-the dated evidence behind everything here are [PLAN.md](../PLAN.md) and
-[HISTORY.md](../HISTORY.md).
+the dated evidence behind everything here are [PLAN.md](PLAN.md) and
+[HISTORY.md](HISTORY.md).
 
 ## The core loop
 
@@ -648,5 +648,5 @@ cue table, the shot projection, the refusal that guards it, the MLT writer, the
 `melt` render, and the picture lane in the window. `export --render` produces
 the file; the timeline's V2 lane draws the shots that file will contain, and
 draws them from the *planned* projection, so the window can never show a shot
-`export` would refuse. [PLAN.md](../PLAN.md) § The layered timeline has the design
+`export` would refuse. [PLAN.md](PLAN.md) § The layered timeline has the design
 and the build order.

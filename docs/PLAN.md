@@ -7,7 +7,7 @@ order of work. Decisions that get made move out of "Open questions" into
 The other layers are elsewhere and this file cites rather than restates them:
 competitor and dependency research in [PRIOR-ART.md](PRIOR-ART.md); the dated
 record of what shipped and what the evidence said in [HISTORY.md](HISTORY.md);
-the Daydream parity program in [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md); status
+the Daydream parity program in [docs/plans/DAYDREAM.md](plans/DAYDREAM.md); status
 in the wiki's Open items table.
 
 ## Tier 1 MVP — headless MCP server
@@ -400,7 +400,7 @@ proved the converse: cues carrying explicit lengths tuned to the old runtime
 were invalidated wholesale by a ~12 s append — **the property is about every
 cue in a project, not just the shot plan.** Any item below that would trade
 it away is wrong regardless of what it buys. The corollaries are conventions
-in [CLAUDE.md](CLAUDE.md): trust word *order*, never word *durations*;
+in [CLAUDE.md](../CLAUDE.md): trust word *order*, never word *durations*;
 survival is an *overlap* test; anything emitting times for playback maps
 through `Edit.timeline_span`.
 
@@ -503,7 +503,7 @@ the recording, not the model — 74–85% overlap, no seam to duck into
 ### Next — the Daydream parity queue
 
 The whole parity plan — observed product, design system, per-feature notes,
-non-imports — is [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). Ranking, governed by
+non-imports — is [docs/plans/DAYDREAM.md](plans/DAYDREAM.md). Ranking, governed by
 the layered timeline being the enabler and the look pass being gated on nothing:
 
 1. **The look/feel pass** — shipped 2026-08-08 (HISTORY.md § The look pass),
@@ -1241,7 +1241,7 @@ Neither blocks steps 1–6. The layered timeline ships without the duck.
 The parity direction (Tyler, 2026-08-08: lucid copies Daydream's full feature
 set and look/feel), the observed product, the design-system spec, the
 feature-by-feature map against shipped code, and the build order are one
-document: [docs/plans/DAYDREAM.md](docs/plans/DAYDREAM.md). The constraints that bind
+document: [docs/plans/DAYDREAM.md](plans/DAYDREAM.md). The constraints that bind
 every parity item are lucid's own and live where they always did: § Non-goals, the
 web-UI conventions (no lane `export` cannot produce — CLAUDE.md), and § The
 property everything below defends.

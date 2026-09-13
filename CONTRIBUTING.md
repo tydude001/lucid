@@ -9,7 +9,7 @@ Run `uv run lucid doctor` first. Most "lucid is broken" reports turn out to be
 a missing or wrong external binary, and doctor names the fix for each one.
 
 For anything bigger than a bug fix, open an issue first. lucid's design is
-recorded in [PLAN.md](PLAN.md), and a change that fights it will usually be
+recorded in [PLAN.md](docs/PLAN.md), and a change that fights it will usually be
 turned down however good the code is.
 
 ## The rules a pull request is checked against
