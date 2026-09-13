@@ -3,7 +3,7 @@
 # ci.yml's macOS job has ffmpeg and nothing else, so every render and
 # transcription test skips there. This job runs scripts/mac_trial.sh the way a
 # tester does — Homebrew formulae, the Shotcut app's melt, whisper from uv,
-# then docs/DEMO.md to a render — and scripts/mac_trial_check.py judges what
+# then docs/DEMO.md to a render — and scripts/trial_check.py judges what
 # the run printed and rendered. The kit exits 0 on a render that disagrees
 # with the timeline, because it was written for a person who reads the report,
 # so its exit code is never the verdict here.
@@ -24,7 +24,7 @@ on:
     paths:
       - "src/**"
       - "scripts/mac_trial.sh"
-      - "scripts/mac_trial_check.py"
+      - "scripts/trial_check.py"
       - "scripts/make_demo.py"
       - "pyproject.toml"
       - "uv.lock"
@@ -49,7 +49,7 @@ jobs:
         run: bash scripts/mac_trial.sh < /dev/null
       - name: judge the run
         if: always()
-        run: uv run python scripts/mac_trial_check.py ~/lucid-mac-trial
+        run: uv run python scripts/trial_check.py ~/lucid-mac-trial
       - uses: actions/upload-artifact@v7
         if: always()
         with:

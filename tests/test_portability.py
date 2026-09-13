@@ -26,12 +26,14 @@ from pathlib import Path, PureWindowsPath
 from typing import Self
 
 import pytest
+from stubs import write_stub
 
 from lucid import (
     autoeditor,
     describe,
     doctor,
     fonts,
+    graphics,
     media,
     picture,
     timeline,
@@ -72,6 +74,7 @@ def test_melt_is_found_in_an_editor_bundle_off_path(
 
     installed = tmp_path / "melt"
     installed.touch()
+    monkeypatch.setattr(picture, "melt_version", lambda path: "7.40.0")  # an empty file has no banner
     monkeypatch.setattr(picture, "melt_bundles", lambda: [tmp_path / "absent", installed])
     assert picture.melt_command() == [str(installed)]
 
@@ -124,11 +127,169 @@ def test_fedoras_mlt_is_found_ahead_of_its_freeze_melt(monkeypatch: pytest.Monke
     monkeypatch.delenv("LUCID_MELT", raising=False)
     fedora = {"melt": "/usr/bin/melt", "melt-7": "/usr/bin/melt-7", "mlt-melt": "/usr/bin/mlt-melt"}
     monkeypatch.setattr(picture.shutil, "which", fedora.get)
+    monkeypatch.setattr(picture, "melt_version", lambda path: "7.40.0")  # the paths are not on this box
     assert picture.melt_command() == ["/usr/bin/mlt-melt"]
 
     only_mlt = {"melt-7": "/usr/bin/melt-7"}
     monkeypatch.setattr(picture.shutil, "which", only_mlt.get)
     assert picture.melt_command() == ["/usr/bin/melt-7"]
+
+
+# -- a melt on PATH that is not MLT: PORTABILITY.md step 5a -----------------
+
+_WIX_MELT = (
+    "import sys\n"
+    "print('Windows Installer XML Toolset MSI/MSM Decompiler version 3.14.1.8722')\n"
+    "print(\"melt.exe : error MELT0240 : The file '.mlt' has an unexpected extension\")\n"
+    "sys.exit(0)\n"
+)
+_REAL_MELT = "print('melt 7.41.0')\nprint('Copyright (C) 2002-2026 Meltytech, LLC')\n"
+
+
+def _melt_on_path(monkeypatch: pytest.MonkeyPatch, *dirs: Path) -> None:
+    """PATH is exactly `dirs`, no bundle and no flatpak, and nothing cached."""
+    monkeypatch.delenv("LUCID_MELT", raising=False)
+    monkeypatch.setenv("PATH", os.pathsep.join(str(d) for d in dirs))
+    monkeypatch.setattr(picture, "melt_bundles", list)
+    monkeypatch.setattr(picture, "_MELT_VERDICTS", {}, raising=False)
+
+
+def test_an_impostor_melt_on_path_is_skipped_for_the_real_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The Windows runner's first PATH `melt` was WiX's MSI tool, and six render
+    tests ran it (HISTORY.md § The Windows run that answered). It exits 0, so
+    only the banner tells it apart."""
+    wix, mlt = tmp_path / "wix", tmp_path / "mlt"
+    wix.mkdir()
+    mlt.mkdir()
+    write_stub(wix / "mlt-melt", _WIX_MELT)
+    real = write_stub(mlt / "melt", _REAL_MELT)
+    _melt_on_path(monkeypatch, wix, mlt)
+
+    assert picture.melt_command() == [shutil.which("melt")]
+    assert Path(picture.melt_command()[0]).resolve() == real.resolve()
+
+
+def test_an_impostor_melt_ahead_of_a_bundle_gives_way_to_the_bundle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    write_stub(tmp_path / "melt", _WIX_MELT)
+    shotcut = tmp_path / "Shotcut"
+    shotcut.mkdir()
+    real = write_stub(shotcut / "melt", _REAL_MELT)
+    _melt_on_path(monkeypatch, tmp_path)
+    monkeypatch.setattr(picture, "melt_bundles", lambda: [real])
+
+    assert picture.melt_command() == [str(real)]
+
+
+def test_only_impostors_refuses_and_names_each_by_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A refusal that said only "not found" would send someone to install a melt
+    while the one on PATH kept answering to the name."""
+    wix = write_stub(tmp_path / "melt", _WIX_MELT)
+    _melt_on_path(monkeypatch, tmp_path)
+
+    with pytest.raises(picture.PictureError) as refused:
+        picture.melt_command()
+    found = shutil.which("melt")
+    assert found is not None and Path(found).resolve() == wix.resolve()
+    assert f"Skipped {found}" in str(refused.value)
+    assert "not MLT's melt" in str(refused.value)
+
+    row = doctor._melt_entry()
+    assert row["ok"] is False
+    assert found in row["why"]
+
+
+def test_a_melt_verdict_is_cached_until_the_binary_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`melt_command` runs several times per render; one process start per
+    binary, and a binary replaced in place is asked again."""
+    runs = tmp_path / "runs"
+    counting = f"open({str(runs)!r}, 'a').write('x')\n" + _REAL_MELT
+    stub = write_stub(tmp_path / "melt", counting)
+    _melt_on_path(monkeypatch, tmp_path)
+
+    for _ in range(3):
+        picture.melt_command()
+    assert runs.read_text() == "x"
+
+    target = Path(shutil.which("melt") or stub)
+    stamp = target.stat().st_mtime_ns + 5_000_000_000
+    os.utime(target, ns=(stamp, stamp))
+    picture.melt_command()
+    assert runs.read_text() == "xx"
+
+
+def test_lucid_melt_is_taken_at_its_word_and_never_probed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """It may be a wrapper — the flatpak form is four words and no binary."""
+    monkeypatch.setenv("LUCID_MELT", "flatpak run --command=melt org.kde.kdenlive")
+    monkeypatch.setattr(picture, "melt_version", lambda path: pytest.fail(f"probed {path}"), raising=False)
+    assert picture.melt_command()[0] == "flatpak"
+
+
+def test_doctor_reads_melts_version_off_the_one_banner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One copy of the banner rule, in `picture`, for doctor and the resolver."""
+    assert not hasattr(doctor, "_MELT_BANNER")
+    assert picture.MELT_BANNER.match("melt-7 7.40.0").group(1) == "7.40.0"
+    assert picture.MELT_BANNER.match("Windows Installer XML Toolset MSI/MSM Decompiler") is None
+
+
+# -- LUCID_MELT and LUCID_MAGICK naming a Windows path ------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "argv"),
+    [
+        (r"C:\Users\runner\melt.exe", [r"C:\Users\runner\melt.exe"]),
+        (
+            r'"C:\Program Files\Shotcut\melt.exe" -verbose',
+            [r"C:\Program Files\Shotcut\melt.exe", "-verbose"],
+        ),
+        ("flatpak run --command=melt org.kde.kdenlive", ["flatpak", "run", "--command=melt", "org.kde.kdenlive"]),
+    ],
+)
+@pytest.mark.parametrize(("variable", "resolve"), [("LUCID_MELT", "melt"), ("LUCID_MAGICK", "magick")])
+def test_a_windows_override_keeps_its_backslashes(
+    monkeypatch: pytest.MonkeyPatch, value: str, argv: list[str], variable: str, resolve: str
+) -> None:
+    """POSIX `shlex.split` turned `C:\\Users\\runner\\melt.exe` into
+    `C:Usersrunnermelt.exe`, so every doctor fix line telling a Windows user to
+    set one of these was advice that could not work."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv(variable, value)
+    command = picture.melt_command() if resolve == "melt" else graphics.magick_command()
+    assert command == argv
+
+
+@pytest.mark.parametrize("variable", ["LUCID_MELT", "LUCID_MAGICK"])
+def test_a_windows_override_naming_a_file_with_a_space_is_one_word(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable: str
+) -> None:
+    """Unquoted, `C:\\Program Files\\Shotcut\\melt.exe` is two words to any
+    splitter — so a value that names a file that exists is taken whole."""
+    folder = tmp_path / "Program Files"
+    folder.mkdir()
+    binary = folder / "melt.exe"
+    binary.touch()
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv(variable, str(binary))
+    command = picture.melt_command() if variable == "LUCID_MELT" else graphics.magick_command()
+    assert command == [str(binary)]
+
+
+def test_linux_overrides_still_split_as_a_shell_would(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert picture.command_override("flatpak run '--command=melt' org.kde.kdenlive") == [
+        "flatpak",
+        "run",
+        "--command=melt",
+        "org.kde.kdenlive",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -448,6 +609,77 @@ def test_a_registration_that_does_not_read_back_is_reported_false(
     monkeypatch.setitem(sys.modules, "winreg", _FakeWinreg(drop=True))
     monkeypatch.setattr(sys, "platform", "win32")
     assert fonts.install(dest=tmp_path)["registered"] is False
+
+
+class _FakeWinDLL:
+    """`gdi32`/`user32` over a list of calls — Linux has no GDI to load into."""
+
+    def __init__(self, calls: list[tuple[str, tuple[object, ...]]], added: int) -> None:
+        self.calls, self.added = calls, added
+
+    def __call__(self, name: str, use_last_error: bool = False) -> _FakeWinDLL:
+        self.calls.append(("dll", (name,)))
+        return self
+
+    def _record(self, function: str, result: int) -> types.FunctionType:
+        def call(*args: object) -> int:
+            self.calls.append((function, args))
+            return result
+
+        return call  # type: ignore[return-value]
+
+    def __getattr__(self, function: str) -> object:
+        call = self._record(function, self.added if function == "AddFontResourceW" else 1)
+        setattr(self, function, call)
+        return call
+
+
+def test_a_windows_install_loads_each_face_into_gdi_and_says_so_beside_registered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Outfit was `registered: true` and libass drew ArialMT: GDI reads a
+    per-user font's registry value at logon only (HISTORY.md § The Windows run
+    that answered). Install has to load it the way Windows' own Install does."""
+    import ctypes
+
+    calls: list[tuple[str, tuple[object, ...]]] = []
+    monkeypatch.setitem(sys.modules, "winreg", _FakeWinreg())
+    monkeypatch.setattr(ctypes, "WinDLL", _FakeWinDLL(calls, added=1), raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    report = fonts.install(dest=tmp_path)
+
+    faces = fonts.vendored()
+    assert report["registered"] is True
+    assert report["loaded"] == len(faces)
+    loads = [args[0] for name, args in calls if name == "AddFontResourceW"]
+    assert loads == [str(tmp_path / face.name) for face in faces]
+    broadcasts = [args for name, args in calls if name == "SendMessageTimeoutW"]
+    assert len(broadcasts) == 1
+    hwnd, message, _, _, flags, _, _ = broadcasts[0]
+    assert (hwnd, message) == (fonts._HWND_BROADCAST, fonts._WM_FONTCHANGE)
+    assert flags & fonts._SMTO_ABORTIFHUNG
+    assert calls.index(("dll", ("gdi32",))) < calls.index(("SendMessageTimeoutW", broadcasts[0]))
+
+
+def test_a_face_gdi_would_not_load_is_counted_out_and_not_folded_into_registered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import ctypes
+
+    monkeypatch.setitem(sys.modules, "winreg", _FakeWinreg())
+    monkeypatch.setattr(ctypes, "WinDLL", _FakeWinDLL([], added=0), raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    report = fonts.install(dest=tmp_path)
+    assert report["registered"] is True
+    assert report["loaded"] == 0
+
+
+def test_no_gdi_load_is_attempted_off_windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(fonts.subprocess, "run", lambda *a, **k: None)
+    assert fonts.install(dest=tmp_path)["loaded"] is None
 
 
 @pytest.mark.parametrize(("platform", "system"), [("darwin", "CoreText"), ("win32", "DirectWrite")])

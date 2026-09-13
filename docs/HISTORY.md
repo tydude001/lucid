@@ -13300,3 +13300,132 @@ fix line that tells a Windows user to set one is advice that cannot work.
 
 What to do about all three, and the Windows test kit behind them:
 PORTABILITY.md § Step 5.
+
+## The Windows fixes and the Windows kit, written — 2026-09-13
+
+PORTABILITY.md § Step 5a–5c, written on this box. **None of it has run on
+Windows yet.** Each part is settled by the next Windows logs, ci.yml's job
+and the new windows-demo.yml, and those need a mirror sync.
+
+**5a.1 — a `melt` on PATH has to prove it is melt.** `picture.melt_command`
+now runs `-version` on every PATH and bundle candidate and skips any that
+prints no `melt <version>` banner. The rule is doctor's, and the regex moved
+into `picture.MELT_BANNER` so there is one copy. A binary that cannot be
+started fails it too. The verdict is cached per `(path, mtime_ns)`, because
+`melt_command` runs several times per render. `LUCID_MELT` and the flatpak
+are not probed. When only impostors were found, the refusal names each by
+path, and doctor's row carries that refusal. On the Windows runner this
+turns WiX's `melt.EXE` into a skip, so `needs_melt` skips the six render
+tests it used to run.
+
+Two existing tests in `test_portability.py` handed `melt_command` paths that
+cannot run: `/usr/bin/mlt-melt` on a box without it, and an empty file. Each
+got one monkeypatch standing in for the probe, and no assertion changed.
+Tyler chose that over accepting unrunnable candidates, which would let a
+broken file ahead of a real melt hide it. Both tests still check search order.
+
+**5a.2 — a registered font is loaded into GDI.** After the HKCU write,
+`fonts.install` calls `AddFontResourceW` on each face through `ctypes` and
+broadcasts `WM_FONTCHANGE` (`SendMessageTimeoutW`, `HWND_BROADCAST`,
+`SMTO_ABORTIFHUNG`). It reports `loaded`, the count GDI accepted, beside
+`registered` and never folded into it. `None` means GDI could not be asked,
+which is a different answer from 0 loaded. **Unverified:** that a load made
+by `fonts --install` is still visible to the probe in a later CI step. ci.yml
+runs them as separate steps, so the three font tests answer it.
+
+**5a.3 — a Windows override keeps its backslashes.** `picture.command_override`
+parses both `LUCID_MELT` and `LUCID_MAGICK`. Where `sys.platform` is `win32`,
+a value naming an existing file is one argv element whole, spaces and all.
+Anything else splits with `shlex.split(posix=False)`, with one layer of
+surrounding quotes stripped off each word. Linux and macOS still split POSIX.
+No other `LUCID_*` is split: whisper, auto-editor, the three GPU interpreters,
+the TTS model, tailscale, the browser and the agent binary are all taken as
+paths or bare names.
+
+13 of the 18 new tests fail against the code before this change:
+
+- the WiX stub chosen over the real one;
+- `DID NOT RAISE` with only an impostor;
+- no run cached;
+- `C:Usersrunnermelt.exe`;
+- a path with a space split in two;
+- `loaded` missing from the report;
+- `command_override` absent, and `_MELT_BANNER` still in doctor.
+
+The five that pass there are pins: the flatpak override is never probed and
+splits the same under `win32`, and a quoted Windows path already survived
+POSIX splitting.
+
+**The in-flight Windows log** (run 34779525442, lucid `a5ec829`) held the same
+9 failures as run 34778624429 and nothing new among them. It answered the one
+open reading: **doctor's ffmpeg row is ✓ on Chocolatey's ffmpeg, gyan.dev's
+`9.0.1-essentials_build`**, so the text-filter check finds `drawtext` and
+`ass` there. Two more readings went into PORTABILITY.md § Step 5a:
+
+- doctor's caption-font fix tells the runner to run the `fonts --install`
+  that had just run;
+- the Windows suite takes 23 min.
+
+**5b — `scripts/windows_trial.ps1`.** It follows `mac_trial.sh`'s contract:
+
+- it asks before starting;
+- it records what it adds in `installed.txt`, and `-Uninstall` lists that and
+  removes it;
+- it runs DEMO.md's commands verbatim and stops at the first failure;
+- it zips a report with the home folder replaced by `~` in all three text
+  files. Three spellings are replaced: as written, JSON-escaped, and with
+  forward slashes.
+
+Everything goes into one folder, `%LOCALAPPDATA%\lucid-windows-trial`, as
+portable downloads pinned by URL and SHA-256:
+
+- uv 0.12.13;
+- gyan.dev's ffmpeg 9.0.1 essentials build, the one Chocolatey ships;
+- auto-editor 31.4.2, this box's version;
+- espeak-ng 1.52.0's 64-bit MSI, unpacked with `msiexec /a` and pointed at its
+  data with `ESPEAK_DATA_PATH`, since an unpacked MSI writes none of the
+  registry keys espeak-ng looks for;
+- Shotcut 26.8.1's portable zip, whose `melt.exe` goes in `LUCID_MELT`;
+- whisper by `uv tool install`, with uv's cache, Pythons and tools also
+  pointed into the folder, and `XDG_CACHE_HOME` so whisper's model lands
+  there.
+
+So `-Uninstall` is one folder delete. The clone's `.venv` is the tester's,
+as on the Mac. Five SHA-256s came from GitHub's release-asset digests. The
+espeak-ng release predates those digests, so its MSI was downloaded and hashed
+here. `file` reports the MSI as "eSpeak NG Text-to-Speech 64-bit", built with
+the WiX toolset whose `melt.EXE` started this.
+
+Two constraints shape the script. It is ASCII only, because Windows
+PowerShell 5.1 reads a script with no byte-order mark as the ANSI code page,
+so the `──` step header is built from `[char]0x2500`. The log goes through
+one UTF-8 `StreamWriter`, because 5.1's `Tee-Object` writes UTF-16, which the
+check cannot read.
+
+`-Unattended` skips both prompts, for CI.
+
+**5c — `.github/workflows/windows-demo.yml`.** It is mac-demo.yml's twin:
+
+- it runs the kit under `powershell` (5.1), not the step's pwsh;
+- it judges the run with `scripts/trial_check.py`, renamed from
+  `mac_trial_check.py` in this commit, on the runner's own Python and the
+  kit's ffmpeg;
+- it uploads the zip;
+- it triggers on the kit, the check, the demo, `src/` and the lock.
+
+Measured here, and none of it is a Windows run:
+
+- **The kit parses** under PowerShell 7.6.6's own parser: 0 errors, and no
+  ternary, pipeline chain or null-coalescing token, the three 7-only
+  constructs 5.1 would refuse.
+- **`Step`, `Task` and `Hide-Home` behave** when lifted out of the script and
+  run under pwsh on Linux. A zero exit, exit 3, a command that cannot run and
+  a throwing block each return a bool, record `ok`/`FAIL`, and write the
+  UTF-8 header. `C:\Users\Some One` is hidden in all three spellings.
+  (`~/lucid-work/windows-trial/fn/`)
+- **`trial_check.py` reads a CRLF report** the same as an LF one: the Mac
+  dry run's report, converted, passes all five checks.
+
+**The ci.yml Windows job is not decided yet.** If 5a turns it green there is
+nothing to decide. If it does not, PORTABILITY.md's recommendation stands:
+`continue-on-error` on that matrix leg only.

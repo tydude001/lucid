@@ -200,23 +200,99 @@ def user_bus(env: dict[str, str]) -> bool:
 #: install, on a clean Fedora.
 MELT_NAMES = ("mlt-melt", "melt-7", "melt")
 
+#: melt's own `-version` line. The banner names argv[0], so Fedora's prints
+#: `mlt-melt 7.40.0` or `melt-7 7.40.0`. Stated once: `doctor` reads a melt's
+#: version off it, and `melt_command` holds every candidate it finds to it.
+MELT_BANNER = re.compile(r"^(?:mlt-)?melt(?:-\d+)? (\d\S*)")
+
+#: Seconds to wait on a candidate's `-version`. A PATH or bundle binary, never
+#: the flatpak, so there is no cold start to wait out.
+MELT_PROBE_TIMEOUT = 30
+
+#: `(path, mtime_ns)` → the banner's version, or None for a binary that is not
+#: melt. `melt_command` runs several times per render, and each probe is a
+#: process start.
+_MELT_VERDICTS: dict[tuple[str, int], str | None] = {}
+
+
+def command_override(value: str) -> list[str]:
+    """A `LUCID_MELT`/`LUCID_MAGICK` value as an argv prefix.
+
+    Both are commands, not paths — the flatpak form is four words — so they are
+    split. POSIX `shlex.split` eats backslashes, which turned
+    `C:\\Users\\runner\\melt.exe` into `C:Usersrunnermelt.exe`
+    (HISTORY.md § The Windows run that answered). So on Windows a value naming
+    an existing file is one argv element whole, and anything else splits with
+    `posix=False`, which keeps backslashes and keeps quotes, and has one layer
+    of surrounding quotes stripped off each word.
+    """
+    if sys.platform != "win32":
+        return shlex.split(value)
+    whole = value.strip()
+    if len(whole) >= 2 and whole[0] == whole[-1] == '"':
+        whole = whole[1:-1]
+    if Path(whole).is_file():
+        return [whole]
+    return [
+        word[1:-1] if len(word) >= 2 and word[0] == word[-1] and word[0] in "\"'" else word
+        for word in shlex.split(value, posix=False)
+    ]
+
+
+def melt_version(path: str) -> str | None:
+    """The version a binary's `-version` banner names, or None if it is not melt.
+
+    doctor's rule, applied to every candidate `melt_command` finds: **judged by
+    the banner, never the exit code**. A bare `melt` on PATH is not evidence of
+    MLT — Fedora's is freeze, and the Windows runner's is WiX's `melt.EXE`, an
+    MSI tool that answered a render with `error MELT0240` (HISTORY.md § The
+    Windows run that answered). One that cannot be started at all is not melt
+    either. Cached per `(path, mtime)`, so a binary replaced in place is asked
+    again.
+    """
+    try:
+        key = (path, Path(path).stat().st_mtime_ns)
+    except OSError:
+        return None
+    if key in _MELT_VERDICTS:
+        return _MELT_VERDICTS[key]
+    try:
+        done = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=MELT_PROBE_TIMEOUT,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+        output = (done.stdout or "") + (done.stderr or "")
+    except (OSError, subprocess.SubprocessError):
+        output = ""
+    match = next((m for line in output.splitlines() if (m := MELT_BANNER.match(line))), None)
+    _MELT_VERDICTS[key] = match.group(1) if match else None
+    return _MELT_VERDICTS[key]
+
 
 def melt_command() -> list[str]:
     """The argv prefix that runs `melt`, however it is installed here.
 
     Returns a list rather than a path because the flatpak form is four words
-    and there is no binary to point at.
+    and there is no binary to point at. Every PATH and bundle candidate must
+    print melt's banner (`melt_version`) or it is skipped, and a refusal after
+    skipping one names it. `LUCID_MELT` is taken at its word — it may be a
+    wrapper — and so is the flatpak, whose `flatpak info` already names MLT's
+    host application.
     """
     override = os.environ.get("LUCID_MELT")
     if override:
-        return shlex.split(override)
-    for name in MELT_NAMES:
-        found = shutil.which(name)
-        if found:
-            return [found]
-    for bundle in melt_bundles():
-        if bundle.is_file():
-            return [str(bundle)]
+        return command_override(override)
+    impostors: list[str] = []
+    candidates = [found for name in MELT_NAMES if (found := shutil.which(name))]
+    candidates += [str(bundle) for bundle in melt_bundles() if bundle.is_file()]
+    for candidate in dict.fromkeys(candidates):
+        if melt_version(candidate) is not None:
+            return [candidate]
+        impostors.append(candidate)
     if shutil.which("flatpak"):
         installed = subprocess.run(
             ["flatpak", "info", KDENLIVE_FLATPAK], capture_output=True, text=True, check=False
@@ -224,9 +300,17 @@ def melt_command() -> list[str]:
         if installed.returncode == 0:
             return ["flatpak", "run", "--command=melt", KDENLIVE_FLATPAK]
     where, install = melt_search()
+    skipped = (
+        f"Skipped {', '.join(impostors)}: "
+        f"{'it prints' if len(impostors) == 1 else 'each prints'} no `melt <version>` banner, so "
+        f"{'it is' if len(impostors) == 1 else 'they are'} not MLT's melt (WiX's melt.exe and "
+        "Fedora's freeze share the name). "
+        if impostors
+        else ""
+    )
     raise PictureError(
         f"melt not found. Looked at $LUCID_MELT, then PATH ({', '.join(MELT_NAMES)}), then {where}. "
-        f"{install} Without it the timeline's own frame total is still reported; "
+        f"{skipped}{install} Without it the timeline's own frame total is still reported; "
         "only the comparison against melt needs melt."
     )
 

@@ -160,11 +160,11 @@ def install(*, source: Path | str | None = None, dest: Path | str | None = None)
     # The rescan before the search-path check, or `fc-list` answers about a
     # cache that has not seen the face yet.
     refreshed = _refresh_cache(target) if changed and not native else None
-    registered = (
-        _register_windows([Path(entry["path"]) for entry in installed])
-        if sys.platform == "win32"
-        else None
-    )
+    registered = loaded = None
+    if sys.platform == "win32":
+        paths = [Path(entry["path"]) for entry in installed]
+        registered = _register_windows(paths)
+        loaded = _load_windows(paths)
     return {
         "dir": str(target),
         # None, never False, where fontconfig is not the font system: "does
@@ -172,6 +172,9 @@ def install(*, source: Path | str | None = None, dest: Path | str | None = None)
         "on_fontconfig_path": None if native else _on_search_path(target),
         "font_system": native or "fontconfig",
         "registered": registered,
+        # Beside `registered`, never folded into it: the registry answers "is it
+        # on the list", GDI's load "can anything enumerate it this session".
+        "loaded": loaded,
         "faces": installed,
         "changed": changed,
         "cache_refreshed": refreshed,
@@ -207,6 +210,62 @@ def _register_windows(paths: list[Path]) -> bool:
             return all(winreg.QueryValueEx(key, name)[0] == data for name, data in wanted.items())
     except OSError:
         return False
+
+
+#: `WM_FONTCHANGE`, broadcast to every top-level window, each given this many
+#: milliseconds and skipped if hung (`SMTO_ABORTIFHUNG`).
+_WM_FONTCHANGE = 0x001D
+_HWND_BROADCAST = 0xFFFF
+_SMTO_ABORTIFHUNG = 0x0002
+_FONTCHANGE_TIMEOUT_MS = 1000
+
+
+def _load_windows(paths: list[Path]) -> int | None:
+    """Load each face into GDI for this session, and answer how many loaded.
+
+    A registered font is not a drawn one. libass's DirectWrite provider on
+    desktop Windows enumerates through GDI, and GDI reads a per-user font's
+    registry value at logon only, so on the first Windows CI run Outfit was
+    `registered: true` and libass drew ArialMT for it (HISTORY.md § The Windows
+    run that answered). Windows' own Install calls `AddFontResourceW` and
+    broadcasts `WM_FONTCHANGE`; this does the same. **That a load made by this
+    process is still visible to a later ffmpeg is the documented behaviour
+    (the load lasts for the session) and unmeasured here** —
+    docs/plans/PORTABILITY.md step 5a.2. `AddFontResourceW` returns the number
+    of fonts it added, so 0 is a face that did not load. None is GDI that
+    could not be asked at all, which is a different answer from none loading.
+    """
+    import ctypes  # Windows-only calls, so imported where they are used
+    from ctypes import wintypes
+
+    try:
+        gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+    except (AttributeError, OSError):
+        return None
+    gdi32.AddFontResourceW.argtypes = [wintypes.LPCWSTR]
+    gdi32.AddFontResourceW.restype = ctypes.c_int
+    loaded = sum(1 for p in paths if gdi32.AddFontResourceW(str(p)) > 0)
+    result = ctypes.c_size_t(0)
+    user32.SendMessageTimeoutW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+        wintypes.UINT,
+        wintypes.UINT,
+        ctypes.POINTER(ctypes.c_size_t),
+    ]
+    user32.SendMessageTimeoutW(
+        _HWND_BROADCAST,
+        _WM_FONTCHANGE,
+        0,
+        0,
+        _SMTO_ABORTIFHUNG,
+        _FONTCHANGE_TIMEOUT_MS,
+        ctypes.byref(result),
+    )
+    return loaded
 
 
 def _on_search_path(directory: Path) -> bool | None:

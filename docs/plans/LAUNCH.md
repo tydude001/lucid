@@ -218,7 +218,7 @@ absolute paths. `--pack` still works, for a tester with no GitHub access.
 HISTORY.md § The Mac test, asked of strangers.
 
 **GitHub's macOS runner runs the same kit** (`.github/workflows/mac-demo.yml`,
-2026-09-13), and `scripts/mac_trial_check.py` judges the run, since the kit
+2026-09-13), and `scripts/trial_check.py` judges the run, since the kit
 exits 0 on a render that disagrees with the timeline. That is most of this
 step's technical question — does the demo reach a checked render on macOS —
 answered without waiting for a person. It does not answer the rest: a runner

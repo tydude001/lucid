@@ -44,7 +44,6 @@ from __future__ import annotations
 import math
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -54,6 +53,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from lucid.captions import font_match
+from lucid.picture import command_override
 
 
 class GraphicsError(RuntimeError):
@@ -111,7 +111,7 @@ def magick_command() -> list[str]:
     """
     override = os.environ.get("LUCID_MAGICK")
     if override:
-        return shlex.split(override)
+        return command_override(override)
     found = shutil.which("magick")
     if found:
         return [found]

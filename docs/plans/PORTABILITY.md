@@ -267,6 +267,21 @@ Then read the in-flight and next Windows logs for anything else. Doctor's
 new text-filter row on Chocolatey's ffmpeg is the one reading nobody has
 seen.
 
+**Read off the in-flight log** (run 34779525442, lucid `a5ec829`): the same 9
+failures as run 34778624429 and nothing new among them, 6 on WiX's
+`melt.EXE` and 3 on Outfit, with 2016 passed.
+
+- **Doctor's ffmpeg row is ✓ on Chocolatey's ffmpeg**, which is gyan.dev's
+  `9.0.1-essentials_build`, so the text-filter check found `drawtext` and
+  `ass` there. That is the build 5b downloads.
+- **Doctor's caption-font fix loops.** It tells the runner to run `lucid fonts
+  --install`, which had run one step earlier and reported `registered: true`.
+  If 5a.2's GDI load does not turn the three font tests green, that fix line
+  is the next thing to change: it should name GDI, not the install.
+- **The Windows suite takes 23 min** (1392 s of pytest), against 13 on
+  Ubuntu. At 2x billing while the repo is private, that is ~50 billed
+  minutes per push, before windows-demo's own run.
+
 **5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
 `mac_trial.sh`: it asks before starting, records everything it adds,
 `-Uninstall` removes exactly that, it runs DEMO.md's commands verbatim and

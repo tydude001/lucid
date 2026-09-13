@@ -328,9 +328,6 @@ def _major(version: str) -> int | None:
     return int(head) if head.isdigit() else None
 
 
-_MELT_BANNER = re.compile(r"^(?:mlt-)?melt(?:-\d+)? (\d\S*)")
-
-
 def _melt_entry() -> dict[str, Any]:
     """melt, probed by its banner — **never by its exit code** (CLAUDE.md).
 
@@ -358,8 +355,7 @@ def _melt_entry() -> dict[str, Any]:
             fix=fix,
         )
     out, err, code = _run([*command, "-version"])
-    # The banner names argv[0]: Fedora's prints `mlt-melt 7.40.0` or `melt-7 7.40.0`.
-    banner = next((ln for ln in (out + err).splitlines() if _MELT_BANNER.match(ln)), None)
+    banner = next((ln for ln in (out + err).splitlines() if picture.MELT_BANNER.match(ln)), None)
     if banner is None:
         return _entry(
             "melt",
@@ -379,7 +375,7 @@ def _melt_entry() -> dict[str, Any]:
         ok=True,
         looked_for=looked_for,
         found=" ".join(command),
-        version=_MELT_BANNER.match(banner).group(1),
+        version=picture.MELT_BANNER.match(banner).group(1),
     )
 
 

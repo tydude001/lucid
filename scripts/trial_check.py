@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Judge a `scripts/mac_trial.sh` run, for the CI job that runs it unattended.
+"""Judge a test-kit run, for the CI jobs that run one unattended.
+
+Both kits, `scripts/mac_trial.sh` and `scripts/windows_trial.ps1`, print the
+same step headers and summary lines and leave the same files in their working
+folder, so one check reads either (mac-demo.yml, windows-demo.yml).
 
 The kit was written for a person, who reads its report. Nothing in it fails:
 `verify` and `frames` print their findings and exit 0 whether the render
@@ -19,7 +23,8 @@ retake still in it. This reads what the run printed and what it rendered:
   apart in RGB, and a frame of the wrong clip, or of black, measured 112–116
   from the right one; this box's frames came back within 3.
 
-    python scripts/mac_trial_check.py ~/lucid-mac-trial
+    python scripts/trial_check.py ~/lucid-mac-trial
+    python scripts/trial_check.py %LOCALAPPDATA%\\lucid-windows-trial
 
 Exit 1 on any failure. What it cannot say is anything a person would notice
 and a number would not — that is what the tester's issue form is for.
@@ -116,7 +121,7 @@ def check(trial: Path) -> list[tuple[bool, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("trial", type=Path, help="the kit's working folder (~/lucid-mac-trial)")
+    parser.add_argument("trial", type=Path, help="the kit's working folder (~/lucid-mac-trial, %%LOCALAPPDATA%%\\lucid-windows-trial)")
     args = parser.parse_args()
     results = check(args.trial.expanduser())
     for ok, line in results:
