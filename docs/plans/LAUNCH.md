@@ -210,12 +210,14 @@ overwritten commit by its hash; any later rewrite needs the same.
 
 Tyler's hand, in this order, the same afternoon:
 
-First, while the repo is still private: drag `clip-readme-1080.mp4` into a
-**draft** GitHub release's notes (the one item 6 publishes), and hand back
-the `user-attachments` URL it produces. It replaces `CLIP-UPLOAD-PENDING` in
-README.md, twice, committed in Gitea — never edited on GitHub, which the next
-sync would force-push over. Until then the README's clip link goes nowhere,
-so this goes before the sync, not after the flip.
+**The README's clip lives in the draft `v0.22.0` release** (uploaded
+2026-09-13, `user-attachments/assets/3c3517cd-…` in README.md twice). The
+upload belongs to that draft's notes, so **item 6 publishes that draft and
+never deletes or recreates it**, and the notes it publishes keep the video
+line. While the repo is private the URL answers 404 to anyone logged out,
+which is GitHub's documented rule for private uploads, not a broken link.
+After item 2, open it logged out (a private window) and it has to play; if
+it does not, the README's first screen is a dead link on launch day.
 
 1. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).

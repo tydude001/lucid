@@ -6,9 +6,9 @@ on hardware you own: no cloud, no accounts, no metering.
 
 [![A 47-second clip: an agent cuts a false start out of a narration, lays
 footage under it, renders, and checks the render against the edit, first in
-lucid's window and then from Claude Code](docs/img/clip-poster.jpg)](https://github.com/user-attachments/assets/CLIP-UPLOAD-PENDING)
+lucid's window and then from Claude Code](docs/img/clip-poster.jpg)](https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10)
 
-https://github.com/user-attachments/assets/CLIP-UPLOAD-PENDING
+https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10
 
 ![The lucid workspace on the demo project: the transcript with a retake struck
 through, the preview drawing the shot under the playhead with its captions, the
