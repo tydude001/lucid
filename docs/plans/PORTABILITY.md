@@ -188,7 +188,10 @@ three OSes. Its README paragraphs wait on step 4, as below.
 
 ## Step 4 — measure melt on macOS (needs a Mac)
 
-This is the step that costs, and none of it can be done from here. Each
+This is the step that costs, and none of it can be done from here — though
+GitHub's macOS runner can now reach Shotcut's melt, since
+`.github/workflows/mac-demo.yml` installs it, so the first two items can be
+asked there before a Mac is (HISTORY.md § The Mac test in CI). Each
 item repeats a measurement CLAUDE.md records for Linux, because the
 mechanism underneath it is different on macOS.
 
