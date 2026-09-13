@@ -19,8 +19,11 @@
 # ~/lucid-demo, and stops at the first one that fails, since that is the finding.
 #
 # What it installs, and why each is the light option:
-#   - Homebrew formulae uv, ffmpeg, espeak-ng, auto-editor: 22 formulae with dependencies
-#     (formulae.brew.sh, 2026-09-11). Not `mlt`, which pulls 135 (OpenCV, VTK, OpenVINO, GCC).
+#   - Homebrew formulae uv, ffmpeg-full, espeak-ng, auto-editor. Not `mlt`, which pulls 135
+#     (OpenCV, VTK, OpenVINO, GCC). ffmpeg-full rather than ffmpeg, which Homebrew builds without
+#     freetype or libass: no drawtext, so the demo's footage stops at its first command, and no
+#     subtitles filter for a caption burn — the first mac-demo run, 2026-09-13. ffmpeg-full is
+#     keg-only, so it goes first on PATH below; auto-editor still pulls the plain one in.
 #   - melt comes from the Shotcut app instead, which bundles one and which picture.melt_bundles()
 #     already finds, and which lucid doctor's own fix names. Its modules are unmeasured
 #     (PORTABILITY.md step 4), so the two frames in the report are the check, not melt's exit code.
@@ -60,7 +63,7 @@ BREW_PATHS="${LUCID_TRIAL_BREW:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
 APPS="${LUCID_TRIAL_APPS:-/Applications}"
 UVPY="${UV_PYTHON_INSTALL_DIR:-$HOME/.local/share/uv/python}"
 WHISPER_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/whisper"
-FORMULAE="uv ffmpeg espeak-ng auto-editor"
+FORMULAE="uv ffmpeg-full espeak-ng auto-editor"
 
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "This is the Mac test. Run it on a Mac." >&2
@@ -333,6 +336,9 @@ step "install tools (Homebrew)" brew install $FORMULAE
 brew_rc=$?
 record_new_formulae
 [ $brew_rc -eq 0 ] || { finish; exit 1; }
+# Keg-only: installed but not linked, so without this every `ffmpeg` below is auto-editor's plain one.
+ffmpeg_full="$(brew --prefix ffmpeg-full)"
+export PATH="$ffmpeg_full/bin:$PATH"
 
 if [ -d "$APPS/Shotcut.app" ]; then
     echo
@@ -361,6 +367,7 @@ echo
 brew list --versions $FORMULAE
 echo "shotcut: $(brew list --cask --versions shotcut 2>/dev/null || echo "not from Homebrew")"
 echo "whisper: $(command -v whisper)"
+echo "ffmpeg: $(command -v ffmpeg)"
 
 cd "$REPO" || { fail="enter repo"; finish; exit 1; }
 if ! step "uv sync" uv sync; then finish; exit 1; fi
