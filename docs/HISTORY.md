@@ -13234,3 +13234,36 @@ the nine new cases in `test_doctor.py` fail against the doctor before this chang
 the four that pass there are the ones asserting a pass. What would settle it
 for Homebrew is a runner's doctor output from before `ffmpeg-full` goes on
 PATH, and the kit does not print one.
+
+## The Mac test, green on the runner — 2026-09-13
+
+The mac-demo run after the `ffmpeg-full` fix (GitHub run 34779525441, lucid
+`a5ec829`, macOS 26.6.2 on a virtual Apple M1 with 7 GB) ran every step and
+passed all five of `mac_trial_check.py`'s checks. This is the first lucid
+render on macOS:
+
+- **`frames` agrees**: 286 frames expected, 286 in the file, delta 0.
+- **`verify`** similarity 0.971, 34 heard of 34, 0 dropped, 0 repeated.
+- **Shotcut's melt draws.** `melt 7.41.0` from
+  `/Applications/Shotcut.app/Contents/MacOS/melt` rendered in 12 s. The
+  frames at 3 s and 10 s are 1 and 3 away from BLUE and RUST. Read back by eye,
+  they say `BLUE 3s` and `RUST 0s`, the issue form's own two answers. That
+  settles the part of PORTABILITY.md step 4 this demo reaches: two cues of
+  picture over a voiceover. Cards, captions and a reframe were not exercised.
+- **Doctor** found `ffmpeg 9.0.1` at `/opt/homebrew/opt/ffmpeg-full/bin`,
+  so the PATH export worked, and it called everything required present. The
+  caption-font row is ✗ because the kit installs no `magick`. That row is
+  informational, and the demo burns no captions.
+- **Timings:** Homebrew 23 s, Shotcut 75 s, whisper 9 s, transcribe 108 s
+  (the model download included), verify 74 s. `ffmpeg-full` brings 63
+  dependencies. The runner had most of them already, so a stranger's Mac
+  pays far more than 23 s there, and LAUNCH.md's "22 formulae" predates the
+  switch.
+- **The public zip is clean:** `/Users/runner` appears 0 times in
+  `report.txt`, `lucid.json` and `project.otio`.
+
+Still not LAUNCH.md § Step 2's done-when. A runner already has Homebrew and
+nobody reads its instructions, so README.md's "never been run on macOS"
+stands until a person's report. The friend's kit is repacked at `a5ec829`
+(`~/lucid-work/mac-trial/lucid-mac-test.a5ec829.sh`). Both earlier packs
+install the plain `ffmpeg` and stop at the demo's first command.
