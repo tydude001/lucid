@@ -137,12 +137,13 @@ own cut when it happens.
 GitHub strips `<video>` and will not play a committed file — its renderer,
 asked 2026-09-13, turned `<video>` into an empty paragraph and `![](clip.mp4)`
 into a broken image — so the file is a GitHub upload (a `user-attachments`
-URL), and it is never committed. The README carries a poster that links to it
-and the bare URL on its own line, which GitHub draws as a player. Gitea's
-sanitizer allows `<video>`, but its host is the LAN, so there it is a poster
-and a link. The upload is `~/lucid-work/launch-v4/readme/clip-readme-1080.mp4`,
-9.2 MB, because GitHub's cap on a free plan is 10 MB; the poster is
-`docs/img/clip-poster.jpg`, rebuilt by `readme/poster.py` beside it.
+URL), and it is never committed. The README carries only the bare URL on its
+own line, which GitHub draws as a player and Gitea as a link. **Never add a
+poster linking to that URL**: GitHub turns every link to an upload into a
+player, image or not, so a linked poster drew a second player and no poster
+(the first sync, 2026-09-13). The upload is
+`~/lucid-work/launch-v4/readme/clip-readme-1080.mp4`, 9.2 MB, because
+GitHub's cap on a free plan is 10 MB.
 
 ## Step 2 — one stranger's run, on a Mac
 
