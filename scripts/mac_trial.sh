@@ -50,7 +50,8 @@ fi
 
 PACKED_REV=unpacked
 ISSUE_URL="https://github.com/tydude001/lucid/issues/new?template=mac-test.yml"
-# The LUCID_TRIAL_* overrides exist only for a dry run off the Mac.
+# The LUCID_TRIAL_* overrides exist for a dry run off the Mac, and REPORT for the CI job
+# (.github/workflows/mac-demo.yml), which uploads the report rather than leaving it on a Desktop.
 W="${LUCID_TRIAL_DIR:-$HOME/lucid-mac-trial}"
 DEMO="$W/demo"
 REPORT="${LUCID_TRIAL_REPORT:-$HOME/Desktop/lucid-mac-report.zip}"

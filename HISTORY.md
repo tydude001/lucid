@@ -13155,3 +13155,38 @@ every step from `uv sync` to `frames` ran, the zip holds six files, and
 removed the four stub formulae and the Shotcut stub, and left `ffmpeg` and
 the tester's own `myjunk`. The shims stand in for macOS itself, so this
 proves the script's own logic and nothing about a real Mac.
+
+## The Mac test in CI — 2026-09-13
+
+`.github/workflows/mac-demo.yml` runs `scripts/mac_trial.sh` on GitHub's
+`macos-latest` runner, the same script a tester runs. ci.yml's macOS job
+only installs ffmpeg, so every render and transcription test skips there.
+This job installs Homebrew formulae, Shotcut's melt and whisper, then runs
+the demo to a render. It runs on a push that touches `src/`, the demo
+scripts or the lock, and by hand. macOS minutes bill at 10x while the repo
+is private.
+
+**The kit's exit code is not a verdict, so the job never uses it.** `verify`
+and `frames` print their findings and exit 0 whether the render agrees or
+not, and the kit exits 0 after stopping at a step, because it was written
+for a person reading a report. `scripts/mac_trial_check.py` reads what the
+run printed instead:
+
+- the summary says ALL STEPS RAN;
+- `frames` reported `agrees: true`;
+- `verify` similarity is at least 0.9, the agent trial's own floor;
+- the frames at 3 s and 10 s are the blue and rust b-roll, judged by mean
+  colour against `make_demo.BROLL`.
+
+On this box's dry-run report every check passed. The frames came back 2 and
+3 away from their clips' colours, against a tolerance of 30. Four doctored
+controls each failed, for the reason they were built to:
+
+- frames swapped: 115 and 116 away;
+- a STOPPED AT summary;
+- similarity 0.62 with `agrees: false`;
+- a black frame at 3 s: 112 away.
+
+**Unrun on GitHub.** Nothing here has touched a real macOS runner yet. The
+open question is whether Shotcut's melt draws on a runner at all, since
+nothing has measured whether a CI session gives Qt's cocoa platform a display.

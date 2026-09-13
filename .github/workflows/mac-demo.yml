@@ -1,0 +1,60 @@
+# The Mac test kit, run on GitHub's macOS runner — docs/plans/LAUNCH.md § Step 2.
+#
+# ci.yml's macOS job has ffmpeg and nothing else, so every render and
+# transcription test skips there. This job runs scripts/mac_trial.sh the way a
+# tester does — Homebrew formulae, the Shotcut app's melt, whisper from uv,
+# then docs/DEMO.md to a render — and scripts/mac_trial_check.py judges what
+# the run printed and rendered. The kit exits 0 on a render that disagrees
+# with the timeline, because it was written for a person who reads the report,
+# so its exit code is never the verdict here.
+#
+# It is not a person on a Mac: the runner already carries Homebrew and much
+# else, nothing prompts, and nobody reads the instructions. Those stay the Mac
+# test issue form's question, and a green run here does not replace README.md's
+# "never been run on macOS" sentence on its own.
+#
+# macOS minutes bill at 10x while the repo is private, so this runs only when
+# something the demo exercises changes, and by hand.
+
+name: mac-demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "scripts/mac_trial.sh"
+      - "scripts/mac_trial_check.py"
+      - "scripts/make_demo.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/mac-demo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      # stdin from /dev/null answers the kit's two prompts: the start prompt
+      # reads nothing and carries on, and the closing "open the editor?" reads
+      # nothing and declines.
+      - name: the Mac test kit
+        env:
+          LUCID_TRIAL_REPORT: ${{ runner.temp }}/lucid-mac-report.zip
+        run: bash scripts/mac_trial.sh < /dev/null
+      - name: judge the run
+        if: always()
+        run: uv run python scripts/mac_trial_check.py ~/lucid-mac-trial
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lucid-mac-report
+          path: |
+            ${{ runner.temp }}/lucid-mac-report.zip
+            ~/lucid-mac-trial/report.txt
+          if-no-files-found: warn

@@ -217,6 +217,16 @@ Tyler. Because that zip is posted publicly, the project's `lucid.json` and
 absolute paths. `--pack` still works, for a tester with no GitHub access.
 HISTORY.md § The Mac test, asked of strangers.
 
+**GitHub's macOS runner runs the same kit** (`.github/workflows/mac-demo.yml`,
+2026-09-13), and `scripts/mac_trial_check.py` judges the run, since the kit
+exits 0 on a render that disagrees with the timeline. That is most of this
+step's technical question — does the demo reach a checked render on macOS —
+answered without waiting for a person. It does not answer the rest: a runner
+is not a stranger's Mac, it already has Homebrew, and nobody reads the
+instructions. So a green run does not meet this step's done-when on its own;
+it means the stranger's run is a check of the install path rather than a
+first contact with macOS. HISTORY.md § The Mac test in CI.
+
 **Done when:** one Mac run reaches `verify` agreeing with the timeline, its
 queue is closed or recorded, and README.md's "never been run on macOS"
 sentence is replaced by what was measured.
