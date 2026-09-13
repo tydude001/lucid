@@ -4,6 +4,12 @@ A source-available, local-first AI video editor. A lucid dream is a dream you
 control — lucid puts an AI agent on your timeline and keeps the whole thing
 on hardware you own: no cloud, no accounts, no metering.
 
+[![A 47-second clip: an agent cuts a false start out of a narration, lays
+footage under it, renders, and checks the render against the edit, first in
+lucid's window and then from Claude Code](docs/img/clip-poster.jpg)](https://github.com/user-attachments/assets/CLIP-UPLOAD-PENDING)
+
+https://github.com/user-attachments/assets/CLIP-UPLOAD-PENDING
+
 ![The lucid workspace on the demo project: the transcript with a retake struck
 through, the preview drawing the shot under the playhead with its captions, the
 side rail on its agent tab reporting a finished render against the timeline,

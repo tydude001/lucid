@@ -126,10 +126,23 @@ session recorded byte for byte (`~/lucid-work/launch-v4/mcp/`), not a mock-up. D
 brief through `POST /api/agent` (the panel's route) so the run in the video
 is the run the trial measured — no second script, no drift.
 
-**Done when:** the cut exists at a canvas the channels take (1920x1080 for
-X/Bluesky/HN links, and a 9:16 re-author for anything vertical — the aspect
-swap is lucid's own feature), the uncut run is on a share link, and both are
-viewable on Tyler's phone.
+**Done when:** the cut exists at 1920x1080, the uncut runs are on a share
+link, and both are viewable on Tyler's phone. **No vertical cut** (Tyler,
+2026-09-13): every channel in steps 3–6 plays 16:9, a 16:9 editor window
+cropped to a phone column loses most of what it shows, and the one vertical
+outlet here, step 6's making-of short, is the slow channel and can have its
+own cut when it happens.
+
+**The README plays it on GitHub and links it on Gitea, from one commit.**
+GitHub strips `<video>` and will not play a committed file — its renderer,
+asked 2026-09-13, turned `<video>` into an empty paragraph and `![](clip.mp4)`
+into a broken image — so the file is a GitHub upload (a `user-attachments`
+URL), and it is never committed. The README carries a poster that links to it
+and the bare URL on its own line, which GitHub draws as a player. Gitea's
+sanitizer allows `<video>`, but its host is the LAN, so there it is a poster
+and a link. The upload is `~/lucid-work/launch-v4/readme/clip-readme-1080.mp4`,
+9.2 MB, because GitHub's cap on a free plan is 10 MB; the poster is
+`docs/img/clip-poster.jpg`, rebuilt by `readme/poster.py` beside it.
 
 ## Step 2 — one stranger's run, on a Mac
 
@@ -196,6 +209,13 @@ rewritten). The GitHub repo was recreated for it, since GitHub serves an
 overwritten commit by its hash; any later rewrite needs the same.
 
 Tyler's hand, in this order, the same afternoon:
+
+First, while the repo is still private: drag `clip-readme-1080.mp4` into a
+**draft** GitHub release's notes (the one item 6 publishes), and hand back
+the `user-attachments` URL it produces. It replaces `CLIP-UPLOAD-PENDING` in
+README.md, twice, committed in Gitea — never edited on GitHub, which the next
+sync would force-push over. Until then the README's clip link goes nowhere,
+so this goes before the sync, not after the flip.
 
 1. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
