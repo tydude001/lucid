@@ -65,22 +65,23 @@ pointer, and the wiki row updates.
 ## Step 1 — the launch asset: a watchable closed loop
 
 Built three times — HISTORY.md § The launch clip, § The launch clip, re-cut
-as an announcement, § The launch clip, third shape — and **none stands**.
-Tyler kept the third shape's idea (no voice, the real product, the result on
-screen) and rejected the clip itself as "full of errors… choppy and weak".
-Its measured errors, a v4 shape and the four calls it needs from him are in
-`~/lucid-work/launch-v4-review/PIN.md`. Paused there by him on 2026-09-11.
+as an announcement, § The launch clip, third shape — and rejected; the fourth
+shape is the one that stands, `~/lucid-work/launch-v4/clip-v6.mp4`
+(HISTORY.md § The launch clip, approved). How each round was judged and why
+the clip is the way it is: `~/lucid-work/launch-v4-review/PIN.md`.
 
-**What it is.** One screen recording, 60–90 seconds cut and the full run
-uncut, of the agent pane in the workspace driving a brief from `lucid init`
-to a verified render. The cut version is what every channel below posts; the
+**What it is.** A 47-second cut, and the full runs uncut, of one brief driven
+from `lucid init` to a verified render twice: in the agent pane of the
+workspace, then in Claude Code with lucid loaded as a plugin. The cut version is what every channel below posts; the
 uncut one is the link under it for anyone who wants to check it was not
 staged. The pitch is the thing itself: an agent on a timeline, the render
 checking itself against the edit, and no cloud in the frame.
 
 **Footage rule.** The recording shows only footage lucid owns — the generated
-demo project, or Tyler's own recorded material (the co-hosted recording once
-the second mic is routed, wiki `lucid-second-mic`). **Never a frame of
+demo project, Tyler's own recorded material (the co-hosted recording once
+the second mic is routed, wiki `lucid-second-mic`), or public-domain footage
+with its provenance written down (the clip's is NASA's restored Apollo 11,
+`~/lucid-work/launch-v4/media/PROVENANCE.md`). **Never a frame of
 Scream.** CLAUDE.md's committed-image rule is about the repo, but a launch
 clip is more public than a README and the same reasoning applies: a
 promotional video of copyrighted film clips invites the one argument the
@@ -88,11 +89,15 @@ launch does not need. The real-footage trial's *numbers* are quoted in the
 post (9 of 9, 45.23s, similarity 0.984, 123 of 123 heard); its *frames* stay
 in `~/lucid-work/agent-trial/`.
 
-**Make it with lucid.** The recording is a screen capture (OBS, which is
-already set up for the show), and the cut is done in lucid — the making-of
-is a second post for free, and "the launch video was cut by the tool" is a
-line that survives scrutiny only if it is true. Captions burned, because
-every platform below autoplays muted.
+**It is not cut with lucid, so never say it was.** The camera, the speed
+ramps, the type and the mix are a compositor script
+(`~/lucid-work/launch-v4/clip.py`) over the two recordings. Lucid's own
+moves are linear and it cannot retime, which is most of why the first three
+shapes read as choppy. "The launch video was cut by the tool" is false, and
+the line that is true is stronger anyway: the film inside the clip is the
+agent's own render, untouched, and every number on screen is read from the
+run that produced it. The clip refuses to build from a run that did not
+verify clean. Captions burned, because every platform below autoplays muted.
 
 **What it must show, in order**, so the 60 seconds carries the argument:
 1. the brief, typed into the agent pane in plain language;
@@ -107,12 +112,17 @@ every platform below autoplays muted.
    counted against the timeline's. kinocut says "quality gates", and read
    from source those score brightness and loudness, not agreement with the
    edit (`~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read);
-6. a title card, made by `card_new`, saying the name and the tagline.
+6. the same brief in Claude Code, no window, ending on the agent's own check
+   — because the launch's headline is "an MCP server" and the clip otherwise
+   never shows one;
+7. an end card with the name, the tagline, the repo, and the two `/plugin`
+   commands that install it.
 
 **The instrument already exists.** `scripts/agent_trial.py` runs exactly
-this loop; what it lacks is a viewer. The recording is of the *workspace*
-pane rather than a terminal, because the workspace is what a stranger will
-open first, and the README's screenshot is of it. Drive the trial's own
+this loop; what it lacks is a viewer. The recording is mostly of the
+*workspace* pane, because the workspace is what a stranger will open first,
+and the README's screenshot is of it. The terminal beat is a real `claude`
+session recorded byte for byte (`~/lucid-work/launch-v4/mcp/`), not a mock-up. Drive the trial's own
 brief through `POST /api/agent` (the panel's route) so the run in the video
 is the run the trial measured — no second script, no drift.
 

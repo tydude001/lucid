@@ -13071,3 +13071,54 @@ Seven new test cases and one assertion added to the melt-advice test. Five
 of them fail against the old `src/`. The other three passed before too, and
 pin what the fixes had to keep: freeze's real `-version` output refused, and
 a full or unanswered encoder listing passed.
+
+## The launch clip, approved — 2026-09-13
+
+Tyler approved the fourth shape: `~/lucid-work/launch-v4/clip-v6.mp4`,
+47 s at 1920x1080/60. It is two unattended runs of one brief, recorded and
+composited. **It is not cut with lucid.** The camera, speed ramps, type and
+mix are `~/lucid-work/launch-v4/clip.py`, so LAUNCH.md § Step 1 no longer
+says "cut by the tool". What the clip can say instead is checked by the
+script: the film shown is the agent's own `cut.mp4`, drawn frame-locked into
+the preview, and the closing numbers are read from the run's `verify` and
+`check_frames` results. A run that did not verify clean refuses to build.
+
+- **The window run:** 28 turns, $1.60, 35 of 35 words heard, 335 of 335
+  frames, no black frames. Tyler's own voice, re-recorded on a real mic
+  after v4's iPhone take was his only complaint.
+- **The Claude Code beat:** the same brief typed into a real `claude` with
+  lucid loaded through `--plugin-dir` (session-only, nothing installed) and
+  built-in tools off, so the footage is reachable only through lucid. It
+  made 35 calls in 2 m 44 s and checked its own render: 35 of 35 words
+  (windowed), 344 of 344 frames, no black frames. It was added on Tyler's
+  note that the clip never showed lucid being driven over MCP, which is the
+  launch's headline claim.
+- **The end card** carries `/plugin marketplace add tydude001/lucid` and
+  `/plugin install lucid@lucid`. The first answers 404 until the flip.
+
+Measured along the way, each a way the clip was wrong at exit 0:
+
+- **NASA's Apollo 11 restoration dissolves through white between shots**,
+  eight times across the three clips, 4–7 frames each. v5's film ended on
+  one, so the white held through the camera's pull-out. Each is now a hard
+  cut at the same length (`launch-v4/check/flash/`). A flash detector that
+  required the frames either side to match missed the ones that cut to a
+  darker shot. A near-white peak that rises and falls within ten frames
+  catches all eight, and a real 50-frame bright shot is not one.
+- **A time map keyed to one run's gaps runs another run backwards.** The mic
+  run's agent opened the contact sheets 1.2 s after its cut where the iPhone
+  run waited 8 s, so the hand-placed "hold the strike 2 s" key landed after
+  the sheets key, and the recording would have played in reverse. The hold
+  is clamped to the run's own marks now, and `clip.py` refuses a map that
+  runs backwards: the old key, put back, refuses on the mic run at 14.45 s.
+- **Recording a terminal honestly took three fixes.** A child `claude`
+  inherits the parent session's `CLAUDE_*` environment and shows its title
+  and a transcript warning. A pty read can split a UTF-8 character, so each
+  chunk has to go through an incremental decoder. And pyte reads Claude
+  Code's `ESC[>4;2m` (modifyOtherKeys) as SGR 4, which underlined every cell
+  after it. The screen prints the home directory in its header and in every
+  tool call's arguments, so the frames draw it as `~`.
+- **Claude Code 2.1.270 draws MCP calls as one counter line** ("Calling
+  plugin:lucid:lucid 19 times…"), not a list of tool names. Any framing that
+  cut words off the 92-column screen looked broken, so the camera holds near
+  full width until the report lands.
