@@ -44,6 +44,25 @@ test suite), and a browser workspace — transcript, preview, a draggable
 timeline, framing review and export, with the agent in the window. The
 non-goals are permanent: no cloud, no accounts, no metering.
 
+## Help wanted: the first run on a Mac
+
+Nobody has ever run lucid on a Mac. If you have one and half an hour, one
+script installs what lucid needs, makes a short test video, has lucid cut,
+render and check it, and puts a report on your Desktop:
+
+```sh
+git clone https://github.com/tydude001/lucid
+bash lucid/scripts/mac_trial.sh
+```
+
+It installs `uv`, `ffmpeg`, `espeak-ng` and `auto-editor` with Homebrew (and
+Homebrew, if you have none), the Shotcut app for its renderer, and whisper,
+and it asks before starting. It keeps a list of what it added, and `bash
+lucid/scripts/mac_trial.sh --uninstall` removes exactly that and nothing you
+already had. Then [file the report](https://github.com/tydude001/lucid/issues/new?template=mac-test.yml)
+— a run that stops at the first step is just as useful, because where it
+stops is the finding.
+
 ## Requirements
 
 lucid is developed and tested on Linux only (a Fedora-based desktop); it has

@@ -13122,3 +13122,36 @@ Measured along the way, each a way the clip was wrong at exit 0:
   plugin:lucid:lucid 19 times…"), not a list of tool names. Any framing that
   cut words off the 92-column screen looked broken, so the camera holds near
   full width until the report lands.
+
+## The Mac test, asked of strangers — 2026-09-13
+
+The friend LAUNCH.md § Step 2 was counting on is not going to run the Mac
+kit, and Tyler knows nobody else who can. So the tester has to be a
+stranger, and a stranger can only reach the public repo. The flip now comes
+before step 2 instead of after it. Show HN still waits for a Mac report.
+
+What changed in the repo:
+
+- **`scripts/mac_trial.sh` runs from a clone.** With no payload appended it
+  uses the lucid checkout it sits in, reads the commit from git, and ends by
+  pointing the tester at the issue form instead of telling them to send the
+  zip to Tyler. It refuses a checkout inside `~/lucid-mac-trial`, because
+  every run deletes that folder. `--pack` is unchanged.
+- **The report is safe to post publicly.** The kit already replaced the home
+  folder with `~` in the log, but it zipped the demo project's `lucid.json`
+  and `project.otio` as they were, and both store absolute paths. A friend's
+  zip sent privately could carry a username; one attached to a public issue
+  cannot. All three text files are scrubbed now.
+- **A `Mac test report` issue form** (`.github/ISSUE_TEMPLATE/mac-test.yml`)
+  asks for how far the run got, its summary block, the zip, whether the two
+  frames read `BLUE 3s` and `RUST 0s`, and Apple silicon or Intel.
+- **README.md § Help wanted** sits right above § Requirements, with the two
+  commands, what gets installed, and `--uninstall`.
+
+Dry run on this box, with the kit's existing shims for `uname`, `brew`,
+`sw_vers`, `sysctl` and `open` (`~/lucid-work/mac-trial-dry/clone-run/`):
+every step from `uv sync` to `frames` ran, the zip holds six files, and
+`/home/` appears 0 times in each of its three text files. `--uninstall` then
+removed the four stub formulae and the Shotcut stub, and left `ffmpeg` and
+the tester's own `myjunk`. The shims stand in for macOS itself, so this
+proves the script's own logic and nothing about a real Mac.

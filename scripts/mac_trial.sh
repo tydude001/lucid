@@ -1,14 +1,19 @@
 #!/bin/bash
 # lucid on a Mac, in one file — docs/plans/LAUNCH.md § Step 2.
 #
-# One file, three jobs:
+# One file, two ways to get it onto a Mac:
 #
+#   bash scripts/mac_trial.sh                  on the Mac, from a clone of the public repo: install
+#                                              the tools, run docs/DEMO.md in that clone, zip a
+#                                              report for a GitHub issue
 #   bash scripts/mac_trial.sh --pack OUT.sh    on the dev box: copy this script to OUT.sh and
-#                                              append the repo at HEAD, so the tester needs no
-#                                              repo access, git, or GitHub account
-#   bash lucid-mac-test.sh                     on the Mac: unpack, install the tools, run
-#                                              docs/DEMO.md, zip a report
-#   bash lucid-mac-test.sh --uninstall         on the Mac: remove what the test added, and only that
+#                                              append the repo at HEAD, for a tester with no repo
+#                                              access (the private-repo route, and the friend kit)
+#   bash lucid-mac-test.sh                     on the Mac: unpack, then the same run
+#   bash <either> --uninstall                  on the Mac: remove what the test added, and only that
+#
+# The report is written to be attached to a public issue: the Mac's home folder is replaced by
+# `~` in every text file in it, and the rest is footage the demo generated.
 #
 # The Mac half runs DEMO.md's commands as written, into ~/lucid-mac-trial/demo instead of
 # ~/lucid-demo, and stops at the first one that fails, since that is the finding.
@@ -44,6 +49,7 @@ if [ "${1:-}" = "--pack" ]; then
 fi
 
 PACKED_REV=unpacked
+ISSUE_URL="https://github.com/tydude001/lucid/issues/new?template=mac-test.yml"
 # The LUCID_TRIAL_* overrides exist only for a dry run off the Mac.
 W="${LUCID_TRIAL_DIR:-$HOME/lucid-mac-trial}"
 DEMO="$W/demo"
@@ -155,14 +161,30 @@ if [ "${1:-}" = "--uninstall" ]; then
     rm -rf "$W"
     echo
     echo "  Done. The report on your Desktop (lucid-mac-report.zip) is yours to delete once sent."
+    grep -q '^__PAYLOAD__$' "$0" || echo "  The lucid folder you cloned is yours too: delete it when you are finished with it."
     [ "$brew_itself" -gt 0 ] && echo "  Apple's Command Line Tools, which Homebrew set up, stay installed; other apps use them."
     exit 0
 fi
 
 # ---- the test -----------------------------------------------------------------------------
-if ! grep -q '^__PAYLOAD__$' "$0"; then
-    echo "This copy has no lucid inside it. Ask Tyler for the packed file (lucid-mac-test.sh)." >&2
-    exit 1
+# Packed, lucid is unpacked into $W; otherwise this script must be sitting in a lucid checkout,
+# and the run uses that checkout as it is.
+if grep -q '^__PAYLOAD__$' "$0"; then
+    REPO="$W/lucid"
+    SEND_TO="send it to whoever gave you this file"
+else
+    REPO="$(cd "$(dirname "$0")/.." && pwd)"
+    if [ ! -f "$REPO/scripts/make_demo.py" ] || ! grep -q '^name = "lucid"' "$REPO/pyproject.toml" 2>/dev/null; then
+        echo "This copy is not inside a lucid checkout and has no lucid packed into it." >&2
+        echo "Clone the repo and run it from there:  git clone https://github.com/tydude001/lucid" >&2
+        exit 1
+    fi
+    PACKED_REV="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "no-git")"
+    SEND_TO="attach it to a Mac test report: $ISSUE_URL"
+    case "$REPO/" in "$W"/*)
+        echo "The checkout is inside $W, which every run clears. Clone it somewhere else." >&2
+        exit 1 ;;
+    esac
 fi
 
 cat <<'EOF'
@@ -172,7 +194,7 @@ cat <<'EOF'
   This will:
     1. install the tools lucid needs (Homebrew packages, the Shotcut app, whisper)
     2. make a short test video and let lucid edit it
-    3. put lucid-mac-report.zip on your Desktop for you to send back to Tyler
+    3. put lucid-mac-report.zip on your Desktop, with your home folder's name taken out
 
   It takes 15–30 minutes, mostly downloading. You can leave it running.
   To remove everything it added afterwards, run this same file with --uninstall.
@@ -255,22 +277,24 @@ finish() {
         echo "ALL STEPS RAN"
     fi
 
-    # The report names files under this Mac's home folder; the username is the only personal thing
-    # in it. A copy, never `sed -i`: tee still holds the log open and would keep writing to the
+    # The report names files under this Mac's home folder, and so do the project's manifest and
+    # timeline, which store absolute paths; the username is the only personal thing in any of
+    # them. Copies, never `sed -i`: tee still holds the log open and would keep writing to the
     # replaced file's old inode.
     sleep 1
-    sed "s#$HOME#~#g" "$LOG" > "$W/report-for-tyler.txt"
-    rm -f "$REPORT"
-    (
-        cd "$W" || exit
-        files=(report-for-tyler.txt)
-        for f in frame-3s.png frame-10s.png demo/demo.mp4 demo/proj/lucid.json demo/proj/project.otio; do
-            [ -e "$f" ] && files+=("$f")
-        done
-        zip -q "$REPORT" "${files[@]}"
-    )
+    rm -rf "$W/report" "$REPORT"
+    mkdir -p "$W/report"
+    sed "s#$HOME#~#g" "$LOG" > "$W/report/report.txt"
+    for f in demo/proj/lucid.json demo/proj/project.otio; do
+        [ -e "$W/$f" ] && sed "s#$HOME#~#g" "$W/$f" > "$W/report/$(basename "$f")"
+    done
+    for f in frame-3s.png frame-10s.png demo/demo.mp4; do
+        [ -e "$W/$f" ] && cp "$W/$f" "$W/report/"
+    done
+    (cd "$W/report" && zip -q "$REPORT" ./*)
     echo
-    echo "  Done. Send Tyler this file from your Desktop:  lucid-mac-report.zip"
+    echo "  Done. The report is on your Desktop:  lucid-mac-report.zip"
+    echo "  Please $SEND_TO"
     echo "  To remove everything the test installed:      bash $0 --uninstall"
     echo
     open -R "$REPORT" 2>/dev/null
@@ -283,8 +307,12 @@ echo "lucid Mac test · lucid $PACKED_REV · $(date '+%Y-%m-%d %H:%M %Z')"
 echo "macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)) · $(uname -m) · $(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
 echo "memory $(( $(sysctl -n hw.memsize) / 1073741824 )) GB · free disk $(df -h "$HOME" | awk 'NR==2 {print $4}')"
 
-line=$(awk '/^__PAYLOAD__$/ {print NR + 1; exit}' "$0")
-if ! step "unpack lucid" sh -c "tail -n +$line '$0' | base64 --decode | tar -xz -C '$W'"; then finish; exit 1; fi
+if [ "$REPO" = "$W/lucid" ]; then
+    line=$(awk '/^__PAYLOAD__$/ {print NR + 1; exit}' "$0")
+    if ! step "unpack lucid" sh -c "tail -n +$line '$0' | base64 --decode | tar -xz -C '$W'"; then finish; exit 1; fi
+else
+    echo "lucid checkout: $(echo "$REPO" | sed "s#$HOME#~#")"
+fi
 
 # Homebrew. Its installer asks for the Mac's password and may install Apple's command line tools.
 find_brew
@@ -333,7 +361,7 @@ brew list --versions $FORMULAE
 echo "shotcut: $(brew list --cask --versions shotcut 2>/dev/null || echo "not from Homebrew")"
 echo "whisper: $(command -v whisper)"
 
-cd "$W/lucid" || { fail="enter repo"; finish; exit 1; }
+cd "$REPO" || { fail="enter repo"; finish; exit 1; }
 if ! step "uv sync" uv sync; then finish; exit 1; fi
 step "lucid doctor (informational)" uv run lucid doctor || fail=""   # the demo below is the verdict
 
@@ -357,7 +385,7 @@ step "DEMO 6 render (melt)" L export "$DEMO/demo.mp4" --render &&
 step "DEMO 6 verify" L verify "$DEMO/demo.mp4" &&
 step "DEMO 6 frames" L frames "$DEMO/demo.mp4"
 
-# DEMO.md § 7: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". Tyler reads these.
+# DEMO.md § 7: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". A person reads these.
 if [ -f "$DEMO/demo.mp4" ]; then
     ffmpeg -v error -y -ss 3 -i "$DEMO/demo.mp4" -frames:v 1 "$W/frame-3s.png"
     ffmpeg -v error -y -ss 10 -i "$DEMO/demo.mp4" -frames:v 1 "$W/frame-10s.png"

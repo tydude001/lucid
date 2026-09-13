@@ -23,7 +23,10 @@ pointer, and the wiki row updates.
 - **The order is the plan.** Each step is cheap on its own and worthless out
   of sequence: a Show HN before a stranger's run turns the launch thread into
   a bug tracker, and a directory listing before the flip points at a 404.
-  Steps 1, 2 and 4 can overlap; 3 gates 4, and 2 and 4 gate 5.
+  Step 1 is done; 3 gates 2 and 4, which then overlap, and 2 and 4 gate 5.
+  **Step 2 ran ahead of the flip until 2026-09-13**, when the friend it
+  counted on fell through (Tyler: nobody he knows can test it). A stranger
+  can only reach a public repo, so the flip moved in front of it.
 - **Steps 1 and 3 are Tyler's hands; step 2 is somebody else's.** An agent
   can draft every post, build the recording pipeline, and prepare the
   directory submissions, but cannot press record on a screen, cannot flip the
@@ -162,10 +165,19 @@ steps 4–5 (measure melt, libass and magick per OS) are the deep version of
 this; step 2 here is the shallow one: does the two-minute demo reach a
 verified render, yes or no, and where did it stop.
 
-**Who.** Anyone with a Mac and an hour; a friend, a colleague, a Discord
-acquaintance. The ask is scripted so it costs them nothing to think about:
-"clone this, run these four commands, paste me the output of each, stop at
-the first failure." `lucid doctor`'s output is designed to be that paste.
+**Who.** A stranger, reached through the public repo — there is no friend
+or colleague to ask (2026-09-13). The ask is in three places, each pointing
+at the next: README.md § Help wanted, right above § Requirements, where a
+Mac user reading the install list meets it; a pinned issue saying the same
+thing, for anyone who lands on the Issues tab (step 3, item 9); and the
+`Mac test report` issue form, `.github/ISSUE_TEMPLATE/mac-test.yml`, which
+asks for the run's own summary block and the report zip, so a report comes
+back in one shape whoever files it. It is scripted so it costs the tester
+nothing to think about: clone, one command, attach a zip. What finds the
+stranger is step 4's listings — their audience runs Claude Code, mostly on
+Macs — and, if a week of those produces nobody, one "Mac tester wanted"
+post in a room step 6 does not use, so no launch channel's first
+impression is spent on a request. Show HN still waits for the report.
 
 **What comes back is a queue, not a verdict** — the trial's own rule (TRIAL.md
 § The queue). Every ✗ becomes a fix or a documented requirement; every
@@ -196,6 +208,14 @@ lucid on macOS**, not whether a stranger can follow `doctor`'s fixes. That
 second question is still open, and this run answers the one PORTABILITY.md
 step 4 needs first: does Shotcut's melt carry the modules lucid's documents
 use. The report's two frames settle that, never melt's exit code.
+
+**The same script runs from a clone** (2026-09-13): `bash
+lucid/scripts/mac_trial.sh` with no payload uses the checkout it sits in, and
+tells the tester to attach the zip to the issue form rather than send it to
+Tyler. Because that zip is posted publicly, the project's `lucid.json` and
+`project.otio` are scrubbed of the home folder along with the log — both store
+absolute paths. `--pack` still works, for a tester with no GitHub access.
+HISTORY.md § The Mac test, asked of strangers.
 
 **Done when:** one Mac run reaches `verify` agreeing with the timeline, its
 queue is closed or recorded, and README.md's "never been run on macOS"
@@ -257,9 +277,15 @@ it does not, the README's first screen is a dead link on launch day.
    it is the cheapest honest answer to "how do I say thanks", and a launch
    thread asks that question within the hour. Wire it before Show HN, since
    the button is what the thread will find.
+9. **Open and pin the Mac test issue**, and create the `mac-test` label the
+   issue form applies, so reports can be found by it — the repo has only
+   GitHub's defaults. Step 2's stranger arrives from here on, so this is the same
+   afternoon, not later. The draft body is
+   `~/lucid-work/launch-release/MAC-ISSUE.md`.
 
 **Done when:** the public URL unfurls with the image and the tagline, the
-Security tab shows "Report a vulnerability", and a release exists.
+Security tab shows "Report a vulnerability", a release exists, and the Mac
+test issue is pinned.
 
 ## Step 4 — the MCP directories, listed quietly
 
