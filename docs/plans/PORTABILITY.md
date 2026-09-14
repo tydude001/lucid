@@ -299,6 +299,16 @@ and `verify` 0.971 through Shotcut's `melt.exe`. mac-demo stayed green after
 5a.1. That settles 5a–5c, and the only Windows claim it leaves unsettled is
 a person's run (Step 6).
 
+**The next ci run found a flake** (run 34793271514, `8eae34c`, docs and
+ci.yml only): Windows failed
+`test_undo_refuses_when_the_manifest_moved_past_the_snapshot_it_read`,
+2047 passed. `restore()` could only have skipped the refusal if the second
+writer's `write_manifest` left the same `st_mtime_ns` as the first's, so
+`_manifest_stamp` (mtime alone) cannot see two writes inside one Windows
+file-time tick. The test is right and the stamp is the defect; the fix is a
+stamp that changes on every write (content hash, or mtime with `st_ino`
+and size), still to be chosen.
+
 **5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
 `mac_trial.sh`: it asks before starting, records everything it adds,
 `-Uninstall` removes exactly that, it runs DEMO.md's commands verbatim and
