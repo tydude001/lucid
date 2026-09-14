@@ -697,8 +697,8 @@ absent optional capability is "unavailable", never a failure, and never moves
   - **That rule now binds the history too: it was rewritten with `git
     filter-repo` on 2026-09-10** to remove what the scrub had left in old
     commits, and again on 2026-09-11 so no tag carries the MIT grant (every
-    old hash maps through `~/lucid-archive/*.commit-map`). GitHub (`tydude001/lucid`, private until Tyler flips it) is fed
-    only by Gitea's push mirror, synced by hand — there is no `github`
+    old hash maps through `~/lucid-archive/*.commit-map`). GitHub (`tydude001/lucid`, public since 2026-09-13) is fed
+    only by Gitea's push mirror — there is no `github`
     remote here. **Never `git push --mirror`**: the reflog still reaches the
     pre-rewrite objects. **And never merge a PR on GitHub** — the next sync
     force-pushes over it; the route is wiki `git-server.md` § GitHub push
