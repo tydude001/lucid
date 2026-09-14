@@ -1078,6 +1078,11 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
   output. Anything writing a project for melt to read puts it under `$HOME`,
   and that includes what it *writes*: `picture.render` stages into
   `~/proofcut-render/` and copies out only after the file agrees with the timeline.
+  - **Every melt `subprocess.run` passes `stdin=subprocess.DEVNULL`.** With
+    its output captured and a console on stdin, melt writes the whole file
+    and never exits — a person's Windows PC hung on it while CI, which has
+    no console, rendered in 4 s. A test holds the argument, since nothing
+    here reproduces the hang. HISTORY.md § The render that never exited.
   - **A *failed* render's staging directory survives on purpose, and
     `sweep_scratch` drops it after `SCRATCH_RETENTION_DAYS`.** It sweeps by
     name (`_SCRATCH_NAME`), never by age alone — a hand-placed directory in
