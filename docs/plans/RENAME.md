@@ -385,6 +385,8 @@ annotation. Committed, tagged, **not pushed**.
 
 ### Step 5 — this box
 
+Shipped — see HISTORY.md § The rename.
+
 Each line here mutates Tyler's data or environment and is named before it
 runs (memory: `verify-the-web-ui-in-a-real-browser` — `migrate` mutates his
 data, ask first).

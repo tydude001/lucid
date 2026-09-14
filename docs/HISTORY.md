@@ -13999,3 +13999,47 @@ that state. `--source` had learned that `lucid.json` is a project and
 `--score-only` had not; it now refuses before anything is rewritten, naming
 `proofcut -C <proj> migrate`. Probed on the skeptic's copy: exit 1, the
 report's sha256 unchanged; migrated, the same re-score runs.
+
+### Step 5 — this box
+
+Tyler said to proceed on 2026-09-14. **Every pinned project was read by the
+old code, migrated, and read again by the new**, through a script that also
+hashed every file outside `media/` before and after
+(`~/lucid-work/rename/migrate_one.sh`; the old code is a worktree at
+`84817d5`, and each project's `lucid.json` and `project.otio` were copied to
+`~/lucid-work/rename/step5/<name>/backup/` first). The film's project went
+alone and first: `status`, `shots` and `film_check --plan` printed
+**byte-identical output** under `lucid` 0.22.0 and `proofcut` 0.23.0 — 63
+segments, 38 shots, 1920x816, and `agrees: true` against the declared
+`essay-flashfix.mp4` at a delta of −0.015s — with the manifest's bytes
+unchanged under its new name and 64 OTIO keys rewritten. Then `~/lucid-demo/proj`,
+`~/lucid-kf-probe`, `~/lucid-scream-v2/proj`, `~/lucid-brief-check/proj`,
+`~/lucid-framing-detect/proj`, `~/lucid-threshold/proj`, `~/lucid-split-detect`
+and `~/lucid-cards-reauthor/proj`, the same way: identical `status` and
+`shots` on all eight, and in every one the only files that changed are the
+manifest's name, the `lucid-v4.json` backup and `project.otio`. The eighteen
+`lucid.json` projects under `~/lucid-work/` and `~/lucid-archive/vertical/`
+were left for whoever reopens them.
+
+**The environment.** `~/.config/environment.d/60-lucid.conf` became
+`60-proofcut.conf` with the four `PROOFCUT_*` names, and
+`~/.bashrc.d/60-lucid.sh` became `60-proofcut.sh` sourcing it; both old files
+are backed up under `~/lucid-work/rename/step5/env-backup/`.
+**`LUCID_TTS_VOICE` was never set anywhere** — the plan's "find where it is
+set" found nothing to find, because the voice is passed per run on purpose.
+For the running session, `systemctl --user set-environment` added the new
+names; **`unset-environment` did not remove the old ones** — they came back
+from the environment generator — and a `daemon-reexec`, which re-runs the
+generators, left only `PROOFCUT_*`. Doctor, in a shell with only the new
+file sourced, finds `PROOFCUT_VLM` and `PROOFCUT_FACE` and answers its
+old-name row with "none set".
+
+`~/lucid-render` was deleted once `~/proofcut-render` had staged the demo
+walk's, the screenshots' and both recordings' renders — its 21 staging
+directories and the two hand-made keyframe probes § The keyframed move left
+there — along with `scratch/scream-v1`, a test project from 2026-08-07
+whose only media was a symlink to the VO on the NAS (still there).
+
+Last, the clone moved to `~/projects/proofcut` with its auto-memory
+directory beside it, and `.venv` was rebuilt there; the recording scripts in
+`~/lucid-work/launch-v5/` follow the new path.

@@ -325,8 +325,8 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
   `~/lucid-<name>` that no longer resolves is found there. What stays flat at
   `~/` is pinned and must not move: `proofcut-render` (`picture.RENDER_SCRATCH`
   is a code literal, and a directory a stranger's install creates, so it did
-  rename — this box's old `~/lucid-render` is deleted by hand once a render
-  has landed in the new root), `lucid-final-cut` (six manifests point into `proj/`
+  rename — this box's old `~/lucid-render` was deleted 2026-09-14, after
+  renders had landed in the new root), `lucid-final-cut` (six manifests point into `proj/`
   absolutely, and its own `reference` render is an absolute self-path),
   `lucid-a2-probe` (a2-build's media), `lucid-archive`, `lucid-cards-reauthor`,
   `lucid-scream-v2`, `lucid-kf-probe`, and the settle-against copies
