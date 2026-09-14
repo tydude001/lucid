@@ -13923,3 +13923,56 @@ listed `proofcut` connected with 90 tools, it called
 (12.006s, 289 frames); New Task killed the child. The overflow probes at
 1400px and 700px, every mode and rail tab, found nothing — the brand grew
 from five characters to eight, and `#bar` at 700px is where that bites.
+
+### Step 3 — the screenshots and the recordings
+
+**The screenshots**, by `scripts/capture_screenshots.py` with no flags and
+every check standing: the theme read back `dark`, the Edit shot had its
+"Export complete", the timeline filled its 1301px pane, luma 45 and 33
+(spread 12 of 30). Read back: the bar says proofcut, the agent pane says
+"proofcut's own MCP tools", and no path or username is drawn. Everything
+else that moved came from the voiceover: the transcript reads "This is a demo
+of ProofCut,", the film is 0:12.0 against 0:11.9, and so the fixed 9.9s
+playhead now sits on "the" rather than "render", and the caption cards group
+differently.
+
+**The recordings were re-made, not edited**, in `~/lucid-work/launch-v5/`
+beside v4, which is untouched so v0.22.0's clip stays rebuildable: the
+scripts copied, `media/` a reflink copy (a symlink resolved to launch-v4 and
+would have put v4's paths into the brief on screen), music and sfx
+symlinked. What the rename changed in them: the work paths, the clip's
+footnote and end card, and `--allowedTools`, whose plugin prefix was read
+off `claude`'s own init event rather than guessed — `plugin:proofcut:proofcut`,
+90 tools named `mcp__plugin_proofcut_proofcut__*`. Both agent runs passed on
+their first take. The window run (27 turns) cut the false start **by time**,
+0–8.17s, where v4's agent cut words 0–21; verify heard 35 of 35 in both
+passes and `check_frames` 340 of 340, a film of 11.33s. The terminal run (33
+calls) verified 35 of 35 and 338 of 338. `measure.py` measured this take's
+own marks (sheets at 76.564s, the lane at 83.677s, the film at 129.762s),
+and `clip.py` rendered v6's approved shape.
+
+| File | Duration | Size | v4 |
+|---|---|---|---|
+| `proofcut-v0.23.0-clip.mp4` | 47.18s, 1080p60, stereo | 31.6 MB | 47.02s |
+| `proofcut-v0.23.0-uncut-workspace-run.mp4` | 146.13s, 1080p30 | 5.2 MB | 145.0s |
+| `proofcut-v0.23.0-uncut-claude-code-run.mp4` | 189.13s, 1080p30 | 4.5 MB | 190.2s |
+
+**Read back for the name and for paths before anything goes anywhere**:
+frames across the clip (headline, bar, strike card, sheets, film, final
+headline, terminal, end card), five across the workspace run and six across
+the terminal run, plus every screen of `term.cast` replayed through
+`render_term.py`'s own redaction — zero home paths drawn, and "lucid" only
+as the `~/lucid-work` prefix while the brief is typed. **One thing the plan
+asked to read is not drawn**: Claude Code 2.1.270 shows tool calls as a
+counter, "Called plugin:proofcut:proofcut 16 times", and no `mcp__` name
+appears on screen at all, so the counter is what was read. The window run's
+event stream carries 223 absolute paths, every one in a tool input or result
+that the page shows only as a hover tooltip; the agent's prose names none.
+
+The launch drafts moved with them: `launch-release/NOTES.md` is the v0.23.0
+notes (the rename first, what an existing user does, the two asset names;
+the clip URL is a placeholder until the upload), `MAC-ISSUE.md` and
+`WINDOWS-ISSUE.md` quote the renamed kits word for word (the Mac body also
+corrects `ffmpeg` to the `ffmpeg-full` the kit has installed since its first
+run), and `launch-listings/LISTINGS.md` carries the new awesome-list line and
+registry name. Each was backed up beside itself first.
