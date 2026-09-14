@@ -66,14 +66,22 @@ is the layer that lets an agent drive them, and check what they produced:
 
 ## Try it
 
-Check your machine first. `proofcut doctor` probes every tool proofcut uses
-and prints the fix for anything missing ([§ Requirements](#requirements) has
-the list).
+Check your machine first, before cloning anything. `proofcut doctor` probes
+every tool proofcut uses and prints the fix for anything missing
+([§ Requirements](#requirements) has the list). With
+[uv](https://docs.astral.sh/uv/) and git installed:
+
+```sh
+uvx --from git+https://github.com/tydude001/proofcut proofcut doctor
+```
+
+The first run downloads Python 3.13 if uv has none, plus proofcut's
+dependencies, about 230 MB together. The demo and your own recordings run
+from a checkout:
 
 ```sh
 git clone https://github.com/tydude001/proofcut && cd proofcut
 uv sync
-uv run proofcut doctor
 ```
 
 ### The two-minute demo
@@ -101,10 +109,12 @@ Code gives a server 30 seconds to connect. On a slow connection, start that
 first session as `MCP_TIMEOUT=300000 claude`. If `/mcp` already shows proofcut
 as failed, reconnect it there; the download keeps what it fetched.
 
-Any other MCP client runs the same server:
+Any other MCP client runs the same server, from a checkout or with no
+checkout at all:
 
 ```sh
 uv run --project /path/to/proofcut proofcut mcp
+uvx --from git+https://github.com/tydude001/proofcut proofcut mcp
 ```
 
 ### On your own recording

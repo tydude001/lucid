@@ -382,7 +382,7 @@ characters, no exclamation):
 > Show HN: proofcut – a local-first AI video editor that's an MCP server
 
 **The first comment is Tyler's, posted immediately, and it does three
-things**: says what it is in two sentences, links the 60-second clip and the
+things**: says what it is in two sentences, links the 47-second clip and the
 uncut run, and pre-empts the two questions that will otherwise be the
 thread. Draft:
 
@@ -400,10 +400,14 @@ thread. Draft:
 > living and a shipped MIT version stays MIT forever. Not open source by the
 > OSI definition, and I'd rather say so here than have it found.
 >
-> *Platforms.* Developed on Linux; the demo has been run end to end on one
-> Mac, and Windows has only CI. `proofcut doctor` tells you what's missing and
-> how to fix it, and I'd genuinely like the doctor output from your machine
-> if it says ✗.
+> *Platforms.* Developed on Linux. On macOS and Windows the suite passes in
+> CI and GitHub's runners take the demo to a checked render; one Windows PC
+> has too, mine, and no person has run it on a Mac yet. This tells you
+> what's missing and how to fix it, without cloning anything:
+>
+>     uvx --from git+https://github.com/tydude001/proofcut proofcut doctor
+>
+> I'd genuinely like the doctor output from your machine if it says ✗.
 
 **The licence paragraph is the load-bearing one.** "Source-available" draws
 scrutiny on HN, and a defensive reply loses the thread; the paragraph above

@@ -14436,3 +14436,36 @@ archiving, now point at `projects/final-cut`. Ten others were already
 broken, pointing at names that never existed inside their spikes, and were
 left as they were.
 
+
+## The one-line doctor — 2026-09-14
+
+LAUNCH.md § How to work this plan names the leak between "saw it" and "ran
+it", and README.md § Try it made a stranger clone the repo and `uv sync`
+before `proofcut doctor` could tell them anything. That route already
+existed without a checkout, and nobody had asked it: `uv_build` ships
+everything inside `src/proofcut/`, so a wheel built from the git URL carries
+the web UI, the card templates and the vendored fonts.
+
+**Measured from GitHub, with every uv directory empty** —
+`UV_CACHE_DIR`, `UV_PYTHON_INSTALL_DIR` and `UV_TOOL_DIR` pointed at a fresh
+`~/proofcut-work/spikes/uvx-try/uvhome` and every `PROOFCUT_*` unset:
+
+- `uvx --from git+https://github.com/tydude001/proofcut proofcut doctor`
+  built `df4d5e5` (the tip GitHub held), downloaded CPython 3.13.14, installed
+  30 packages and printed a full doctor at exit 0 in 7.8 s wall on this box's
+  connection. It left 119 MB of cache and 111 MB of Python, which is where
+  the README's "about 230 MB" comes from. A warm second run took 0.7 s.
+- `proofcut mcp` through the same command answered `initialize` as
+  `proofcut 0.23.0` and listed 90 tools over stdio.
+- `proofcut init` and `proofcut -C proj web` served `index.html` and every
+  `/static/` asset tried (`app.css`, `app.js`, `timeline.js`, a Geist woff2)
+  at 200.
+
+What it does not reach is the demo: `scripts/make_demo.py` is not in the
+package, so docs/DEMO.md and anything run on a person's own recording still
+start from a clone. README.md § Try it leads with the one line and keeps the
+clone for those, and the MCP-client line gains the `uvx` form beside the
+`--project` one. The Show HN draft's platforms paragraph carries the same
+line, and it was corrected in the same commit: it said the demo had run on a
+Mac, where only GitHub's runner has, and that Windows had only CI, where the
+laptop ran it end to end today.
