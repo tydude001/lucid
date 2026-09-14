@@ -4,7 +4,7 @@
 editing its transcript. proofcut renders the result on your own machine, then
 transcribes the render and checks that it says what the edit says.
 
-https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10
+https://github.com/user-attachments/assets/4153d180-3d7c-4c70-af5f-54d63d0a8bd5
 
 Above: an agent cutting a demo video, unattended. The two runs it was cut
 from, uncut (silent: the recorder took frames only, and the voice is in the
