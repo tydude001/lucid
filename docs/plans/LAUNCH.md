@@ -272,6 +272,12 @@ it does not, the README's first screen is a dead link on launch day.
    searchable** — "lucid" is a car, a diagramming suite and a thousand dream
    apps — so the description and the tagline are what get found, and they say
    the same seven words everywhere: *lucid, the local-first AI video editor*.
+   Measured 2026-09-13: Glama's search for the name returns 25 servers led by
+   Lucidchart's official `lucidsoftware/lucid-mcp-server`, and its "video
+   editor" search returns 24, FableCut among them — the row is what sells, in
+   the query that matters. The rename question is settled in § What this
+   plan deliberately does not do; the HN thread confusing the two is the one
+   thing that would reopen it.
 5. Social preview image: `docs/img/edit-mode.png`, which is what every link
    unfurls to on X, Bluesky and Slack. It is already screened for footage and
    paths (CLAUDE.md § Conventions, the screenshot rule).
