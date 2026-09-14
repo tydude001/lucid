@@ -13575,3 +13575,49 @@ The demo is two cues of picture over a voiceover on both OSes. Captions,
 cards and a reframe were not exercised by either kit. Nobody has run either
 kit on their own machine yet, so README.md's "no person has run it" still
 holds for both, and a runner's green does not change that.
+
+## The launch — 2026-09-13
+
+LAUNCH.md § Step 3, worked from `~/lucid-work/launch-release/FLIP-SESSION.md`
+in one session. Tyler asked the session to do the flip and the sync; the
+social preview was his. The public repo is <https://github.com/tydude001/lucid>.
+
+- **Before the flip.** The tip was `a382e6c`, with no HISTORY.md section newer
+  than *The first windows-demo run*. The path-and-address scrub came back
+  empty for the tip and for `1e0956b`, the commit public between the flip and
+  the sync. `tests/test_version.py` passed.
+- **The tag.** `v0.22.0` is annotated (tag object `b6f311d`), cut at `a382e6c`
+  from the notes' annotation block, and pushed to Gitea with `main` before
+  the sync. GitHub's copy is the same object, and publishing the release did
+  not recreate it.
+- **The flip** was `gh repo edit --visibility public`. Logged out, the clip's
+  `user-attachments` URL answered 302 to a `video/mp4`.
+- **The sync** was Gitea's API (`POST …/push_mirrors-sync`), which does what
+  **Synchronize Now** does. The mirror's API reports `interval: 12h0m0s`,
+  where wiki `git-server.md` says `0`; nothing was changed. The runs it
+  started are § The sync the repo went public on.
+- **Settings.** Private vulnerability reporting is on, and the Security tab
+  shows "Report a vulnerability" logged out. The description is
+  pyproject.toml's line with its serial comma; the runbook's copy had lost
+  it. The eight topics are set. Tyler uploaded `docs/img/edit-mode.png` as
+  the social preview, and GitHub serves it byte-identical as `og:image`.
+- **The release.** The draft was published in place (`gh release edit
+  --draft=false --latest`) with the notes' Windows line rewritten to the
+  runs: 2,048 passed, a checked render on the runner, and no person yet. Its
+  body keeps the clip, and the logged-out release page embeds it.
+- **The Mac issue** is #1, labelled `mac-test` and pinned. The body is
+  `MAC-ISSUE.md` with its instruction comment stripped.
+- **PORTABILITY.md § Step 5d**, since windows-demo was green: README.md §
+  Help wanted: the first run on Windows, `.github/ISSUE_TEMPLATE/windows-test.yml`,
+  a `windows-test` label, Requirements' Windows sentence rewritten, and
+  ci.yml's `continue-on-error` removed from the Windows leg. These commits
+  follow the tag and reach GitHub at the next sync. Until then the tip's
+  kit sends a Windows tester to a form GitHub does not have yet.
+- **Not done.** `FUNDING.yml` waits on the Sponsors listing, which still
+  read `hasSponsorsListing: false` at the end of the session. LAUNCH.md
+  step 3 item 7, a pointer to docs/DEMO.md above the fold, went to Tyler as
+  a proposal: docs/DEMO.md is first linked at README.md's line ~141.
+
+LAUNCH.md's done-when holds, each part read logged out: the URL unfurls
+with the image and the tagline, the Security tab offers a report, a release
+exists, and the Mac issue is pinned.
