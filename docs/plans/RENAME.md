@@ -128,8 +128,8 @@ Off the tree, and each is a step below:
   `~/lucid-work/*`; `~/.config/environment.d/60-lucid.conf` setting four
   `LUCID_*` variables (`LUCID_TTS_VOICE` is set somewhere else — no shell rc
   on this box carries it; find it before step 5); the auto-memory directory
-  `~/.claude/projects/-var-home-tyler-projects-lucid/`; the
-  `~/.claude.json` project entry for `/var/home/tyler/projects/lucid`; the
+  `~/.claude/projects/-var-home-<user>-projects-lucid/`; the
+  `~/.claude.json` project entry for `/var/home/<user>/projects/lucid`; the
   in-repo `.venv`, whose entry-point scripts carry the absolute path.
 - **Gitea:** repo `tydude001/lucid`, its push mirror to
   `github.com/tydude001/lucid.git`, this clone's `origin`.
@@ -225,8 +225,8 @@ and does the other thing.
    directory moves with it.** Working copies are named after the repo
    (`~/.claude/CLAUDE.md` § Repo conventions), and the repo is renamed on
    Gitea. The memory directory is keyed by the absolute path, so
-   `~/.claude/projects/-var-home-tyler-projects-lucid/` is renamed to
-   `-var-home-tyler-projects-proofcut/` in the same breath or every memory
+   `~/.claude/projects/-var-home-<user>-projects-lucid/` is renamed to
+   `-var-home-<user>-projects-proofcut/` in the same breath or every memory
    in it is unreachable from the new path. `.venv` is rebuilt (`rm -rf
    .venv && uv sync`) because its scripts carry the old absolute path.
 7. **The version is `0.23.0`**, bumped in all six literals with `uv sync`
@@ -346,7 +346,7 @@ Shipped — see HISTORY.md § The rename.
   the OTIO keys; `status` then passes; `undo` restores a pre-rename snapshot
   and `status` still passes (decision 2's whole point).
 - **The plugin from the tree.** `claude plugin marketplace add
-  /var/home/tyler/projects/proofcut` in an isolated config dir;
+  /var/home/<user>/projects/proofcut` in an isolated config dir;
   `claude plugin install proofcut@proofcut`; `claude mcp list` shows it
   connected. (HISTORY.md § The registry listing: `plugin details` prints
   "MCP servers (0)" for an inline server and is not the health check.)
@@ -403,8 +403,8 @@ data, ask first).
   login; `systemctl --user import-environment` or a fresh session in between.
   `proofcut doctor`'s legacy row should then list nothing.
 - `mv ~/projects/lucid ~/projects/proofcut`; `mv
-  ~/.claude/projects/-var-home-tyler-projects-lucid
-  ~/.claude/projects/-var-home-tyler-projects-proofcut`; `rm -rf .venv &&
+  ~/.claude/projects/-var-home-<user>-projects-lucid
+  ~/.claude/projects/-var-home-<user>-projects-proofcut`; `rm -rf .venv &&
   uv sync` in the new place. `~/.claude.json`'s project entry re-creates
   itself on the first session there; the old key can stay.
 - `rm -rf ~/lucid-render` once `~/proofcut-render` has taken a render.
@@ -421,7 +421,7 @@ holds:
    redirects too). Edit its push mirror's remote to
    `https://github.com/tydude001/proofcut.git` (wiki `git-server.md`
    § GitHub push mirrors — its table row is updated in step 9).
-3. `git remote set-url origin http://192.168.1.173:3000/tydude001/proofcut.git`
+3. `git remote set-url origin http://<gitea>/tydude001/proofcut.git`
    in the clone; push `main` and `v0.23.0` to Gitea; Synchronize Now (the
    API call § The launch used). **One sync, with everything in it** — a
    sync touching `src/` runs ci and both demo workflows, about 250 billed
