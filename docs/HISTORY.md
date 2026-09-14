@@ -14262,6 +14262,20 @@ Finish showed after § The render that never exited.
   34864099071): `runnera` 0 times in `report.txt` and `probe.json`, every
   case clean again, and the long-path line reads `ok, but long paths are
   enabled here`.
+- **The laptop's own probe run, at `a0447c2`** (Windows 11 Home 10.0.26200,
+  ANSI code page 1252, no second drive, no `-Footage`): `ALL CASES RAN
+  CLEAN`, with the same numbers as the runner — 289 of 289 frames in every
+  folder, blue at 3 s and rust at 10 s, the upper-case `-C` accepting the
+  lower-case folder and refusing a sibling, the caption burn at 1.38% with a
+  line up and 0.0% in the gap. The console paste carried the home folder only
+  as `~`. **It did not answer MAX_PATH either: the laptop has
+  `LongPathsEnabled` 1 too**, so "a stock Windows 11 has 0" describes no
+  machine measured here. The likeliest setter is python.org's installer,
+  whose last page offers "Disable path length limit", and the laptop has had
+  its 3.13.2 since before the kit. So the case is still unasked, and asking it
+  means switching the setting off on a machine that has it on. The second
+  drive (the laptop has only C:) and a person's own footage stay unmeasured
+  on a PC; the runner covers the first.
 
 ## The refusing preset card — 2026-09-14
 
