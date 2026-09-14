@@ -14144,6 +14144,13 @@ render (melt)` sat. The runner renders it in 4 s.
   `test_the_render_never_hands_melt_the_console_as_stdin`, which fails with
   the fix stashed. Nothing off Windows reproduces the hang, so the test holds
   the argument, not the behaviour; the laptop's re-run is the check.
+- **The re-run at `0689b47` ran every step** (09:29, `ALL STEPS RAN`). The
+  render step took 23 s end to end and `agrees`: 289 of 289 frames, 640x360,
+  h264 and aac. `verify` scored 0.971 with 34 heard of 34, 0 dropped and 0
+  repeated; its one diff line is whisper hearing `a` as `are`. `frames` has
+  delta 0. These are the numbers the v0.23.0 sync's windows-demo and
+  mac-demo runs reported. Transcribe took 115 s on the CPU, with the model
+  download included, and verify took 58 s.
 
 Two kit findings from the same run, not yet acted on:
 
