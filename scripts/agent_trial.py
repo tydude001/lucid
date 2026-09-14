@@ -17,13 +17,13 @@ command in that config is this interpreter with `-m proofcut.cli`, never the nam
 venv. Those three facts are imported from `webui.py` rather than restated, so
 the trial cannot silently measure a different client than the one that ships.
 
-    python scripts/agent_trial.py ~/lucid-work/agent-trial              # prepare, run, score
-    python scripts/agent_trial.py ~/lucid-work/agent-trial-control --control
-    python scripts/agent_trial.py ~/lucid-work/agent-trial --prepare-only
-    python scripts/agent_trial.py ~/lucid-work/agent-trial --score-only <run dir>
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial              # prepare, run, score
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial-control --control
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial --prepare-only
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial --score-only <run dir>
 
-    python scripts/agent_trial.py ~/lucid-work/agent-trial-real \
-        --source ~/lucid-work/agent-trial-real/media \
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial-real \
+        --source ~/proofcut-work/spikes/agent-trial-real/media \
         --brief-file brief.txt --phrases phrases.json
 
 `--control` meets the same brief by script and is scored by the identical

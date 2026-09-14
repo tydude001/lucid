@@ -334,7 +334,7 @@ replaced by `~`. Its own shape, recommended:
   `-ExecutionPolicy Bypass -File`, the README's one-line invocation.
 - `--pack` stays on the bash kit's side unless a friend needs one. The
   public README route is a clone.
-- Syntax-check it here with a PowerShell tarball under `~/lucid-work/`
+- Syntax-check it here with a PowerShell tarball under `~/proofcut-work/`
   (`pwsh` is not installed on this box). That is a parse, not a run.
 
 **5c — `.github/workflows/windows-demo.yml`.** mac-demo.yml's twin: it runs the
@@ -355,7 +355,7 @@ line, what it installs, that `-Uninstall` reverses it, and a link to
 twin, with Windows 10/11 and x64/ARM64 in place of the chip. Launch step 9's
 label-and-pin applies to a `windows-test` label too — **issue #2, pinned
 2026-09-13**, the Mac issue's twin, from
-`~/lucid-work/launch-release/WINDOWS-ISSUE.md`; it says the kit's downloads
+`~/proofcut-work/spikes/launch-release/WINDOWS-ISSUE.md`; it says the kit's downloads
 are x64 builds, so an ARM64 PC runs them under emulation, untried. Requirements' Windows
 sentence says no person has run it until a person's report arrives (Step 6),
 windows-demo green or not.

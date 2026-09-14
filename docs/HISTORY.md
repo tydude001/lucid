@@ -14397,3 +14397,42 @@ half-made project. Windows' limit on *creating a directory* is 248, not 260.
   a seed job publishing the line; with `src/` stashed five of the six fail,
   the passing one being that last control.
 
+## The working directories, gathered — 2026-09-14
+
+RENAME.md § Decisions kept this box's thirteen `~/lucid-*` directories under
+their old names, because manifests store absolute paths. Tyler overruled that
+the same day: a folder named for what the project is no longer called is the
+thing he did not want. So the paths were rewritten, and the directories were
+gathered under one root while it was being paid for anyway:
+
+- `~/lucid-work` became `~/proofcut-work`, its spikes in `spikes/`, its 39
+  loose logs in `logs/`, and `voice-clone/` at the top, since it is a runtime
+  dependency and not a spike. `~/lucid-archive` became `archive/`, its spikes
+  losing their `lucid-` prefix and the two bundles and the commit-map going
+  into `git-history/`. The nine pinned projects went to `projects/`, and
+  `~/lucid-a2-probe` to `spikes/`. `~/proofcut-render` stays flat as a code
+  literal. `~/proofcut-work/MOVED.tsv` maps all 141 moves, and it is how a
+  record's `~/lucid-<name>` is found. The records themselves were not
+  rewritten.
+- goodsometimes' eight NAS `Project/lucid*` directories became
+  `Project/proofcut*`. Seven still held `lucid.json` and were migrated first;
+  Scream's `lucid-vo` also went from schema 1 to 4.
+- 1,393 text files had their paths rewritten, with mtimes kept: manifests,
+  timelines, every undo snapshot, scripts, run logs, both voice-clone venvs'
+  launchers, `60-proofcut.conf`, and four Longlegs `.kdenlive` files outside
+  the project folders. 108 symlinks were re-pointed. Git working trees and
+  diff/patch files were left alone, since rewriting a diff corrupts it.
+
+**Checked against the real projects, not the suite.** `status` and `shots`
+were recorded for all 94 projects beforehand, through v0.22.0's `lucid`
+reader for the 71 that held `lucid.json`. Afterwards, 93 matched exactly once
+the path mapping was applied, including the six Longlegs projects now read by
+proofcut. The one difference was `proofcut-vo`: at schema 1, no reader on this
+box could open it beforehand. After migration it reads 67 segments over
+310.875 s, which is what its `project.otio` held before. `doctor` resolves
+`PROOFCUT_TTS` at the new path, and that interpreter imports `qwen_tts`.
+Five symlinks in `archive/spikes/watch`, broken since the 2026-08-19
+archiving, now point at `projects/final-cut`. Ten others were already
+broken, pointing at names that never existed inside their spikes, and were
+left as they were.
+

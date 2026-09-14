@@ -595,7 +595,7 @@ def test_windows_must_be_ordered_distinct_and_after_the_head() -> None:
 # rect for the whole stretch and cut hard at its own frame — indistinguishable
 # from `|=` — while flagging the *previous* key produced a render that
 # genuinely travelled between the two, crossing over roughly midway
-# (`~/lucid-kf-probe`, `s4-reveal` at source 7.343s, the shipped teaser's own
+# (`~/proofcut-work/projects/kf-probe`, `s4-reveal` at source 7.343s, the shipped teaser's own
 # 410px follow). So `rect_property` puts the operator on the key *before* the
 # one a caller names in `interp`, and that is what the tests below pin.
 

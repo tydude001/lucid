@@ -470,7 +470,7 @@ class Reframe:
         framing window steps at a camera cut by default and does not slide
         into the next one, but a window named in `interp` is asking its
         predecessor to. **MLT interpolates the segment *leaving* a keyframe,
-        not the one arriving at it** — measured directly (`~/lucid-kf-probe`,
+        not the one arriving at it** — measured directly (`~/proofcut-work/projects/kf-probe`,
         two renders differing only in which of a pair's two keys carried `=`):
         flagging the later key produced a hold at the earlier rect for the
         entire span and a hard cut to the later one exactly at its own frame,
@@ -725,7 +725,7 @@ def _source_node(node_id: str, entry: Entry, bin_id: int, rate: float) -> ET.Ele
 #: its last defined key. Offsetting every position by `entry.src_in` is
 #: what makes it land on the frames the entry actually plays. `level=0` is
 #: exactly unity (plateau at the no-filter control's own -33.12 dBFS).
-#: `~/lucid-a2-probe/fade_probe.py` (src_in=0 only), the holds-lane readback
+#: `~/proofcut-work/spikes/a2-probe/fade_probe.py` (src_in=0 only), the holds-lane readback
 #: that found the src_in gap, HISTORY.md § The A2 fades.
 FADE_FLOOR_DB = -60
 
@@ -927,7 +927,7 @@ def document(
     transition, generalized from what this module's own docstring already
     named for unmuting a shot; nothing about it is a new writer concept, and
     that was measured against real `melt` rather than assumed
-    (`~/lucid-a2-probe`). **The lane must cover the timeline exactly, by
+    (`~/proofcut-work/spikes/a2-probe`). **The lane must cover the timeline exactly, by
     construction** — the caller pads with real silent entries and trims an
     over-long asset by frame count, the note's resolution (b), so that
     `declared_frames()` below keeps needing zero exceptions. melt would in
@@ -1181,7 +1181,7 @@ def document(
             ET.SubElement(picture_pane_track, "track", {"producer": playlist_id, "hide": "audio"})
 
     # The A2 music lane: audio-only, so its nodes take the probe's own shape
-    # (`~/lucid-a2-probe/build_doc.py`) — sound on, picture declared absent —
+    # (`~/proofcut-work/spikes/a2-probe/build_doc.py`) — sound on, picture declared absent —
     # and no reframe ever reaches one, because there is nothing of it on
     # screen to frame. Ids live in their own namespace (mchain/playlist8/
     # playlist9/tractorA) so a document without music is byte-identical to
@@ -1312,7 +1312,7 @@ def document(
     # Against track 0 like transition0: mix does not care that the black
     # background carries no sound, and `sum=1` keeps it additive and lossless
     # (measured — both tones survive at their exact source amplitudes,
-    # `~/lucid-a2-probe`). A running counter rather than `blended + 1` twice
+    # `~/proofcut-work/spikes/a2-probe`). A running counter rather than `blended + 1` twice
     # over: with both a music lane and a holds lane, the second `+ 1` would
     # collide with the first's own transition id.
     extra_mix = blended

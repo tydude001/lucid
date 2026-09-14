@@ -280,7 +280,7 @@ class Preset:
 #: one font on this box guaranteed to be a substitution, and every caption
 #: lucid ever burned here drew in a face nobody chose.
 #:
-#: Tyler settled it 2026-08-12 (~/lucid-approvals item 07): install the faces
+#: Tyler settled it 2026-08-12 (~/proofcut-work/archive/spikes/approvals item 07): install the faces
 #: we want rather than name whatever happens to resolve. `Outfit` is the brand
 #: face for "tagline, titles, labels" (goodsometimes/branding.md § Type) and it
 #: is installed here, so captions now match the cards drawn beside them.

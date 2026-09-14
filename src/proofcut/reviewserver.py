@@ -1,8 +1,8 @@
 """`proofcut review serve` — the review round as a feature, not a throwaway script.
 
 Every version of the Scream video moved on a served page, and that serving
-was hand-rebuilt at least four times (`~/lucid-approvals/`, `~/lucid-watch/`,
-`~/lucid-review/`, `~/lucid-flash-review/`), each its own throwaway HTTP
+was hand-rebuilt at least four times (`~/proofcut-work/archive/spikes/approvals/`, `~/proofcut-work/archive/spikes/watch/`,
+`~/proofcut-work/archive/spikes/review/`, `~/proofcut-work/archive/spikes/flash-review/`), each its own throwaway HTTP
 server and its own `decisions.json` living beside the project rather than in
 it (PLAN.md § The completion queue, item 6). This is that serving, once:
 `proofcut review add` registers named renders/sheets/A-B members

@@ -328,7 +328,7 @@ output-against-plan check found is silence removal's duration, within 0.15s.
 No path was found that transcribes a render against intended words or counts
 frames against a timeline, so that pair (`verify`, `check_frames`) stays
 proofcut's, stated narrowly. Grep and reading, not a run:
-`~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read.
+`~/proofcut-work/spikes/launch-listings/LISTINGS.md` § kinocut's gate, read.
 
 ## FableCut, read — and why lucid does not merge with it
 

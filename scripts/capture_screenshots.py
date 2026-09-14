@@ -506,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--work",
-        default="~/lucid-work/screenshots",
+        default="~/proofcut-work/spikes/screenshots",
         help="where the demo project is built (default: %(default)s)",
     )
     parser.add_argument("--out", default=str(OUT), help="where the PNGs land")

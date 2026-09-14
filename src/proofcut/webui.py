@@ -441,9 +441,9 @@ def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
 
 
 #: How far beneath `--root` the scan looks for a project. Real dogfood
-#: layouts put one at depth 1 (`~/lucid-dogfood/scream-vo` is itself the
+#: layouts put one at depth 1 (`~/proofcut-work/archive/spikes/dogfood/scream-vo` is itself the
 #: project, two path segments under a `~/` root) and at depth 2
-#: (`~/lucid-teaser/proj`, an explicit `proj` subdirectory) — this covers
+#: (`~/proofcut-work/archive/spikes/teaser/proj`, an explicit `proj` subdirectory) — this covers
 #: both without wandering into an unrelated deep tree. A directory a scan
 #: finds a project in is never descended into further: its own `history/`
 #: backups are named `proofcut-vN.json` or `lucid-vN.json`, never a manifest name (`Project.migrate`),

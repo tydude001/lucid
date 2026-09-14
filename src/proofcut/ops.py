@@ -7577,7 +7577,7 @@ def reframe(
 
 #: Where in each placement the sheet samples. Three, and not at the edges: an
 #: edge frame is the one a seek is least likely to land on and the one a cut
-#: is most likely to have made ambiguous. `~/lucid-final-cut/audit.py`'s own
+#: is most likely to have made ambiguous. `~/proofcut-work/projects/final-cut/audit.py`'s own
 #: numbers, which is the prototype this is a build of.
 SHEET_MOMENTS = (0.15, 0.5, 0.85)
 #: Tile width in the montage. The sheet is read on a phone (auto-memory:
@@ -7934,7 +7934,7 @@ def reframe_sheet(
     motion*: a badly-placed window reads as framing, because nothing in the
     frame says otherwise. What catches one is the window drawn on the whole
     source frame, where the part it is leaving out is right there beside it
-    (PLAN.md § Per-shot framing, step 3; `~/lucid-final-cut/audit.py` is the
+    (PLAN.md § Per-shot framing, step 3; `~/proofcut-work/projects/final-cut/audit.py` is the
     prototype).
 
     Every placement the render shows — the picture lane's shots, or the edit's
@@ -13580,7 +13580,7 @@ def film_check(
 
     Answers PLAN.md § Open questions, *How does a lucid project know it is
     the film* — the question the Scream project's stale VO left open.
-    `~/lucid-scream-v2` sat at the silence-cut stage of an edit whose retake
+    `~/proofcut-work/projects/scream-v2` sat at the silence-cut stage of an edit whose retake
     pass had already been done outside proofcut: 73 segments, 410.963s, against
     the shipped film's 63 segments, 336.269s. The render matched the
     timeline, `verify` had nothing to report, all 38 shots planned — **every
@@ -15250,8 +15250,8 @@ def reel(
 
 # `proofcut review` — PLAN.md § The completion queue, item 6. Every version of
 # the Scream video moved on a served page rebuilt ad hoc at least four times
-# (`~/lucid-approvals/`, `~/lucid-watch/`, `~/lucid-review/`,
-# `~/lucid-flash-review/`), each its own throwaway server and its own
+# (`~/proofcut-work/archive/spikes/approvals/`, `~/proofcut-work/archive/spikes/watch/`, `~/proofcut-work/archive/spikes/review/`,
+# `~/proofcut-work/archive/spikes/flash-review/`), each its own throwaway server and its own
 # `decisions.json`. This is that serving, in the project instead of beside it.
 REVIEW_KEY = "review"
 REVIEW_KINDS = ("render", "sheet", "ab", "control")

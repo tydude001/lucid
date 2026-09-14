@@ -16,7 +16,7 @@ the rest of the works-for-anyone gap — is
 [docs/plans/POLISH.md](docs/plans/POLISH.md); all seven of its steps shipped
 2026-08-24 and each carries a pointer to the HISTORY.md section that records
 it. **A closed plan lives in `docs/plans/` when the code cites it and in
-`~/lucid-archive/plans/` when it does not** — these three are cited from 100
+`~/proofcut-work/archive/plans/` when it does not** — these three are cited from 100
 comments across `src/`, `tests/` and `scripts/`, which is the only reason they
 are still in the repo. The workspace redesign that followed — one tabbed rail
 instead of two side columns, Frame
@@ -315,24 +315,20 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
 
 ## Conventions
 
-- **A new spike/probe/scratch directory goes under `~/lucid-work/<name>`, and a
-  finished one is archived to `~/lucid-archive/spikes/<name>`** — still `$HOME`,
-  so melt's flatpak can see both. **The rename to proofcut left both roots
-  where they are** (RENAME.md § Decisions): new spikes keep going under
-  `~/lucid-work`, because one scratch root on one machine is not a public
-  surface. 29 finished spikes were corralled into that
-  archive 2026-08-19 with their names unchanged, so a doc citation of
-  `~/lucid-<name>` that no longer resolves is found there. What stays flat at
-  `~/` is pinned and must not move: `proofcut-render` (`picture.RENDER_SCRATCH`
-  is a code literal, and a directory a stranger's install creates, so it did
-  rename — this box's old `~/lucid-render` was deleted 2026-09-14, after
-  renders had landed in the new root), `lucid-final-cut` (six manifests point into `proj/`
-  absolutely, and its own `reference` render is an absolute self-path),
-  `lucid-a2-probe` (a2-build's media), `lucid-archive`, `lucid-cards-reauthor`,
-  `lucid-scream-v2`, `lucid-kf-probe`, and the settle-against copies
-  `lucid-brief-check` / `lucid-framing-detect` / `lucid-threshold` /
-  `lucid-split-detect`. Manifests store absolute paths, so moving any project
-  directory means rewriting them — grep its `*.json`/`*.otio` first.
+- **Scratch has one root, `~/proofcut-work`** — still `$HOME`, so melt's
+  flatpak can see it. A new spike/probe goes in `spikes/<name>` and a finished
+  one moves to `archive/spikes/<name>`; `projects/` holds the projects other
+  files point into (`final-cut`, whose six manifests and `reference` render
+  are absolute self-paths, `demo`, `scream-v2`, `kf-probe`, `cards-reauthor`,
+  and the settle-against copies `brief-check` / `framing-detect` /
+  `threshold` / `split-detect`); `voice-clone/` is a runtime dependency
+  (below). **It was thirteen `~/lucid-*` directories until 2026-09-14**, and
+  the records still cite those: `~/proofcut-work/MOVED.tsv` maps every moved
+  directory. HISTORY.md § The working directories, gathered.
+  `~/proofcut-render` stays flat — `picture.RENDER_SCRATCH` is a code literal
+  and a directory a stranger's install creates. Manifests store absolute
+  paths, so moving any project directory means rewriting them — grep its
+  `*.json`/`*.otio`, undo history included, first.
 - Every MCP tool gets a matching `proofcut` CLI subcommand. The CLI is how the
   same operation gets scripted and debugged without an agent in the loop, so
   parity is a feature, not overhead.
@@ -749,13 +745,13 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
   different-but-believable address makes it claim a run against a machine
   nobody dialed. Placeholders that *are* fictional belong in tests, where
   they are the input rather than the report (`tests/test_webui_http.py`'s
-  `_TAILNET_HOST`). `~/lucid-*` working paths stay as they are: they name no
+  `_TAILNET_HOST`). `~/proofcut-work` paths stay as they are: they name no
   user and no host. HISTORY.md § The closed-loop trial, § The publish
   rehearsal.
   - **That rule now binds the history too: it was rewritten with `git
     filter-repo` on 2026-09-10** to remove what the scrub had left in old
     commits, and again on 2026-09-11 so no tag carries the MIT grant (every
-    old hash maps through `~/lucid-archive/*.commit-map`). GitHub (`tydude001/proofcut`, public since 2026-09-13) is fed
+    old hash maps through `~/proofcut-work/archive/git-history/*.commit-map`). GitHub (`tydude001/proofcut`, public since 2026-09-13) is fed
     only by Gitea's push mirror — there is no `github`
     remote here. **Never `git push --mirror`**: the reflog still reaches the
     pre-rewrite objects. **And never merge a PR on GitHub** — the next sync
@@ -900,7 +896,7 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       2026-09-12, when a clean Ubuntu's doctor printed the old fallback into
       `~/lucid-work` back to a stranger; this box sets both in
       `~/.config/environment.d/60-proofcut.conf`, pointing into
-      `~/lucid-work/voice-clone/` — **which is therefore a runtime dependency
+      `~/proofcut-work/voice-clone/` — **which is therefore a runtime dependency
       and stays where it is, never archived as a finished spike** — but **the voice has no default on
       purpose**: `--voice`/`PROOFCUT_TTS_VOICE` or it refuses, so a public
       checkout holds neither a reference clip nor a path to one). Seed moves
@@ -957,7 +953,7 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       the entry the filter is attached to — never gain factors.** Keys of
       0..1 render as a 1 dB wiggle at exit 0: a fade correct in the XML and
       absent from the audio. `level=0` is exactly unity. Both measured
-      (`~/lucid-a2-probe/fade_probe.py`); the fades ride the bed's entry so
+      (`~/proofcut-work/spikes/a2-probe/fade_probe.py`); the fades ride the bed's entry so
       a fade-out ends where the music *audibly* ends, and a fade pair the
       bed cannot hold refuses at `_music_plan` ("shorten the fades"), never
       clamps. HISTORY.md § The A2 fades and the lane, drawn.
@@ -1262,8 +1258,8 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
     and optional, so absent means none, which is what every older record meant.
     HISTORY.md § The portrait cards. A card with files but no record cannot be
     re-authored by anything — it is reported, never guessed at. The twelve in
-    `~/lucid-final-cut/proj` **are recorded** (all thirteen with the outro, at
-    1920x816 — verified in the manifest 2026-08-17); `~/lucid-cards-reauthor/`
+    `~/proofcut-work/projects/final-cut/proj` **are recorded** (all thirteen with the outro, at
+    1920x816 — verified in the manifest 2026-08-17); `~/proofcut-work/projects/cards-reauthor/`
     keeps the slot tables and `reauthor.py`, the recovery route if a copy
     without records ever resurfaces. All twelve author at 9:16; the two that
     refuse at 2.35:1 are a 16:9-only content fit. HISTORY.md § The card record,
@@ -1526,10 +1522,10 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
   - **A dogfood project can be the wrong cut while every check passes.** The
     Scream project held the *silence-cut* VO, not the shipped one — 410.96s/73
     segments against 336.27s/63 — and the render, `verify`, the cue table and
-    the shot plan all agreed with it. That was `~/lucid-final-cut/proj`, and it
+    the shot plan all agreed with it. That was `~/proofcut-work/projects/final-cut/proj`, and it
     is **restored as of 2026-08-18** — 63 segments, all 38 shots projecting,
     `essay-flashfix.mp4` declared as its `reference` so `film_check` re-asks
-    with no argument. `~/lucid-scream-v2` still holds the same stale edit,
+    with no argument. `~/proofcut-work/projects/scream-v2` still holds the same stale edit,
     byte-identical; the shipped one is also in `brief-check`, `framing-detect`,
     `threshold` and `split-detect`. Settle any copy against the renders, which
     are 336.34s (`essay-cards-fixed.mp4`) and 342.36s with the 6s endcard,
@@ -1544,7 +1540,7 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       HISTORY.md § The film's project, restored.
     **And carry derived state back off a scratch copy** — the ten card records
     were written on the 411s copy, so the film's own project read as having
-    none. Four instances now — the newest is `~/lucid-kf-probe`, which is
+    none. Four instances now — the newest is `~/proofcut-work/projects/kf-probe`, which is
     `framed-teaser` rather than the shipped teaser, so its two renders are an
     A/B of each other and **neither is a control**. `film_check` is the cheap
     way to ask. HISTORY.md § The VO the project was holding, § The keyframed

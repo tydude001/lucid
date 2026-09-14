@@ -9,9 +9,9 @@ the workspace's own agent pane — `POST /api/agent`, the route a person's Send
 button hits — inside the headless Chrome the verify-live harness drives, with
 `scripts/screencast.mjs` recording the page the whole time.
 
-    uv run python scripts/record_run.py ~/lucid-work/launch-recording
-    uv run python scripts/record_run.py ~/lucid-work/launch-recording --model claude-opus-5
-    uv run python scripts/record_run.py --probe ~/lucid-work/screenshots/proj   # compositing check
+    uv run python scripts/record_run.py ~/proofcut-work/spikes/launch-recording
+    uv run python scripts/record_run.py ~/proofcut-work/spikes/launch-recording --model claude-opus-5
+    uv run python scripts/record_run.py --probe ~/proofcut-work/spikes/screenshots/proj   # compositing check
 
 What comes out of a run, under `<work>/runs/<stamp>/`:
 
@@ -515,7 +515,7 @@ def finish(run_dir: Path, project: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("work", nargs="?", default="~/lucid-work/launch-recording",
+    parser.add_argument("work", nargs="?", default="~/proofcut-work/spikes/launch-recording",
                         help="the work directory (media, project and runs live here)")
     parser.add_argument("--probe", metavar="PROJECT",
                         help="serve this project, play it, and measure whether the preview reaches the recording")

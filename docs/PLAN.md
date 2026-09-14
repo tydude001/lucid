@@ -1283,7 +1283,7 @@ the caption default came to name a font this machine does not have.
    probe with default args lifted blacks — `(16,20,24)` → `(30,34,37)`, the
    signature of a limited/full-range mismatch — and that is the probe's fault,
    not melt's. Against the real render: `receipt-scream-1996.png`'s paper is
-   `(250,245,236)` in the source and `(250,243,236)` in `~/lucid-scream-v2/out.mp4`.
+   `(250,245,236)` in the source and `(250,243,236)` in `~/proofcut-work/projects/scream-v2/out.mp4`.
    Two levels on one channel is h.264 chroma rounding. **No colour management
    is needed**; the false alarm is recorded because a one-frame probe is the
    obvious way to check and it will be rediscovered.
@@ -1420,7 +1420,7 @@ The missing piece is not an index. It is an in-point on a cue, and it is small.
 
 ### Measured on this box, 2026-08-09
 
-Six measurements, on the real Scream footage (`~/lucid-scream-v2/proj/media`,
+Six measurements, on the real Scream footage (`~/proofcut-work/projects/scream-v2/proj/media`,
 nine clips, 14s to 730s), because the last two notes both found the toolchain
 was not what it was assumed to be.
 
@@ -1619,7 +1619,7 @@ and decide what part of the frame survives the crop.
 
 ### Measured on this box, 2026-08-09
 
-Rendered against the real Scream footage (`~/lucid-scream-v2/proj/media`,
+Rendered against the real Scream footage (`~/proofcut-work/projects/scream-v2/proj/media`,
 `cold-open.mp4`, 1920x816), through `picture.render` — not through a
 hand-run melt, so the display env, the `$HOME` staging and the memory cap are
 the ones proofcut actually uses.
@@ -2008,8 +2008,8 @@ it is a metrics question.
 
 libass through ffmpeg 8.1.2 (`--enable-libass`), burned over a flat frame at
 1920×1080 and read back per pixel, then reproduced on the real film
-(`~/lucid-final-cut/out.mp4`, 1920×816, the caption canvas being the 2541×1080
-PlayRes `to_ass` writes). Probes kept at `~/lucid-caption-anim/`.
+(`~/proofcut-work/projects/final-cut/out.mp4`, 1920×816, the caption canvas being the 2541×1080
+PlayRes `to_ass` writes). Probes kept at `~/proofcut-work/archive/spikes/caption-anim/`.
 
 1. **A single-word highlight is one event, and it is exact.** Per word, a
    block of `{\c<base>\t(on,on+1,\c<hi>)\t(off,off+1,\c<base>)}`. Sampled at
@@ -2123,7 +2123,7 @@ one arithmetic detail that is easy to get wrong and silent when wrong.
 **Tyler watched the four treatments and picked 1, the `\k` fill proofcut already
 writes. So the item closes having built nothing, and the design above is a
 record of a road not taken rather than a plan.** The four are kept at
-`~/lucid-caption-anim/` (`fill`, `word`, `word` + reflowing scale pop, `word`
+`~/proofcut-work/archive/spikes/caption-anim/` (`fill`, `word`, `word` + reflowing scale pop, `word`
 + metric-neutral vertical pop), served by `serve.py` on :8791.
 
 **This is a deliberate divergence from Daydream, not an unbuilt row**, and
@@ -2534,7 +2534,7 @@ A cue is addressed by a **word in the narration**. A camera cut is a fact
 about the **footage**. Nothing aligns them, and the gap is not marginal.
 
 The 44s teaser reel carries **4 cues**. The hand-framed teaser that was
-watched and approved needed **15 windows** (`~/lucid-final-cut/render.py`,
+watched and approved needed **15 windows** (`~/proofcut-work/projects/final-cut/render.py`,
 `CROP`). Scene detection over the source range each of those 4 placements
 actually reads — `_picture_plan`'s `src_start`, never `build_shots` alone —
 finds camera cuts *inside* 2 of the 4.
@@ -2613,7 +2613,7 @@ It does not. `qtblend`'s `rect` is `type: rect, animation: yes` — keyframable 
 and **its keyframes run on the producer's own source frames**, which is the
 clock source-addressed framing needs and the one MLT would have rendered either
 way at exit 0. Measured rather than assumed, and refuted from both directions
-(`~/lucid-framing-probe/probe.py`): one clip read from `src_in=300` for 90
+(`~/proofcut-work/archive/spikes/framing-probe/probe.py`): one clip read from `src_in=300` for 90
 frames, a discrete `|=` step between two known windows, scored by pixel readback
 against ffmpeg's own crop at the source timestamp the document claims —
 
@@ -2649,7 +2649,7 @@ unswapped project's document byte-identical.
    so source time and timeline time differ by five seconds and the step can
    only land in the right place on the source clock. HISTORY.md § Per-shot
    framing.
-3. **The contact sheet.** `~/lucid-final-cut/audit.py` is the prototype: every
+3. **The contact sheet.** `~/proofcut-work/projects/final-cut/audit.py` is the prototype: every
    shot at three moments, the window drawn in red **on the source frame**.
    § The hand-framed teaser found 2 of 15 hand numbers wrong and **neither was
    visible in motion** — they read as framing, because nothing in the frame
@@ -2719,7 +2719,7 @@ watched and approved."* That control is now `tests/test_framing_control.py`
 and the bar is a number — **0.568 mean overlap, 199.4px displacement, one
 approved subject entirely outside the frame** (HISTORY.md § The framing
 control). Everything below is measured against it. The probes are
-`~/lucid-framing-detect/`.
+`~/proofcut-work/projects/framing-detect/`.
 
 The headline: **a face detector beats the bar comfortably, the naive signal
 loses to it, and the ceiling is not detection.**
@@ -2832,7 +2832,7 @@ and only one of them is the shot, and no property of the boxes says which.
 
 The four windows where even the best available face is wrong, each drawn on
 its own source frame with the approved window in red and every detection in
-yellow (`~/lucid-framing-detect/look.png`) — because § Per-shot framing step 3
+yellow (`~/proofcut-work/projects/framing-detect/look.png`) — because § Per-shot framing step 3
 is that a framing decision is unreviewable in motion:
 
 - **`s4-reveal` 11.053 — the human framed a two-shot.** One face, and the
@@ -2974,7 +2974,7 @@ path"* and puts it out of scope on a gate: *"unreachable until single-window
 framing exists to be insufficient against."* **Both halves of that moved on
 2026-08-11.** The gate opened — Tyler reviewed the 39 proposed windows and
 named the two-handers, the car scene by name — and the render path turns out
-not to be new. The probes are `~/lucid-split-probe/`.
+not to be new. The probes are `~/proofcut-work/archive/spikes/split-probe/`.
 
 ### Finding 1 — it is a second node, not a new service
 
@@ -3560,12 +3560,12 @@ docs/plans/STUDIO.md § Step 05: the only step in the reshape that touches the m
 it stops here rather than becoming code. Everything below was measured, not
 reasoned about — a hand-built two-audio-track MLT document, rendered through
 the real `melt` (resolved via `picture.melt_command()`/`display_env()`, staged
-under `~/lucid-a2-probe`, never `/tmp`), and verified by reading raw PCM back
+under `~/proofcut-work/spikes/a2-probe`, never `/tmp`), and verified by reading raw PCM back
 out rather than trusting `ffmpeg -ss` — which, on this box, was caught
 misplacing an output seek on a WAV (a region confirmed silent by direct sample
 inspection read back as −30.9 dB through `-ss 2.5 -t 0.5 -af astats`; a
 Goertzel filter over `wave`-module samples was used for every number below
-instead). Full script and renders: `~/lucid-a2-probe/{build_doc.py,
+instead). Full script and renders: `~/proofcut-work/spikes/a2-probe/{build_doc.py,
 analyze.py, goertzel.py}`.
 
 ### Render: no new writer concept, and the two failure modes that could have made that false did not
@@ -3838,7 +3838,7 @@ an independent checklist:
    one from two resolved cues), so it is where a build session should expect
    to spend its own measurement time.
 3. **`mlt.py`: the second per-role node/playlist/tractor/`mix` shape**,
-   built exactly as measured in `~/lucid-a2-probe/build_doc.py` — including
+   built exactly as measured in `~/proofcut-work/spikes/a2-probe/build_doc.py` — including
    the pad/trim step this note recommends (§ Render, resolution (b)) so
    `declared_frames()` needs no special case. Depends on (2) to know what
    frame span to build the entry at.
@@ -3872,7 +3872,7 @@ record.
 
 Everything below was measured today against real material and a controlled
 fixture, not reasoned from the spike's summary. Scripts, renders and result
-JSON: `~/lucid-cohost-spike/{fixture,fixture2,fixture3,fixture4,fixture5,
+JSON: `~/proofcut-work/archive/spikes/cohost-spike/{fixture,fixture2,fixture3,fixture4,fixture5,
 goertzel}.py`.
 
 ### Verify first — the spike's four points, re-read at 0.9.0
@@ -3950,7 +3950,7 @@ checkout. It is the wrong first move for an event eight weeks out.
 ### If two mics are recorded: what the fixture measured
 
 Ground truth by construction. Two disjoint 120s stretches of the film's own VO
-(`~/lucid-final-cut/proj/media/vo.wav` at 60s and 240s) cut into alternating
+(`~/proofcut-work/projects/final-cut/proj/media/vo.wav` at 60s and 240s) cut into alternating
 6s turns, then `mic_A = turns_A + g·turns_B` and its mirror, for a bleed `g`.
 **Same voice on both mics is deliberate** — the rule under test is an energy
 ratio between two streams, and one voice removes a gain/timbre confound the
@@ -4165,7 +4165,7 @@ survive import. Three things the build moved:
   film rip with a commentary track — so `--audio-stream k` keeps one, as a
   stream copy rather than a re-encode. Without it the refusal would have
   been a new wall in front of ordinary footage. (Measured first: all ten
-  clips of `~/lucid-final-cut/proj` are single-audio, so nothing here was
+  clips of `~/proofcut-work/projects/final-cut/proj` are single-audio, so nothing here was
   behind that wall — but the wild case is a rip.)
 - **The trap is not only MLT's, and the auto-editor half fails in a way that
   is harder to see.** Handed the container directly, auto-editor passes
@@ -4280,7 +4280,7 @@ self-check loop for the product's whole thesis. A person opens the window and
 watches; an agent has no window and cannot watch an MP4.
 
 Everything below was measured on 2026-08-24 against the real film
-(`~/lucid-work/ui-polish-check/proj`, the 5:36 Scream essay, 38 shots of which
+(`~/proofcut-work/spikes/ui-polish-check/proj`, the 5:36 Scream essay, 38 shots of which
 25 are video) rather than reasoned about, because the two load-bearing claims —
 that an image can reach the model at all, and that a label survives being one
 tile of twenty-five — are both the kind this repo has been wrong about before.
@@ -4566,7 +4566,7 @@ is a real browse gesture and is a different address again.
 
 Provenance: a full review of HISTORY.md, docs/plans/DAYDREAM.md, the design notes above,
 the goodsometimes pipeline, and both decision files
-(`~/lucid-approvals/decisions.json`, `~/lucid-watch/decisions.json`), made the
+(`~/proofcut-work/archive/spikes/approvals/decisions.json`, `~/proofcut-work/archive/spikes/watch/decisions.json`), made the
 day the essay (v8) and its teaser were declared done. The finding that frames
 everything: **the editing core is complete** — the film and the teaser ran end
 to end through proofcut — and the queue is exactly the set of things the
@@ -4628,7 +4628,7 @@ The order was adopted 2026-08-12.
    - **Which project the flash in-points are about is not the teaser, and that
      has to be settled before the sheet is built.** `flashes.json` scored 25
      placements over a timeline running to 325s — the *vertical cut*, deleted
-     2026-08-12 and rebuildable only from `~/lucid-archive/vertical/`. The
+     2026-08-12 and rebuildable only from `~/proofcut-work/archive/vertical/`. The
      shipped teaser places four cues over three clips in 44s and holds none of
      `vi-richie`, `cold-open` or `s4-overexposed` at all. The findings do carry
      to the **essay**, whose cue table has all five assets with `src_start`
@@ -4639,7 +4639,7 @@ The order was adopted 2026-08-12.
      authored onto the shipped teaser** — the move at src 7.3428 (approved as
      intentional) and the wrong crop at src 11.0527 moved 780 → 1010, taking
      the sheet's own number 274 → 44. `teaser-v4-captioned.mp4` is the render.
-     The A/B that carried the not-a-control caution, `~/lucid-kf-probe`, turned
+     The A/B that carried the not-a-control caution, `~/proofcut-work/projects/kf-probe`, turned
      out to hold the *identical* window, so authoring was `--interp` alone.
      **What is left of this item is the flash in-points above, and nothing
      else.** HISTORY.md § The keyframed move; § The three served answers.
@@ -4655,7 +4655,7 @@ The order was adopted 2026-08-12.
      sitting *on* its cut and correct. The nudge is authored (pin 0.125, frame
      3 of 23.976) and rendered as `essay-flashfix.mp4`, byte-identical outside
      the two `vi-richie` shots. **What is left is a watch on the other 24**,
-     served at `~/lucid-flash-review/` (8804) — the answer on record was "all",
+     served at `~/proofcut-work/archive/spikes/flash-review/` (8804) — the answer on record was "all",
      and the evidence says one. HISTORY.md § The flash in-points, answered
      against the essay.
    - **The watch came back, 2026-08-13, and the count is two of 25, not one.**

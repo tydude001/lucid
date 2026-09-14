@@ -9,7 +9,7 @@ afterwards and scored on both — the detector. The order is the point. The bar
 existed before the thing being judged against it did, so it could not have been
 set to fit.
 
-**Provenance.** The control is `~/lucid-final-cut/render.py`'s `CROP` table —
+**Provenance.** The control is `~/proofcut-work/projects/final-cut/render.py`'s `CROP` table —
 one 9:16 window per shot of the 44s teaser that was framed by hand, watched
 and approved (HISTORY.md § The hand-framed teaser, watched). That table is
 addressed in *timeline* seconds against a scratch render, which is the one
@@ -33,7 +33,7 @@ the point of having written the control down first: `faces.window_centre` and
 `data/framing_detections.json` — the detector's own raw boxes over these
 sixteen windows, sampled exactly as `ops.reframe_detect` samples them. The
 fixture is checked in so the gate runs without insightface, an ONNX session or
-the footage; regenerating it needs all three (`~/lucid-framing-detect/`).
+the footage; regenerating it needs all three (`~/proofcut-work/projects/framing-detect/`).
 
 **Sixteen, for fifteen shots.** Shot 9 is the one hand-eased move, and
 proofcut's series is discrete by design (a window steps at a camera cut, it does

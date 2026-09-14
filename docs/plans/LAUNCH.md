@@ -69,9 +69,9 @@ pointer, and the wiki row updates.
 
 Built three times — HISTORY.md § The launch clip, § The launch clip, re-cut
 as an announcement, § The launch clip, third shape — and rejected; the fourth
-shape is the one that stands, `~/lucid-work/launch-v4/clip-v6.mp4`
+shape is the one that stands, `~/proofcut-work/spikes/launch-v4/clip-v6.mp4`
 (HISTORY.md § The launch clip, approved). How each round was judged and why
-the clip is the way it is: `~/lucid-work/launch-v4-review/PIN.md`.
+the clip is the way it is: `~/proofcut-work/spikes/launch-v4-review/PIN.md`.
 
 **What it is.** A 47-second cut, and the full runs uncut, of one brief driven
 from `proofcut init` to a verified render twice: in the agent pane of the
@@ -84,17 +84,17 @@ checking itself against the edit, and no cloud in the frame.
 demo project, Tyler's own recorded material (the co-hosted recording once
 the second mic is routed, wiki `lucid-second-mic`), or public-domain footage
 with its provenance written down (the clip's is NASA's restored Apollo 11,
-`~/lucid-work/launch-v4/media/PROVENANCE.md`). **Never a frame of
+`~/proofcut-work/spikes/launch-v4/media/PROVENANCE.md`). **Never a frame of
 Scream.** CLAUDE.md's committed-image rule is about the repo, but a launch
 clip is more public than a README and the same reasoning applies: a
 promotional video of copyrighted film clips invites the one argument the
 launch does not need. The real-footage trial's *numbers* are quoted in the
 post (9 of 9, 45.23s, similarity 0.984, 123 of 123 heard); its *frames* stay
-in `~/lucid-work/agent-trial/`.
+in `~/proofcut-work/spikes/agent-trial/`.
 
 **It is not cut with proofcut, so never say it was.** The camera, the speed
 ramps, the type and the mix are a compositor script
-(`~/lucid-work/launch-v4/clip.py`) over the two recordings. proofcut's own
+(`~/proofcut-work/spikes/launch-v4/clip.py`) over the two recordings. proofcut's own
 moves are linear and it cannot retime, which is most of why the first three
 shapes read as choppy. "The launch video was cut by the tool" is false, and
 the line that is true is stronger anyway: the film inside the clip is the
@@ -114,7 +114,7 @@ verify clean. Captions burned, because every platform below autoplays muted.
    transcribed and its words diffed against the timeline's, and its frames
    counted against the timeline's. kinocut says "quality gates", and read
    from source those score brightness and loudness, not agreement with the
-   edit (`~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read);
+   edit (`~/proofcut-work/spikes/launch-listings/LISTINGS.md` § kinocut's gate, read);
 6. the same brief in Claude Code, no window, ending on the agent's own check
    — because the launch's headline is "an MCP server" and the clip otherwise
    never shows one;
@@ -125,7 +125,7 @@ verify clean. Captions burned, because every platform below autoplays muted.
 this loop; what it lacks is a viewer. The recording is mostly of the
 *workspace* pane, because the workspace is what a stranger will open first,
 and the README's screenshot is of it. The terminal beat is a real `claude`
-session recorded byte for byte (`~/lucid-work/launch-v4/mcp/`), not a mock-up. Drive the trial's own
+session recorded byte for byte (`~/proofcut-work/spikes/launch-v4/mcp/`), not a mock-up. Drive the trial's own
 brief through `POST /api/agent` (the panel's route) so the run in the video
 is the run the trial measured — no second script, no drift.
 
@@ -148,7 +148,7 @@ own line, which GitHub draws as a player and Gitea as a link. **Never add a
 poster linking to that URL**: GitHub turns every link to an upload into a
 player, image or not, so a linked poster drew a second player and no poster
 (the first sync, 2026-09-13). The upload is
-`~/lucid-work/launch-v5/readme/proofcut-v0.23.0-clip-readme-1080.mp4` (v0.23.0), 9.2 MB, because
+`~/proofcut-work/spikes/launch-v5/readme/proofcut-v0.23.0-clip-readme-1080.mp4` (v0.23.0), 9.2 MB, because
 GitHub's cap on a free plan is 10 MB.
 
 ## Step 2 — one stranger's run, on a Mac
@@ -292,7 +292,7 @@ it does not, the README's first screen is a dead link on launch day.
    directories in step 4 something to cite and the HN post a permalink that
    will not move. Release notes are the HISTORY.md section names since the
    last tag, one line each — not a changelog, which the repo does not keep
-   on purpose. The draft is `~/lucid-work/launch-release/NOTES.md`.
+   on purpose. The draft is `~/proofcut-work/spikes/launch-release/NOTES.md`.
 7. Pin docs/DEMO.md from the README's first screen, if it is not already the
    first link a newcomer sees.
 8. **A way to buy the author a coffee** (Tyler's ask, 2026-09-11; deferred —
@@ -308,7 +308,7 @@ it does not, the README's first screen is a dead link on launch day.
    issue form applies, so reports can be found by it — the repo has only
    GitHub's defaults. Step 2's stranger arrives from here on, so this is the same
    afternoon, not later. The draft body is
-   `~/lucid-work/launch-release/MAC-ISSUE.md`.
+   `~/proofcut-work/spikes/launch-release/MAC-ISSUE.md`.
 
 **Done when:** the public URL unfurls with the image and the tagline, the
 Security tab shows "Report a vulnerability", a release exists, and the Mac
@@ -324,7 +324,7 @@ ecosystem is still the channel whose audience wants the shape, but a listing
 has to say what proofcut does that the line above it does not. What each
 directory actually takes today — PulseMCP paused and reading the registry,
 Smithery local-only as `.mcpb`, Glama scoring tool descriptions — and the
-drafted awesome-list line: `~/lucid-work/launch-listings/LISTINGS.md`.
+drafted awesome-list line: `~/proofcut-work/spikes/launch-listings/LISTINGS.md`.
 List it a week *before* Show HN so the first strangers arrive in ones and
 twos, with time to fix what they find.
 
