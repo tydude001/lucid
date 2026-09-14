@@ -14276,6 +14276,20 @@ Finish showed after § The render that never exited.
   means switching the setting off on a machine that has it on. The second
   drive (the laptop has only C:) and a person's own footage stay unmeasured
   on a PC; the runner covers the first.
+- **Asked with `LongPathsEnabled` switched to 0, it fails — the probe's first
+  real Windows finding.** Same laptop, same commit, three minutes later:
+  every other case clean again, and `long-path` **failed at `init`** with a
+  Python traceback, `FileNotFoundError: [WinError 206] The filename or
+  extension is too long`, creating `<root>\cache\transcripts`. The root
+  itself (235) and `cache` (241) were made; `cache\transcripts` is 253, and
+  the Win32 limit on *creating a directory* is 248 (MAX_PATH less 12 for an
+  8.3 name), not 260. So on a stock Windows a project whose folder path runs
+  past about 230 characters cannot be created at all, and one a little shorter
+  is created and then fails later, wherever the first deep cache path is
+  written — `cache\sheets\frames\<clip>\…` is the deepest family. Either
+  way a person gets a traceback naming no fix. Nothing past `init` was reached,
+  so which later writers fail, and whether melt and ffmpeg honour long paths
+  when the setting is on, are unmeasured.
 
 ## The refusing preset card — 2026-09-14
 
