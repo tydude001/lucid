@@ -39,6 +39,13 @@ be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
 surveyed 2026-09-10. How a public repo gets seen — the recording, one
 stranger's Mac run, the flip, the MCP directories, Show HN, in that order —
 is [docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
+**The rename to `proofcut`** — why LAUNCH.md's "No rename" was wrong (Lucid
+Software's own MCP server is the registry's first result for the word, and
+it holds a live LUCID mark), the measured surface, the decisions, and the
+steps a fresh session works — is
+[docs/plans/RENAME.md](docs/plans/RENAME.md), written 2026-09-13; nothing
+in it has started, and until it lands every command in this file is still
+`lucid`.
 Open-item status lives in the wiki, not here.
 
 **Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
