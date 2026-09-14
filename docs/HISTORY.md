@@ -13976,3 +13976,26 @@ the clip URL is a placeholder until the upload), `MAC-ISSUE.md` and
 corrects `ffmpeg` to the `ffmpeg-full` the kit has installed since its first
 run), and `launch-listings/LISTINGS.md` carries the new awesome-list line and
 registry name. Each was backed up beside itself first.
+
+### Step 4 — the version, and a review before the tag
+
+All six literals to 0.23.0 with `uv sync` behind them (and the bug form's
+placeholder, which `test_version` does not hold); `proofcut --version` says
+`proofcut 0.23.0`. The suite at that tip: 2113 passed, 1 skipped — the same
+face-detector skip as step 1, for the same unset variable.
+
+Before tagging, an adversarial review of `84817d5..HEAD`, three lenses —
+the manifest and migrate paths, every reader of OTIO metadata, and every
+identifier that has to match its reader across files — each finding handed
+to two skeptics told to refute it. The OTIO and contract lenses found
+nothing. The manifest lens found one, reproduced end to end by one skeptic
+and called a pre-existing pattern by the other: **`agent_trial --score-only`
+on a trial project nobody has migrated overwrote the run's report with a
+false score at exit 0.** Every op `score` calls refuses a `lucid.json`
+project, and `_safe` turns each refusal into a failed check, so a 9-pass
+report re-scored to 2 pass, 3 fail and 4 unsettled, with the migrate hint
+buried in one check's detail. All three trial directories on this box are in
+that state. `--source` had learned that `lucid.json` is a project and
+`--score-only` had not; it now refuses before anything is rewritten, naming
+`proofcut -C <proj> migrate`. Probed on the skeptic's copy: exit 1, the
+report's sha256 unchanged; migrated, the same re-score runs.

@@ -1062,6 +1062,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.score_only:
         run_dir = Path(args.score_only).expanduser().resolve()
+        # A project from before the rename is refused by every op `score`
+        # calls, and `_safe` turns each refusal into a failed check — so the
+        # re-score would overwrite a passing report with a false one, at exit 0.
+        # Refuse before anything is rewritten (HISTORY.md § The rename).
+        if (work / "proj" / LEGACY_MANIFEST_NAME).exists():
+            raise TrialError(
+                f"{work / 'proj'} holds {LEGACY_MANIFEST_NAME}, a project from before the "
+                f"rename: run `proofcut -C {work / 'proj'} migrate`, then re-score. "
+                "Nothing was rewritten."
+            )
         events = [
             json.loads(line)
             for line in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
