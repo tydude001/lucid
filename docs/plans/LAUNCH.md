@@ -386,10 +386,11 @@ things**: says what it is in two sentences, links the 60-second clip and the
 uncut run, and pre-empts the two questions that will otherwise be the
 thread. Draft:
 
-> proofcut puts an AI agent on a video timeline and keeps everything on your
-> own machine — whisper, ffmpeg, auto-editor, MLT and OpenTimelineIO under
-> an MCP server, so any agent that speaks MCP (Claude Code, Codex, your own)
-> can cut by transcript, hang b-roll off phrases, caption, render, and then
+> proofcut puts an AI agent on a video timeline. Transcription, editing and
+> rendering run on your own machine — whisper, ffmpeg, auto-editor, MLT and
+> OpenTimelineIO under an MCP server, with no cloud service of its own; the
+> only thing that talks to a model provider is the agent you choose. Any
+> agent that speaks MCP (Claude Code, Codex, your own) can cut by transcript, hang b-roll off phrases, caption, render, and then
 > check the render against the edit. Here is one doing that unattended,
 > start to finish: [clip](https://github.com/user-attachments/assets/4153d180-3d7c-4c70-af5f-54d63d0a8bd5) / [the uncut runs](https://github.com/tydude001/proofcut/releases/tag/v0.23.0). Two things people will ask:
 >
