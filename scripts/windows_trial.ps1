@@ -320,6 +320,9 @@ try {
     $env:UV_PYTHON_INSTALL_DIR = Join-Path $W 'uv\python'
     $env:UV_TOOL_DIR = Join-Path $W 'uv\tools'
     $env:UV_TOOL_BIN_DIR = Join-Path $W 'uv\bin'
+    # Without this, `uv sync` takes a Python 3.13 the PC already has (a person's laptop did, from
+    # AppData\Local\Programs) and the .venv then depends on something outside the folder.
+    $env:UV_PYTHON_PREFERENCE = 'only-managed'
     $env:XDG_CACHE_HOME = Join-Path $W 'cache'   # whisper keeps its speech model under here
 
     $bin = Join-Path $TOOLS 'bin'

@@ -14171,3 +14171,9 @@ Two kit findings from the same run, not yet acted on:
   kit's other `UV_*` variables is the likely fix.
 - uv 0.12.13, the kit's pin, warns that `build-system.requires`'
   `uv-build>=0.11.26,<0.12.0` does not contain it. The build succeeds.
+
+Both were acted on the same day, unmeasured on Windows until the next run:
+the kit sets `UV_PYTHON_PREFERENCE=only-managed` beside its other `UV_*`
+variables, and the pin is `uv_build>=0.11.26,<0.13.0` — uv-build 0.12.0–0.12.13
+are on PyPI, this box's uv 0.11.26 still builds the wheel, and `uv lock
+--check` is clean, since `build-system` is not in the lock.
