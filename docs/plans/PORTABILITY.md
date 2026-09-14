@@ -361,7 +361,12 @@ sentence says no person has run it until a person's report arrives (Step 6),
 windows-demo green or not.
 
 **5e — measure what the demo does not reach.** Everything in step 4 again,
-plus the class of defects only Windows has:
+plus the class of defects only Windows has. **`scripts/windows_probe.ps1`
+asks the path, drive, case and caption classes below** — the demo's edit
+re-run in a folder shaped for each, every render read back, beside a plain
+control — on a person's PC after the kit, and on windows-demo's runner
+(HISTORY.md § The editor on Windows, looked at). Its first answers are
+candidates until judged:
 
 - **Drive letters and backslashes inside MLT XML.** MLT accepts forward
   slashes on Windows; whether `mlt.py`'s `str(Path)` output (backslashes)

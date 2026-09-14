@@ -14218,3 +14218,25 @@ Finish showed after § The render that never exited.
 - Doctor reported no `claude` on the laptop, so the agent pane — and the
   unmeasured `claude.cmd` tree-kill question in PORTABILITY.md 5e — was not
   reached.
+- **The next laptop session has a script: `scripts/windows_probe.ps1`**, the
+  PORTABILITY.md 5e classes the demo never reaches. It borrows the kit's
+  folder — tools, footage and the demo's own transcript, attached rather than
+  re-transcribed — and re-runs the demo's edit in a plain folder (the
+  control), then one with a space, one with `é ñ`, one with Japanese and
+  Cyrillic (outside the ANSI code page), a 235-character root straddling
+  MAX_PATH, and another drive; each render is judged by `frames` and the
+  colour of its 3 s and 10 s frames, as `trial_check.py` does. It also binds
+  `proofcut mcp -C` in upper case and asks with the folder in lower case
+  (accepted) and a sibling project (refused), burns captions, and with
+  `-Footage` imports a person's own clip and renders a single-source cut
+  through auto-editor, reporting the clip's numbers and never its name or a
+  frame. The work is `windows_probe.py`, so it ran end to end here first:
+  every case clean on Linux, a broken `PROOFCUT_MELT` failing the control and
+  saying so, and a footage file named `Tyler vacation.mp4` in `Private Stuff`
+  absent from the zip. **The caption check's first build was wrong**: a mean
+  over the bottom third read 2.7 of 255 for a caption plainly drawn, since
+  thin text is a few percent of a band. It counts pixels whose luma moved by
+  more than 60 instead — 1.43–2.32% at seven moments with a line up, 0.0% at
+  four in the 3.80–4.01 s gap between lines — and reads both. windows-demo
+  runs it after the kit with the runner's D: as the second drive,
+  `continue-on-error` until its first findings are judged.

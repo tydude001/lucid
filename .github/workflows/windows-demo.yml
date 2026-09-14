@@ -26,6 +26,8 @@ on:
     paths:
       - "src/**"
       - "scripts/windows_trial.ps1"
+      - "scripts/windows_probe.ps1"
+      - "scripts/windows_probe.py"
       - "scripts/trial_check.py"
       - "scripts/make_demo.py"
       - "pyproject.toml"
@@ -69,6 +71,21 @@ jobs:
           if ($ffmpeg) { $env:PATH = "$($ffmpeg.DirectoryName);$env:PATH" }
           python scripts\trial_check.py $trial
           exit $LASTEXITCODE
+      # scripts/windows_probe.ps1 against the kit's folder: PORTABILITY.md 5e's
+      # path, drive, case and caption classes. The runner has a D: (runner.temp
+      # is on it), so the second-drive case runs here too. continue-on-error
+      # until a first run's findings have been judged — a new probe's first
+      # output is candidates, not verdicts. The report is what gets read.
+      - name: the Windows probe
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PROOFCUT_PROBE_REPORT: ${{ runner.temp }}\proofcut-windows-probe.zip
+        run: |
+          $drive = (Split-Path -Qualifier $env:RUNNER_TEMP) + '\'
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows_probe.ps1 -SecondDrive $drive
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -76,4 +93,5 @@ jobs:
           path: |
             ${{ runner.temp }}\proofcut-windows-report.zip
             ${{ runner.temp }}\report.txt
+            ${{ runner.temp }}\proofcut-windows-probe.zip
           if-no-files-found: warn
