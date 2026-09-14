@@ -3426,12 +3426,19 @@ def finish_report(
 
     presets: dict[str, dict[str, Any]] = {}
     for preset_name in EXPORT_PRESETS:
+        # `needs` and `fix` are the refusal's own parts, carried on its type
+        # (`PresetCanvasError`) so the window never splits `message` to get a
+        # short line out of it. `None` on a preset that passes.
         try:
             _check_preset_canvas(project, preset_name)
+        except PresetCanvasError as exc:
+            presets[preset_name] = {"ok": False, "message": str(exc), "needs": exc.needs, "fix": exc.fix}
         except ProjectError as exc:
-            presets[preset_name] = {"ok": False, "message": str(exc)}
+            # Anything else the check's own reads raise: still a refusal, with no
+            # short form to offer, so the card shows the message whole.
+            presets[preset_name] = {"ok": False, "message": str(exc), "needs": None, "fix": None}
         else:
-            presets[preset_name] = {"ok": True, "message": None}
+            presets[preset_name] = {"ok": True, "message": None, "needs": None, "fix": None}
     canvas_section = {"canvas": proj_status["canvas"], "presets": presets}
 
     configured = CAPTION_STYLE_KEY in project.read_manifest()
@@ -6705,6 +6712,23 @@ EXPORT_PRESETS: dict[str, dict[str, str]] = {
 PRESET_ASPECT: dict[str, tuple[int, int]] = {"tiktok-reels": (9, 16)}
 
 
+class PresetCanvasError(ProjectError):
+    """`_check_preset_canvas` refusing a preset, carrying the refusal's two parts.
+
+    A `ProjectError`, so every caller catching that is unchanged. The type
+    exists for the window, `media.MultiAudioError`'s precedent: Finish draws a
+    refusing preset as a quiet card saying what it `needs`, and opens the full
+    message and the `fix` command only when asked — and it must not get those
+    by cutting up the sentence. `fix` is `None` where no single command fixes
+    it (a project with no picture). HISTORY.md § The refusing preset card.
+    """
+
+    def __init__(self, message: str, *, needs: str, fix: str | None) -> None:
+        super().__init__(message)
+        self.needs = needs
+        self.fix = fix
+
+
 def _suggest_canvas(aspect: tuple[int, int]) -> str:
     """A concrete `WIDTHxHEIGHT` to put in a refusal, at the delivery size.
 
@@ -6738,10 +6762,12 @@ def _check_preset_canvas(project: Project, preset: str | None) -> None:
     if want is None:
         return
     if not any(clip.get("has_video") for clip in project.read_manifest().get("clips", [])):
-        raise ProjectError(
+        raise PresetCanvasError(
             f"preset {preset!r} names a frame shape ({want[0]}:{want[1]}) and this project "
             "has no picture to shape — the render would be audio. Drop the preset, or use "
-            "'youtube'/'web', which claim nothing about the frame."
+            "'youtube'/'web', which claim nothing about the frame.",
+            needs="needs a project with picture",
+            fix=None,
         )
     width, height = _mlt_resolution(project)
     if width * want[1] != height * want[0]:
@@ -6749,7 +6775,7 @@ def _check_preset_canvas(project: Project, preset: str | None) -> None:
         # of integers and 1080/1920 is not exactly representable, so a ratio
         # test would refuse a shape that is exactly right.
         suggest = _suggest_canvas(want)
-        raise ProjectError(
+        raise PresetCanvasError(
             f"preset {preset!r} renders {want[0]}:{want[1]}, and this project's canvas is "
             f"{width}x{height} ({_aspect(width, height)}) — a preset names the encode, and "
             "the shape a project renders at is `canvas`'s job rather than an export flag's, "
@@ -6757,7 +6783,9 @@ def _check_preset_canvas(project: Project, preset: str | None) -> None:
             f"Set the shape first (`proofcut canvas {suggest}`), which "
             "routes through the MLT writer, crops to fill rather than pillarboxing, and "
             "reports what each clip loses; then export again. A vertical canvas that is not "
-            f"{want[0]}:{want[1]} is a legitimate export — use 'youtube' or 'web' with it."
+            f"{want[0]}:{want[1]} is a legitimate export — use 'youtube' or 'web' with it.",
+            needs=f"needs a {want[0]}:{want[1]} canvas",
+            fix=f"proofcut canvas {suggest}",
         )
 
 

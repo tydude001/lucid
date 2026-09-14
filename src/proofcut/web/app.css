@@ -2693,11 +2693,14 @@ textarea {
   gap: 10px;
 }
 
-/* `.asset-row`'s selectable-row-with-highlight precedent, and
-   `.picker-badge`'s `--cut`/`--wash-cut` pairing for a refusal — a preset a
-   project cannot honour is a hard fact (docs/plans/STUDIO.md: "shows its message AND
-   the fix", never a soft warning), so it borrows `.bad`'s tokens rather than
-   `.warn`'s. */
+/* `.asset-row`'s selectable-row-with-highlight precedent. A preset this
+   project cannot honour is drawn QUIET, not in `.bad`'s red: it used to
+   borrow `--cut`/`--wash-cut` and print its whole refusal before any click,
+   and on a person's first look at Finish that read as the view failing,
+   when the refusal was correct and nothing had gone wrong (HISTORY.md § The
+   refusing preset card). Closed it is greyed with one `needs` line; `.open`
+   takes the whole row and shows the message and the fix, which is still
+   docs/plans/STUDIO.md's "its message AND the fix" — on request. */
 .finish-preset-card {
   min-width: 12rem;
   padding: 10px 14px;
@@ -2719,19 +2722,65 @@ textarea {
 }
 
 .finish-preset-card[data-ok="false"] {
-  border-color: var(--cut);
-  background: var(--wash-cut);
-  cursor: default;
+  background: var(--panel-2);
+}
+
+.finish-preset-card[data-ok="false"] .finish-preset-name {
+  color: var(--dim);
+}
+
+.finish-preset-card[data-ok="false"].open {
+  flex-basis: 100%;
+  border-color: var(--dim);
+}
+
+.finish-preset-card[data-ok="false"].open .finish-preset-name {
+  color: var(--ink-2);
+}
+
+.finish-preset-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .finish-preset-card .finish-preset-name {
   font-weight: 600;
 }
 
-.finish-preset-card .finish-preset-message {
-  margin-top: 4px;
-  color: var(--cut);
+.finish-preset-card .finish-preset-needs {
+  margin-top: 2px;
+  color: var(--dim);
   font-size: 11px;
+}
+
+.finish-preset-card .finish-preset-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* An author `display:` above outranks the UA's `[hidden]` (CLAUDE.md). */
+.finish-preset-card .finish-preset-detail[hidden] {
+  display: none;
+}
+
+.finish-preset-card .finish-preset-message {
+  color: var(--ink-2);
+  font-size: 12px;
+  text-wrap: pretty;
+}
+
+.finish-preset-card .finish-preset-fix {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 12px;
+  cursor: text;
+  user-select: all;
 }
 
 .finish-manifest {

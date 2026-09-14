@@ -53,6 +53,9 @@ let lastDetect = null; // the full "done" event payload from the reframe-detect 
 let sheetBusy = false;
 let detectBusy = false;
 let lastState = null; // the last /api/view payload, read only for `shots`
+// Bumped by every update(), so a scan that started before a reload can tell
+// its answer is about a project that has since changed.
+let coverageGeneration = 0;
 let coverageStale = true; // is a coverage fetch owed? set by update(), paid
 // for when this view is on screen — the scan is 5.5s of decoding per call,
 // so it rides being *looked at* rather than every project reload.
@@ -183,6 +186,7 @@ function hasPlacements(state) {
 async function refreshCoverage() {
   if (!ctx) return;
   coverageStale = false;
+  const generation = coverageGeneration;
   if (!hasPlacements(lastState)) {
     // Not a warning and not a blank chip — both would read as a verdict on
     // framing that nobody measured.
@@ -210,6 +214,14 @@ async function refreshCoverage() {
     return;
   }
   renderCoverage(coverage);
+  // The truth strip's framing chip says "not scanned" because
+  // `finish_report` does not pay for this scan (CLAUDE.md § "Needs no face
+  // detector" is not "cheap"). Right after this view HAS scanned, that reads
+  // as a contradiction one bar above the answer — so hand the answer up, for
+  // this revision only: a scan that outlived a reload is about a project
+  // that no longer exists, and is dropped. HISTORY.md § The refusing preset
+  // card.
+  if (generation === coverageGeneration) ctx.emit("coverage", coverage);
 }
 
 function renderCoverage(coverage) {
@@ -877,6 +889,9 @@ export function update(state) {
   // precedent.
   approvedKeys = new Set();
   lastState = state;
+  // Whatever this view scanned was about the project before this reload.
+  coverageGeneration += 1;
+  ctx.emit("coverage", null);
   // Coverage is NOT re-fetched here unless this view is on screen. It was,
   // and it cost 5.5s of scene-cut decoding per call on the film — twice on
   // every page load and once more on every `project-changed`, so every cut

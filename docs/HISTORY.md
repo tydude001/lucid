@@ -14258,3 +14258,44 @@ Finish showed after § The render that never exited.
   The report is scrubbed value by value now, before any slice, and a passing
   fact carries no reply. Linux paths have no backslashes, so this box cannot
   reproduce it; the next runner report is the check.
+- **The next runner report, at `ca55033`, is clean of it** (run
+  34864099071): `runnera` 0 times in `report.txt` and `probe.json`, every
+  case clean again, and the long-path line reads `ok, but long paths are
+  enabled here`.
+
+## The refusing preset card — 2026-09-14
+
+Option A of the mockup § The editor on Windows, looked at, called for, and
+approved by Tyler the same day: a preset the project cannot honour is drawn
+quiet, and the truth strip's framing chip reads Frame's own scan.
+
+- **The card.** Closed, a refusing preset is greyed (`--panel-2`, name in
+  `--dim`) with one line saying what it needs — `needs a 9:16 canvas` — and
+  no red anywhere, because nothing went wrong. A click, Enter or Space opens
+  it across the whole row to the op's message verbatim and the command in a
+  select-all code chip; clicking the chip selects it rather than closing the
+  card. Which card is open survives a reload, so an agent's cut does not snap
+  it shut under a reader. The old click raised a toast; there is none now.
+- **The short line comes off the op, never out of the sentence.**
+  `_check_preset_canvas` raises `PresetCanvasError`, a `ProjectError`
+  carrying `needs` and `fix` (`media.MultiAudioError`'s precedent), and
+  `finish_report`'s presets carry both — `None` on a preset that passes, and
+  `fix` `None` on the audio-only refusal, which no one command fixes. **Two
+  shape-pinning tests were extended for it** (`test_ops_finish_report.py`'s
+  key set and its two passing-preset dicts), because the approved design adds
+  those fields; the tiktok test now also asserts both values and that the fix
+  is quoted inside the message, and a new test holds the audio-only case.
+- **The framing chip.** It still draws `finish_report`'s framing when the
+  report measured it. When not, it draws Frame's `/api/reframe/coverage`
+  answer for the current revision: frame.js emits `coverage` after a scan
+  and `null` on every reload, with a generation counter so a scan that
+  outlived a reload is dropped. Measured in the browser on the probe's demo
+  project: `framing — not scanned` → open Frame → `framing ok` → Finish →
+  still `framing ok` → an `undo` from a terminal → `framing — not scanned`
+  at once, while the open card stayed open. A project Frame cannot scan
+  (`no footage placements to frame`, or `coverage unavailable`) leaves the
+  chip at `not scanned`, which is true.
+- **Verified by `verify-live`** — every card click at 0 and 120 ms dwell,
+  open and close, keyboard both ways, no console errors, and the 700px
+  sweeps (`overflowing: []`, `scrollers: []`) with the card open. The
+  affected test files, 656 passed.

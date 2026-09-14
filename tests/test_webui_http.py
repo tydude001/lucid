@@ -1230,6 +1230,9 @@ def test_api_finish_reports_over_a_real_socket(server: str) -> None:
     assert [f for f in payload["flags"]["items"] if f["kind"] == "framing"] == []
     assert set(payload["duration"]) == {"edit_seconds", "tail_seconds", "total_seconds"}
     assert set(payload["canvas"]) == {"canvas", "presets"}
+    # The refusing preset card's short line and command ride the route too.
+    for preset in payload["canvas"]["presets"].values():
+        assert set(preset) == {"ok", "message", "needs", "fix"}
     assert set(payload["captions"]) == {"configured", "font", "burned"}
     assert payload["captions"]["configured"] is False
     assert payload["captions"]["burned"] == "unknown"  # no render log yet

@@ -97,36 +97,72 @@ function selectPreset(key) {
 }
 
 function presetEntries(bundle) {
-  const entries = [{ key: "", ok: true, message: null }];
+  const entries = [{ key: "", ok: true, message: null, needs: null, fix: null }];
   for (const [key, info] of Object.entries(bundle.canvas.presets)) {
-    entries.push({ key, ok: info.ok, message: info.message });
+    entries.push({ key, ok: info.ok, message: info.message, needs: info.needs, fix: info.fix });
   }
   return entries;
 }
+
+// Which refusing card is open, by preset key. Survives a re-render (every
+// `project-changed` rebuilds the cards), so a card someone opened to read
+// does not snap shut under them because an agent made a cut.
+const openRefusals = new Set();
 
 function renderPresets(bundle) {
   const box = $("finish-presets");
   if (!box) return;
   box.textContent = "";
-  for (const { key, ok, message } of presetEntries(bundle)) {
+  for (const { key, ok, message, needs, fix } of presetEntries(bundle)) {
     const card = el("div", "finish-preset-card");
     card.dataset.preset = key;
     card.dataset.ok = String(ok);
     card.classList.toggle("selected", key === selectedPresetKey);
     card.append(el("div", "finish-preset-name", PRESET_LABELS[key] || key));
     if (!ok) {
-      // docs/plans/STUDIO.md: a refusing preset shows its message AND the fix — the
-      // op's own refusal text already states the fix inline (`proofcut canvas
-      // …`), so displaying it verbatim satisfies both halves at once.
-      card.append(el("div", "finish-preset-message", message));
+      // A refusing preset is quiet until asked (HISTORY.md § The refusing
+      // preset card). It used to draw its whole refusal in the error red,
+      // before anyone clicked it, and the author read a correct refusal as
+      // Finish failing — nothing had gone wrong. Closed, it says what it
+      // needs in one line; open, it shows the op's message verbatim and the
+      // one command, which docs/plans/STUDIO.md's "its message AND the fix"
+      // still requires. Both short parts come off the op (`needs`, `fix`),
+      // never cut out of `message`; with no `needs` the card has no short
+      // form and opens straight to the message.
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      const isOpen = openRefusals.has(key) || !needs;
+      card.classList.toggle("open", isOpen);
+      card.setAttribute("aria-expanded", String(isOpen));
+      if (needs) card.append(el("div", "finish-preset-needs", needs));
+      const detail = el("div", "finish-preset-detail");
+      detail.hidden = !isOpen;
+      detail.append(el("div", "finish-preset-message", message));
+      if (fix) detail.append(el("code", "finish-preset-fix mono", fix));
+      card.append(detail);
+      const toggle = () => {
+        if (!needs) return;
+        const nowOpen = !openRefusals.has(key);
+        if (nowOpen) openRefusals.add(key);
+        else openRefusals.delete(key);
+        card.classList.toggle("open", nowOpen);
+        card.setAttribute("aria-expanded", String(nowOpen));
+        detail.hidden = !nowOpen;
+      };
+      card.addEventListener("click", (event) => {
+        // Selecting the command to copy it is reading, not closing.
+        if (event.target.closest(".finish-preset-fix")) return;
+        toggle();
+      });
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggle();
+        }
+      });
+    } else {
+      card.addEventListener("click", () => selectPreset(key));
     }
-    card.addEventListener("click", () => {
-      if (!ok) {
-        ctx.emit("toast", message);
-        return;
-      }
-      selectPreset(key);
-    });
     box.append(card);
   }
 }

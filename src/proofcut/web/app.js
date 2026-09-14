@@ -513,6 +513,52 @@ function framingLabel(framing) {
   return parts.length ? parts.join(" / ") : "framing ok";
 }
 
+// The framing chip has two sources, and the report outranks the scan. When
+// `finish_report` measured framing it is drawn exactly as before. When it did
+// not (the usual case — the scan is opt-in), Frame's own
+// `/api/reframe/coverage` answer is drawn if Frame scanned THIS revision:
+// frame.js emits it after a scan and emits `null` on every reload, so the
+// chip goes back to "not scanned" the moment an edit makes the scan stale.
+// Before this, the chip read "framing — not scanned" one bar above a Frame
+// view showing the finished scan (HISTORY.md § The refusing preset card).
+// `warn` from the scan is Frame's own chips' rule (frame.js
+// renderCoverage: stale seconds or unexplained steps), not a new opinion.
+let lastReport = null; // {framing, flagged} off the last finish report
+let lastCoverage = null; // Frame's scan of the current revision, or null
+
+function drawFramingChip() {
+  if (!lastReport) return;
+  const reportFraming = lastReport.framing;
+  const chip = $("truth-framing");
+  if (reportFraming || !lastCoverage) {
+    setChip(
+      chip,
+      framingLabel(reportFraming),
+      lastReport.flagged ? "warn" : reportFraming ? null : "unmeasured",
+      reportFraming
+        ? null
+        : "Frame mode measures this — the scan decodes every placed clip (5.7s on the film), so it is not run on every change",
+    );
+    return;
+  }
+  const scanned = {
+    stale_seconds: lastCoverage.stale_seconds,
+    stale_stretches: lastCoverage.stale_stretches,
+    steps: lastCoverage.steps.length,
+  };
+  setChip(
+    chip,
+    framingLabel(scanned),
+    scanned.stale_seconds > 0 || scanned.steps > 0 ? "warn" : null,
+    "from Frame's scan of the project as it is now — an edit makes it stale",
+  );
+}
+
+on("coverage", (coverage) => {
+  lastCoverage = coverage;
+  drawFramingChip();
+});
+
 // finish.js is the only module that calls GET /api/finish; every other
 // consumer of that bundle (this truth strip included) gets it by listening
 // for the event finish.js re-broadcasts on every fetch, never by fetching
@@ -552,14 +598,8 @@ on("finish-report", (bundle) => {
   // — a distinct thing from a scan that found nothing, and the chip has to
   // say which (CLAUDE.md § A blank chip where a warning would go). `warn`
   // still comes only from the op's own flag.
-  setChip(
-    $("truth-framing"),
-    framingLabel(bundle.framing),
-    flagged.has("framing") ? "warn" : bundle.framing ? null : "unmeasured",
-    bundle.framing
-      ? null
-      : "Frame mode measures this — the scan decodes every placed clip (5.7s on the film), so it is not run on every change",
-  );
+  lastReport = { framing: bundle.framing, flagged: flagged.has("framing") };
+  drawFramingChip();
   // "1 flag" says nothing about *what*; the kinds are the whole content, and
   // they come off the op's own flag items rather than being re-derived from
   // the numbers this file can see.

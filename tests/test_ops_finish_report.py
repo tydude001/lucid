@@ -158,7 +158,7 @@ def test_finish_report_field_shape(project: Project) -> None:
     assert set(result["canvas"]) == {"canvas", "presets"}
     assert set(result["canvas"]["presets"]) == {"youtube", "web", "tiktok-reels"}
     for preset in result["canvas"]["presets"].values():
-        assert set(preset) == {"ok", "message"}
+        assert set(preset) == {"ok", "message", "needs", "fix"}
     assert set(result["captions"]) == {"configured", "font", "burned"}
     assert set(result["picture"]) == {"cue_count", "pinned_count", "shots_error"}
     assert set(result["marks"]) == {"applied", "stale"}
@@ -251,15 +251,36 @@ def test_finish_report_canvas_presets_reuse_check_preset_canvas(project: Project
     tiktok = result["canvas"]["presets"]["tiktok-reels"]
     assert tiktok["ok"] is False
     assert tiktok["message"] == expected_message
+    # The card's short line and the command it opens to, carried on the
+    # refusal's own type rather than cut out of the sentence — and each one
+    # still said inside the message, so neither can drift from it.
+    assert excinfo.value.needs == tiktok["needs"] == "needs a 9:16 canvas"
+    assert excinfo.value.fix == tiktok["fix"] == "proofcut canvas 1080x1920"
+    assert f"`{tiktok['fix']}`" in tiktok["message"]
 
     # And the presets that name no fixed geometry pass clean.
-    assert result["canvas"]["presets"]["youtube"] == {"ok": True, "message": None}
-    assert result["canvas"]["presets"]["web"] == {"ok": True, "message": None}
+    assert result["canvas"]["presets"]["youtube"] == {"ok": True, "message": None, "needs": None, "fix": None}
+    assert result["canvas"]["presets"]["web"] == {"ok": True, "message": None, "needs": None, "fix": None}
 
     # And a refusing preset is NOT a flag. It is drawn on the preset's own
     # card with its fix; flagging it would say the film is wrong for having
     # chosen 16:9, permanently and unclearably.
     assert [f for f in result["flags"]["items"] if f["kind"] == "canvas"] == []
+
+
+def test_a_preset_refused_for_having_no_picture_offers_no_command(project: Project) -> None:
+    """The audio-only refusal has a short form too, but no one command fixes
+    it — so `fix` is `None` and the card opens to the message alone, rather
+    than to a `proofcut canvas` suggestion for a project with nothing to crop."""
+    manifest = project.read_manifest()
+    manifest["clips"] = [c for c in manifest["clips"] if not c.get("has_video")]
+    project.write_manifest(manifest)
+
+    with pytest.raises(ops.PresetCanvasError) as excinfo:
+        ops._check_preset_canvas(project, "tiktok-reels")
+    assert "no picture to shape" in str(excinfo.value)
+    assert excinfo.value.needs == "needs a project with picture"
+    assert excinfo.value.fix is None
 
 
 # -- picture.shots_error is reported, never raised -------------------------------
