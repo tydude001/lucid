@@ -98,6 +98,16 @@ def scrub(text: str) -> str:
     return text
 
 
+def scrub_values(value: Any) -> Any:
+    if isinstance(value, str):
+        return scrub(value)
+    if isinstance(value, dict):
+        return {k: scrub_values(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [scrub_values(v) for v in value]
+    return value
+
+
 def long_form(path: Path) -> str:
     """A path Win32 file APIs accept past MAX_PATH, for our own cleanup and
     measurement only — never handed to proofcut, which is what is measured."""
@@ -331,12 +341,14 @@ async def confinement(case: Case, bound: Path, sibling: Path) -> None:
         for label, path in (("no path", None), ("the same folder, other case", other_spelling), ("a different project", str(sibling))):
             args = {} if path is None else {"path": path}
             result = await session.call_tool("timeline_status", args)
-            text = result.content[0].text if result.content else ""
+            # Scrubbed here, before anything slices it: a cut through the home
+            # folder's name leaves a fragment no whole-path pattern matches.
+            text = scrub(result.content[0].text if result.content else "")
             replies[label] = (result.is_error, text)
-            say(scrub(f"{label}: {'refused' if result.is_error else 'accepted'} — {text[:160]}"))
-    case.fact("bound project, no path: accepted", not replies["no path"][0], replies["no path"][1][:200])
-    case.fact("same folder spelled in another case: accepted",
-              not replies["the same folder, other case"][0], replies["the same folder, other case"][1][:200])
+            say(f"{label}: {'refused' if result.is_error else 'accepted'} — {text[:160]}")
+    no_path, same = replies["no path"], replies["the same folder, other case"]
+    case.fact("bound project, no path: accepted", not no_path[0], no_path[1][:200] if no_path[0] else "")
+    case.fact("same folder spelled in another case: accepted", not same[0], same[1][:200] if same[0] else "")
     case.fact("a different project: refused", replies["a different project"][0],
               "" if replies["a different project"][0] else "accepted a project outside the bound one")
 
@@ -505,11 +517,17 @@ def main() -> int:
             continue
         run_case(Case(name, what), cases, body)
 
+    # A clean long-path case on a PC that has opted into long paths measured
+    # the opt-in, not MAX_PATH: GitHub's runner has LongPathsEnabled=1 and a
+    # stock Windows 11 has 0. Say which one this was, on the summary line.
+    for case in cases:
+        if case.name == "long-path" and case.outcome == "ok" and env.get("long_paths_enabled") == 1:
+            case.outcome = "ok, but long paths are enabled here"
     say()
     say("════ summary")
     control_ok = cases[0].outcome == "ok"
     for case in cases:
-        say(f"  {case.outcome if case.outcome != 'ok' else 'ok':<40.40}  {case.name} — {case.what}")
+        say(f"  {case.outcome:<40.40}  {case.name} — {case.what}")
     if not control_ok:
         say("THE CONTROL FAILED: every other case's result is about this PC, not about its path.")
     else:
@@ -518,10 +536,14 @@ def main() -> int:
 
     work.mkdir(parents=True, exist_ok=True)
     (work / "report.txt").write_text(scrub("\n".join(LOG)) + "\n", encoding="utf-8")
-    (work / "probe.json").write_text(scrub(json.dumps({
+    # Scrubbed value by value, never as dumped text: `json.dumps` doubles every
+    # backslash again, and a Windows path inside an already-escaped reply then
+    # matches no spelling `scrub` knows — the first runner report carried its
+    # username in two `why` fields that way.
+    (work / "probe.json").write_text(json.dumps(scrub_values({
         "environment": env,
         "cases": [{"case": c.name, "what": c.what, "outcome": c.outcome, "facts": c.facts, "steps": c.steps} for c in cases],
-    }, indent=2)), encoding="utf-8")
+    }), indent=2), encoding="utf-8")
     report.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(report, "w", zipfile.ZIP_DEFLATED) as out:
         out.write(work / "report.txt", "report.txt")

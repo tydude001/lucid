@@ -14240,3 +14240,21 @@ Finish showed after § The render that never exited.
   four in the 3.80–4.01 s gap between lines — and reads both. windows-demo
   runs it after the kit with the runner's D: as the second drive,
   `continue-on-error` until its first findings are judged.
+- **Its first Windows run was windows-demo's, at `1c6bab6`** (run
+  34863235183, Windows Server 10.0.26100, ANSI code page 1252): every case
+  clean — a space, `é ñ`, Japanese and Cyrillic in the path, a project on
+  D: over footage on C:, `-C` in upper case accepting the folder in lower
+  case and refusing a sibling, and a caption burn changing 1.38% of the
+  bottom third with a line up and 0.0% in the gap. Judged before believed,
+  two things in it are not what "clean" says. **The long-path case measured
+  nothing about MAX_PATH**: the runner has `LongPathsEnabled` 1, a stock
+  Windows 11 has 0, so its 266-character paths were the opt-in working; the
+  summary line now says so when it is set, and the laptop's run is the one
+  that asks. **And the report leaked the runner's username** in two places.
+  The confinement case put the MCP reply into a passing fact's `why`, and
+  `probe.json` was scrubbed as dumped text — `json.dumps` doubles a Windows
+  path's backslashes a second time, past every spelling `scrub` matches; the
+  log line sliced the reply before scrubbing it, cutting the name mid-word.
+  The report is scrubbed value by value now, before any slice, and a passing
+  fact carries no reply. Linux paths have no backslashes, so this box cannot
+  reproduce it; the next runner report is the check.
