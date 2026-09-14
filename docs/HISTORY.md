@@ -13512,3 +13512,66 @@ Linux and macOS burns pass no `fontsdir` and are unchanged.
 **The ci.yml Windows leg is `continue-on-error`** (Tyler's call, as
 PORTABILITY.md recommended): its failures stay in the log and stop failing
 the run. Take it off once that leg is green on its own.
+
+## The sync the repo went public on — 2026-09-13
+
+`tydude001/lucid` went public at `1e0956b`, and the mirror sync that followed
+put `a382e6c` and the `v0.22.0` tag on GitHub. That order is LAUNCH.md § Step
+3's: the account's Actions minutes were spent, and a public repo's runs are
+free. The sync ran all three workflows on the tip, and all three came back
+green, none of them refused for billing. This is the tip the release names.
+
+**ci.yml (run 34791596290): every leg green.**
+
+- **Windows: 2048 passed, 43 skipped, 0 failed**, in 18 min of pytest, down
+  from 3 failed on `1e0956b`. The three were the caption font:
+  `test_the_caption_default_actually_draws`,
+  `test_the_probe_draws_enough_ink_to_be_comparing_anything`, and
+  `test_fonts_without_a_project_reports_the_default`. So the static Outfit
+  instances staged into libass's font directory (§ The first windows-demo
+  run) are what DirectWrite's burn needed. Doctor's row on the runner reads
+  "✓ Outfit draws (DirectWrite …)", with Chocolatey's gyan.dev
+  `9.0.1-essentials_build` ffmpeg ✓. The pytest step itself succeeded, so
+  this is the leg green on its own and not `continue-on-error` hiding a red.
+- Ubuntu 24.04: 1929 passed, 162 skipped. macOS: 1926 passed, 165 skipped.
+  macOS doctor's ffmpeg and Outfit rows are ✗ as on the last sync: the ci
+  leg installs Homebrew's plain `ffmpeg`, which has no libass. Doctor exits 1
+  on every leg by design (a runner with only ffmpeg), behind the step's own
+  `continue-on-error`.
+
+**windows-demo (run 34791596301): the first lucid render on Windows.** It
+ran Windows Server 2025 (image `windows-2025-vs2026` 20260907.229.1) with
+16 GB, under PowerShell 5.1.26100.33296. Every kit step ran `ok`, and
+`trial_check.py` passed all five checks:
+
+- **`frames` agrees**: 286 expected, 286 in the file, delta 0.
+- **`verify`** similarity 0.971, 34 heard of 34, 0 dropped, 0 repeated,
+  the Mac run's numbers exactly.
+- **Shotcut's melt draws on Windows.** Doctor took
+  `…\tools\shotcut\Shotcut\melt.exe` as `melt 7.41.0`, so the `(?i:\.exe)?`
+  banner fix held on the binary it was read off, and the render took 4 s.
+  The frames at 3 s and 10 s are 2 and 3 away from BLUE and RUST.
+- **The kit's other two defects are gone.** The argument tables ran every DEMO
+  step with its command, and the report uploaded across drives. Doctor was
+  ✓ on everything required, and `magick` was found at the runner's own
+  ImageMagick install.
+- **Timings:** downloads 24 s (all SHA-256s matched), whisper 34 s,
+  transcribe 89 s (the model download included), verify 60 s. The whole
+  run took 4 min.
+- **The public zip is clean:** `runneradmin` appears 0 times in its
+  `report.txt`, `lucid.json` and `project.otio`. The raw `report.txt`
+  uploaded beside the zip is the kit folder's own copy and carries the
+  runner's path 57 times. That is the runner's account, and nobody's home.
+
+**mac-demo (run 34791596253): still green after the melt banner change.**
+`trial_check.py` passed all five: 286 of 286 frames, `verify` 0.971, frames
+1 and 3 from BLUE and RUST. Doctor took
+`/Applications/Shotcut.app/Contents/MacOS/melt` as `melt 7.41.0`, so
+5a.1's resolver change did not refuse the Mac's melt. That was the re-check
+§ The first windows-demo run left open, having cancelled mac-demo. It was
+macOS 26.6.2 on a virtual M1 with 7 GB, and the render took 9 s.
+
+The demo is two cues of picture over a voiceover on both OSes. Captions,
+cards and a reframe were not exercised by either kit. Nobody has run either
+kit on their own machine yet, so README.md's "no person has run it" still
+holds for both, and a runner's green does not change that.

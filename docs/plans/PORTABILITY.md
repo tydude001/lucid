@@ -290,6 +290,15 @@ font directory by name ID 1, `Outfit Thin`. Shotcut's melt names itself
 `melt.exe` in its banner, which doctor had never accepted. The ci.yml Windows
 leg is `continue-on-error`.
 
+**What the flip's sync answered** (HISTORY.md § The sync the repo went
+public on, lucid `a382e6c`): **every Windows reading is green.** ci.yml's
+Windows leg passed 2048 with 0 failed, so the static Outfit instances in
+libass's font directory are the fix, and that leg's `continue-on-error`
+comes off. windows-demo ran the kit to a checked render, 286 of 286 frames
+and `verify` 0.971 through Shotcut's `melt.exe`. mac-demo stayed green after
+5a.1. That settles 5a–5c, and the only Windows claim it leaves unsettled is
+a person's run (Step 6).
+
 **5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
 `mac_trial.sh`: it asks before starting, records everything it adds,
 `-Uninstall` removes exactly that, it runs DEMO.md's commands verbatim and
