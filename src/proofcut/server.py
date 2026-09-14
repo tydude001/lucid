@@ -34,7 +34,7 @@ from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from proofcut import __version__, asr, energy, ops, webui
-from proofcut.project import ProjectError
+from proofcut.project import ProjectError, refusing_path_too_long
 
 mcp: MCPServer = MCPServer(
     name="proofcut",
@@ -338,7 +338,13 @@ def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
                 if projectless and bound.arguments[name] is None:
                     continue
                 bound.arguments[name] = _confine(bound.arguments[name])
-            return fn(*bound.args, **bound.kwargs)
+            # A project folder too deep for a stock Windows arrives as the
+            # CLI's one line rather than `[WinError 206]` and a filename —
+            # every tool that addresses a project passes through here, and
+            # the few that address none (`ping`, `fonts`' default) write
+            # nothing under one.
+            with refusing_path_too_long():
+                return fn(*bound.args, **bound.kwargs)
 
         return register(wrapper)
 

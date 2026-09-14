@@ -14377,4 +14377,23 @@ half-made project. Windows' limit on *creating a directory* is 248, not 260.
   (289 of 289 frames, `frames` delta 0, blue at 3s and rust at 10s), its
   longest path 179 characters — the same number the Linux dry run gave. Every
   other case ran clean too; the second drive and own footage were not asked.
+- **MCP and the web UI now answer it in the same line** (same day, the
+  laptop's confirmation having left them as the one gap). Both flatten
+  proofcut's own refusals and let any other exception keep its traceback, so
+  a 206 reached an agent as `[WinError 206]` and a filename, dropped a web
+  request's connection with nothing drawn, and — inside a web UI job —
+  escaped the job's `except`, published no error event, and left the window
+  waiting on one forever. `project.refusing_path_too_long` re-raises a 206
+  as a `ProjectError` carrying `path_too_long`'s line, and is placed where
+  one placement reaches everything: `server._tool()`'s wrapper (every tool
+  that addresses a project), around each job's op call in `webui.py`
+  (render's export and burn, proxy, both reframe jobs, import, transcribe,
+  seed), and `Handler._answering_path_too_long` around GET, HEAD and POST
+  for the synchronous routes. The tools that address no project are left
+  unwrapped, because `test_every_tool_taking_a_path_goes_through_the_binding`
+  reads `__wrapped__` as "confined". Tests hold the helper both ways, the
+  MCP line and any other `OSError` still reaching an agent as itself, a GET
+  and a POST route answering 400, a non-206 `OSError` still not a 400, and
+  a seed job publishing the line; with `src/` stashed five of the six fail,
+  the passing one being that last control.
 

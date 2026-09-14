@@ -735,7 +735,12 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
     `248 − PATH_HEADROOM` while it is off; a new deep layout under a project
     spends that headroom, which is 100 and was measured at 44. A test of it
     fakes `winreg` in `sys.modules` beside `sys.platform`, or a Windows
-    runner's own 1 decides it. HISTORY.md § A long project path on Windows.
+    runner's own 1 decides it. **A 206 later — a long clip id or render
+    name — is one line in every client**: `cli.main` catches it, and MCP and
+    the web UI get it as a `ProjectError` through
+    `project.refusing_path_too_long`, so **a new web UI job wraps its op call
+    in that**, or a 206 escapes the job's `except` and the window waits on an
+    event that never comes. HISTORY.md § A long project path on Windows.
 - **A reachable identifier in the docs is elided, never swapped for a
   plausible one.** The tailnet address, MagicDNS name, IPv6 suffix and
   absolute `/home/<user>` paths that a measurement quoted are written

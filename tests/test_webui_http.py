@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 import wave
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -3648,6 +3648,67 @@ def test_seed_refuses_an_unknown_clip_as_a_400_not_an_event(server: str) -> None
     status, payload = _post(f"{server}/api/seed", {"clip_id": "nope"})
     assert status == 400
     assert "nope" in payload["error"]
+
+
+def _refuse_as_too_long(where: str) -> Callable[..., Any]:
+    def refuse(*args: object, **kwargs: object) -> None:
+        error = OSError(2, "The filename or extension is too long", where)
+        error.winerror = 206  # type: ignore[attr-defined]
+        raise error
+
+    return refuse
+
+
+def test_a_path_windows_refuses_as_too_long_is_a_400_with_the_one_line(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every route answers proofcut's own refusals as a 400 and lets anything
+    else keep its traceback — which, for a 206, meant a dropped connection and
+    a window with nothing to say. GET and POST both, since they route apart."""
+    where = "C:\\deep\\cache\\thumbs\\a-long-clip"
+    monkeypatch.setattr(ops, "assets", _refuse_as_too_long(where))
+    status, payload = _json(f"{server}/api/assets")
+    assert status == 400
+    assert payload["error"].startswith(f"Windows refused a path as too long ({len(where)} characters: {where})")
+
+    monkeypatch.setattr(ops, "clip_role", _refuse_as_too_long(where))
+    status, payload = _post(f"{server}/api/clip-role", {"clip_id": "vo", "role": "voiceover"})
+    assert status == 400
+    assert "LongPathsEnabled 1" in payload["error"]
+
+
+def test_any_other_os_error_in_a_route_is_still_not_a_400(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The control: a bug keeps its traceback, so the request gets no answer."""
+    monkeypatch.setattr(
+        ops, "assets", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "Access is denied"))
+    )
+    with pytest.raises((urllib.error.URLError, http.client.HTTPException, ConnectionError)):
+        urllib.request.urlopen(f"{server}/api/assets", timeout=5)
+
+
+@needs_ffprobe
+def test_a_job_that_hits_a_path_too_long_publishes_the_one_line(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A job flattens only proofcut's own refusals into its error event; a 206
+    used to escape it, publish nothing, and leave the window waiting forever."""
+    where = "C:\\deep\\cache\\history\\3.otio"
+    monkeypatch.setattr(ops, "seed_timeline", _refuse_as_too_long(where))
+    host, port = _host_and_port(server)
+    conn = http.client.HTTPConnection(host, port, timeout=10)
+    try:
+        conn.request("GET", "/api/events")
+        events = _sse_events(conn.getresponse())
+        next(events)
+        status, payload = _post(f"{server}/api/seed", {"clip_id": "vo"})
+        assert status == 202
+        event = _next_event(events, "seed", payload["job_id"])
+    finally:
+        conn.close()
+    assert event["status"] == "error"
+    assert event["error"].startswith(f"Windows refused a path as too long ({len(where)} characters: {where})")
 
 
 def test_seed_requires_a_clip_id(server: str) -> None:

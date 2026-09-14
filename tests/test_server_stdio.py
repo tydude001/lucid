@@ -491,6 +491,40 @@ def test_a_tool_missing_from_the_hint_table_refuses_to_register() -> None:
         server._tool()(not_a_classified_tool)
 
 
+def test_a_path_windows_refuses_as_too_long_reaches_an_agent_as_the_one_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In-process, because the refusal has to be raised from inside a tool
+    body: over MCP a 206 used to arrive as `[WinError 206]` and a filename,
+    with nothing saying what to do about it. `_tool()`'s wrapper is the one
+    place every project-addressing tool passes through."""
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from proofcut import server
+
+    where = "C:\\deep\\cache\\transcripts\\a-long-clip.json"
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        error = OSError(2, "The filename or extension is too long", where)
+        error.winerror = 206  # type: ignore[attr-defined]
+        raise error
+
+    monkeypatch.setattr(ops, "status", refuse)
+    with pytest.raises(ToolError) as refused:
+        asyncio.run(server.mcp.call_tool("timeline_status", {"path": str(tmp_path)}))
+    assert f"Windows refused a path as too long ({len(where)} characters: {where})" in str(refused.value)
+    assert "LongPathsEnabled 1" in str(refused.value)
+
+    # The control: any other OSError still reaches the agent as itself.
+    monkeypatch.setattr(ops, "status", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "Access is denied")))
+    with pytest.raises(ToolError) as other:
+        asyncio.run(server.mcp.call_tool("timeline_status", {"path": str(tmp_path)}))
+    assert "Access is denied" in str(other.value)
+    assert "too long" not in str(other.value)
+
+
 #: MCP tool -> CLI subcommand. Tool names are spelled for an agent reading a
 #: tool list; subcommands are spelled for a human typing them. Where the two
 #: differ the mapping is recorded here and asserted in both directions, so a

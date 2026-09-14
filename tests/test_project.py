@@ -562,3 +562,28 @@ def test_no_limit_is_asked_about_off_windows(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(sys, "platform", "linux")
     assert windows_long_paths() is None
     assert max_root_length() is None
+
+
+def _too_long(where: str) -> OSError:
+    error = OSError(2, "The filename or extension is too long", where)
+    error.winerror = 206  # type: ignore[attr-defined]
+    return error
+
+
+def test_refusing_path_too_long_turns_206_into_the_family_clients_already_catch() -> None:
+    """The MCP tools and the web UI's jobs flatten a `ProjectError` and let
+    everything else trace, so this is what reaches all of their `except`s."""
+    from proofcut.project import refusing_path_too_long
+
+    where = "C:\\deep\\cache\\proxy\\a-long-clip.mp4"
+    with pytest.raises(ProjectError) as refused, refusing_path_too_long():
+        raise _too_long(where)
+    assert str(refused.value).startswith(f"Windows refused a path as too long ({len(where)} characters: {where})")
+    assert isinstance(refused.value.__cause__, OSError)
+
+
+def test_refusing_path_too_long_passes_any_other_os_error_through() -> None:
+    from proofcut.project import refusing_path_too_long
+
+    with pytest.raises(PermissionError), refusing_path_too_long():
+        raise PermissionError(13, "Access is denied")

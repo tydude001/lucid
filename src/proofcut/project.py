@@ -27,11 +27,12 @@ a `clip_id` refers to, and where its media lives.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,25 @@ def path_too_long(exc: OSError) -> str | None:
         f"{WINDOWS_DIR_LIMIT} characters while long paths are off. Move the project to a "
         f"shorter folder, or turn long paths on: {LONG_PATHS_FIX}."
     )
+
+
+@contextlib.contextmanager
+def refusing_path_too_long() -> Iterator[None]:
+    """Re-raise Windows' too-long-path `OSError` inside the block as a
+    `ProjectError` carrying `path_too_long`'s line; any other `OSError` passes
+    through untouched.
+
+    For the clients that flatten proofcut's own refusals and let everything
+    else keep its traceback — the MCP tools and the web UI's jobs. Raising
+    the family they already catch is what reaches every one of their `except`
+    sites without a second clause in each."""
+    try:
+        yield
+    except OSError as exc:
+        message = path_too_long(exc)
+        if message is None:
+            raise
+        raise ProjectError(message) from exc
 
 
 class PathTooLongError(ProjectError):

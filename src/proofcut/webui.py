@@ -90,6 +90,8 @@ from proofcut.project import (
     LegacyManifestError,
     Project,
     ProjectError,
+    path_too_long,
+    refusing_path_too_long,
 )
 from proofcut.timeline import TimelineError
 from proofcut.transcript import TranscriptError
@@ -1356,10 +1358,11 @@ class RenderJob:
             # writers). Letting them also log would leave `renderlog.last`
             # reading a prefix of this run — an export with no burn stage —
             # instead of the run.
-            ops.export(
-                str(self.project_root), str(output), export_format=None, log=False,
-                **export_kwargs,
-            )
+            with refusing_path_too_long():
+                ops.export(
+                    str(self.project_root), str(output), export_format=None, log=False,
+                    **export_kwargs,
+                )
         except EXPECTED as exc:
             self._finish()
             if cancel.is_set():
@@ -1396,10 +1399,11 @@ class RenderJob:
                 # `burn` names the video to burn onto — the file `export` just
                 # wrote — never the untrimmed source (CLAUDE.md: burning onto
                 # the source lines captions up against audio that has moved).
-                result = ops.add_captions(
-                    str(self.project_root), str(output.with_suffix(".ass")),
-                    burn=str(output), log=False,
-                )
+                with refusing_path_too_long():
+                    result = ops.add_captions(
+                        str(self.project_root), str(output.with_suffix(".ass")),
+                        burn=str(output), log=False,
+                    )
             except EXPECTED as exc:
                 self._finish()
                 if cancel.is_set():
@@ -1530,7 +1534,8 @@ class ProxyJob:
         self.bus.publish("proxy", {"job_id": job_id, "status": "running", "clip_id": clip_id})
         try:
             try:
-                result = ops.proxy_transcode(str(self.project_root), clip_id, force=force)
+                with refusing_path_too_long():
+                    result = ops.proxy_transcode(str(self.project_root), clip_id, force=force)
             except EXPECTED as exc:
                 # Same rule as `RenderJob._report_error`: only proofcut's own
                 # refusals are flattened into an event. Anything else is a bug
@@ -1596,9 +1601,10 @@ class ReframeSheetJob:
         self.bus.publish("reframe-sheet", {"job_id": job_id, "status": "running"})
         try:
             try:
-                result = ops.reframe_sheet(
-                    str(self.project_root), out=out, moments=moments, extremes=extremes
-                )
+                with refusing_path_too_long():
+                    result = ops.reframe_sheet(
+                        str(self.project_root), out=out, moments=moments, extremes=extremes
+                    )
             except EXPECTED as exc:
                 self.bus.publish(
                     "reframe-sheet", {"job_id": job_id, "status": "error", "error": str(exc)}
@@ -1669,14 +1675,15 @@ class ReframeDetectJob:
         self.bus.publish("reframe-detect", {"job_id": job_id, "status": "running"})
         try:
             try:
-                result = ops.reframe_detect(
-                    str(self.project_root),
-                    clip_id=clip_id,
-                    threshold=ops.SCENE_THRESHOLD if threshold is None else threshold,
-                    frames=ops.DETECT_FRAMES if frames is None else frames,
-                    apply=False,
-                    split=split,
-                )
+                with refusing_path_too_long():
+                    result = ops.reframe_detect(
+                        str(self.project_root),
+                        clip_id=clip_id,
+                        threshold=ops.SCENE_THRESHOLD if threshold is None else threshold,
+                        frames=ops.DETECT_FRAMES if frames is None else frames,
+                        apply=False,
+                        split=split,
+                    )
             except EXPECTED as exc:
                 self.bus.publish(
                     "reframe-detect", {"job_id": job_id, "status": "error", "error": str(exc)}
@@ -1774,14 +1781,15 @@ class ImportJob:
         self.bus.publish("import", {"job_id": job_id, "status": "running", "source": source})
         try:
             try:
-                result = ops.import_media(
-                    str(self.project_root),
-                    source,
-                    clip_id=clip_id,
-                    copy=copy,
-                    mix=mix,
-                    audio_stream=audio_stream,
-                )
+                with refusing_path_too_long():
+                    result = ops.import_media(
+                        str(self.project_root),
+                        source,
+                        clip_id=clip_id,
+                        copy=copy,
+                        mix=mix,
+                        audio_stream=audio_stream,
+                    )
             except media.MultiAudioError as exc:
                 # The one refusal a client can *act* on rather than only
                 # print: the window offers to sum the mics and re-post.
@@ -1885,7 +1893,8 @@ class TranscribeJob:
                 kwargs: dict[str, Any] = {"language": language}
                 if model is not None:
                     kwargs["model"] = model
-                result = ops.transcribe(str(self.project_root), clip_id, **kwargs)
+                with refusing_path_too_long():
+                    result = ops.transcribe(str(self.project_root), clip_id, **kwargs)
             except EXPECTED as exc:
                 self.bus.publish(
                     "transcribe",
@@ -1947,9 +1956,10 @@ class SeedJob:
         self.bus.publish("seed", {"job_id": job_id, "status": "running", "clip_id": clip_id})
         try:
             try:
-                result = ops.seed_timeline(
-                    str(self.project_root), clip_id, remove_silences=remove_silences
-                )
+                with refusing_path_too_long():
+                    result = ops.seed_timeline(
+                        str(self.project_root), clip_id, remove_silences=remove_silences
+                    )
             except EXPECTED as exc:
                 # `AutoEditorError` is in `EXPECTED` for `ImportJob`'s own
                 # reason: a missing or stale auto-editor binary must arrive
@@ -2107,14 +2117,35 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routing ---------------------------------------------------------
 
+    def _answering_path_too_long(self, handle: Callable[[], None]) -> None:
+        """Run one request, answering Windows' too-long-path `OSError` as a 400.
+
+        Every route already answers proofcut's own refusals as a 400 and lets
+        anything else keep its traceback; this is the one `OSError` that is a
+        person's folder being too deep rather than a bug, and catching it
+        here reaches every route without a clause in each. It cannot reach a
+        response already under way, and needs not to: an op raises it before
+        a handler sends anything.
+        """
+        try:
+            handle()
+        except OSError as exc:
+            message = path_too_long(exc)
+            if message is None:
+                raise
+            self._fail(HTTPStatus.BAD_REQUEST, message)
+
     def do_GET(self) -> None:
-        self._route(head_only=False)
+        self._answering_path_too_long(lambda: self._route(head_only=False))
 
     def do_HEAD(self) -> None:
         # Browsers probe media with HEAD before ranging into it.
-        self._route(head_only=True)
+        self._answering_path_too_long(lambda: self._route(head_only=True))
 
     def do_POST(self) -> None:
+        self._answering_path_too_long(self._post)
+
+    def _post(self) -> None:
         url = urlparse(self.path)
         refusal = self._refusal(url.query)
         if refusal is not None:
