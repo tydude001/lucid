@@ -14151,6 +14151,16 @@ render (melt)` sat. The runner renders it in 4 s.
   delta 0. These are the numbers the v0.23.0 sync's windows-demo and
   mac-demo runs reported. Transcribe took 115 s on the CPU, with the model
   download included, and verify took 58 s.
+- **Filed as issue #3** (`windows-test`, "Windows test: Windows 11 Home,
+  x64, all steps ran"). `scripts/trial_check.py` on the attached zip passed
+  all five: ALL STEPS RAN, `frames` delta 0 at 289 of 289, `verify` 0.971,
+  `frame-3s.png` 2 from BLUE and `frame-10s.png` 4 from RUST. The home
+  folder's name appears 0 times in `report.txt`, `proofcut.json` and
+  `project.otio`. The tester is the author, so this is the first run on a
+  person's PC and not the stranger's run LAUNCH.md asks for.
+- **The editor window**, opened from the kit's closing prompt, loaded the
+  timeline, played, and seeked on a click. Switching to Frame or Finish
+  showed one error, not yet read.
 
 Two kit findings from the same run, not yet acted on:
 
