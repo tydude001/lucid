@@ -13,8 +13,9 @@ film the agent cut): [the workspace](https://github.com/tydude001/proofcut/relea
 (3:09).
 
 > **Have a Mac or a Windows PC and half an hour?** Nobody has run proofcut on
-> either yet. One script runs the whole test and removes what it installed:
-> [Mac](#help-wanted-the-first-run-on-a-mac) or [Windows](#help-wanted-the-first-run-on-windows).
+> a Mac yet, and on Windows only its author has. One script runs the whole
+> test and removes what it installed:
+> [Mac](#help-wanted-the-first-run-on-a-mac) or [Windows](#help-wanted-a-windows-run-by-someone-else).
 
 ## Why proofcut
 
@@ -206,9 +207,17 @@ you already had. Then [file the report](https://github.com/tydude001/proofcut/is
 A run that stops at the first step is just as useful, because where it stops
 is the finding.
 
-## Help wanted: the first run on Windows
+<a id="help-wanted-the-first-run-on-windows"></a>
 
-The same test, for a Windows PC. From PowerShell:
+## Help wanted: a Windows run by someone else
+
+The author's own Windows 11 laptop ran this test end to end on 2026-09-14
+([#3](https://github.com/tydude001/proofcut/issues/3)), once the one bug it
+found was fixed: the render finished its file and then never exited, which
+GitHub's runner could not show because it has no console. That is one x64 PC,
+set up by the person who wrote the script, so a run by anyone else is still
+the missing report. Windows 10 and ARM64 PCs have not been tried at all. From
+PowerShell:
 
 ```powershell
 git clone https://github.com/tydude001/proofcut
@@ -225,8 +234,9 @@ your Desktop with your home folder's name taken out; [file the report](https://g
 
 proofcut is developed on Linux (a Fedora-based desktop). On macOS and
 Windows the test suite passes on CI and GitHub's runners take the demo to a
-checked render, but no person has run it on either yet. Where each OS stands
-is in [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
+checked render. On Windows one person's PC has too, the author's; no person
+has run it on a Mac yet. Where each OS stands is in
+[docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
 
 Run `uv run proofcut doctor` to check everything below at once.
 
