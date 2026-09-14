@@ -63,13 +63,33 @@ already had. Then [file the report](https://github.com/tydude001/lucid/issues/ne
 — a run that stops at the first step is just as useful, because where it
 stops is the finding.
 
+## Help wanted: the first run on Windows
+
+Nobody has run lucid on a Windows PC either. GitHub's Windows runner takes
+the same demo to a checked render, but a runner never reads the
+instructions. If you have a PC and half an hour, from PowerShell:
+
+```powershell
+git clone https://github.com/tydude001/lucid
+powershell -ExecutionPolicy Bypass -File lucid\scripts\windows_trial.ps1
+```
+
+It downloads `uv`, `ffmpeg`, `auto-editor`, `espeak-ng`, Shotcut's renderer
+and whisper into one folder under `%LOCALAPPDATA%`, with nothing installed
+system-wide and no administrator rights, and it asks before starting. The
+same command with `-Uninstall` removes that folder. It puts
+`lucid-windows-report.zip` on your Desktop with your home folder's name taken
+out; [file the report](https://github.com/tydude001/lucid/issues/new?template=windows-test.yml)
+— a run that stops at the first step is just as useful.
+
 ## Requirements
 
 lucid is developed on Linux (a Fedora-based desktop). On macOS the test
 suite passes on CI and GitHub's macOS runner takes the demo to a checked
-render, but no person has run it on a Mac yet. Windows is in progress: its
-CI run still fails the caption-font tests. What a port takes, and where each
-OS stands, is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
+render, but no person has run it on a Mac yet. Windows is the same: the
+suite passes on CI and GitHub's Windows runner takes the demo to a checked
+render, and no person has run it on Windows yet. What a port takes, and where
+each OS stands, is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
 
 - **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
   the Python side (the only runtime dependencies are `mcp` and

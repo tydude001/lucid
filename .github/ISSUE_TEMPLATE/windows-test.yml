@@ -1,0 +1,78 @@
+name: Windows test report
+description: You ran scripts/windows_trial.ps1 on a Windows PC. Thank you — this is the report lucid most needs.
+title: "Windows test: "
+labels: [windows-test]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        lucid has never been run on a Windows PC by anyone, so a report that stopped at step one is
+        as useful as one that ran every step. The script is `scripts/windows_trial.ps1`; README.md
+        § Help wanted says how to run it, and `-Uninstall` removes what it added.
+
+        Its report has your home folder's name taken out already. The rest is a test video the
+        script generated, so nothing in the zip is yours.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: How far it got
+      description: The last lines of the run say ALL STEPS RAN or STOPPED AT.
+      options:
+        - ALL STEPS RAN
+        - STOPPED AT a step
+        - The script itself would not start
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: The summary block
+      description: Everything from `════ summary` to the end of the run.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: The report
+      description: Drag lucid-windows-report.zip from your Desktop into this box.
+    validations:
+      required: true
+  - type: dropdown
+    id: frames
+    attributes:
+      label: The two frames
+      description: |
+        In the zip, frame-3s.png should show a blue picture reading `BLUE 3s`, and frame-10s.png
+        a rust-coloured one reading `RUST 0s`. Skip this if the run stopped before the render.
+      options:
+        - Both read as described
+        - At least one does not (say what it shows below)
+        - There were no frames
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows
+      options:
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Processor
+      description: Settings → System → About → System type.
+      options:
+        - x64
+        - ARM64
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: |
+        A prompt you had to answer, a SmartScreen or antivirus warning, something that took far
+        longer than it said, a step whose output looked wrong even though it passed, or whether you
+        opened the editor window at the end and what it showed.
