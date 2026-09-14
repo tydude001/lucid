@@ -261,6 +261,8 @@ Step 9 closes the record. **The USPTO check in § Why is before step 1.**
 
 ### Step 1 — the tree
 
+Shipped — see HISTORY.md § The rename.
+
 One logical change, landed as a few reviewable commits (package move; code
 literals; tests; scripts and CI; docs), each with the suite or the relevant
 tests green before the next. The order matters only in that the package
@@ -323,6 +325,8 @@ resolves.
 
 ### Step 2 — verify against the real thing, not the suite
 
+Shipped — see HISTORY.md § The rename.
+
 - `uv run proofcut init` a fresh project in `~/lucid-work/rename-check/`,
   import `scripts/make_demo.py`'s media, transcribe, cut, export, verify —
   the DEMO.md walk, by hand, reading each return.
@@ -352,6 +356,8 @@ what it printed.
 
 ### Step 3 — the screenshots and the recordings
 
+Shipped — see HISTORY.md § The rename.
+
 - `scripts/capture_screenshots.py`, all checks intact; the new
   `docs/img/*.png` show `proofcut` in the bar and no path anywhere.
 - Re-run the recording pipeline in `~/lucid-work/launch-v4/` (or a copy
@@ -370,6 +376,8 @@ what it printed.
 notes name them.
 
 ### Step 4 — the version
+
+Shipped — see HISTORY.md § The rename.
 
 All six literals to `0.23.0`, `uv sync`, `tests/test_version.py` green,
 the annotated tag `v0.23.0` at the tip with HISTORY.md § The rename in its
