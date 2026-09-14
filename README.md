@@ -1,12 +1,47 @@
 # proofcut
 
-A source-available, local-first AI video editor. proofcut puts an AI agent on
-your timeline and keeps the whole thing on hardware you own: no cloud, no
-accounts, no metering.
+**An AI video editor that proves its cuts.** An agent edits your video by
+editing its transcript. proofcut renders the result on your own machine, then
+transcribes the render and checks that it says what the edit says.
 
 https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10
 
-The two runs it was cut from, unattended and uncut: [the workspace](https://github.com/tydude001/proofcut/releases/download/v0.22.0/lucid-v0.22.0-uncut-workspace-run.mp4) (2:25) and [Claude Code with proofcut as a plugin](https://github.com/tydude001/proofcut/releases/download/v0.22.0/lucid-v0.22.0-uncut-claude-code-run.mp4) (3:10). No audio: the screen recorder took frames only, and the voice is inside the film the agent cut.
+Above: an agent cutting a demo video, unattended. The two runs it was cut
+from, uncut (silent: the recorder took frames only, and the voice is in the
+film the agent cut): [the workspace](https://github.com/tydude001/proofcut/releases/download/v0.23.0/proofcut-v0.23.0-uncut-workspace-run.mp4)
+(2:26) and [Claude Code with the proofcut plugin](https://github.com/tydude001/proofcut/releases/download/v0.23.0/proofcut-v0.23.0-uncut-claude-code-run.mp4)
+(3:09).
+
+> **Have a Mac or a Windows PC and half an hour?** Nobody has run proofcut on
+> either yet. One script runs the whole test and removes what it installed:
+> [Mac](#help-wanted-the-first-run-on-a-mac) or [Windows](#help-wanted-the-first-run-on-windows).
+
+## Why proofcut
+
+- **It checks its own work.** `verify` transcribes the finished file and
+  diffs it word by word against the timeline, so a retake left in the film is
+  caught before anyone watches it. Frame counts and the picture are measured
+  too, because ffmpeg, melt and auto-editor all exit 0 on some failures.
+- **Cuts stay addressable.** Every word in a recording keeps a fixed index
+  that never renumbers, so `cut vo 111:114` names the same words however many
+  cuts came before it. `--plan` prints what a range says before anything
+  changes, and `restore` and `undo` walk it back.
+- **Built for agents.** 90 MCP tools with typed inputs and structured
+  returns, so Claude Code, Codex or your own agent can drive it. Tools like
+  `shot-sheet` return an image of the edit, not a file path the agent can't
+  open.
+- **One engine, three ways in.** The MCP server, the `proofcut` command line
+  and a browser workspace all call the same operations. Every tool has a
+  matching command (the test suite enforces it), so anything an agent does,
+  you can script or re-run by hand.
+- **Local-first.** Commercial AI editors are apps around a metered cloud
+  service. proofcut transcribes, edits and renders on your machine, and calls
+  no cloud service of its own: no account, no per-minute billing. The only
+  thing that talks to a model provider is the agent you choose to run (the
+  optional footage-description and voice models download once, on first use).
+- **No lock-in.** The timeline is OpenTimelineIO. Export a `.kdenlive` or
+  OTIO file, finish in Resolve, Premiere or Kdenlive, and bring your trim back
+  with `import-edit`.
 
 ![The proofcut workspace on the demo project: the transcript with a retake struck
 through, the preview drawing the shot under the playhead with its captions, the
@@ -14,149 +49,66 @@ side rail on its agent tab reporting a finished render against the timeline,
 and the layered timeline below — picture, waveform and captions as three
 projections of one edit](docs/img/edit-mode.png)
 
-**Try it:** [docs/DEMO.md](docs/DEMO.md) is the whole loop in two minutes, on
-media proofcut makes itself. It starts with what to install.
+## How it works
 
-## The idea
+Every hard part of an editor already exists as mature open source. proofcut
+is the layer that lets an agent drive them, and check what they produced:
 
-Most of editing is finding the parts worth keeping, and that work is turning
-into a conversation. Trim by transcript, drop the silences, caption the rest,
-lay pictures over the voiceover — an agent can do all of it, if something
-gives it real tools to do it with. The products built on that idea so far are
-desktop apps wrapped around a metered cloud service, billing transcription
-hours, processing hours and agent calls.
-
-Every hard primitive under such a product already exists as mature open
-source:
-
-| Capability | Open-source primitive |
+| Job | Done by |
 |---|---|
-| Cutting, concat, captions, rendering | ffmpeg |
-| Local transcription (30+ languages) | openai-whisper |
+| Cutting, concatenating, captions, rendering | ffmpeg |
+| Word-timed transcription (30+ languages) | openai-whisper |
 | Silence and bad-take removal | auto-editor |
-| Timeline data model + NLE export | OpenTimelineIO (FCPXML, etc.) |
+| The timeline, and export to other editors | OpenTimelineIO |
 | Layered rendering (b-roll, cards, music) | MLT |
-| Title and end cards | SVG templates, rasterised by ImageMagick |
-
-proofcut is the orchestration layer on top: an MCP server that exposes those
-primitives as editing tools to any agent that speaks MCP (Claude Code, Codex,
-your own), so "cut the part where I stumble and caption the rest" becomes a
-chat message instead of an afternoon.
-
-It ships as three clients of one engine, all driving the same operations: a
-CLI, an MCP server (every tool has a matching subcommand, enforced by the
-test suite), and a browser workspace — transcript, preview, a draggable
-timeline, framing review and export, with the agent in the window. The
-non-goals are permanent: no cloud, no accounts, no metering.
-
-## Help wanted: the first run on a Mac
-
-Nobody has ever run proofcut on a Mac. If you have one and half an hour, one
-script installs what proofcut needs, makes a short test video, has proofcut cut,
-render and check it, and puts a report on your Desktop:
-
-```sh
-git clone https://github.com/tydude001/proofcut
-bash proofcut/scripts/mac_trial.sh
-```
-
-It installs `uv`, `ffmpeg-full`, `espeak-ng` and `auto-editor` with Homebrew (and
-Homebrew, if you have none), the Shotcut app for its renderer, and whisper,
-and it asks before starting. It keeps a list of what it added, and `bash
-proofcut/scripts/mac_trial.sh --uninstall` removes exactly that and nothing you
-already had. Then [file the report](https://github.com/tydude001/proofcut/issues/new?template=mac-test.yml)
-— a run that stops at the first step is just as useful, because where it
-stops is the finding.
-
-## Help wanted: the first run on Windows
-
-Nobody has run proofcut on a Windows PC either. GitHub's Windows runner takes
-the same demo to a checked render, but a runner never reads the
-instructions. If you have a PC and half an hour, from PowerShell:
-
-```powershell
-git clone https://github.com/tydude001/proofcut
-powershell -ExecutionPolicy Bypass -File proofcut\scripts\windows_trial.ps1
-```
-
-It downloads `uv`, `ffmpeg`, `auto-editor`, `espeak-ng`, Shotcut's renderer
-and whisper into one folder under `%LOCALAPPDATA%`, with nothing installed
-system-wide and no administrator rights, and it asks before starting. The
-same command with `-Uninstall` removes that folder. It puts
-`proofcut-windows-report.zip` on your Desktop with your home folder's name taken
-out; [file the report](https://github.com/tydude001/proofcut/issues/new?template=windows-test.yml)
-— a run that stops at the first step is just as useful.
-
-## Requirements
-
-proofcut is developed on Linux (a Fedora-based desktop). On macOS the test
-suite passes on CI and GitHub's macOS runner takes the demo to a checked
-render, but no person has run it on a Mac yet. Windows is the same: the
-suite passes on CI and GitHub's Windows runner takes the demo to a checked
-render, and no person has run it on Windows yet. What a port takes, and where
-each OS stands, is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
-
-- **Python 3.13** and [uv](https://docs.astral.sh/uv/) — `uv sync` installs
-  the Python side (the only runtime dependencies are `mcp` and
-  OpenTimelineIO).
-- **ffmpeg / ffprobe** on `PATH`, built with `libx264`, freetype and libass —
-  every media operation goes through them, the demo labels its footage with
-  `drawtext`, and captions burn through libass. Fedora's default `ffmpeg-free`
-  has no `libx264`; swap in RPM Fusion's `ffmpeg`. Homebrew's `ffmpeg` has
-  neither freetype nor libass; install `ffmpeg-full` and put
-  `$(brew --prefix ffmpeg-full)/bin` first on `PATH`, since it is keg-only.
-- **[auto-editor](https://github.com/WyattBlue/auto-editor) 31+** — silence
-  removal and single-source rendering. Install the upstream binary; the PyPI
-  package is a stale 29.x.
-- **whisper** — transcription and render verification. A subprocess, never an
-  import: any `openai-whisper` install works (`uv tool install
-  openai-whisper` is the short route), resolved via `PROOFCUT_WHISPER`, then
-  `PATH`. Without an NVIDIA GPU, add `--torch-backend cpu`. The default pulls
-  CUDA torch, 5.5 GB against 1.9 GB. The CPU build transcribed the demo's
-  19-second voiceover in 33 seconds.
-- **MLT (`melt`)** — renders layered timelines (b-roll, cards, music). Your
-  distribution's `melt` package (`mlt` on Fedora, whose `melt` package is an
-  unrelated compression tool), or a Kdenlive install (the flatpak's own is
-  found automatically); `PROOFCUT_MELT` overrides both.
-
-Run `proofcut doctor` to check all of this at once — it probes every binary,
-reports what it found and where, and names the fix for anything missing.
-
-Optional, feature-gated — `proofcut doctor` reports each as available or not,
-and everything else works without them:
-
-- **ImageMagick 7 (`magick`)** — rasterises title and end cards. Distributions
-  that still package ImageMagick 6 (Ubuntu 24.04 does) need
-  ImageMagick's own build; IM6's `convert` is not used.
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`,
-  logged in) — the agent pane in the workspace. `proofcut mcp` works with any
-  MCP client; only the pane spawns `claude` itself.
-- **`PROOFCUT_VLM`** — the python of a venv with torch, transformers,
-  bitsandbytes and Pillow, on a CUDA GPU. Powers `describe` (b-roll search by
-  what's on screen); the Qwen2.5-VL model downloads on first use.
-- **`PROOFCUT_FACE`** — the python of a venv with insightface, onnxruntime and
-  opencv-python. Powers `reframe-detect` (face-aware crop proposals).
-- **`PROOFCUT_TTS`, `PROOFCUT_TTS_MODEL` and `PROOFCUT_TTS_VOICE`** — a python with
-  qwen-tts and a CUDA torch, a local Qwen3-TTS snapshot, and a directory
-  holding a reference clip of the voice. Powers `vo-synth`. There is no
-  default voice, on purpose.
+| Title and end cards | SVG templates, rendered by ImageMagick |
 
 ## Try it
 
-**No footage handy?** [docs/DEMO.md](docs/DEMO.md) is the whole loop in two
-minutes on media the repo generates rather than ships — cut a retake by naming
-the words, hang b-roll off a phrase, render, and have proofcut check the render
-against the timeline:
+Check your machine first. `proofcut doctor` probes every tool proofcut uses
+and prints the fix for anything missing ([§ Requirements](#requirements) has
+the list).
 
 ```sh
+git clone https://github.com/tydude001/proofcut && cd proofcut
 uv sync
-uv run python scripts/make_demo.py ~/proofcut-demo   # a voiceover with a real retake
+uv run proofcut doctor
 ```
 
-With your own voiceover, end to end:
+### The two-minute demo
+
+No footage needed. [docs/DEMO.md](docs/DEMO.md) generates a voiceover with a
+real retake, then walks the whole loop: cut the retake by naming its words,
+hang b-roll off a phrase, render, and check the render against the timeline.
 
 ```sh
-uv sync
+uv run python scripts/make_demo.py ~/proofcut-demo
+```
+
+### In Claude Code
+
+The plugin registers proofcut's MCP server, so all 90 tools are available
+with no setup of your own:
+
+```
+/plugin marketplace add tydude001/proofcut
+/plugin install proofcut@proofcut
+```
+
+The first start downloads about 175 MB of Python dependencies, and Claude
+Code gives a server 30 seconds to connect. On a slow connection, start that
+first session as `MCP_TIMEOUT=300000 claude`. If `/mcp` already shows proofcut
+as failed, reconnect it there; the download keeps what it fetched.
+
+Any other MCP client runs the same server:
+
+```sh
+uv run --project /path/to/proofcut proofcut mcp
+```
+
+### On your own recording
+
+```sh
 uv run proofcut init myproject
 uv run proofcut -C myproject import VO.wav --clip-id vo
 uv run proofcut -C myproject transcribe vo                  # whisper, word-timed
@@ -168,160 +120,204 @@ uv run proofcut -C myproject export final.mp4 --render      # or a .kdenlive to 
 uv run proofcut -C myproject verify final.mp4               # did the render say what you edited?
 ```
 
-Or watch it instead of reading it — the workspace plays the source through
+To watch the edit instead, open the workspace. It plays the source through
 the edit, so seeing a cut costs no render:
 
 ```sh
-uv run proofcut -C myproject open       # server + an app window, reopens where you left off
-uv run proofcut -C myproject web --open # the same page in an ordinary tab
+uv run proofcut -C myproject open        # server plus an app window
+uv run proofcut -C myproject web --open  # the same page in a browser tab
 ```
 
-To let an agent drive the same project over MCP:
+## What it does
+
+One line each. The [manual](docs/MANUAL.md) covers every command and the
+reasoning behind it.
+
+**Editing**
+
+- **Cut by transcript.** Word ranges, phrases, or spans of timeline time, all
+  undoable.
+- **The workspace.** Edit (transcript, preview, drag-trim and razor), Frame
+  (review every crop in place) and Finish (presets, verify, and the finished
+  file). The truth strip warns while you edit if the film would ship wrong.
+- **Captions from the timeline.** They stay right after cuts, and the style
+  is saved with the project. Karaoke highlight, sidecar ASS, or burned in.
+- **Multi-mic recordings.** A file with two mics is refused until you say how
+  to use it (`--mix` or `--audio-stream k`), and `attribute-speakers` labels
+  each word with who said it.
+
+**Checking**
+
+- **Render verification.** `verify` diffs the render's words against the
+  timeline. `frames`, `film-check`, `black` and `spots` check the picture.
+- **Transcript self-checks.** Retake seams, invented words, swallowed repeats
+  and suspect durations are reported when a transcript is attached, and
+  `unspoken` lets the render itself testify to words nobody said.
+- **An agent that can look.** `shot-sheet` draws the whole picture track as
+  one labelled grid, and `footage-sheet` browses a clip you haven't cut yet.
+  Both return the image itself over MCP.
+
+**Picture**
+
+- **B-roll by description.** `describe` writes what is on screen in each
+  ~10-second window of footage, and a cue table lays clips and cards over the
+  voiceover by word index.
+- **Cards.** Six SVG title and end card templates, rendered at the project's
+  own frame size. Change the size and they are flagged stale, and `card
+  reauthor` redraws them at the new size instead of stretching them.
+- **Reframing.** Per-shot crop windows for aspect changes, face-aware
+  proposals (`reframe-detect`), a review sheet, and stacked splits for two
+  speakers.
+- **Layered rendering.** Timelines with b-roll, cards or music render through
+  MLT, and the output file is measured, not trusted.
+- **Derived reels.** `reel` cuts part of the film into a new project, such as
+  a vertical teaser. It reports every picture it dropped and pins the ones it
+  kept.
+- **NLE round-trip.** Export to Kdenlive or OTIO, finish elsewhere, and
+  `import-edit` the trim back.
+
+![Frame mode: a shot list beside the selected shot's windows — each crop
+drawn as a rect on three of the source's own frames, over a filmstrip of the
+whole shot with the sampled instants ticked on it, the window's rect quoted
+in source pixels, Approve/Re-frame beside it, and coverage chips for stale
+framing and unexplained steps](docs/img/frame-mode.png)
+
+proofcut is 0.x software. A project from an older version is refused rather
+than guessed at, and `proofcut migrate` brings it forward.
+
+## Help wanted: the first run on a Mac
+
+GitHub's macOS runner takes the demo to a checked render, but a runner never
+reads the instructions, and no person has run proofcut on a Mac. If you have
+one and half an hour, one script installs what proofcut needs, makes a short
+test video, has proofcut cut, render and check it, and puts a report on your
+Desktop. It asks before it starts.
 
 ```sh
-claude mcp add proofcut -- uv run --project /path/to/proofcut proofcut mcp
+git clone https://github.com/tydude001/proofcut
+bash proofcut/scripts/mac_trial.sh
 ```
 
-In Claude Code, the plugin is the shorter route — it registers the same MCP
-server, so the 90 editing tools are there without an `mcp add` of your own:
+It installs `uv`, `ffmpeg-full`, `espeak-ng` and `auto-editor` with Homebrew
+(and Homebrew itself if you have none), plus the Shotcut app for its renderer
+and whisper. It records what it added, and `bash
+proofcut/scripts/mac_trial.sh --uninstall` removes exactly that and nothing
+you already had. Then [file the report](https://github.com/tydude001/proofcut/issues/new?template=mac-test.yml).
+A run that stops at the first step is just as useful, because where it stops
+is the finding.
 
+## Help wanted: the first run on Windows
+
+The same test, for a Windows PC. From PowerShell:
+
+```powershell
+git clone https://github.com/tydude001/proofcut
+powershell -ExecutionPolicy Bypass -File proofcut\scripts\windows_trial.ps1
 ```
-/plugin marketplace add tydude001/proofcut
-/plugin install proofcut@proofcut
-```
 
-The plugin's first start downloads proofcut's Python and its dependencies, about
-175 MB, and Claude Code gives a server 30 seconds to connect. On a slower
-line, start that first session as `MCP_TIMEOUT=300000 claude`; if `/mcp`
-already shows proofcut as failed, reconnect it there — the download keeps what
-it fetched.
+It downloads `uv`, `ffmpeg`, `auto-editor`, `espeak-ng`, Shotcut's renderer
+and whisper into one folder under `%LOCALAPPDATA%`. Nothing is installed
+system-wide and it needs no administrator rights. The same command with
+`-Uninstall` deletes that folder. It puts `proofcut-windows-report.zip` on
+your Desktop with your home folder's name taken out; [file the report](https://github.com/tydude001/proofcut/issues/new?template=windows-test.yml).
 
-## What's in the box
+## Requirements
 
-One line each here; the [manual](docs/MANUAL.md) walks every one of these
-with the reasoning behind each behaviour.
+proofcut is developed on Linux (a Fedora-based desktop). On macOS and
+Windows the test suite passes on CI and GitHub's runners take the demo to a
+checked render, but no person has run it on either yet. Where each OS stands
+is in [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md).
 
-- **Cut by transcript** — word indices address the *original* recording and
-  never renumber, so a range stays valid however many cuts pile up; `--plan`
-  echoes the words an index resolves to before anything is written, and
-  `restore`/`undo` walk it back.
-- **The workspace** — Edit (transcript, preview, drag-trim and razor), Frame
-  (every crop window reviewable in place), Finish (presets, verify, the
-  finished file playable in the page), with a truth strip that says while you
-  edit whether the film would ship wrong.
-- **Captions from the timeline, not the transcript** — they stay correct
-  after cuts, and the look is project state, so a restyle survives every
-  later edit. Karaoke highlight, sidecar ASS, or ffmpeg burn-in.
-- **Transcript self-checks** — retake seams, invented words, swallowed
-  repeats and suspect durations are reported at attach; `unspoken` lets the
-  render itself testify to words nobody said.
-- **Multi-mic recordings** — a container with two mics is refused until you
-  say what it is (`--mix` sums, `--audio-stream k` keeps one), and
-  `attribute-speakers` labels each word with who said it.
-- **Render verification** — `verify` transcribes the finished file and diffs
-  it against what the timeline should play, which catches the one defect
-  nothing else can: a retake still in the picture. `frames`, `film-check`,
-  `black` and `spots` cover the picture side.
-- **B-roll by description** — `describe` writes what is visible in each
-  ~10-second window of footage; reading it back *is* the search, and a cue
-  table addressed by word index lays clips and cards over the voiceover.
-- **An agent that can look** — `shot-sheet` draws the whole picture track as one
-  labelled grid and `footage-sheet` browses a clip you have not cut yet, both
-  returning the *image* over MCP rather than a path an agent cannot open. The
-  second needs no edit and no transcript, which is the point: it is for footage
-  with no dialogue to search. What they show is a hypothesis; the checks above
-  are what settle one.
-- **Cards** — six SVG templates rasterised at the project's own canvas,
-  recorded so a canvas change re-authors them instead of stretching them.
-- **Reframing** — per-shot source-pixel crop windows for aspect changes,
-  face-aware proposals (`reframe-detect`), a review sheet that draws every
-  window on its own frames, and stacked splits for two-handers.
+Run `uv run proofcut doctor` to check everything below at once.
 
-  ![Frame mode: a shot list beside the selected shot's windows — each crop
-  drawn as a rect on three of the source's own frames, over a filmstrip of the
-  whole shot with the sampled instants ticked on it, the window's rect quoted
-  in source pixels, Approve/Re-frame beside it, and coverage chips for stale
-  framing and unexplained steps](docs/img/frame-mode.png)
-- **Derived reels** — `reel` cuts a span of the film into a new project for a
-  vertical teaser, reporting every picture it dropped and pinning every one
-  it kept, so the reel shows what the film showed.
-- **NLE round-trip** — export a `.kdenlive`/OTIO project, finish in
-  Resolve/Premiere/Kdenlive, or `import-edit` the trim you made there back.
-- **Layered rendering** — a timeline with a cue table or a second clip is
-  written as MLT and rendered by `melt`, and the finished file is measured
-  rather than trusted, because both upstream renderers exit 0 on failure.
+| You need | For | Notes |
+|---|---|---|
+| **Python 3.13** and [uv](https://docs.astral.sh/uv/) | everything | `uv sync` installs the Python side. The only runtime dependencies are `mcp` and OpenTimelineIO. |
+| **ffmpeg / ffprobe** built with `libx264`, freetype and libass | every media operation, captions | Fedora's default `ffmpeg-free` has no `libx264`: use RPM Fusion's `ffmpeg`. On a Mac, Homebrew's `ffmpeg` lacks freetype and libass: install `ffmpeg-full` and put `$(brew --prefix ffmpeg-full)/bin` first on `PATH` (it is keg-only). |
+| **[auto-editor](https://github.com/WyattBlue/auto-editor) 31+** | silence removal, single-source renders | Install the upstream binary. The PyPI package is a stale 29.x. |
+| **whisper** | transcription, render verification | Any `openai-whisper` install. `uv tool install openai-whisper` is the short route; add `--torch-backend cpu` without an NVIDIA GPU (1.9 GB instead of 5.5 GB). Found via `PROOFCUT_WHISPER`, then `PATH`. The CPU build transcribed the demo's 19-second voiceover in 33 seconds. |
+| **MLT (`melt`)** | layered renders (b-roll, cards, music) | Your distribution's MLT package (`mlt` on Fedora, whose `melt` package is an unrelated compression tool), or Kdenlive, whose flatpak copy is found automatically. `PROOFCUT_MELT` overrides both. |
 
-## Status
+Optional. Each unlocks one feature, `proofcut doctor` reports whether it is
+available, and everything else works without it:
 
-All three planned tiers are built and in daily use: the headless MCP server +
-CLI, the preview/timeline web page, and the full workspace with the agent in
-the window. Multi-track — clips and cards laid over the voiceover from a
-word-indexed cue table — is built end to end, and `export --render` measures
-the finished file rather than trusting a renderer that exits 0 on failure.
-It is still 0.x software: an old project is refused rather than guessed at,
-and `proofcut migrate` brings it forward.
+| Optional | Unlocks | Notes |
+|---|---|---|
+| **ImageMagick 7** (`magick`) | title and end cards | ImageMagick 6's `convert` is not used, so distributions that still ship 6 (Ubuntu 24.04) need ImageMagick's own build. |
+| **[Claude Code](https://docs.claude.com/en/docs/claude-code)** (`claude`, logged in) | the agent pane in the workspace | `proofcut mcp` works with any MCP client; only the pane runs `claude` itself. |
+| **`PROOFCUT_VLM`** | `describe` (b-roll search by what's on screen) | The python of a venv with torch, transformers, bitsandbytes and Pillow, on a CUDA GPU. The Qwen2.5-VL model downloads on first use. |
+| **`PROOFCUT_FACE`** | `reframe-detect` (face-aware crops) | The python of a venv with insightface, onnxruntime and opencv-python. |
+| **`PROOFCUT_TTS`**, **`PROOFCUT_TTS_MODEL`**, **`PROOFCUT_TTS_VOICE`** | `vo-synth` (a line in a cloned voice) | A python with qwen-tts and a CUDA torch, a local Qwen3-TTS snapshot, and a directory holding a reference clip of the voice. There is no default voice, on purpose. |
 
-## Development
+## Working on proofcut
+
+Whether you're a person or a coding agent, start with
+[CLAUDE.md](CLAUDE.md). It holds the rules and the traps this repo has
+already hit, and Claude Code loads it automatically.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the short version a pull request is
+checked against, and [SECURITY.md](SECURITY.md) says how to report a
+vulnerability.
+
+Where things live:
+
+| Path | What it is |
+|---|---|
+| `src/proofcut/ops.py` | Every operation. The MCP tools, the CLI and the web UI all call these. |
+| `src/proofcut/server.py` | The MCP server. Register tools with `@_tool()`, never `@mcp.tool()`. |
+| `src/proofcut/cli.py` | The `proofcut` command: one subcommand per tool, printing JSON. |
+| `src/proofcut/webui.py`, `src/proofcut/web/` | The workspace. It posts to `ops` and renders what comes back; it never decides anything itself. |
+| `src/proofcut/project.py`, `timeline.py` | The project manifest (`proofcut.json`) and the OTIO timeline. |
+| `tests/` | `test_server_stdio.py` drives a real `proofcut mcp` subprocess; `test_webui_http.py` a real socket. |
+| `scripts/` | The demo maker, the Mac and Windows trial kits, screenshot capture. |
+| `docs/` | The manual, the demo, and the design record (below). |
+
+Run the checks:
 
 ```sh
 uv sync
+uv run ruff check .      # never `ruff format`; see CONTRIBUTING.md
 uv run pytest
 ```
 
-The suite spawns a real `proofcut mcp` subprocess and speaks MCP over its stdio,
-so expect it to be a little slower than a pure unit suite. Tests that need
-whisper, auto-editor, melt or ImageMagick skip where the binary is absent. The
-seven tests that render through `melt` also need a desktop session, or on a
-headless box `QT_QPA_PLATFORM=offscreen` where your MLT honours it and
-`xvfb-run -a` where it does not (`proofcut doctor` renders a probe frame to tell
-you which). Without one they fail with "no display for MLT's Qt module to
-open", which is the environment, not a regression.
-
-[CONTRIBUTING.md](CONTRIBUTING.md) has the rules a pull request is checked
-against, and [SECURITY.md](SECURITY.md) how to report a vulnerability.
+The suite talks to a real `proofcut mcp` subprocess, so it is slower than a
+pure unit suite. Tests that need whisper, auto-editor, melt or ImageMagick
+skip when the tool is missing. Tests that render through `melt` also need a
+display: on a headless machine use `QT_QPA_PLATFORM=offscreen` or `xvfb-run
+-a` (`proofcut doctor` tells you which your MLT needs). Without one they fail
+with "no display for MLT's Qt module to open", which is the environment, not a
+regression.
 
 ## Documentation
 
-Start with the manual; the rest is here because proofcut's reasoning is part of
-what it ships.
+- [docs/MANUAL.md](docs/MANUAL.md): every command, with the reasoning.
+- [docs/DEMO.md](docs/DEMO.md): the whole loop in two minutes.
 
-- [docs/MANUAL.md](docs/MANUAL.md) — every command, with the rationale.
-- [docs/DEMO.md](docs/DEMO.md) — the whole loop in two minutes, on footage
-  the repo generates.
+proofcut's reasoning is part of what it ships, so the design record is public:
 
-**Live — what proofcut is and what it learned.**
-
-- [PLAN.md](docs/PLAN.md) — architecture, stack decisions, open questions.
-- [HISTORY.md](docs/HISTORY.md) — the dated record of what shipped and what the
-  evidence said, first real video included.
-- [PRIOR-ART.md](docs/PRIOR-ART.md) — the survey of what else exists in this space
-  and what proofcut does that they don't.
-- [NEXT.md](docs/NEXT.md) — the three directions after the queues closed, ranked.
-- [TRIAL.md](docs/TRIAL.md) — an agent cutting a video end to end, unattended and
-  scored, plus the queue its failures became.
-
-**Shipped plans — [docs/plans/](docs/plans).** Each was built to completion; they
-are kept because the design reasoning and the measurements behind it are cited
-throughout the code, not because any work is outstanding.
-
-- [DAYDREAM.md](docs/plans/DAYDREAM.md) — the feature map drawn from
-  [Daydream](https://www.daydreamvideo.com), the closest commercial product.
-- [STUDIO.md](docs/plans/STUDIO.md) — the Home/Edit/Frame/Finish workspace,
-  which supersedes the Daydream build order where the two conflict.
-- [POLISH.md](docs/plans/POLISH.md) — the works-for-anyone pass: doctor, the
-  demo project, manifest-aware undo.
+- [PLAN.md](docs/PLAN.md): architecture, stack decisions, open questions.
+- [HISTORY.md](docs/HISTORY.md): the dated record of what shipped and what the
+  evidence said.
+- [PRIOR-ART.md](docs/PRIOR-ART.md): what else exists in this space, and what
+  proofcut does that they don't.
+- [NEXT.md](docs/NEXT.md): the directions after the queues closed, ranked.
+- [TRIAL.md](docs/TRIAL.md): an agent cutting a video end to end, unattended
+  and scored.
+- [docs/plans/](docs/plans): the plans. LAUNCH.md, PORTABILITY.md and
+  RENAME.md are in progress. Three are finished and kept because the code
+  cites their reasoning: [DAYDREAM.md](docs/plans/DAYDREAM.md), the
+  feature map from [Daydream](https://www.daydreamvideo.com), the closest
+  commercial product; [STUDIO.md](docs/plans/STUDIO.md), the workspace
+  design; and [POLISH.md](docs/plans/POLISH.md), the works-for-anyone pass.
 
 ## License
 
-[PolyForm Shield 1.0.0](LICENSE) — that covers the code. It is
-source-available rather than open source: you can read it, run it, change it
-and redistribute it for any purpose except one, which is providing a product
-that competes with proofcut. Cutting your own videos with it, building on it,
-running it for clients, forking it to fix a bug — all fine. Shipping it, or a
-derivative, as a rival editor is the one reserved use. Anyone who wants that
-can ask for a commercial licence.
+[PolyForm Shield 1.0.0](LICENSE). proofcut is source-available, not open
+source: you can read, run, change and redistribute it for any purpose except
+building a product that competes with it. Cutting your own videos, running it
+for clients, building on it and forking it to fix a bug are all fine. For a
+commercial licence, ask.
 
-The vendored typefaces are not proofcut's to relicense: the caption face under
-`src/proofcut/fonts/` and the three browser faces under `src/proofcut/web/` are
-OFL-1.1, each shipping its licence text beside it and its provenance in that
+The bundled typefaces are not proofcut's to relicense. The caption face in
+`src/proofcut/fonts/` and the three browser faces in `src/proofcut/web/` are
+OFL-1.1, each with its licence text beside it and its source in that
 directory's `FONTS.md`.
