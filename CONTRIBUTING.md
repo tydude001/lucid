@@ -60,8 +60,20 @@ seven tests that render through `melt` also need a display. Without one, try
 ## Commits
 
 Prefix commit messages with `feat:`, `fix:`, `docs:` or `chore:`. A change a
-user can call bumps the minor version, in both `pyproject.toml` and
-`src/lucid/__init__.py` (`tests/test_version.py` checks the two match).
+user can call bumps the minor version, which is a hand-typed literal in six
+files — `pyproject.toml`, `src/lucid/__init__.py`, `server.json` and the
+three launch listings under `.claude-plugin/` — held together by
+`tests/test_version.py`.
+
+## How a pull request lands
+
+GitHub is a mirror of the maintainer's own git server, so a pull request is
+never merged with GitHub's merge button. The maintainer fetches your branch,
+merges it on their side, and the next mirror sync carries it up; GitHub then
+marks the pull request merged on its own once your head commit reaches
+`main`. If the merge has to be squashed or reworked, the SHAs change and the
+pull request is closed by hand with a note naming the commit your work landed
+in. Either way, nothing is lost and you will be credited in the commit.
 
 By contributing, you license your contribution to the project under the
 [MIT licence](https://opensource.org/license/mit) — inbound MIT, outbound
