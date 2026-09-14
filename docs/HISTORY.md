@@ -13662,3 +13662,34 @@ size+mtime cache key, which this stamp was modelled on, is untouched — a
 cache key that misses a same-tick rewrite recomputes a waveform, which is
 the cheap direction, where a staleness check that misses one discards
 somebody's edit.
+
+## The registry listing — 2026-09-13
+
+LAUNCH.md § Step 4's first listing, the same evening as § The launch.
+`mcp-publisher` v1.8.1 (the registry's own release binary, into
+`~/.local/bin`) validated `server.json` against the live registry, Tyler
+logged in through GitHub's device flow, and the publish was his hand — the
+session's own attempt was refused as a public-surface action, correctly.
+Read back from the public API, `io.github.tydude001/lucid` is `active`,
+`isLatest`, version 0.22.0, published 2026-09-14T01:17Z, with the entry
+exactly as the repo's `server.json` states it: no `packages` block, the
+repository, and `websiteUrl` at docs/DEMO.md.
+
+- **PulseMCP is this listing** — its submissions are paused and it reads
+  the registry (LISTINGS.md). **Glama still answers 404** for the server
+  page a few minutes after the publish; it has no submission page (every
+  `/add`-shaped URL redirects to a search), so the registry entry and the
+  root `glama.json` are the whole of what lucid can do, and the
+  awesome-mcp-servers line waits on its badge resolving.
+- **The Claude Code plugin was proven from the public repo the same hour**,
+  in an isolated `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  tydude001/lucid` cloned and validated, `claude plugin install
+  lucid@lucid` installed 0.22.0, and `claude mcp list` reported
+  `plugin:lucid:lucid` connected through `uv run --project <cache> lucid
+  mcp`. `claude plugin details` prints "MCP servers (0)" for it — that view
+  counts a plugin's `.mcp.json`, not the inline `mcpServers` the manifest
+  uses — so a reading of that line alone would have called the plugin
+  broken; the health check is the measurement.
+
+What each listing sends back is the number the next release's listing
+order is chosen by (LAUNCH.md § Step 4, *What to watch*): none yet.

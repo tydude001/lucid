@@ -328,7 +328,8 @@ twos, with time to fix what they find.
   docs/DEMO.md instead. If lucid is ever published to PyPI, that block is
   the one thing to add. Re-check the schema URL at publish time; the
   mechanics have changed more than once. Shipped — see HISTORY.md § The
-  registry entry and the plugin manifest.
+  registry entry and the plugin manifest. **Published 2026-09-13** — see
+  HISTORY.md § The registry listing.
 - **The community directories** — PulseMCP, Glama, Smithery, and a pull
   request to the `awesome-mcp-servers` list under its media/video heading.
   Each takes the repo URL, the description and the release; none needs
