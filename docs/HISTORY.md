@@ -13859,3 +13859,67 @@ make names a… Um, no, let me try that again" and `cut vo 11:23` holds.
 
 The suite: 2092 passed on the untouched tree (a worktree at `84817d5`, the
 baseline), 2113 passed and 1 skipped — the face-detector test, because this session carries `LUCID_FACE` and not yet `PROOFCUT_FACE`; with `PROOFCUT_FACE` set to the same interpreter its file is 25 of 25 on the renamed one.
+
+### Step 2 — the real thing
+
+Every check here ran against the renamed tree, under `~/lucid-work/rename-check/`,
+not the suite.
+
+**DEMO.md's walk, by hand.** `make_demo.py`, then init through `frames`, every
+command as written with the demo path swapped: all exit 0, `verify`
+0.971 with 34 of 34 heard, `frames` agrees at delta 0. The manifest is
+`proofcut.json`; `project.otio` carries the `"proofcut"` key on the timeline
+and all four clips and no `"lucid"`; the render staged in `~/proofcut-render`
+and `~/lucid-render`'s mtime did not move. **The walk found the doc wrong,
+not the code**: the voiceover now says "proofcut", about 0.15s longer than
+"lucid", so every example duration was off by more than DEMO.md's own
+third-decimal allowance — `timeline_duration` 16.67 → 16.833, the retake
+search 7.44–8.9 → 7.6–9.06, `duration_after` 11.866 → 12.006, 286 frames →
+289. Word indices, the `--plan` echo, `removed` 4.7/4.8, four segments and
+0.971 all held. The examples are from this run now. The walk also found
+DEMO.md promising a `text` field on `transcribe`'s return, which has had
+none since the day DEMO.md was written; it says a count now.
+
+**Migration on a copy of `~/lucid-demo/proj`** — a real pre-rename project:
+`lucid.json`, five `"lucid"` OTIO keys, fourteen history files.
+`status` and `info` refused, exit 1, naming `proofcut migrate`. `migrate
+--plan` answered `steps: ["lucid.json -> proofcut.json"]`, `timeline_keys:
+5`, and every file's sha256 was unchanged. `migrate` moved the manifest
+byte-for-byte, wrote `cache/history/lucid-v4.json`, turned the live otio's
+five keys to `"proofcut"`, and left all fourteen history files
+byte-identical. `status`, `info`, `shots` read. **`undo` put back
+`history/8.otio` — old key — and every read still resolved**; the control,
+a copy with neither key, refuses `no proofcut metadata`, so the fallback is
+what made it read. A second undo walked further back; the next edit stamped
+only the new key; a second `migrate` was a no-op with no second backup. A
+directory holding both manifests refused `status`, `migrate`, `migrate
+--plan` and `undo` alike, and `init` refused a legacy directory.
+`~/lucid-demo` hashed the same before and after.
+
+**MCP and the plugin, in an isolated `CLAUDE_CONFIG_DIR`** (claude 2.1.270,
+env scrubbed; `~/.claude` untouched, checked by mtime and grep). `claude mcp
+add -s user proofcut -- … -m proofcut.cli -C mcp-proj mcp` then `claude mcp
+list`: `proofcut: … ✔ Connected`. A direct SDK client: `serverInfo.name`
+proofcut, 90 tools, and `lucid` in no tool schema but `migrate_project`'s,
+which names the old file on purpose. `claude plugin marketplace add` on the
+checkout and `claude plugin install proofcut@proofcut` succeeded with no
+login, and `claude mcp list` showed `plugin:proofcut:proofcut: uv run
+--project … proofcut mcp - ✔ Connected`.
+
+**The browser, through `verify-live`**, every click at 0ms and 120ms. The
+bar's `.brand` and `document.title` read proofcut, no console errors (the
+capture calibrated with an injected one). The picker over
+`~/lucid-work/rename-check` drew the legacy copy with its `lucid.json` badge
+and the two-manifest copy as refused by name. The theme toggle rebuilt the
+waveform canvas at both dwells, ink flipping 249,249,246 ↔ 20,20,16, and
+`proofcut.theme` survived a reload — **with a control**: a hand-sent
+`lucid:theme` redraws nothing and `proofcut:theme` does, so the event is
+renamed on both ends rather than merely firing. A real drag from the
+assets row to V2 carried `application/x-proofcut-asset` and placed a cue
+through `/api/cue` at both dwells (both undone). The agent pane's banner
+says it reaches the timeline through proofcut's tools; one turn's init event
+listed `proofcut` connected with 90 tools, it called
+`mcp__proofcut__timeline_status`, and its answer matched `proofcut status`
+(12.006s, 289 frames); New Task killed the child. The overflow probes at
+1400px and 700px, every mode and rail tab, found nothing — the brand grew
+from five characters to eight, and `#bar` at 700px is where that bites.

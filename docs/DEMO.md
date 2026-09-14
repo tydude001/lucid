@@ -6,7 +6,7 @@ hung two b-roll clips off phrases in the transcript, rendered the result, and
 had proofcut confirm the render says what the timeline says.
 
 Every command below is verbatim. The output sketches are from a real run on
-2026-08-24 — yours will differ in the third decimal place and in whatever
+2026-09-13 — yours will differ in the third decimal place and in whatever
 whisper hears, and that is the point of the last step.
 
 ## What you need
@@ -89,8 +89,8 @@ links the media where it lies.
 uv run proofcut -C ~/proofcut-demo/proj transcribe vo
 ```
 
-whisper, with word timings. Expect **~47 words** and a `text` field that reads
-back the script, disfluencies and all. This is the slow step; on a laptop
+whisper, with word timings. Expect **~47 words** — a count; the next step reads
+the words back, disfluencies and all. This is the slow step; on a laptop
 without a GPU it is a minute or two.
 
 ```sh
@@ -101,8 +101,8 @@ auto-editor strips the silences and what is left becomes the timeline.
 
 ```
 "segments": 4,
-"source_duration": 18.55,
-"timeline_duration": 16.67,
+"source_duration": 18.708,
+"timeline_duration": 16.833,
 "silences_removed": true
 ```
 
@@ -115,7 +115,7 @@ uv run proofcut -C ~/proofcut-demo/proj transcript vo --search "let me try that 
 ```
 
 ```json
-{"first_word": 19, "last_word": 23, "start": 7.44, "end": 8.9,
+{"first_word": 19, "last_word": 23, "start": 7.6, "end": 9.06,
  "text": "let me try that again."}
 ```
 
@@ -158,7 +158,7 @@ uv run proofcut -C ~/proofcut-demo/proj cut vo 11:23 --pad 0.1
 
 ```
 "removed": 4.8,
-"duration_after": 11.866,
+"duration_after": 12.006,
 "segments": 4
 ```
 
@@ -182,8 +182,8 @@ uv run proofcut -C ~/proofcut-demo/proj shots
 ```
 
 ```
-0.00 + 9.66  blue
-9.66 + 2.21  rust
+0.00 + 9.79  blue
+9.79 + 2.21  rust
 ```
 
 Two shots. Note that a cue survives a cut — it names a *word*, not a second,
@@ -200,7 +200,7 @@ auto-editor — proofcut picks the writer from the project, never from a flag.
 
 ```
 "writer": "melt", "shots": 2, "sources": 3,
-"timeline_duration": 11.866, "frames": 286
+"timeline_duration": 12.006, "frames": 289
 ```
 
 Now the step that matters:
