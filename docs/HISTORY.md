@@ -13614,9 +13614,11 @@ social preview was his. The public repo is <https://github.com/tydude001/lucid>.
   follow the tag and reach GitHub at the next sync. Until then the tip's
   kit sends a Windows tester to a form GitHub does not have yet.
 - **Not done.** `FUNDING.yml` waits on the Sponsors listing, which still
-  read `hasSponsorsListing: false` at the end of the session. LAUNCH.md
-  step 3 item 7, a pointer to docs/DEMO.md above the fold, went to Tyler as
-  a proposal: docs/DEMO.md is first linked at README.md's line ~141.
+  read `hasSponsorsListing: false` at the end of the session.
+- **LAUNCH.md step 3 item 7.** docs/DEMO.md was first linked at README.md's
+  line ~141, below both Help wanted sections and Requirements. Tyler approved
+  a one-line **Try it:** pointer under the screenshot, and nothing else
+  moved. It reached GitHub after the release.
 
 LAUNCH.md's done-when holds, each part read logged out: the URL unfurls
 with the image and the tagline, the Security tab offers a report, a release

@@ -12,6 +12,9 @@ side rail on its agent tab reporting a finished render against the timeline,
 and the layered timeline below — picture, waveform and captions as three
 projections of one edit](docs/img/edit-mode.png)
 
+**Try it:** [docs/DEMO.md](docs/DEMO.md) is the whole loop in two minutes, on
+media lucid makes itself. It starts with what to install.
+
 ## The idea
 
 Most of editing is finding the parts worth keeping, and that work is turning
