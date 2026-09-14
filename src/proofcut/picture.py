@@ -447,7 +447,7 @@ def qt_draws(env: dict[str, str]) -> bool | None:
         document.write_text(_QT_PROBE, encoding="utf-8")
         subprocess.run(
             [*melt, str(document), "-consumer", f"avformat:{frame}", "vcodec=png"],
-            capture_output=True, env=env, timeout=60, check=False,
+            capture_output=True, env=env, timeout=60, check=False, stdin=subprocess.DEVNULL,
         )  # fmt: skip
         if not frame.exists() or frame.stat().st_size == 0:
             return None
@@ -537,6 +537,7 @@ def project_frames(project: Path | str) -> int:
             env=display_env(),
             timeout=MELT_TIMEOUT,
             check=False,
+            stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:
         raise PictureError(f"could not run melt: {' '.join(command)}") from exc
@@ -823,9 +824,21 @@ def render(
             *command,
         ]  # fmt: skip
 
+    # stdin is DEVNULL because melt with its output piped and a console on its
+    # stdin writes the whole file and then never exits: on a Windows 11 laptop
+    # this exact call hung past 60 s and exited in 1.3 s with stdin=DEVNULL,
+    # while the console left on stdin with output to the console, or to NUL,
+    # exited too. CI's runner has no console, so it never showed there.
+    # HISTORY.md § The render that never exited.
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, env=env, timeout=timeout, check=False
+            command,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+            check=False,
+            stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as exc:
         raise PictureError(f"could not run melt: {' '.join(command)}") from exc

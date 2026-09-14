@@ -305,9 +305,11 @@ class _FakeMelt:
 
     def __init__(self) -> None:
         self.command: list[str] = []
+        self.kwargs: dict[str, object] = {}
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         self.command = command
+        self.kwargs = kwargs
         target = next(a for a in command if a.startswith("avformat:")).removeprefix("avformat:")
         Path(target).write_bytes(b"a render, honestly")
         return subprocess.CompletedProcess(command, 0, "", "")
@@ -358,6 +360,21 @@ def test_the_consumer_gets_the_codec_and_nothing_else(
 
     assert melt.command[-4:] == list(picture.RENDER_ARGS)
     assert not [a for a in melt.command if a.split("=")[0] in {"width", "height", "progressive", "ab"}]
+
+
+def test_the_render_never_hands_melt_the_console_as_stdin(
+    melt: _FakeMelt, tmp_path: Path
+) -> None:
+    """melt with its output captured and a console on stdin writes the whole
+    file and then never exits — a first real Windows PC sat on it for minutes
+    while CI's console-less runner rendered in 4 s. Nothing on Linux or CI
+    reproduces the hang, so the call's own argument is what is held."""
+    project = tmp_path / "timeline.mlt"
+    project.write_text("<mlt/>", encoding="utf-8")
+
+    picture.render(project, tmp_path / "out.mp4", expect_frames=150)
+
+    assert melt.kwargs.get("stdin") is subprocess.DEVNULL
 
 
 def test_the_render_is_staged_under_the_scratch_root_then_copied(

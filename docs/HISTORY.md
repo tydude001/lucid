@@ -14108,3 +14108,49 @@ back from the public side:
   proofcut@proofcut`, and `claude mcp list` shows it connected.
 
 Glama is not checked yet; RENAME.md gives it a day.
+
+## The render that never exited — 2026-09-14
+
+The first person-run of `scripts/windows_trial.ps1`, on Tyler's own laptop
+(Windows 11 Home 10.0.26200, Intel Core Ultra 5 125U, 15 GB, PowerShell
+5.1.26100.9444, commit `6a5cadf`). Every step through `DEMO 5 shots` ran as
+windows-demo's do — downloads, whisper on CPU, doctor ✓ on everything
+required, the retake found and cut, both cues placed — and then `DEMO 6
+render (melt)` sat. The runner renders it in 4 s.
+
+- **melt had finished and not exited.** Started 08:50:34, `demo.mp4` last
+  written 08:50:36 at 216,024 bytes, 3.3 s of CPU, and idle from then on.
+  `picture.render` waits on its exit with a four-hour timeout.
+- **The first guess was wrong.** "A console on stdin puts melt in its key
+  loop" predicted melt run by hand from PowerShell would hang too; it exited,
+  with `< NUL` and without.
+- **The measurement.** The venv's own Python, the same melt, the same
+  `timeline.mlt`, four `subprocess.run` shapes with a 60 s timeout:
+
+  | stdout/stderr | stdin     | result                    |
+  |---------------|-----------|---------------------------|
+  | captured      | inherited | **hung, killed at 60 s**  |
+  | captured      | `DEVNULL` | exited 0 in 1.3 s         |
+  | console       | inherited | exited 0 in 1.5 s         |
+  | `DEVNULL`     | inherited | exited 0 in 1.4 s         |
+
+  Every one wrote the same 216,024-byte file. The first row is
+  `picture.render`'s call exactly. CI's runner has no console on stdin, so
+  the hang cannot show there, and did not.
+- **The fix** is `stdin=subprocess.DEVNULL` on all three melt calls in
+  `picture.py` — the render, `project_frames`' `-consumer xml`, and
+  `qt_draws`' probe — which `melt_version` already passed. Only the render
+  was measured to hang; the other two share its shape. The guard is
+  `test_the_render_never_hands_melt_the_console_as_stdin`, which fails with
+  the fix stashed. Nothing off Windows reproduces the hang, so the test holds
+  the argument, not the behaviour; the laptop's re-run is the check.
+
+Two kit findings from the same run, not yet acted on:
+
+- `uv sync` took the laptop's own Python 3.13.2 from `AppData\Local\Programs`
+  rather than a uv-managed one in the kit folder, so "one folder" and the
+  `-Uninstall` note about the `.venv` losing its Python are both untrue on a
+  PC with a 3.13 installed. `UV_PYTHON_PREFERENCE=only-managed` beside the
+  kit's other `UV_*` variables is the likely fix.
+- uv 0.12.13, the kit's pin, warns that `build-system.requires`'
+  `uv-build>=0.11.26,<0.12.0` does not contain it. The build succeeds.
