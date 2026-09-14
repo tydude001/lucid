@@ -653,10 +653,16 @@ absent optional capability is "unavailable", never a failure, and never moves
   is spawned into its own session, so killing a harness leaves the agent
   editing. `write_manifest`/`restore` now refuse (`ProjectConflictError`)
   rather than silently clobbering when the manifest moved under a stale
-  read — `Project._manifest_stamp`, the mtime `waveform/`'s own cache key
-  already uses, applied to staleness — but nothing stops the two agents from
+  read — `Project._manifest_stamp`, a sha256 of the manifest's bytes read
+  back off disk after every write — but nothing stops the two agents from
   starting in the first place; one of them just loses cleanly now instead of
-  losing silently. HISTORY.md § The trial's queue, closed.
+  losing silently. HISTORY.md § The trial's queue, closed. **The stamp was
+  the file's mtime until 2026-09-13, and a clock is the wrong witness**:
+  Windows stamps two writes inside one ~15ms timer tick with the same mtime,
+  so the refusal passed one CI run and failed the next on identical source.
+  Never compare mtimes to ask whether bytes changed; `waveform/`'s size+mtime
+  cache key keeps the idiom only because its miss recomputes rather than
+  discards. HISTORY.md § The stamp that was a clock.
   - **`--source` runs it over real footage, and the material is the only
     thing it moves** — same client, same confinement, same `score()`. It
     refuses a `--source` that is itself a lucid project, which is the

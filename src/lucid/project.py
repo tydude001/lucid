@@ -27,6 +27,7 @@ a `clip_id` refers to, and where its media lives.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections.abc import Callable
@@ -126,6 +127,14 @@ class ProjectConflictError(ProjectError):
     ProjectError`/`EXPECTED` handler already catches it as a refusal; the
     distinct type is for a caller that wants to tell "stale write" apart
     from every other reason a project call can fail."""
+
+
+def _manifest_digest(path: Path) -> str:
+    """The stamp `_manifest_stamp` holds: a hash of the file's bytes as they
+    are on disk, read back after every write rather than computed from what
+    was handed to `json.dump` — text mode on Windows writes `\r\n`, so the
+    bytes written and the bytes on disk are not the same string."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # -- schema migration --------------------------------------------------------
@@ -271,18 +280,23 @@ class Project:
     #: handle stays hashable and comparable by root exactly as before.
     _taken: list[Snapshot] = field(default_factory=list, compare=False, repr=False)
 
-    #: The manifest's on-disk mtime (nanoseconds) as of this instance's last
+    #: A digest of the manifest's on-disk bytes as of this instance's last
     #: `read_manifest()`, or empty for "never read here yet". `write_manifest`
-    #: compares the file's *current* mtime against this before writing: a
+    #: compares the file's *current* bytes against this before writing: a
     #: mismatch means another writer — a second `lucid web`, an agent panel,
     #: a CLI command run beside either — wrote the manifest after this
     #: instance last read it, and writing blind now would silently discard
     #: that write the way it always has (TRIAL.md § Nothing in lucid notices
-    #: two writers in one project). `waveform/`'s own size+mtime cache key is
-    #: the same idiom, applied to detecting staleness instead of avoiding
-    #: recompute. A dict rather than a plain field for `_taken`'s own reason:
-    #: mutated in place on a frozen dataclass, never reassigned.
-    _manifest_stamp: dict[str, int] = field(default_factory=dict, compare=False, repr=False)
+    #: two writers in one project). It was the file's mtime until 2026-09-13,
+    #: `waveform/`'s size+mtime cache-key idiom applied to staleness — and a
+    #: clock is the wrong witness for "did the bytes change": Windows stamps
+    #: two writes inside one timer tick with the same mtime, so a second
+    #: writer landing within ~15ms of the first read as no writer at all
+    #: (HISTORY.md § The stamp that was a clock). The manifest is a few KB,
+    #: so hashing it costs nothing a stat would not. A dict rather than a
+    #: plain field for `_taken`'s own reason: mutated in place on a frozen
+    #: dataclass, never reassigned.
+    _manifest_stamp: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
 
     # -- layout ----------------------------------------------------------
 
@@ -505,9 +519,9 @@ class Project:
         latest = existing[-1]
 
         if latest.manifest is not None:
-            expected = self._manifest_stamp.get("mtime_ns")
+            expected = self._manifest_stamp.get("digest")
             if expected is not None and self.manifest_path.exists():
-                current = self.manifest_path.stat().st_mtime_ns
+                current = _manifest_digest(self.manifest_path)
                 if current != expected:
                     raise ProjectConflictError(
                         f"{self.manifest_path} changed on disk since it was last "
@@ -524,7 +538,7 @@ class Project:
         if latest.manifest is not None:
             shutil.copy2(latest.manifest, self.manifest_path)
             latest.manifest.unlink()
-            self._manifest_stamp["mtime_ns"] = self.manifest_path.stat().st_mtime_ns
+            self._manifest_stamp["digest"] = _manifest_digest(self.manifest_path)
         return latest
 
     # -- lifecycle -------------------------------------------------------
@@ -637,15 +651,14 @@ class Project:
     # -- manifest --------------------------------------------------------
 
     def read_manifest(self) -> dict[str, Any]:
+        raw = self.manifest_path.read_bytes()
         try:
-            mtime_ns = self.manifest_path.stat().st_mtime_ns
-            with self.manifest_path.open(encoding="utf-8") as fh:
-                manifest = json.load(fh)
-        except json.JSONDecodeError as exc:
+            manifest = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ProjectError(f"{self.manifest_path} is not valid JSON: {exc}") from exc
         if not isinstance(manifest, dict):
             raise ProjectError(f"{self.manifest_path} must contain a JSON object")
-        self._manifest_stamp["mtime_ns"] = mtime_ns
+        self._manifest_stamp["digest"] = hashlib.sha256(raw).hexdigest()
         return manifest
 
     def write_manifest(self, manifest: dict[str, Any], *, snapshot: bool = True) -> None:
@@ -667,7 +680,7 @@ class Project:
 
         **Refuses rather than clobbering when the file moved under this
         instance.** If `read_manifest` was called here and the manifest's
-        on-disk mtime has since changed, a second writer touched this project
+        on-disk bytes have since changed, a second writer touched this project
         in between — a second `lucid web`, an agent panel, a CLI command
         beside either (TRIAL.md § Nothing in lucid notices two writers in one
         project) — and writing `manifest` now would silently discard theirs,
@@ -675,9 +688,9 @@ class Project:
         (`_manifest_stamp` empty): `Project.create`'s first write and `reel`'s
         seeding of a project mid-construction have nothing to conflict with.
         """
-        expected = self._manifest_stamp.get("mtime_ns")
+        expected = self._manifest_stamp.get("digest")
         if expected is not None and self.manifest_path.exists():
-            current = self.manifest_path.stat().st_mtime_ns
+            current = _manifest_digest(self.manifest_path)
             if current != expected:
                 raise ProjectConflictError(
                     f"{self.manifest_path} changed on disk since it was last read "
@@ -693,4 +706,4 @@ class Project:
             json.dump(manifest, fh, indent=2, sort_keys=True)
             fh.write("\n")
         tmp.replace(self.manifest_path)
-        self._manifest_stamp["mtime_ns"] = self.manifest_path.stat().st_mtime_ns
+        self._manifest_stamp["digest"] = _manifest_digest(self.manifest_path)

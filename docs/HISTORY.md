@@ -13623,3 +13623,42 @@ social preview was his. The public repo is <https://github.com/tydude001/lucid>.
 LAUNCH.md's done-when holds, each part read logged out: the URL unfurls
 with the image and the tagline, the Security tab offers a report, a release
 exists, and the Mac issue is pinned.
+
+## The stamp that was a clock — 2026-09-13
+
+The first ci run after the Windows leg could fail the job (34793271514, a
+docs-and-ci.yml commit) failed it: 1 of 2,048,
+`test_undo_refuses_when_the_manifest_moved_past_the_snapshot_it_read`, "DID
+NOT RAISE ProjectConflictError". The run before it, on the same source, had
+passed all 2,048 on the same runner image. So it was timing, and the
+mechanism was `_manifest_stamp` (§ The trial's queue, closed, item 4): the
+manifest's `st_mtime_ns` as of the last `read_manifest()`, compared against
+the file's current mtime before a write or a restore. Windows updates a
+file's write time from the system clock, which advances at the timer
+interrupt — about every 15ms — so a second writer landing inside the tick
+after the first read leaves the mtime exactly where the stale instance saw
+it, and the refusal that exists to catch a second writer reads "unchanged".
+On Linux and macOS the same two writes are nanoseconds apart and never
+collide, which is why the test had been green on every run before this one.
+
+**The stamp is a sha256 of the manifest's bytes now**, and `_manifest_digest`
+reads it back off disk after every write rather than hashing what was handed
+to `json.dump` — text mode on Windows writes `\r\n`, so the string written
+and the bytes on disk are not the same thing, and a stamp computed from the
+former would refuse every write on Windows. `read_manifest` reads the bytes
+once and parses from them. A digest is exact where a clock is a proxy: two
+writes that leave identical bytes are not a conflict, and nothing is lost
+by the overwrite; two that differ are one however close together they land.
+The manifest is a few kilobytes, so the hash costs nothing a `stat` did not.
+
+The test is not weakened — it is the same test, and it passes. A second one,
+`test_a_second_write_inside_the_same_clock_tick_is_still_a_conflict`, does
+what Windows did on purpose: after the second writer's `write_manifest` it
+sets the file's mtime back to what the stale instance read, asserts the
+mtime is unchanged, and requires the refusal to fire anyway. Run against
+the previous `project.py` as a control it fails with the same "DID NOT
+RAISE" the runner reported; with the digest it passes. `waveform/`'s
+size+mtime cache key, which this stamp was modelled on, is untouched — a
+cache key that misses a same-tick rewrite recomputes a waveform, which is
+the cheap direction, where a staleness check that misses one discards
+somebody's edit.

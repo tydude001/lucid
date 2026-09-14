@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -269,3 +270,25 @@ def test_undo_refuses_when_the_manifest_moved_past_the_snapshot_it_read(tmp_path
         stale.restore()
 
     assert Project.open(root).read_manifest()["name"] == "written-by-second"
+
+
+def test_a_second_write_inside_the_same_clock_tick_is_still_a_conflict(tmp_path: Path) -> None:
+    """The stamp is a digest of the bytes, not the file's mtime. Windows
+    stamps two writes inside one timer tick (~15ms) with the same mtime, and
+    with an mtime stamp the refusal above passed on one CI run and failed on
+    the next with no code change between them (ci run 34793271514). Pin the
+    mtime back to what the stale instance saw, so a clock-based check would
+    read "unchanged", and the refusal has to fire on the bytes alone."""
+    root = tmp_path / "demo"
+    first = Project.create(root)
+    stale = Project.open(root)
+    held = stale.read_manifest()
+    seen = first.manifest_path.stat()
+
+    second = Project.open(root)
+    second.write_manifest({**second.read_manifest(), "name": "written-by-second"})
+    os.utime(first.manifest_path, ns=(seen.st_atime_ns, seen.st_mtime_ns))
+    assert first.manifest_path.stat().st_mtime_ns == seen.st_mtime_ns
+
+    with pytest.raises(ProjectConflictError, match="changed on disk"):
+        stale.write_manifest({**held, "name": "written-by-stale"})

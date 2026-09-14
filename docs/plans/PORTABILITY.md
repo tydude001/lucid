@@ -306,8 +306,11 @@ ci.yml only): Windows failed
 writer's `write_manifest` left the same `st_mtime_ns` as the first's, so
 `_manifest_stamp` (mtime alone) cannot see two writes inside one Windows
 file-time tick. The test is right and the stamp is the defect; the fix is a
-stamp that changes on every write (content hash, or mtime with `st_ino`
-and size), still to be chosen.
+stamp that changes on every write. **Chosen and built the same evening: a
+sha256 of the manifest's bytes**, read back off disk after every write. A
+new test pins the mtime back to what the stale instance saw and the refusal
+still fires; against the old stamp that test does not raise. HISTORY.md
+§ The stamp that was a clock.
 
 **5b — `scripts/windows_trial.ps1`, the Mac kit's twin.** Same contract as
 `mac_trial.sh`: it asks before starting, records everything it adds,
