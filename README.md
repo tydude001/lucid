@@ -6,6 +6,8 @@ on hardware you own: no cloud, no accounts, no metering.
 
 https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10
 
+The two runs it was cut from, unattended and uncut: [the workspace](https://github.com/tydude001/lucid/releases/download/v0.22.0/lucid-v0.22.0-uncut-workspace-run.mp4) (2:25) and [Claude Code with lucid as a plugin](https://github.com/tydude001/lucid/releases/download/v0.22.0/lucid-v0.22.0-uncut-claude-code-run.mp4) (3:10). No audio: the screen recorder took frames only, and the voice is inside the film the agent cut.
+
 ![The lucid workspace on the demo project: the transcript with a retake struck
 through, the preview drawing the shot under the playhead with its captions, the
 side rail on its agent tab reporting a finished render against the timeline,

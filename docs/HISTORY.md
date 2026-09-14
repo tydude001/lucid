@@ -13693,3 +13693,48 @@ repository, and `websiteUrl` at docs/DEMO.md.
 
 What each listing sends back is the number the next release's listing
 order is chosen by (LAUNCH.md § Step 4, *What to watch*): none yet.
+
+## The uncut runs — 2026-09-13
+
+LAUNCH.md § Step 1's last open item: the full runs the 47-second clip was cut
+from, on a link under it, for anyone who wants to check it was not staged.
+They had never been videos. `record_full.py` keeps a window run as timed
+JPEG frames (`runs/<stamp>/frames/index.jsonl`, epoch `ts` per frame, 2560x1440),
+and the terminal run is `term.cast` drawn into the same format by
+`render_term.py`; `clip.py` samples both by time and never needed a file
+that plays. So `~/lucid-work/launch-v4/uncut/encode.py` writes an ffmpeg
+concat list with each frame's own duration from the index and encodes at
+real time — 1920x1080, 30fps, x264 crf 22, limited-range `yuv420p`. The
+first pass carried the JPEG source's full-range flag through
+(`yuvj420p`), which some players draw washed out; `in_range=pc:out_range=tv`
+on the scale plus `-color_range tv` is the fix, and both files were re-cut.
+
+| Run | Source | Frames | Span | Encoded | Size |
+|---|---|---|---|---|---|
+| workspace, `runs/20260913-174219` | the mic run behind clip-v6 | 5001 | 144.9s | 145.0s | 4.4 MB |
+| Claude Code, `mcp/runs/20260913-175033` | the terminal run behind clip-v6 | 3804 | 190.2s | 190.2s | 4.0 MB |
+
+No audio, and the README says so: the screencast captured frames only, and
+the voice is inside the film the agent cut, not on the desktop.
+
+**Whether either could show a path was settled before encoding, not
+after.** The terminal run prints the home directory in its header and in
+every tool call, and `render_term.py` draws it as `~` (§ The launch clip,
+approved); frames at 5s, 95s and 186s read back so. The window run's event
+stream carries `/var/home/<user>/lucid-work/launch-v4/…` 49 times — every
+tool call's `path` and most results — and none of it is drawn: the agent's
+own prose never named an absolute path (checked over the stream), and
+`agent.js` puts a tool's input and its result preview into the step's
+`title` attribute only, a hover tooltip, which a headless CDP screencast
+cannot capture because a native tooltip is not part of the page. Frames at
+20s, 80s and 140s and the final report read back clean. This is a
+mechanism-plus-sample argument, not OCR; the box has no `tesseract`.
+
+They live as assets on the `v0.22.0` release — the permalink the plan
+already had, rather than a third-party share link that expires or meters —
+uploaded by Tyler's hand, since the session's `gh release upload` was refused
+as a public-surface action the way the registry publish was. README.md
+links both under the clip; a release-download link is not a
+`user-attachments` URL, so GitHub draws it as a link and not a second
+player. LAUNCH.md § Step 1's done-when closes, and the Show HN draft's
+`[uncut run]` placeholder points at the release.

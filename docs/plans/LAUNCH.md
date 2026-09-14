@@ -130,7 +130,10 @@ brief through `POST /api/agent` (the panel's route) so the run in the video
 is the run the trial measured — no second script, no drift.
 
 **Done when:** the cut exists at 1920x1080, the uncut runs are on a share
-link, and both are viewable on Tyler's phone. **No vertical cut** (Tyler,
+link, and both are viewable on Tyler's phone. **The uncut runs are assets
+on the `v0.22.0` release** (2026-09-13) — the plan's own permalink, not a
+third-party share — and README.md links them under the clip. HISTORY.md
+§ The uncut runs. **No vertical cut** (Tyler,
 2026-09-13): every channel in steps 3–6 plays 16:9, a 16:9 editor window
 cropped to a phone column loses most of what it shows, and the one vertical
 outlet here, step 6's making-of short, is the slow channel and can have its
@@ -381,7 +384,7 @@ thread. Draft:
 > an MCP server, so any agent that speaks MCP (Claude Code, Codex, your own)
 > can cut by transcript, hang b-roll off phrases, caption, render, and then
 > check the render against the edit. Here is one doing that unattended,
-> start to finish: [clip] / [uncut run]. Two things people will ask:
+> start to finish: [clip](https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10) / [the uncut runs](https://github.com/tydude001/lucid/releases/tag/v0.22.0). Two things people will ask:
 >
 > *Licence.* PolyForm Shield — source-available; you can read, run, modify
 > and redistribute it, and the one thing reserved is shipping a competing
