@@ -662,8 +662,13 @@ def _stream_file(handler: BaseHTTPRequestHandler, source: Path, *, head_only: bo
                 break
             try:
                 handler.wfile.write(chunk)
-            except (BrokenPipeError, ConnectionResetError):
+            except ConnectionError:
                 # A seek aborts the in-flight range. Routine, not an error.
+                # `ConnectionError`, not its two Linux children: Windows
+                # reports the same abort as ConnectionAbortedError
+                # (WinError 10053), which printed a traceback per seek on
+                # the first person-run PC. HISTORY.md § The editor on
+                # Windows, looked at.
                 return
             remaining -= len(chunk)
 

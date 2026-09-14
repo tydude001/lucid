@@ -14177,3 +14177,44 @@ the kit sets `UV_PYTHON_PREFERENCE=only-managed` beside its other `UV_*`
 variables, and the pin is `uv_build>=0.11.26,<0.13.0` — uv-build 0.12.0–0.12.13
 are on PyPI, this box's uv 0.11.26 still builds the wheel, and `uv lock
 --check` is clean, since `build-system` is not in the lock.
+
+## The editor on Windows, looked at — 2026-09-14
+
+The kit again on Tyler's laptop, at `d2261d3`, with the editor opened from
+its closing prompt and DevTools on it — to read the one error Frame or
+Finish showed after § The render that never exited.
+
+- **Both kit fixes held.** `uv sync` downloaded CPython 3.13.15 into the kit
+  folder and rebuilt `.venv` on it, rather than taking the laptop's 3.13.2
+  from `AppData\Local\Programs`; proofcut built from source with no
+  `uv_build` warning. `ALL STEPS RAN`: 289 of 289 frames, `verify` 0.971,
+  `frames` delta 0, the same numbers as the run before it.
+- **The first attempt stopped at the first download** on a lone `504
+  Gateway Time-out` from GitHub's release host; the same URL answered 200
+  from here seconds later, and the next attempt ran. The kit now tries each
+  download three times, 10 s and 20 s apart. A SHA-256 mismatch is still
+  never retried. Unmeasured on a person's PC; windows-demo runs it.
+- **The Frame/Finish "error" is the TikTok / Reels preset card refusing**,
+  and not a Windows defect. Every request in DevTools' Network list
+  answered 200, the Console was empty, and the Finish view drew
+  `tiktok-reels`' own refusal — a 9:16 preset on the demo's 640x360 canvas —
+  as a red card, full text, before anything was clicked. The refusal is
+  correct and has no platform branch. **It is still a finding about the
+  card**: the author read an unchosen preset's refusal as the view failing,
+  so a stranger will. Also seen, and also not Windows: the truth strip's
+  `framing — not scanned` beside a Frame view showing the finished scan
+  (`finish_report`'s `framing` is opt-in, so the strip is right about its own
+  report and contradicts the pane under it).
+- **A seek printed a traceback per aborted stream.** `_stream_file` caught
+  `BrokenPipeError` and `ConnectionResetError`, the two names Linux gives a
+  client dropping an in-flight range; Windows names it
+  `ConnectionAbortedError` (WinError 10053), which escaped to
+  `socketserver`'s handler and printed. Network's `blue — (canceled)` row is
+  the abort. The page never saw it. The catch is `ConnectionError`, their
+  common parent; `test_a_client_abandoning_a_stream_ends_it_quietly` calls
+  `_stream_file` with a writer raising each of the three, and fails for the
+  Windows one with the fix stashed. No socket here produces that name, so the
+  test holds the argument, not the behaviour.
+- Doctor reported no `claude` on the laptop, so the agent pane — and the
+  unmeasured `claude.cmd` tree-kill question in PORTABILITY.md 5e — was not
+  reached.

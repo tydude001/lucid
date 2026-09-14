@@ -1069,6 +1069,32 @@ def test_an_unsatisfiable_range_is_refused_rather_than_served_wrong(server: str)
     assert "error" in payload
 
 
+@pytest.mark.parametrize("abort", [BrokenPipeError, ConnectionResetError, ConnectionAbortedError])
+def test_a_client_abandoning_a_stream_ends_it_quietly(tmp_path: Path, abort: type[OSError]) -> None:
+    """A seek drops the in-flight range, and each OS names that differently:
+    Linux says broken pipe or reset, Windows `ConnectionAbortedError`
+    (WinError 10053), which escaped and printed a traceback per seek on a
+    real Windows PC. No socket here reproduces the Windows name, so this
+    calls `_stream_file` directly with a writer that raises it — the
+    argument is held, not the behaviour; the laptop's run is the check."""
+    source = tmp_path / "clip.bin"
+    source.write_bytes(b"x" * 1024)
+
+    class Writer:
+        def write(self, chunk: bytes) -> int:
+            raise abort()
+
+    class Handler:
+        headers = http.client.HTTPMessage()
+        wfile = Writer()
+
+        def send_response(self, status: object) -> None: ...
+        def send_header(self, name: str, value: str) -> None: ...
+        def end_headers(self) -> None: ...
+
+    webui._stream_file(Handler(), source, head_only=False)  # type: ignore[arg-type]
+
+
 def test_head_on_media_answers_without_a_body(server: str) -> None:
     status, headers, body = _get(f"{server}/api/media/vo", method="HEAD")
     assert status == 200

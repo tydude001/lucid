@@ -237,7 +237,21 @@ function Get-Pinned($Piece) {
     New-Item -ItemType Directory -Force -Path $downloads | Out-Null
     $file = Join-Path $downloads ([IO.Path]::GetFileName($Piece.Url))
     Say "downloading $($Piece.Url)"
-    Invoke-WebRequest -UseBasicParsing -Uri $Piece.Url -OutFile $file
+    # Three tries: GitHub's release downloads answer a lone 504 now and then, and one stopped a
+    # person's run at the first step (HISTORY.md, "The editor on Windows, looked at"). 5.1's
+    # Invoke-WebRequest has no -MaximumRetryCount. A SHA-256 mismatch below is never retried.
+    for ($try = 1; ; $try++) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $Piece.Url -OutFile $file
+            break
+        }
+        catch {
+            if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+            if ($try -ge 3) { throw }
+            Say "try $try failed ($($_.Exception.Message.Trim())), trying again in $(10 * $try)s"
+            Start-Sleep -Seconds (10 * $try)
+        }
+    }
     $got = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($got -ne $Piece.Sha256) {
         Remove-Item -LiteralPath $file -Force
