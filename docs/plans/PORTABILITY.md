@@ -1,8 +1,8 @@
-# lucid — the portability plan: macOS and Windows
+# proofcut — the portability plan: macOS and Windows
 
 Provenance: a survey on 2026-09-10 answering "what would it take to make
 lucid run on Windows and Mac", made by grepping `src/lucid` for every
-platform-shaped assumption and reading each one. lucid has never been run
+platform-shaped assumption and reading each one. proofcut has never been run
 on either (README.md § Requirements says so), and every render-side trap in
 CLAUDE.md was measured on one Fedora box. The finding that frames this
 plan: **the Python side is nearly portable already and one line crashes on
@@ -27,30 +27,30 @@ named section, the step here gains a one-line "Shipped — see HISTORY.md §
 - Repo conventions bind throughout (CLAUDE.md § Conventions). The ones this
   plan leans on: `doctor` judges melt by its `-version` banner and *runs*
   whisper; an absent optional capability is "unavailable", never a failure;
-  every resolver takes a `LUCID_*` override first; `ruff check` is the gate
+  every resolver takes a `PROOFCUT_*` override first; `ruff check` is the gate
   and `ruff format` is forbidden; nothing about a render is settled by an
   exit code.
 - **Order: macOS first, Windows second.** macOS is Unix-like, symlinks work,
   Homebrew has ffmpeg and ImageMagick, Shotcut bundles melt, and it is where
-  the video creators lucid should earn from mostly are. The Windows pass is
+  the video creators proofcut should earn from mostly are. The Windows pass is
   cheaper once the macOS measurements exist to compare against.
 
 ## What already works in lucid's favour
 
 Read these before assuming a port is a rewrite. Each was checked 2026-09-10.
 
-- **No POSIX-only imports anywhere in `src/lucid`** — no `fcntl`, `signal`,
+- **No POSIX-only imports anywhere in `src/proofcut`** — no `fcntl`, `signal`,
   `select`, `pwd`, `resource`, `termios`. Subprocesses die by `Popen.kill()`
   (`webui.py` § AgentSession), which works on Windows. The only
   `start_new_session=True` is the browser launch, harmless off Linux.
 - **Every heavy tool is a subprocess resolved by `shutil.which` or a
-  `LUCID_*` override, never an import**: ffmpeg/ffprobe (bare name on
+  `PROOFCUT_*` override, never an import**: ffmpeg/ffprobe (bare name on
   PATH), whisper (`asr.whisper_binary`), auto-editor (`autoeditor.binary`),
-  melt (`picture.melt_command`), magick (`graphics` § `LUCID_MAGICK`),
+  melt (`picture.melt_command`), magick (`graphics` § `PROOFCUT_MAGICK`),
   `claude` (`webui._agent_bin`), and the three interpreter-behind-an-env
-  workers (`LUCID_VLM`/`LUCID_FACE`/`LUCID_TTS`).
+  workers (`PROOFCUT_VLM`/`PROOFCUT_FACE`/`PROOFCUT_TTS`).
 - **Paths are `pathlib` with `expanduser` throughout.** No `/tmp` literal in
-  code that runs; the render scratch is `Path.home() / "lucid-render"`
+  code that runs; the render scratch is `Path.home() / "proofcut-render"`
   (`picture.RENDER_SCRATCH`), which is a valid home-relative path on all
   three.
 - **The symlink fallback already handles a filesystem that refuses one.**
@@ -79,7 +79,7 @@ unconditionally.
 
 - **`display_env` calls `os.getuid()`** (`picture.py:164`, the
   `/run/user/<uid>` default for `XDG_RUNTIME_DIR`). `os.getuid` does not
-  exist on Windows, so every render and `lucid doctor` (`doctor.py:476`)
+  exist on Windows, so every render and `proofcut doctor` (`doctor.py:476`)
   raises `AttributeError` before anything runs.
 - **The render gate refuses without a display** (`picture.py:485`): a render
   proceeds only under `WAYLAND_DISPLAY`, `DISPLAY` or
@@ -103,7 +103,7 @@ and `"win32"` and asserts neither path touches `os.getuid` or refuses.
 Shipped — see HISTORY.md § The Linux-shaped resolvers, widened.
 
 None of these crash; each silently narrows what a non-Linux box can find.
-All keep their `LUCID_*` override as the first branch.
+All keep their `PROOFCUT_*` override as the first branch.
 
 - **melt** (`picture.melt_command`, `picture.py:125–137`): PATH, then the
   Kdenlive flatpak. Add the bundle locations: Shotcut and Kdenlive both ship
@@ -112,14 +112,14 @@ All keep their `LUCID_*` override as the first branch.
   (`C:\Program Files\Shotcut\melt.exe`, the Kdenlive install's `bin\`).
   Probe with the same `-version` banner rule doctor holds to. **Whether
   those bundles carry the `qtblend`, `qimage`, `affine` and `avformat`
-  modules lucid's documents use is unmeasured and is step 4's first
+  modules proofcut's documents use is unmeasured and is step 4's first
   question.** The `_TMP_HINT` / `_invisible_to_flatpak` message
   (`picture.py:270–285`) is Linux-only text and should only fire there.
 - **auto-editor** (`autoeditor.binary`, `autoeditor.py:55–67`): PATH, then
   `~/.local/bin`. The error text names `auto-editor-linux-x86_64`; upstream
   ships `-macos-arm64`/`-macos-x86_64`/`-windows-x86_64` builds, so name the
   one for `sys.platform`. `shutil.which` finds `.exe` on Windows by itself.
-- **`lucid open`'s browser** (`webui._resolve_app_browser`,
+- **`proofcut open`'s browser** (`webui._resolve_app_browser`,
   `webui.py:3670–3745`): Linux chromium binary names, flatpak IDs, then
   `xdg-open`. Add the macOS app bundles (`/Applications/Google
   Chrome.app/Contents/MacOS/Google Chrome` and siblings, or `open -a`) and
@@ -131,12 +131,12 @@ All keep their `LUCID_*` override as the first branch.
   --scope` and already runs uncapped with a warning when it is absent. Leave
   it; make the warning say the cap is Linux-only rather than "not available
   here".
-- **Tailscale** (`webui.tailscale_identity`, `LUCID_TAILSCALE`): the CLI is
+- **Tailscale** (`webui.tailscale_identity`, `PROOFCUT_TAILSCALE`): the CLI is
   at `/Applications/Tailscale.app/Contents/MacOS/Tailscale` on macOS and
   `C:\Program Files\Tailscale\tailscale.exe` on Windows, neither on PATH by
   default. Add both to the probe; `--tailscale` refuses rather than falls
   back already, which is right.
-- **`lucid fonts --install`** (`fonts.user_font_dir`, `fonts.py:60–72`)
+- **`proofcut fonts --install`** (`fonts.user_font_dir`, `fonts.py:60–72`)
   writes to `$XDG_DATA_HOME/fonts` — correct only for fontconfig. The user
   font directory is `~/Library/Fonts` on macOS and
   `%LOCALAPPDATA%\Microsoft\Windows\Fonts` on Windows (per-user, no admin;
@@ -239,7 +239,7 @@ one sync where possible.
    candidate to doctor's banner rule and skip one that fails it. Move
    `doctor._MELT_BANNER` into `picture` so there is one copy, and cache the
    verdict per `(path, mtime)`, because `melt_command` runs several times per
-   render. `LUCID_MELT` and the flatpak are not probed. When only impostors
+   render. `PROOFCUT_MELT` and the flatpak are not probed. When only impostors
    were found, the refusal names each by path. The suite's `needs_melt` gate
    then skips on the Windows runner, which has no MLT. Test with
    `tests/stubs.py`'s `write_stub`: an impostor `melt` ahead of a real-banner
@@ -257,10 +257,10 @@ one sync where possible.
    filter `fontsdir=`, relative to the burn's cwd, never a drive letter),
    and it changes what the Linux burn measured, so it is a decision rather
    than a patch.
-3. **`LUCID_MELT` and `LUCID_MAGICK` go through POSIX `shlex.split`.** Where
+3. **`PROOFCUT_MELT` and `PROOFCUT_MAGICK` go through POSIX `shlex.split`.** Where
    `os.name == "nt"`, an override naming an existing file is taken whole as
    one argv element. Anything else splits with `posix=False` and strips one
-   layer of surrounding quotes. Grep for every other `LUCID_*` that is split
+   layer of surrounding quotes. Grep for every other `PROOFCUT_*` that is split
    rather than taken as a path before calling this done.
 
 Then read the in-flight and next Windows logs for anything else. Doctor's
@@ -329,7 +329,7 @@ replaced by `~`. Its own shape, recommended:
   unpacked tree), Shotcut's portable zip for `melt.exe`, and whisper by
   `uv tool install`. Pin each URL and SHA-256 in the script.
 - Portable Shotcut sits outside `melt_bundles()`, so the kit sets
-  `LUCID_MELT`, which is the reason 5a.3 comes first.
+  `PROOFCUT_MELT`, which is the reason 5a.3 comes first.
 - PowerShell 5.1 syntax, since that is what a stock Windows has. Write for
   `-ExecutionPolicy Bypass -File`, the README's one-line invocation.
 - `--pack` stays on the bash kit's side unless a friend needs one. The
@@ -349,7 +349,7 @@ it.
 
 **5d — README.md § Help wanted, and the issue form.** Once windows-demo is
 green, add a Windows paragraph beside the Mac one: a clone plus one
-`powershell -ExecutionPolicy Bypass -File lucid\scripts\windows_trial.ps1`
+`powershell -ExecutionPolicy Bypass -File proofcut\scripts\windows_trial.ps1`
 line, what it installs, that `-Uninstall` reverses it, and a link to
 `.github/ISSUE_TEMPLATE/windows-test.yml`. That form is `mac-test.yml`'s
 twin, with Windows 10/11 and x64/ARM64 in place of the chip. Launch step 9's
@@ -368,7 +368,7 @@ plus the class of defects only Windows has:
   is read correctly by melt, and whether `C:` survives melt's own
   `resource` parsing, is unmeasured. The caption burn sidesteps the
   best-known ffmpeg filter trap already — `captions.py:874` passes
-  `-vf ass=lucid.ass` as a relative name against a working directory, so
+  `-vf ass=proofcut.ass` as a relative name against a working directory, so
   no drive-letter colon ever enters a filter string — confirm that cwd
   handling holds rather than re-deriving it. **`media.scene_cuts` did not
   dodge it** — its `metadata=print:file=` carried an absolute temp path and
@@ -379,7 +379,7 @@ plus the class of defects only Windows has:
   project on a different drive from its footage.
 - **`MAX_PATH` (260 chars).** `cache/sheets/`, `cache/thumbs/<clip_id>/`
   and the render scratch nest deeply under a project path; either opt the
-  process into long paths or measure the deepest path lucid writes.
+  process into long paths or measure the deepest path proofcut writes.
 - **Case-insensitive filesystem vs the confinement checks.** `server._confine`
   and `webui`'s root checks compare `resolve()`d paths (`server.py:171`);
   `Path.resolve()` on Windows returns on-disk case for existing paths, so
@@ -390,7 +390,7 @@ plus the class of defects only Windows has:
 - **The `claude` binary is `claude.cmd` under npm on Windows**, and
   `subprocess.Popen` does not resolve `.cmd` without `shell=True` or
   `shutil.which` first. `webui._agent_bin` returns the bare name; route it
-  through `shutil.which` and let `LUCID_AGENT_BIN` override, or the agent
+  through `shutil.which` and let `PROOFCUT_AGENT_BIN` override, or the agent
   pane fails the way CLAUDE.md § the agent panel had no tools describes —
   silently. **Done 2026-09-11**, unmeasured on a real `claude.cmd`. The half
   it leaves: **killing a `.cmd` kills `cmd.exe` and not the `node` under
@@ -403,7 +403,7 @@ plus the class of defects only Windows has:
 ## Step 6 — say so
 
 README.md § Requirements drops "Linux only" for each OS as its step-4/5
-measurements land, and not before. `lucid doctor` on each OS is the
+measurements land, and not before. `proofcut doctor` on each OS is the
 evidence: paste its output into the HISTORY.md section. A platform whose
 render has not been read back is still unsupported, whatever runs.
 

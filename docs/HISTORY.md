@@ -1,5 +1,11 @@
 # lucid — history
 
+This document was written when the project was called lucid, and says so
+throughout; nothing in it was rewritten for the rename. The commands,
+environment variables and paths quoted in it are as they were run then —
+`lucid X` is `proofcut X` today, and `LUCID_*` is `PROOFCUT_*`. § The rename,
+the section at the end, records it.
+
 The dated record of what shipped and what the evidence said, moved out of
 PLAN.md so the plan stays a plan. Three rules:
 
@@ -13738,3 +13744,118 @@ links both under the clip; a release-download link is not a
 `user-attachments` URL, so GitHub draws it as a link and not a second
 player. LAUNCH.md § Step 1's done-when closes, and the Show HN draft's
 `[uncut run]` placeholder points at the release.
+
+## The rename — 2026-09-13
+
+lucid is proofcut. The why, the sweep of twenty-two candidates and the ten
+decisions are docs/plans/RENAME.md; this section is what happened when the
+plan was worked, and where the plan was wrong.
+
+**The gate.** Tyler ran `proofcut` through tmsearch.uspto.gov on 2026-09-13,
+General search and Wordmark both: "No results found". The two-word `proof cut`
+was not searched.
+
+### Step 1 — the tree
+
+The package went first and alone: `git mv src/lucid src/proofcut`, imports
+and dotted `lucid.<module>` references rewritten by pattern in 89 files,
+pyproject's name, script and URLs, `.venv` rebuilt. 198 tests of the
+touched modules green on it; committed so every later diff reads against
+importable code.
+
+The literals went through a script, not by hand and not by a blind
+replace: case-preserving `lucid → proofcut` over `src`, `tests`, `scripts`,
+`.github`, `.claude`, `.claude-plugin`, `server.json` and `LICENSE`, with the
+guard list stashed out first — this box's `~/lucid-*` directories, the
+company this rename moves away from, and **every citation of a heading that
+contains the word** (PLAN.md § What this does to "lucid never writes MLT",
+*How does a lucid project know it is the film*, TRIAL.md § Nothing in lucid
+notices two writers, HISTORY.md § `lucid doctor` / `lucid review` / `lucid
+reel`). 1007 replacements in 94 files. Then every file was read against its
+diff by a reviewer, because a pattern cannot tell a living sentence from a
+quoted one. What the reviewers put back to `lucid`, each a record the
+script had renamed: the `"command": "lucid"` / `mcp_servers: [{"name":
+"lucid"}]` measurement in `_mcp_config`'s docstring and its test's; the
+picker's quoted old empty-root message; a `git show <commit>:src/lucid/…`
+command that only resolves at the old path; `localStorage["lucid.theme"]` in
+a dated screenshot note; the Windows kit's quote of a CI run's `lucid -C
+proj`; `make_demo.py`'s quote of a dry run's `lucid.cli init`; "every caption
+lucid ever burned here" in `captions.py`.
+
+**Headings are names and were not renamed** — a section cited from code by
+its words keeps them, "lucid" included, the rule this document's own
+preface states. **A living document's H1 title is not a section** and
+nothing cites one, so CLAUDE.md, MANUAL.md, PLAN.md, PORTABILITY.md and
+LAUNCH.md are titled proofcut; the records keep theirs.
+
+Decision 1, the manifest (`project.py`). `LEGACY_MANIFEST_NAME = "lucid.json"`
+and `LegacyManifestError`, a `ProjectError`. One method,
+`Project.check_manifest_name`, answers "is this a project" for `open`,
+`create` and the picker alike: both files refuses (nothing on disk says which
+is live, and `migrate` renames atomically, so a second file means something
+else wrote it); `lucid.json` alone refuses naming `proofcut migrate`; neither
+is the old "no proofcut project". `create` refuses a `lucid.json` directory
+too, since initialising there makes the two-file state. `migrate` resolves
+its version steps *before* the filename step, so a project with no path
+forward is refused with nothing renamed, then lists `lucid.json ->
+proofcut.json` first in `steps`; `--plan` reports it plus `manifest` and
+`timeline_keys` and writes nothing. **The backup keeps the old name**,
+`cache/history/lucid-vN.json` — it is a copy of that file as it was, it
+cannot collide with a later `proofcut-vN.json`, and `snapshots()` already
+cannot see it. One backup when the rename and a schema step run together,
+since both start from the same bytes. **The stale-read stamp survives the
+rename because it hashes bytes, not a path**: the stamp `migrate` takes off
+`lucid.json` is what `write_manifest` checks `proofcut.json` against, and the
+v1 `lucid.json` test would raise `ProjectConflictError` if it did not; the
+rename itself re-checks the stamp first, so a writer landing mid-migration
+is refused rather than renamed into place. The picker lists a `lucid.json`
+directory `needs_migration` with `manifest: "lucid.json"` — the walk used to
+match only `MANIFEST_NAME` and would have skipped it as not a project — and
+its badge says `lucid.json` rather than `schema v4`, which reads as current.
+`agent_trial --source` refuses a `lucid.json` directory as authored state.
+
+Decision 2, the OTIO key (`timeline.py`). The writer writes `"proofcut"`;
+`proofcut_metadata(item)` is the one reader, new key first, then `"lucid"`,
+permanently. `migrate`'s filename step rewrites the live `project.otio` (to a
+temp file, then replace; a clean file is left byte-identical) and never
+touches `cache/history/`. **OTIO trap: the old key cannot be `pop`ped** —
+the value is a view onto OTIO's C++ dictionary and dies with the key, nested
+parts included — so the rewrite assigns the new key (a copy) and then
+deletes the old. A snapshot carrying the old key restores through the real
+`ops.undo` and reads back; undo past a migration still reads.
+
+Decision 3, the variables. Every resolver reads `PROOFCUT_*` and nothing
+else. `doctor` gained `legacy_env`, the `agent` section's shape: every
+`LUCID_*` set, sorted, with `rename_to` beside it and `(already set)` where
+the new name is set too — **names only, never a value**, never a ✗, never
+read by `ok`. On this box it listed `LUCID_FACE` and `LUCID_VLM` and still
+ended "Everything required is here."
+
+**Where the plan was wrong**, each measured on the tree:
+
+- **Twenty distinct variables, not twenty-one** — the `LUCID_TRIAL_*` family
+  is four (`APPS`, `BREW`, `DIR`, `REPORT`), not six.
+- **The MCP server's name is stated in five places, not three**: `server.py`'s
+  `name=`, the key `webui` writes into the generated config, `agent.js`'s
+  `servers.find`, `_AGENT_ALLOWED_TOOLS`' `mcp__proofcut__*`, and
+  `agent_trial._mcp_config`, which restates the key rather than importing it.
+  CLAUDE.md names all five.
+- **`~/lucid-demo` was never this box's path in the tree.** The guard list
+  protected its 38 hits as "the demo project, referenced absolutely"; every
+  one was an instruction a stranger types — README, DEMO.md's walk,
+  `make_demo.py`'s usage, both kits' headers. The kit directories were
+  already listed as changing for exactly that reason, so the demo path
+  changed with them to `~/proofcut-demo`. This box's `~/lucid-demo/` stays
+  where it is.
+- **README's first sentence was a pun on the old name** ("A lucid dream is a
+  dream you control — …"), which no word swap survives; the clause is gone
+  until the README is rewritten.
+
+**The demo's voiceover now says the new name** — `make_demo.py`'s script
+reads "This is a demo of proofcut", which changes the synthesised audio, and
+DEMO.md's word indices depend on it. Measured before trusting it: whisper
+turbo hears `ProofCut,` as one word, so words 11–23 are still "Every cut you
+make names a… Um, no, let me try that again" and `cut vo 11:23` holds.
+
+The suite: 2092 passed on the untouched tree (a worktree at `84817d5`, the
+baseline), 2113 passed and 1 skipped — the face-detector test, because this session carries `LUCID_FACE` and not yet `PROOFCUT_FACE`; with `PROOFCUT_FACE` set to the same interpreter its file is 25 of 25 on the renamed one.

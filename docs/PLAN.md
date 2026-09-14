@@ -1,4 +1,4 @@
-# lucid — planning
+# proofcut — planning
 
 The living plan: architecture, standing decisions, open questions, and the
 order of work. Decisions that get made move out of "Open questions" into
@@ -12,10 +12,10 @@ in the wiki's Open items table.
 
 ## Tier 1 MVP — headless MCP server
 
-One binary/package, `lucid`, usable two ways:
+One binary/package, `proofcut`, usable two ways:
 
-- `lucid mcp` — MCP server (stdio) that Claude Code or any MCP client connects to
-- `lucid <subcommand>` — same operations as a plain CLI for scripting/debugging
+- `proofcut mcp` — MCP server (stdio) that Claude Code or any MCP client connects to
+- `proofcut <subcommand>` — same operations as a plain CLI for scripting/debugging
 
 ### Project model
 
@@ -24,9 +24,9 @@ transcript cache, and rendered outputs. Everything on disk, everything
 inspectable, nothing uploaded. The OTIO file is the single source of truth
 the MCP tools mutate; renders are derived from it.
 
-The concrete layout is implemented in `src/lucid/project.py`, whose docstring
-is the reference for it. `lucid.json` carries a `schema_version`; a project
-written by a newer lucid is refused rather than silently misread.
+The concrete layout is implemented in `src/proofcut/project.py`, whose docstring
+is the reference for it. `proofcut.json` carries a `schema_version`; a project
+written by a newer proofcut is refused rather than silently misread.
 
 ### What lucid is, stated narrowly
 
@@ -37,11 +37,11 @@ Everything else is plumbing to make them usable:
 
 1. **Addressable ranges.** Every shipping transcript editor treats speech as a
    global declarative *filter* — "keep every section matching this regex."
-   lucid addresses a specific range: "cut words 30–45", "keep take 2 of that
+   proofcut addresses a specific range: "cut words 30–45", "keep take 2 of that
    sentence, drop take 1." Filter versus edit. This is what an agent needs to
    work iteratively.
 2. **Persistent project state.** The competition is source → output per
-   invocation. lucid accumulates an edit across turns, which is what makes
+   invocation. proofcut accumulates an edit across turns, which is what makes
    refinement — and undo — possible.
 3. **MCP with a real timeline underneath.** Typed tools with structured returns,
    over OTIO as the native source of truth rather than a one-way export.
@@ -55,7 +55,7 @@ the three above requires it.
 cuts, persistent projects with undo, and a real MCP endpoint with a
 proposal/review workflow. What it does not cover is the *form factor*: it is an
 Electron desktop app whose MCP endpoint requires the GUI process, with a custom
-JSON timeline, cuts-only FCPXML as its whole NLE handoff, and no CLI. lucid's surviving thesis, if it
+JSON timeline, cuts-only FCPXML as its whole NLE handoff, and no CLI. proofcut's surviving thesis, if it
 has one, is the narrower combination **headless + CLI parity + OTIO-native NLE
 handoff + thin Python stack** — and whether that justifies the project is
 decided by the trial gate in the milestones, not by argument.
@@ -69,7 +69,7 @@ of a timeline IR underneath (not OTIO-native), and a product surface —
 b-roll search, motion graphics, multi-format export — implying OpenChatCut's
 dependency scale rather than a Python package and three subprocesses. It is
 also a full desktop NLE that renders in-app, which falsified the README's
-claim that it hands finishing work off the way lucid does. Evidence in
+claim that it hands finishing work off the way proofcut does. Evidence in
 [PRIOR-ART.md](PRIOR-ART.md) § Daydream.
 
 What it cannot do is stand in for a trial. There is no Linux build, so unlike
@@ -81,7 +81,7 @@ checked against its docs and pricing page, not against the software.
 Measured, not argued. Everything below was verified installed and working on
 this machine the same day the fourth trial criterion was added:
 
-| MVP tool | Already covered by | Left for lucid |
+| MVP tool | Already covered by | Left for proofcut |
 |---|---|---|
 | `transcribe`, `get_transcript` | openai-whisper + goodsometimes `scripts/clipcut.py` (in use; it verified the Scream reveals) | packaging. **`transcribe` built 2026-08-07** — `asr.py` already existed for `verify`; the tool was a thin wrapper over it |
 | `remove_silences` | auto-editor 31.4.2 | nothing — the plan already said shell out |
@@ -96,9 +96,9 @@ better, to Kdenlive. What is actually left is **addressable ranges over an
 accumulating edit**, and nothing else.
 
 > **The handoff clause is not dead — corrected by the render spike, 2026-08-07.**
-> The row above reasons that auto-editor already exports Kdenlive, so lucid's
+> The row above reasons that auto-editor already exports Kdenlive, so proofcut's
 > handoff adds nothing. That is only true of auto-editor's *own* filter-based
-> edit. The spike showed the same v3 timeline lucid builds for `render` also
+> edit. The spike showed the same v3 timeline proofcut builds for `render` also
 > takes `--export kdenlive`, so an **arbitrary addressable edit** reaches
 > Kdenlive through the mapping layer `render` needed anyway. One mapping, two
 > exits, no extra work. The handoff clause of the thesis survives, and it is
@@ -111,15 +111,15 @@ script you already have, pick the best rendition of each sentence, assemble in
 script order." That is alignment over word timings whisper already emits, not a
 filter (auto-editor) and not interactive addressable editing (OpenChatCut).
 Neither tool does it; it is also not obviously a whole project. Size it against
-a real VO before assuming it needs lucid's architecture underneath.
+a real VO before assuming it needs proofcut's architecture underneath.
 
 ### MVP tool surface
 
 | Tool | Backed by | Notes |
 |---|---|---|
 | `import_media` | ffprobe | register clips, probe codecs/fps/duration |
-| `transcribe` | openai-whisper subprocess | word-level timestamps, cached per clip. Written as faster-whisper; it is openai-whisper shelled out through `asr.py`, because that is the install that exists on this box and ASR is not worth importing torch into every `lucid status` for. Built 2026-08-07 — `verify` needed the module first, and the tool itself was then a thin wrapper over it |
-| `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before lucid existed |
+| `transcribe` | openai-whisper subprocess | word-level timestamps, cached per clip. Written as faster-whisper; it is openai-whisper shelled out through `asr.py`, because that is the install that exists on this box and ASR is not worth importing torch into every `proofcut status` for. Built 2026-08-07 — `verify` needed the module first, and the tool itself was then a thin wrapper over it |
+| `attach_transcript` | cache | ingest a word-timed JSON the recording already has. Not in the original surface; added once the first real subject turned out to have been transcribed before proofcut existed |
 | `get_transcript` | cache | agent reads text + timings to plan cuts. Takes a `search` phrase as well as a window — locating a retake in 929 words should not mean reading 929 words |
 | `cut_by_transcript` | OTIO, hand-rolled | cut/keep ranges as words or times. OTIO's edit algorithms are C++ only — no Python bindings — so this is track surgery over Track/Clip/Gap and `source_range`, not a library call. Echoes the words each index resolved to and takes `plan=True` to resolve without writing — HISTORY.md § `cut --plan` |
 | `restore` | OTIO, hand-rolled | un-cut a specific word range. Not in the original surface, and not the mirror it looks like: `Edit` never stored what it removed, so the removed ranges are *derived* — `Edit.gaps` against the clip's registered duration. Bounded by those gaps, so the timeline stays a subset of the source and the subtractive invariant holds; that is what separates it from the still-parked `vo_extend`. Built 2026-08-08 — HISTORY.md § The head of the parity queue |
@@ -195,12 +195,12 @@ left. The conclusion survives because it was always the load-bearing one, but
 - **How does a lucid project know it is the film? Opened 2026-08-10.** The
   Scream project sat at the *silence-cut* stage of an edit whose retake pass had
   been done in Kdenlive — 73 segments and 411s against the shipped film's 63 and
-  336s — and every check lucid has agreed with itself the whole time: the render
+  336s — and every check proofcut has agreed with itself the whole time: the render
   matched the timeline, `verify` had nothing to report, all 38 shots planned. It
   was not broken, it was the wrong cut, and 72s of retakes reached a review.
   Three gaps, in the order they bite: **no repeat-finder in a transcript**
   (`verify --windowed` finds one in a *render*; `goodsometimes/scripts/vo_windows.py
-  --repeats` finds one in audio and lives outside lucid), **no way to bring an
+  --repeats` finds one in audio and lives outside proofcut), **no way to bring an
   outside edit in** (63 ranges were parsed from the `.kdenlive` playlist and
   written straight to `Edit`, bypassing `cut`), and **nothing that compares a
   project against what it is meant to be**. HISTORY.md § The VO the project was
@@ -224,10 +224,10 @@ left. The conclusion survives because it was always the load-bearing one, but
       project it read `agrees: false` by exactly the 6s end card, the same
       direction as the 74.7s it was built to catch. Both fixed 2026-08-18.
       HISTORY.md § The film's project, restored.
-- **Should the workspace play its own output? Opened 2026-08-17.** `lucid web`
+- **Should the workspace play its own output? Opened 2026-08-17.** `proofcut web`
   rebuilds the picture live from the cue table and never reads `renders/` — the
   Export button writes a file the UI then cannot open. So "let me watch the cut
-  we just exported" has no answer inside the workspace; it is `lucid review
+  we just exported" has no answer inside the workspace; it is `proofcut review
   serve` (built for it, and reachable off the machine) or a video player. The
   split is defensible — a workspace shows the project, a review tool shows the
   artifact — but it is undocumented and surprised Tyler, and the failure mode is
@@ -248,22 +248,22 @@ left. The conclusion survives because it was always the load-bearing one, but
     Whether the workspace should reach *any* render — an earlier one, a
     reference, an A/B against the file `film_check` compares against — was
     taken on the recommendation: it does not. A workspace shows the project,
-    a review tool shows the artifact, and `lucid review serve` is built for
+    a review tool shows the artifact, and `proofcut review serve` is built for
     the artifact and reachable off the machine, which the workspace
     deliberately is not. The one exception is the file the window itself just
     made, reached through `renderlog.last` rather than through a path the
     client names — and the reason that exception cannot grow quietly is the
-    same reason it was drawn narrowly: lucid writing the log itself is the
+    same reason it was drawn narrowly: proofcut writing the log itself is the
     whole argument for not letting one hand-edited line turn a loopback
     server into a file server. Widening it is a new decision, taken here and
     not by an increment.
-- **Does OpenChatCut make lucid redundant? Answered 2026-08-07: no.** The gate
+- **Does OpenChatCut make proofcut redundant? Answered 2026-08-07: no.** The gate
   required all four criteria — runs acceptably on Linux **and** MCP handles
   iterative addressable edits on a real recording **and** Electron-as-MCP-host
   is tolerable in an agent-CLI workflow **and** the output reaches the
   finishing NLE. Criterion 4 failed outright (FCPXML-only handoff) and 2 is
   cloud-locked (AssemblyAI-only ASR); per-criterion evidence in milestone 2.
-  lucid continues with the narrowed thesis above.
+  proofcut continues with the narrowed thesis above.
 - **Fourth trial criterion, added 2026-08-07: does the edit get *out*?** The
   first three criteria were written assuming finishing happened elsewhere. It
   can't. Premiere does not run on Linux and the goodsometimes back catalog's
@@ -292,7 +292,7 @@ left. The conclusion survives because it was always the load-bearing one, but
   minimum snapping stays the plan for tight cuts; it is just not urgent.
 
   **Narrowed once that video was rendered: this covers drift, not infidelity.**
-  It sampled the retakes lucid knew about. Two it did not know about were
+  It sampled the retakes proofcut knew about. Two it did not know about were
   missing from the transcript altogether — whisper had folded them into the
   duration of the following word — and no amount of edge-snapping finds a take
   the transcript never recorded. HISTORY.md § 2.
@@ -331,38 +331,38 @@ left. The conclusion survives because it was always the load-bearing one, but
   questions this does *not* answer: an MP4 for the human, and the web preview
   (tier 2, built — HISTORY.md § The preview/timeline web UI), which is for a
   person and never made an agent able to look.
-- **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than lucid
+- **Does the OTIO→v3 mapping hold? Answered 2026-08-08: yes, wider than proofcut
   uses.** Single-track cut-and-concat maps in both directions on real material
   (milestones 3–5), and v3 turns out to express the three things this bullet
   used to list as unverified: multi-layer composites (`v`/`a` are lists of
   tracks), speed (`effects: ["speed:2.0"]`) and transitions (a top-level
   `transitions` key). So none of them can force an architecture change at the
   v3 boundary. `timeline.py` still cannot express them — one track, A/V linked,
-  no gaps — but that is now lucid's choice rather than the format's limit, and
+  no gaps — but that is now proofcut's choice rather than the format's limit, and
   the cost of changing it is measured in HISTORY.md § The multi-track costing spike. What
   v3 has no field for is per-entry gain.
 - **Laying clips and graphics over the VO is unmodelled, and that is the next
   real decision.** The Scream video needs five film clips and nine cards on top
-  of the trimmed VO. Right now that is Kdenlive's job and lucid's output is an
+  of the trimmed VO. Right now that is Kdenlive's job and proofcut's output is an
   audio bed to build on, which is a defensible split. But it is the difference
-  between "lucid trims your VO" and "lucid edits your video", and multi-track is
+  between "proofcut trims your VO" and "proofcut edits your video", and multi-track is
   the whole cost. Decide against the *next* video, not this one — this one has a
   working path.
 
   **The decision is cheaper now.** `goodsometimes/scripts/assemble_scream.py`
   shipped that video: a cue table of `(source_word_index, asset)` mapped through
-  the surviving ranges. It is a worked reference for what lucid would absorb,
+  the surviving ranges. It is a worked reference for what proofcut would absorb,
   including the MLT details that cost the most time. HISTORY.md § 3.
 
   **And it has a concrete test case, whose prerequisite now exists.** Beat 3's
   Billy/Stu line wants VO ducked under a clip's own audio, which breaks the
-  assumption underneath the split above — that clips are silent and lucid owns
+  assumption underneath the split above — that clips are silent and proofcut owns
   the only audio track. `speech_overlap` is the overlap test that call needed
   either way. What is left is not the model — HISTORY.md § The multi-track costing spike
   prices that, and it is cheap — but getting a multi-*source* timeline out of
   auto-editor at all. Sequence: § Direction and order.
 
-  **Decided 2026-08-08: lucid edits your video.** This bullet is answered and
+  **Decided 2026-08-08: proofcut edits your video.** This bullet is answered and
   is kept for the reasoning, not as an open question. The multi-source timeline
   does not come out of auto-editor at all — it comes out of `melt`, which has
   no source-count gate and was already this repo's stated multi-track renderer
@@ -431,9 +431,9 @@ every later edit (HISTORY.md § Caption styling). Two measurements out of it
 carry past captions. ASS `\k` is a left-to-right *fill*, not a per-word step,
 and the preview was corrected to match the file rather than the other way
 round. And **`DejaVu Sans` is not installed on this box** — `fc-match`
-answers `Noto Sans`, so every caption lucid has burned here was drawn in a
+answers `Noto Sans`, so every caption proofcut has burned here was drawn in a
 substitute, silently, and the preset comment claiming otherwise was wrong.
-The substitution is now reported on every call; **whether lucid's default
+The substitution is now reported on every call; **whether proofcut's default
 should name a font this machine actually has is an open call**, deliberately
 not taken, because changing the table would silently restyle every existing
 project. It is not only a caption question: librsvg substitutes as silently as
@@ -490,7 +490,7 @@ reframe and the preset shipped 2026-08-10 (§ Next, item 5).
 
 ### Done — the layered timeline
 
-The gate was decided — **lucid edits your video** — and all six steps shipped
+The gate was decided — **proofcut edits your video** — and all six steps shipped
 2026-08-08. Design, evidence, and what stays blocked: § The layered timeline —
 the gate is decided, and `melt` renders it; the account of each step, and of
 the three constraints the ordering owned, is HISTORY.md.
@@ -516,7 +516,7 @@ the layered timeline being the enabler and the look pass being gated on nothing:
    the item's premise — it is not an export cost and not a per-word Dialogue
    event, it is two style fields over the one event `to_ass` already writes —
    and then all four treatments were rendered on the real film and Tyler
-   chose the `\k` fill lucid already writes. **This rung is done, and lucid
+   chose the `\k` fill proofcut already writes. **This rung is done, and proofcut
    diverges from Daydream here by choice** (docs/plans/DAYDREAM.md § What parity
    does not import).
 3. **Motion graphics + templates** — shipped 2026-08-09, all three steps
@@ -530,7 +530,7 @@ the layered timeline being the enabler and the look pass being gated on nothing:
    describing locally is minutes, and the part that actually needed building
    was the cue that could name a moment. **The watch that step 4 held for
    happened 2026-08-10, and cost the item its premise**: what chooses a clip
-   is not the vision index but a per-clip `synopsis`, and lucid does not
+   is not the vision index but a per-clip `synopsis`, and proofcut does not
    choose at all (§ B-roll by description step 5; HISTORY.md § Choosing the
    b-roll). The index's remaining use is the in-point, which nothing pins yet.
 5. **The long tail** — aspect swap, import roles + assets pane,
@@ -545,7 +545,7 @@ the layered timeline being the enabler and the look pass being gated on nothing:
    card record that makes a card re-derivable (HISTORY.md § The canvas field,
    § The card record). Both corrected the note: the bump the first refused
    landed on the second, and the cards the second was meant to rescue turned
-   out never to have been lucid's. **Step 3, the MLT reframe, shipped
+   out never to have been proofcut's. **Step 3, the MLT reframe, shipped
    2026-08-10**: a swapped canvas now crops to fill, per-clip and overridable,
    verified against a real melt render (HISTORY.md § The MLT reframe).
    **Step 4, the viewer's frame, shipped 2026-08-10** — the preview is shaped
@@ -661,13 +661,13 @@ essay and teaser were declared done. Its status rows live in the wiki, as ever.
     before part 1 is recorded, which is why the note exists in August.
 
 **What separates tier 2 from tier 3 is finishing, not mutation** — the
-definition stands, and lucid crossed it 2026-08-08: Export renders a
+definition stands, and proofcut crossed it 2026-08-08: Export renders a
 watermark-free MP4 in the window, with the render checks reported on the
 completion card. Non-goals stay dead in § Non-goals.
 
 ## Tier 3 is the goal — the Daydream-shaped workspace — 2026-08-08
 
-**The decision: lucid grows a workspace, not a shell.** HISTORY.md § The preview/timeline
+**The decision: proofcut grows a workspace, not a shell.** HISTORY.md § The preview/timeline
 web UI shipped and was used, and the verdict on use was that it is a correct
 *instrument* and a poor *editor*. the roadmap had already left tier 3
 "revisitable — a question behind the web UI"; this is the answer, taken
@@ -693,12 +693,12 @@ Measured against the real Scream VO at 67 segments, not against a mock:
 * **The inspector is empty almost always.** "Nothing selected · Nothing run
   yet" is the resting state of 380px of a 1440px window.
 * **There is no agent in the window at all** — which is the category
-  difference, not a craft one. lucid's agent lives in another application.
+  difference, not a craft one. proofcut's agent lives in another application.
 
 ### The line that moves, and the one that does not
 
 § Direction and order's line — "what separates tier 2 from tier 3 is finishing, not mutation" —
-stays true and stays the definition. **What changes is that lucid now intends
+stays true and stays the definition. **What changes is that proofcut now intends
 to cross it**, in this order: the workspace first, finishing second. A window
 good enough to edit in is worth building before the render path can finish a
 video inside it, because the window is what makes the render path's gaps
@@ -715,14 +715,14 @@ survives this intact, and it constrains the design rather than yielding to it.
 
 The panel hosts a **local `claude` subprocess** (2.1.226 on this box) run as
 `claude -p --input-format stream-json --output-format stream-json
---mcp-config`, with lucid's own `lucid mcp` attached. So:
+--mcp-config`, with proofcut's own `proofcut mcp` attached. So:
 
 * the agent reaches the timeline **only** through the MCP tools, which are the
   same `ops` functions the CLI and the page's own buttons call. There is no
   privileged path, and the panel adds no new one — it adds a *client of the
   existing one*;
 * it rides Claude Code's existing auth. No API key, no key storage, no request
-  leaving for an endpoint lucid chose. § Non-goals holds;
+  leaving for an endpoint proofcut chose. § Non-goals holds;
 * `stream-json` is already the progress list the panel needs to draw. Daydream
   renders "Reading transcript → Editing transcript → Done!"; that is a tool-use
   stream with a stylesheet on it.
@@ -779,7 +779,7 @@ step — that constraint is inherited from § Non-goals and is not revisited.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ lucid / <project>                    [Export] [Undo (n)] │  top bar
+│ proofcut / <project>                 [Export] [Undo (n)] │  top bar
 ├────────────┬─────────────────────────┬───────────────────┤
 │ transcript │        preview          │      agent        │
 │  ~26rem    │        flex: 1          │      ~24rem       │
@@ -835,7 +835,7 @@ a duration to swallow a retake, which can only ever *suppress* a gap break,
 never invent one. A suppressed break is an ugly paragraph; an invented one
 would be a lie about where a sentence ended.
 
-**`ops.waveform(path, clip_id)` — CLI `lucid waveform`, no MCP tool.** RMS per
+**`ops.waveform(path, clip_id)` — CLI `proofcut waveform`, no MCP tool.** RMS per
 20 ms frame from `energy.decode` + `energy.envelope`, normalised to bytes,
 cached under a new `cache/waveform/` keyed by the media's size and mtime. The
 cost is why it is cached and not computed per request: `envelope` is a Python
@@ -883,10 +883,10 @@ exist, and `--permission-mode` takes `manual` among others. There is **no
 
 ```
 claude -p --verbose --input-format stream-json --output-format stream-json
-       --mcp-config <generated: one server, lucid -C <project> mcp>
+       --mcp-config <generated: one server, proofcut -C <project> mcp>
        --strict-mcp-config
        --tools ''
-       --allowedTools 'mcp__lucid__*'
+       --allowedTools 'mcp__proofcut__*'
        --disallowedTools Bash Write Edit WebFetch WebSearch
        --permission-mode manual
        [--model <model>]  # only when the composer's #agent-model-select asked for one
@@ -911,11 +911,11 @@ flags govern *permission prompts*; a built-in tool named in neither list (the
 reproduction used `Glob`) simply never triggers one and runs. `--tools ''`
 is what actually disables the built-in set, leaving only the MCP tools
 `--strict-mcp-config` exposes — that is the flag that makes "the agent gets
-lucid's MCP tools and nothing else" true, not the allow/disallow lists on
+proofcut's MCP tools and nothing else" true, not the allow/disallow lists on
 their own. Today a bypass of the `Host`/content-type guards costs you a
 mangled edit that `Undo` reverses. An agent panel without this bound would
 make the same bypass cost arbitrary code execution as the user, because
-Claude Code has Bash. So the agent gets lucid's MCP tools **and nothing
+Claude Code has Bash. So the agent gets proofcut's MCP tools **and nothing
 else**, which bounds a fully hijacked agent to operations the undo stack
 already reverses. `--permission-mode manual` remains the belt to the
 allowlist's braces for the MCP tools themselves: there is no TTY on a
@@ -925,7 +925,7 @@ and fails closed rather than running.
 **This was chosen against the two looser options, not defaulted into**
 (2026-08-08). Read-only project file access via `--add-dir` was rejected
 because it widens what an injected transcript can pull into a tool result for
-no capability lucid's own tools do not already expose; Bash was rejected
+no capability proofcut's own tools do not already expose; Bash was rejected
 because it converts a guard bypass into arbitrary code execution, which is the
 single thing the allowlist exists to prevent. If a future need argues for
 widening this, it is a decision that gets written here, not a flag someone
@@ -938,11 +938,11 @@ panel silently holding a mail client is exactly the kind of privilege nobody
 audits later. The flag confines it to the one generated config.
 
 The subprocess runs with the project as its working directory and its MCP
-server is spawned as `lucid -C <project> mcp` (`-C` is a global flag and
-must precede the subcommand — `lucid mcp -C` does not parse), **and as of
+server is spawned as `proofcut -C <project> mcp` (`-C` is a global flag and
+must precede the subcommand — `proofcut mcp -C` does not parse), **and as of
 2026-08-09 that binding is real.** It was not for a day: `_cmd_mcp` ignored
 `-C` entirely while every tool took its own explicit `path`, so confinement
-to lucid's ops held and confinement to *this project's* ops did not.
+to proofcut's ops held and confinement to *this project's* ops did not.
 `serve(root=)` now pins the server, and each tool's `path` resolves against
 that root or is refused. The account, and the boundary the fix deliberately
 stops at — `path` is confined because it is the project *selector*, while
@@ -958,7 +958,7 @@ for convenience later.
 **View invalidation is uniform.** The server tracks a revision — `project.otio`
 mtime plus undo depth — and the SSE stream emits `project-changed` when it
 moves. The page reloads `/api/view` on that event, which covers an agent edit,
-the page's own edit, and a `lucid cut` run in a terminal beside it, without
+the page's own edit, and a `proofcut cut` run in a terminal beside it, without
 three code paths.
 
 #### Where the cut controls go
@@ -983,7 +983,7 @@ its own endpoint.
 the MLT/Kdenlive handoff stays as an additional way out rather than the only
 one. This is the sentence that actually crosses the tier line. § Direction and order's
 "what separates tier 2 from tier 3 is finishing, not mutation" has been the
-definition since the tiers were written; this is lucid choosing to cross it,
+definition since the tiers were written; this is proofcut choosing to cross it,
 with the definition left standing so the crossing stays legible.
 
 `ops.export` already does both — `export_format=None` renders, `"kdenlive"`
@@ -1016,7 +1016,7 @@ guesses:
 #### What this design still does not answer
 
 * **Multi-project.** *Answered 2026-08-17 — built, and still one project per
-  process.* `lucid web --root DIR` serves a picker over `webui.scan_projects`;
+  process.* `proofcut web --root DIR` serves a picker over `webui.scan_projects`;
   `POST /api/open` is a one-way bind, the first project picked becomes the
   process's project for the rest of its life, so two projects at once still
   means two processes exactly as `-C` always required. HISTORY.md § The
@@ -1027,7 +1027,7 @@ guesses:
   project.* All ten Scream clips are H.264 High / `avc1` / `yuv420p`, so the
   browser plays them from `/api/asset/` byte-for-byte and the letterbox is
   `object-fit: contain`. What survives of this bullet is everything below it:
-  the wall is real for *other* footage, and lucid now names which wall it hit
+  the wall is real for *other* footage, and proofcut now names which wall it hit
   rather than showing black.
 
   The wall found while planning, and it is a *container and profile* problem
@@ -1046,7 +1046,7 @@ guesses:
   fix is a cached **proxy transcode** into a new `cache/proxy/`, resolved the
   way `media.media_path()` already prefers an attenuated copy. Note before
   building it that homebase already runs an encoder service for exactly this
-  conversion (wiki `homebase.md`, port 8765) — worth checking whether lucid
+  conversion (wiki `homebase.md`, port 8765) — worth checking whether proofcut
   should call it rather than grow its own ffmpeg path. Two consequences to
   keep honest either way: seeing a *video* edit costs one proxy pass, not
   zero, and the proxy must never reach `export`, which reads through
@@ -1054,7 +1054,7 @@ guesses:
 
 ## The layered timeline — the gate is decided, and `melt` renders it — 2026-08-08
 
-The decision gate (§ Direction and order) asked whether lucid trims your VO or
+The decision gate (§ Direction and order) asked whether proofcut trims your VO or
 edits your video. **It edits your video.** This section is the decision, the
 measurement that forced it, and the build order — written to be picked up cold
 in a later session.
@@ -1102,7 +1102,7 @@ something `melt` does for free. They are dropped.
 ### What this does to "lucid never writes MLT"
 
 That rule (HISTORY.md § `cut_by_time`, at *the `vo_extend` mirror*) is narrower than its
-summary. It says lucid **regenerates** a timeline through `auto-editor --export
+summary. It says proofcut **regenerates** a timeline through `auto-editor --export
 kdenlive` rather than **mutating** MLT in place, so it never owns MLT's two
 sharp edges: `<blank>` silently adding runtime every downstream cue is blind to,
 and four declared-length spots (both tractors' `out`, the sequence track's
@@ -1120,11 +1120,11 @@ it; it is being written because nothing else will.
 - **The multi-source path generates MLT from the `Edit` plus the cue table**,
   every time, from scratch. It **still never mutates** an existing project — the
   distinction the original rule actually cared about survives intact.
-- Generating means lucid now owns both sharp edges above. They are already
+- Generating means proofcut now owns both sharp edges above. They are already
   written down in this file precisely so this day would not be a surprise, and
   the declared-length sweep gets an assertion rather than a comment.
 
-Built as `src/lucid/mlt.py` (step 4, below): the sweep is `declared_frames()`,
+Built as `src/proofcut/mlt.py` (step 4, below): the sweep is `declared_frames()`,
 read back off the finished document rather than tracked while building it.
 
 ### The design: Design B, unchanged
@@ -1148,11 +1148,11 @@ property traded away for the thing it was defending against.
 ### Build order
 
 Each step is shippable and verifiable on its own. Parity is not optional:
-every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions).
+every op gets an MCP tool **and** a `proofcut` subcommand (CLAUDE.md § Conventions).
 
 1. **The cue table.** `(clip_id, word_index, asset)` in the manifest,
    source-addressed, nothing in timeline coordinates. Ops `cue_add`, `cue_rm`,
-   `cue_ls`; CLI `lucid cue add|rm|ls`; MCP to match. Bump `schema_version` and
+   `cue_ls`; CLI `proofcut cue add|rm|ls`; MCP to match. Bump `schema_version` and
    keep the reader tolerant of manifests without the key. **Built
    2026-08-08** — HISTORY.md § The cue table, step 1 of the layered timeline.
 2. **The shot projection.** `build_shots` minus all XML — map each cue's word
@@ -1204,7 +1204,7 @@ every op gets an MCP tool **and** a `lucid` subcommand (CLAUDE.md § Conventions
    than an exception.
 
 Seed the cue table from `assemble_scream.py`'s existing 37 cues, so the first
-layered timeline lucid builds is **this video**, checkable against a file that
+layered timeline proofcut builds is **this video**, checkable against a file that
 has already been watched — rather than an empty project that can only be
 checked against itself. **Done at step 5, and it moved which project that
 means.** The 37 cues address `VO/VO2-windowed.json` — the re-recorded VO,
@@ -1227,10 +1227,10 @@ Two ways out, and the choice is editorial rather than technical:
 
 - **The re-record**, which was always the plan and opens a real pause.
 - **Insert a hold** — open a gap in the VO and let the film's line play in it.
-  lucid cannot do this today: `Edit` only ever removes, so a non-subtractive
+  proofcut cannot do this today: `Edit` only ever removes, so a non-subtractive
   operation is new work, and it is the same work as HISTORY.md § The `vo_extend` mirror is
   a deliberate non-goal, for now. That section's stated reason for parking —
-  that it only matters the day lucid owns MLT generation — **expires with this
+  that it only matters the day proofcut owns MLT generation — **expires with this
   decision.** Re-cost it against a watch, not in the abstract, and note it is
   the one item here that touches `Edit`'s subtractive invariant.
 
@@ -1242,7 +1242,7 @@ The parity direction (Tyler, 2026-08-08: lucid copies Daydream's full feature
 set and look/feel), the observed product, the design-system spec, the
 feature-by-feature map against shipped code, and the build order are one
 document: [docs/plans/DAYDREAM.md](plans/DAYDREAM.md). The constraints that bind
-every parity item are lucid's own and live where they always did: § Non-goals, the
+every parity item are proofcut's own and live where they always did: § Non-goals, the
 web-UI conventions (no lane `export` cannot produce — CLAUDE.md), and § The
 property everything below defends.
 
@@ -1266,7 +1266,7 @@ the caption default came to name a font this machine does not have.
 1. **There is a real SVG rasteriser here, and the obvious probes miss it** —
    `magick` links librsvg, so `magick in.svg out.png` renders text faithfully.
    Which binaries are absent, which delegate row to look for, and the numbers
-   behind "faithfully" are a box fact, not a lucid one: wiki `tooling.md`
+   behind "faithfully" are a box fact, not a proofcut one: wiki `tooling.md`
    § Rasterising SVG. **What it means for this note is only that the generator
    has a renderer to shell out to and needs no new dependency.**
 
@@ -1298,7 +1298,7 @@ the caption default came to name a font this machine does not have.
    rasteriser in two** — it goes through Qt, not librsvg (wiki `tooling.md`
    § Rasterising SVG). A card previewed through one renderer and rendered
    through another can disagree with no error on either side, which is this
-   repo's recurring failure shape. So lucid rasterises to PNG itself and never
+   repo's recurring failure shape. So proofcut rasterises to PNG itself and never
    hands melt an SVG — which the current code already does by accident, since
    `_resolve_asset` and `preview_source` both hardcode `<name>.png`.
 
@@ -1367,13 +1367,13 @@ So the ordering is forced, and it is not a preference:
 ### Build order, and where it stops
 
 1. `graphics.py` — `render_svg`, with the font-substitution report. CLI
-   `lucid card render`, MCP parity, per CLAUDE.md § Conventions.
+   `proofcut card render`, MCP parity, per CLAUDE.md § Conventions.
    **Shipped 2026-08-09** — HISTORY.md § The card renderer, which records what
    the four measurements behind it decided and one they changed: `-size` fits
    rather than distorts, so step 3 below is the only thing that can close
    finding 4.
 2. Templates and card creation: fill a template's slots, rasterise, land both
-   files. CLI and MCP parity again. **Shipped 2026-08-09** — `lucid card new`
+   files. CLI and MCP parity again. **Shipped 2026-08-09** — `proofcut card new`
    and `card templates`, the three templates read off the real Scream cards,
    and the escaping split that a string template lives or dies on.
    HISTORY.md § Card templates.
@@ -1428,7 +1428,7 @@ was not what it was assumed to be.
    `Qwen2.5-VL-7B-Instruct` is 31 GB in the HF cache; `vaultmedia`'s
    `tagger_core.load_qwen` loads it 4-bit (nf4, bf16 compute) in **14.9s**, and
    `run_vlm` is a generic frames+prompt pass. Nothing needs downloading and no
-   inference code needs writing. What lucid must **not** reuse is that repo's
+   inference code needs writing. What proofcut must **not** reuse is that repo's
    prompt and vocabulary — both are specific to that repo's own library —
    only the loader and the generation pass. That the model is cached and that the tagging venv
    exists are box/cross-repo facts and belong in the wiki, not here; this note
@@ -1455,7 +1455,7 @@ was not what it was assumed to be.
    permanently**. Six frames at 420x360 peaks at **6024 MiB and fits**; twelve
    frames **OOMs** — which is what vaultmedia's own `num_frames_for` rule asks
    for on a 730s clip, so the 730s cold open is exactly the clip that failed.
-   lucid therefore **cannot scale frames with clip length**; it holds
+   proofcut therefore **cannot scale frames with clip length**; it holds
    frames-per-call fixed and scales window *count*. Finding 2 reaches the same
    place from the cost side.
 
@@ -1510,11 +1510,11 @@ convention; a description has no natural filename and is per-clip metadata
 `info` should report), and `cache/` (disposable, and these cost GPU minutes).
 
 **The runtime is a subprocess, resolved the way whisper is.** `asr.transcribe()`
-shells the binary via `LUCID_WHISPER` → PATH → a sibling venv specifically so
-lucid never imports a heavy model runtime; `describe.py` gets the same shape —
-`LUCID_VLM` → the sibling tagging venv → a refusal that names what is missing.
-lucid's own venv gains no torch. It also keeps the sibling repo's prompts out of
-lucid: lucid passes its own.
+shells the binary via `PROOFCUT_WHISPER` → PATH → a sibling venv specifically so
+proofcut never imports a heavy model runtime; `describe.py` gets the same shape —
+`PROOFCUT_VLM` → the sibling tagging venv → a refusal that names what is missing.
+proofcut's own venv gains no torch. It also keeps the sibling repo's prompts out of
+proofcut: proofcut passes its own.
 
 **Search is the agent reading the descriptions, and that is right up to a
 measured ceiling.** ~130 windows for this project at ~60 words each is roughly
@@ -1522,9 +1522,9 @@ measured ceiling.** ~130 windows for this project at ~60 words each is roughly
 No embedding runtime, no vector store, no similarity threshold to tune. The
 ceiling is real and worth writing down: at ~1000 windows (≈5.5 hours of footage
 at 20s) it is ~80k tokens and stops being reasonable. Embeddings become the
-right answer only when a **cross-project** library exists, which lucid still
+right answer only when a **cross-project** library exists, which proofcut still
 does not have — multi-project (built, HISTORY.md § The multi-project picker,
-built) is a picker over `lucid web --root`, one project per process still, not
+built) is a picker over `proofcut web --root`, one project per process still, not
 an index. So `describe_ls` returns the
 table, optionally filtered by clip, and the agent picks. Keyword filtering is a
 convenience on top, not a subsystem.
@@ -1593,7 +1593,7 @@ with it:
    score 3 of 25. The information is not missing from the index; the connection
    is not lexical. So the corpus moved up a level — one sentence per clip saying
    what the footage *is*, allowed to carry what no camera can see — and the
-   choosing moved out of lucid, to whatever is reading the brief. 2/25 → 14/25,
+   choosing moved out of proofcut, to whatever is reading the brief. 2/25 → 14/25,
    with the whole loop driven off `broll_brief`'s own output. **A second
    reviewing pass was tried and scored worse (13 → 10), so there is not one.**
    HISTORY.md § Choosing the b-roll.
@@ -1622,7 +1622,7 @@ and decide what part of the frame survives the crop.
 Rendered against the real Scream footage (`~/lucid-scream-v2/proj/media`,
 `cold-open.mp4`, 1920x816), through `picture.render` — not through a
 hand-run melt, so the display env, the `$HOME` staging and the memory cap are
-the ones lucid actually uses.
+the ones proofcut actually uses.
 
 1. **A 9:16 profile renders, and `RENDER_ARGS` is untouched.** `mlt.document(
    resolution=(1080, 1920))` over a 1920x816 source produced a **1080x1920**
@@ -1683,7 +1683,7 @@ the ones lucid actually uses.
      cards in the Scream project came from it. They did not — they are twelve
      PNGs with no SVG, drawn by a `goodsometimes` script before `card_new`
      existed — the thirteenth of the assembly's set is the outro card, which is
-     a tail in that script and not in lucid's cue table at all. So the record
+     a tail in that script and not in proofcut's cue table at all. So the record
      cannot recover them, and this is not the wiki's "regenerate the 13 cards"
      item after all. HISTORY.md § The card record.
 
@@ -1787,7 +1787,7 @@ the picture and the caption layer letterbox against the same rectangle.
    that**: the twelve cards in the real project are PNGs with no SVG, drawn by
    a `goodsometimes` script before `card_new` existed, so there is nothing to
    persist and nothing to re-render — and their receipts carry three ink
-   levels that lucid's one-fill `quote` slot cannot express. Closing that item
+   levels that proofcut's one-fill `quote` slot cannot express. Closing that item
    needs an emphasis-capable quote slot first, **costed 2026-08-10 in § The
    emphasis-capable quote slot**, which found a second loss this step missed:
    the script wraps by measurement, so the slot needs a flow as well as an
@@ -1834,7 +1834,7 @@ the picture and the caption layer letterbox against the same rectangle.
 
 The note § Aspect swap step 2 said it was not writing, and the one thing
 standing between the twelve unrecorded Scream cards and being re-authored
-through lucid at all (HISTORY.md § The card record). It is nominally a
+through proofcut at all (HISTORY.md § The card record). It is nominally a
 template change. **It is not, and the finding that shapes it is that the
 costing named one loss where there are two — and the second one is a rule
 this repo already wrote down.**
@@ -1844,7 +1844,7 @@ HISTORY.md § The card record costs it as emphasis alone: the script's receipts
 on the fragment the VO quotes — and lucid's `receipt` has one `quote` slot of
 kind `lines`, drawn in a single fill." True. But `make_scream_cards.py:63` is
 `wrap_runs`, a greedy word-wrap that **measures** each word against a body
-width, and the emphasis runs cross the line breaks it produces. lucid's
+width, and the emphasis runs cross the line breaks it produces. proofcut's
 `_lines_markup` refuses to wrap on principle — "a wrap computed from a
 character count is a wrap that overflows the frame silently on the first line
 of wide glyphs" (`graphics.py:456`). So the slot needs emphasis *and* a wrap,
@@ -1922,7 +1922,7 @@ script's own body size.
    filed as its own remainder rather than folded into this note's steps.
 
 6. **The typeface is not a loss, which the costing did not say either way.**
-   lucid's `FONTS` defaults are Noto Serif / Lato, not Zilla Slab — but they
+   proofcut's `FONTS` defaults are Noto Serif / Lato, not Zilla Slab — but they
    are ordinary overridable slots, so a re-author passes the script's own
    stack and gets the script's own faces, both of which this box has
    (`~/.local/share/fonts/ZillaSlab-{SemiBold,Bold}.ttf`). Nothing needs
@@ -1938,7 +1938,7 @@ script's own body size.
   as lightweight inline markers rather than JSON runs, because the value
   arrives from a CLI argument and an MCP string, where JSON is hostile. A
   marker syntax owes an escape for a literal marker, and templates escaping
-  every user value while inserting only lucid's own markup raw is the rule
+  every user value while inserting only proofcut's own markup raw is the rule
   that syntax has to survive.
 - **What a quote that does not fit does.** The script's `wrap_runs` returns a
   final baseline and `receipt()` throws it away, so the original could overrun
@@ -1996,7 +1996,7 @@ one-word-at-a-time highlight is a different construction (one Dialogue event
 per word) and is not what `to_ass` writes."*
 
 **That construction claim is wrong, and it is wrong in the expensive
-direction.** One Dialogue event per word is the build that would force lucid
+direction.** One Dialogue event per word is the build that would force proofcut
 to own text layout — libass decides where a word sits, and an event carrying
 one word has no way to be told where the *other* words put it. Measured
 instead: both the single-word highlight and the per-word animation are
@@ -2028,7 +2028,7 @@ PlayRes `to_ass` writes). Probes kept at `~/lucid-caption-anim/`.
    own.**
 
 3. **What one event per word actually gives you is a different feature.**
-   Built to check: with no `\pos` — which lucid cannot compute — every event
+   Built to check: with no `\pos` — which proofcut cannot compute — every event
    centres itself, so the seven words drew as a single blob at x≈890–1030 at
    every sample. That is **one word alone in the middle of the frame**, which
    is a real caption style and is not "a line with the current word lit". The
@@ -2120,7 +2120,7 @@ one arithmetic detail that is easy to get wrong and silent when wrong.
 
 ### The watch happened, and the answer was `fill` — 2026-08-10
 
-**Tyler watched the four treatments and picked 1, the `\k` fill lucid already
+**Tyler watched the four treatments and picked 1, the `\k` fill proofcut already
 writes. So the item closes having built nothing, and the design above is a
 record of a road not taken rather than a plan.** The four are kept at
 `~/lucid-caption-anim/` (`fill`, `word`, `word` + reflowing scale pop, `word`
@@ -2128,7 +2128,7 @@ record of a road not taken rather than a plan.** The four are kept at
 
 **This is a deliberate divergence from Daydream, not an unbuilt row**, and
 docs/plans/DAYDREAM.md § Captions now says so. Daydream lights one word at a time and
-moves it; lucid sweeps and does not. The measurement is what makes that a
+moves it; proofcut sweeps and does not. The measurement is what makes that a
 choice rather than a limitation — findings 1 and 2 say either could ship for
 about a day's work, so nobody needs to re-derive the cost to reopen it.
 
@@ -2145,7 +2145,7 @@ anything could trip it, and it applies to any future caption motion whatever
 its shape. Finding 6 is a third instance of a failure this repo keeps having
 and is cited from CLAUDE.md's brightness-bbox rule. And `captions.py`'s
 comment no longer claims a single-word highlight needs one Dialogue event per
-word — the claim was false whether or not lucid ever ships one.
+word — the claim was false whether or not proofcut ever ships one.
 
 ## The preview proxy transcode — the design note — 2026-08-10
 
@@ -2210,7 +2210,7 @@ proxy's test suite needs no new binary assets.
 ### Homebase's encoder is struck, and this is the second row to strike it
 
 § Tier 3's bullet says *"homebase already runs an encoder service for exactly
-this conversion (port 8765) — worth checking whether lucid should call it."*
+this conversion (port 8765) — worth checking whether proofcut should call it."*
 Checked, live, on this box: it is up, and it is the wrong tool twice over.
 
 1. **It has no per-file API.** `vaultmedia/encoder_common.py` exposes exactly
@@ -2220,9 +2220,9 @@ Checked, live, on this box: it is up, and it is the wrong tool twice over.
    arbitrary path and get one file back.
 2. **Its output would still not play.** `encoder.py`'s `video_args()` always
    encodes `libx265`/`hevc_nvenc` tagged `-tag:v hvc1` — its whole purpose is
-   HEVC-for-Apple. lucid's own `_PLAYABLE_VIDEO` excludes `hevc` under every
+   HEVC-for-Apple. proofcut's own `_PLAYABLE_VIDEO` excludes `hevc` under every
    tag, deliberately (`media.py:176-179`: an `hvc1`-tagged HEVC plays on iOS
-   and not in the Chromium/Firefox `lucid web` actually runs against). Its
+   and not in the Chromium/Firefox `proofcut web` actually runs against). Its
    output would fail `playability()` and show the same black.
 
 docs/plans/DAYDREAM.md § B-roll by description already struck this service off that
@@ -2355,9 +2355,9 @@ mis-frames a subject in most of the seconds that hold one (docs/plans/DAYDREAM.m
 § Aspect swap), so a reel built on it would be correct-pixels-wrong-video.
 
 What is genuinely absent is one level up: **a reel is a derived project, and
-lucid has no project-derivation op.** The canvas is project state and the cuts
+proofcut has no project-derivation op.** The canvas is project state and the cuts
 are destructive, so the copy is mandatory and is currently a `cp -a` done by
-hand. `lucid reel <start> <end>` — copy, two cuts, canvas, refit, re-author
+hand. `proofcut reel <start> <end>` — copy, two cuts, canvas, refit, re-author
 cards — is the real shape, and it is small.
 
 **Built, 2026-08-10** — HISTORY.md § `lucid reel`, the project-derivation op.
@@ -2372,7 +2372,7 @@ of this one.
 
 The *selection* itself is the `synopsis` precedent, not a new algorithm.
 § Choosing the b-roll measured that lexical matching does not choose footage
-and that lucid should not choose at all — one line per clip handed to whatever
+and that proofcut should not choose at all — one line per clip handed to whatever
 is reading, which writes back through `cue_add`. A reel wants the same:
 narration plus synopsis handed out, spans written back through `cut_by_time`.
 **Do not build a ranker.** That is the measurement that already exists.
@@ -2405,7 +2405,7 @@ the timeline.
 ### Music — the headline was that it had nowhere to live
 
 Daydream places music as short accent blocks on its own **A2** lane
-(docs/plans/DAYDREAM.md:92-104), imported under a distinct role. **lucid has one
+(docs/plans/DAYDREAM.md:92-104), imported under a distinct role. **proofcut has one
 now — the A2 lane shipped 2026-08-17** (§ The A2 music lane — the design note;
 HISTORY.md § The A2 music lane, built), so read what follows as the costing
 that got there rather than as the state of the code: the two absence claims
@@ -2450,7 +2450,7 @@ that is not the binding one. HISTORY.md § The three served answers.
 
 **And the item that answer deferred was raised and built, 2026-08-17.** The
 closure above said music would come back as cue *placement* "when a video wants
-it"; Lambs/Longlegs did, and what shipped is `lucid music` — one bed asset over
+it"; Lambs/Longlegs did, and what shipped is `proofcut music` — one bed asset over
 one word span with fades, addressed by word index with the duration derived
 live, never stored. Its design and the two render traps behind it are § The A2
 music lane — the design note. **This item is closed.**
@@ -2463,7 +2463,7 @@ docs/plans/DAYDREAM.md:196-209 names Inter Tight and Poppins, deferred there as
 and caption styling shipped.
 
 **Measured on this box, 2026-08-10: none of them are installed, and neither is
-lucid's own default.** `fc-match "DejaVu Sans"` → Noto Sans; `fc-match "Inter
+proofcut's own default.** `fc-match "DejaVu Sans"` → Noto Sans; `fc-match "Inter
 Tight"` → Noto Sans; `fc-match "Poppins"` → Noto Sans; `fc-list` counts zero
 for both of Daydream's faces. All three caption `PRESETS` name `DejaVu Sans`.
 So copying Daydream's choice moves the silent substitution from one absent name
@@ -2482,7 +2482,7 @@ to another absent name. **The item as named builds nothing.**
 > HISTORY.md § The caption default resolved by coincidence.
 
 The real question is already on the record and explicitly not taken
-(§ Direction and order): *whether lucid's default should name a font this
+(§ Direction and order): *whether proofcut's default should name a font this
 machine actually has, because changing the table would silently restyle every
 existing project.* That is the item, and it is smaller and different: make the
 default resolve-safe rather than aspirational. Two shapes — vendor the faces
@@ -2503,10 +2503,10 @@ pixels, never by `fc-match`, per § The emphasis-capable quote slot: `fc-match`
 answers "is the family present", not "which face drew".
 
 **Both shapes shipped, 2026-08-13, and the second one was the item.** The face
-is vendored into the package (`src/lucid/fonts/`, with `fonts.install()`
+is vendored into the package (`src/proofcut/fonts/`, with `fonts.install()`
 putting it where fontconfig looks), and `fonts.probe()` is the render check —
 it burns the family and an impossible family and compares the pixels, so it
-needs no stored reference and works for a family lucid does not ship. What the
+needs no stored reference and works for a family proofcut does not ship. What the
 build found is that the vendoring had already half-happened by accident: the
 face was on this box because a sibling repo's tooling fetched it, months before
 captions named it. HISTORY.md § The caption default resolved by coincidence.
@@ -2823,7 +2823,7 @@ Of the centre crop's 199px error, **faces remove 88px with no judgement at
 all, knowing which face removes another 50, and 62px survive both.**
 
 That middle term is this repo's own b-roll finding arriving in a new place. A
-description does not choose the clip — `synopsis` does, and lucid does not
+description does not choose the clip — `synopsis` does, and proofcut does not
 choose at all (CLAUDE.md; HISTORY.md § Choosing the b-roll). **A face detector
 does not choose the subject.** In a two-hander every face is a true positive
 and only one of them is the shot, and no property of the boxes says which.
@@ -2895,16 +2895,16 @@ section exists to prevent.
 
 **The subprocess shape is the third instance of a pattern this repo already
 has.** whisper is a binary (`asr`), the vision model is an interpreter
-(`describe`, `_vlm_worker.py`), and lucid's venv holds neither torch nor
+(`describe`, `_vlm_worker.py`), and proofcut's venv holds neither torch nor
 onnxruntime and should not start now. insightface, onnxruntime and the
 `buffalo_l` RetinaFace weights are all resident on this box in genstack's venv.
 So: an interpreter named by an env var, a worker shipped in the package and
 never imported, and a refusal naming both when it does not resolve.
 
 **One open question, deliberately not taken here.** `describe` resolves
-`LUCID_VLM` to vaultmedia's `.venv-tag`; the face detector needs genstack's
+`PROOFCUT_VLM` to vaultmedia's `.venv-tag`; the face detector needs genstack's
 `.venv`, which is a *different* interpreter. Whether that is a second variable
-(`LUCID_FACE`) or one "vision sidecar" resolver with two capabilities is a real
+(`PROOFCUT_FACE`) or one "vision sidecar" resolver with two capabilities is a real
 call, and it wants the second consumer to exist before it is answered. A second
 variable is the smaller, more reversible move.
 
@@ -3035,7 +3035,7 @@ the frame.
 ### Finding 4 — how often it fires, measured on the film's own windows
 
 **The spike's 24.8%-of-shot-seconds was the wrong pass and was nearly
-inherited.** It came from outside lucid, on 64 shots found by its own cut
+inherited.** It came from outside proofcut, on 64 shots found by its own cut
 detection, before `reframe_detect` existed. Re-run over the 59 windows the
 detector actually proposes — same footage, same timestamps, boxes kept this
 time — the answer is a *quarter* of it, and the rule is what moves it:
@@ -3266,11 +3266,11 @@ margin, so `mark` at `x=1780` sat under the like button. Portrait draws it
 bottom left. Both numbers live in `BASE_GEOMETRY`'s comment rather than in a
 reviewer's head.
 
-**And the mark that goes in that corner was one lucid could not draw.** The
+**And the mark that goes in that corner was one proofcut could not draw.** The
 brand's is two-tone — an amber asterisk on ink letters — against a line slot
 with one `fill` and the body face. Line slots now take the flowing slots' own
 `[em]` vocabulary and `mark` declares `title_font`, so `G[em]*[/em]` is
-authored in the brand's document and lucid learns nothing about the brand.
+authored in the brand's document and proofcut learns nothing about the brand.
 HISTORY.md § The brand mark on a line slot has the three properties that kept
 it additive.
 
@@ -3688,7 +3688,7 @@ recomputed a 37-shot plan from two `lucid cut` commands, no replanning).
    cautionary prior, and the literal control arm HISTORY.md already measured
    losing). Refuted by measurement above, not by the general rule alone — a
    0.341s drift and a live-material splice are what "tuned carefully by hand"
-   produces at this scale, and nothing about lucid’s tooling improves that; the
+   produces at this scale, and nothing about proofcut’s tooling improves that; the
    number moves because the runtime it was tuned to moves.
 2. **Anchor to a word index but store the *derived* frame count as a cache**,
    refreshed by some hook on cut. This was seriously considered because
@@ -3713,7 +3713,7 @@ clean seams** (the longest, 0.620s, "none of them a real insertion point").
 There is no seam in that recording for a duck to open into — PLAN.md § What
 stays blocked, and it is not lucid already names this as a property of *the
 v1 recording*, fixed only by a re-record or by `vo_extend` opening a hold,
-neither of which A2 changes. A2 gives lucid a second audio track to mix a bed
+neither of which A2 changes. A2 gives proofcut a second audio track to mix a bed
 into; it does not give a VO take a pause it does not have. Building a ducking
 mechanism now would be solving a problem the model does not have and the
 recording does — nothing here changes that math, so it stays out.
@@ -3911,7 +3911,7 @@ track**, and what this box would record today is one mixed track:
 |---|---|
 | `2021/Ep 11 …/…1 of 5.mp4` — 2999.88s, h264 1280x720, **one** AAC stereo stream at 128 kbps; `2022/Ep 18 …mp4` — 2853.78s, the same one-stream shape | both prior runs published one mixed track per part, and it is a mix, not a mic |
 | the `.mp3` beside the 2021 file — one stereo stream, **2643.39s** | the podcast cut is its own edit, ~6 min shorter than the video; two deliverables per part, not one file published twice |
-| OBS 32.2.1 on this box: `UseAdvanced=false`, `RecTracks=1` in both `[SimpleOutput]` and `[AdvOut]`, `RecFormat2=hybrid_mp4` | a capture started right now writes **one** track — the mics are summed before anything lucid could see them |
+| OBS 32.2.1 on this box: `UseAdvanced=false`, `RecTracks=1` in both `[SimpleOutput]` and `[AdvOut]`, `RecFormat2=hybrid_mp4` | a capture started right now writes **one** track — the mics are summed before anything proofcut could see them |
 
 So the two-stream work the spike scoped is not what October produces by
 default. It is what October produces **only if someone changes a setting
@@ -3921,7 +3921,7 @@ first**, and that is the decision this note exists to force.
 
 A 120s slice from the middle of Ep 11 (`slice_1200_120s.m4a`, two people
 talking at conversational pace) through `asr.transcribe` — the real
-`lucid transcribe` path, turbo, GPU idle at 1406 MiB of 12227:
+`proofcut transcribe` path, turbo, GPU idle at 1406 MiB of 12227:
 
 - **10.53s wall, 11.39× real-time**, 410 words, 23 segments, **3
   hallucinated words** reported by the guard. Extrapolated, a 50m part costs
@@ -3933,7 +3933,7 @@ talking at conversational pace) through `asr.transcribe` — the real
   inside that run of words and nothing in the payload marks it. Every word
   indexes one `clip_id`, which is the show.
 
-So a mixed-track bracket part is, to lucid, a long single-clip VO. **Cutting,
+So a mixed-track bracket part is, to proofcut, a long single-clip VO. **Cutting,
 cues, captions, export and every check work on it unchanged.** What is missing
 is only speaker identity — and with it per-speaker captions, "cut Natalie's
 tangent", and any per-speaker mix move.
@@ -3943,7 +3943,7 @@ has torch 2.11 and openai-whisper; there is no `pyannote`, `whisperx`, `nemo`,
 `speechbrain` or `faster-whisper` in any of the nine venvs under `~/projects`, and pyannote's
 diarization models are gated behind an accepted licence on Hugging Face.
 Adding one is a new gated dependency with a model download, on the far side of
-lucid's "no cloud, no accounts" line only in spirit — it is local at inference
+proofcut's "no cloud, no accounts" line only in spirit — it is local at inference
 time, but it is not something this repo can ship and expect to work on a fresh
 checkout. It is the wrong first move for an event eight weeks out.
 
@@ -4102,7 +4102,7 @@ together, and the only thing that is genuinely per-word is a label.
 In OBS, Advanced output, tracks 1 and 2 enabled with one mic on each, keeping
 the mixed track for the stream itself. It costs one settings change and a test
 recording; it buys 99% per-word speaker attribution on clear speech, with the
-ambiguity reportable. On one mixed track lucid can do nothing at all here
+ambiguity reportable. On one mixed track proofcut can do nothing at all here
 today, and the only route to it is a gated ML dependency.
 
 **If the format stays one mixed track, nothing is lost that exists now** — a
@@ -4188,7 +4188,7 @@ survive import. Three things the build moved:
   129px list.
 
 **Step 3 shipped 2026-08-18** — `speakers.py`, `ops.attribute_speakers`,
-`lucid attribute-speakers` and the MCP tool. HISTORY.md § Speaker
+`proofcut attribute-speakers` and the MCP tool. HISTORY.md § Speaker
 attribution, built. The line below used to say steps 2, 3 and 5 had nothing
 to be built against, and **step 3 was the exception this note's own build
 order already named**: its test is the fixture above, which exists. Three
@@ -4239,7 +4239,7 @@ the closest thing to Tyler anything rendered (0.989 against real takes' 0.993),
 every fine-tune is further and gets further with training, the upstream
 learning rate collapses outright, and the 2026-only control shows the drift is
 the recipe's, not the data's. So a voice is `ref.wav` + `ref.txt` in a
-directory, `LUCID_TTS_VOICE` names the default, and nothing in lucid loads a
+directory, `PROOFCUT_TTS_VOICE` names the default, and nothing in proofcut loads a
 checkpoint that is not the stock model. A better clone, if one arrives, is a
 different worker behind the same `tts.synth` contract — seeds in, candidates
 with `sim` out.
@@ -4288,7 +4288,7 @@ tile of twenty-five — are both the kind this repo has been wrong about before.
 ### The channel works, and that was the thing to check first
 
 The agent panel runs `claude` with `--tools ''`, so the agent **cannot Read a
-file path**: lucid's MCP tools are the entire surface it has. The sheet has to
+file path**: proofcut's MCP tools are the entire surface it has. The sheet has to
 travel inside the tool result as image content, and two separate things had to
 be true for that.
 
@@ -4393,7 +4393,7 @@ A reading is an **opinion, not a check**. `reframe_sheet` is the precedent: it
 draws the evidence and a person judges it; it decides nothing and nothing
 downstream reads its verdict. The same holds here — the sheet is how an agent
 forms a hypothesis it must then confirm with an op that measures
-(`check_black`, `check_frames`, `verify`, `film_check`). Nothing in lucid
+(`check_black`, `check_frames`, `verify`, `film_check`). Nothing in proofcut
 should ever gate on what a model said it saw.
 
 ### Open, for the review this note stops for
@@ -4406,7 +4406,7 @@ should ever gate on what a model said it saw.
   were enough for every question asked in the probe. The shot index, the cue's
   own word, and a `pinned` marker are all candidates and all cost label width,
   which is the thing that was measured to be tight.
-- **The CLI half.** Parity says `lucid contact-sheet` exists; it writes a file
+- **The CLI half.** Parity says `proofcut contact-sheet` exists; it writes a file
   for a person rather than returning an image, the same op with two
   deliveries. Whether the MCP tool *also* returns the path (so a human can open
   what the agent looked at) is a small decision with a real answer either way.
@@ -4426,7 +4426,7 @@ the note above (HISTORY.md § The shot sheet); read that one first, since the
 channel, the tile size, the paging and the label format are settled there and
 are not re-argued here.
 
-**The question it answers** is the one lucid's wordless-footage users have and
+**The question it answers** is the one proofcut's wordless-footage users have and
 its own dogfood film does not. `describe` indexes what is *visible* in a clip in
 10s windows and `describe-ls` searches that text, so someone with a GoPro dump,
 event coverage or gameplay — no dialogue, no subtitles, nothing for the
@@ -4569,7 +4569,7 @@ the goodsometimes pipeline, and both decision files
 (`~/lucid-approvals/decisions.json`, `~/lucid-watch/decisions.json`), made the
 day the essay (v8) and its teaser were declared done. The finding that frames
 everything: **the editing core is complete** — the film and the teaser ran end
-to end through lucid — and the queue is exactly the set of things the
+to end through proofcut — and the queue is exactly the set of things the
 production still did by hand, each of which cost this video real time or
 nearly shipped a defect. Status lives in the wiki's Open items table, never
 here; this section owns the order and the reasoning, cited by name.
@@ -4585,7 +4585,7 @@ The order was adopted 2026-08-12.
    has carried since caption styling, in the direction that restyles nothing.
    Settled, as ever, by measuring a render — never by `fc-match`.
    - **Shipped 2026-08-13** (HISTORY.md § The caption default resolved by
-     coincidence): the faces ship in the package (`src/lucid/fonts/`) rather
+     coincidence): the faces ship in the package (`src/proofcut/fonts/`) rather
      than being installed on a box, and `fonts.probe()` settles which face
      libass actually drew by burning a family against an impossible one, which
      needs no stored reference render. **This item is closed.**
@@ -4611,7 +4611,7 @@ The order was adopted 2026-08-12.
      placed against the film's structure — so length handling was never what
      was being heard, and no length model turns one looped cue into two placed
      ones. **Nothing gets built on the loop, and the "hold" variant is beside
-     the point.** If lucid gets music it is cue *placement*, in the shape the
+     the point.** If proofcut gets music it is cue *placement*, in the shape the
      cue table already has for picture — which is a new item to raise when a
      video wants it, not this one. **This item is closed.** HISTORY.md § The
      three served answers.
@@ -4671,7 +4671,7 @@ The order was adopted 2026-08-12.
 5. **`import-edit` and the film check** — the wrong-cut class (§ Open
    questions, *How does a lucid project know it is the film*). Three builds,
    smallest first: fold the repeat-finder (`vo_windows.py --repeats`, which
-   lives outside lucid) into `transcript-checks`; one op comparing a project
+   lives outside proofcut) into `transcript-checks`; one op comparing a project
    against a declared reference export (duration, segment count — one line of
    output would have caught 72s of retakes before a review did); and a real
    import for a `.kdenlive` playlist, which is also most of what Elf needs
@@ -4682,7 +4682,7 @@ The order was adopted 2026-08-12.
      short, sixty-three times). The import is the one that paid: read back,
      `out` is the last frame *index*, and reading it as exclusive lost a frame
      off the end of all 63 ranges. **This item is closed.**
-6. **`lucid review` — the review round as a feature.** Every version of this
+6. **`proofcut review` — the review round as a feature.** Every version of this
    film moved on a served page, and the serving was rebuilt ad hoc at least
    four times with hand-written decision files. Serve named renders, sheets
    and A/B pairs over LAN with Range support; record verdicts into the
@@ -4691,7 +4691,7 @@ The order was adopted 2026-08-12.
    (HISTORY.md § The bumper the teaser never had).
    - **Shipped 2026-08-13** (HISTORY.md § `lucid review`, built): an additive
      `review` manifest key, `ops.review_add`/`review_verdict`/`review_list`
-     (MCP tools and `lucid review add/verdict/list`), and `lucid review
+     (MCP tools and `proofcut review add/verdict/list`), and `proofcut review
      serve` — **token-gated rather than loopback+Host**, since this server is
      built to be reached off the machine. The control rule is enforced at
      registration (a byte mismatch refuses the call) rather than left as a
@@ -4715,7 +4715,7 @@ The order was adopted 2026-08-12.
      design note's own open question — whether the Billy/Stu hold is worth
      using on the actual film — stays editorial, decided on a watch.
 8. **The channel preset pack** — templating, after tail time gives the assets
-   a home. lucid stays generic (`mark` is an empty slot, deliberately);
+   a home. proofcut stays generic (`mark` is an empty slot, deliberately);
    goodsometimes ships a loadable pack: palette, faces, the mark as
    `G[em]*[/em]`, caption presets, platform safe zones, and the end card and
    bumper as card templates. The October palette swap becomes a preset
@@ -4726,10 +4726,10 @@ The order was adopted 2026-08-12.
      § The end card and the bumper became templates).
    - **Built 2026-08-16, and the line above it was wrong: what was left was not
      the pack, it was the loader.** The queue's own premise going in was that
-     the pack was goodsometimes' content, loaded by lucid — in fact lucid had
+     the pack was goodsometimes' content, loaded by proofcut — in fact proofcut had
      no extension point at all: `captions.PRESETS` and
      `graphics.TEMPLATES`/`PALETTE`/`FONTS` were closed literal dicts and
-     nothing anywhere read a config file, so this was mostly lucid-side work,
+     nothing anywhere read a config file, so this was mostly proofcut-side work,
      not content waiting on goodsometimes. **This item is closed.** HISTORY.md
      § The channel preset pack, built.
 9. **The October scale spike** — timed to land before the mid-September
@@ -4739,7 +4739,7 @@ The order was adopted 2026-08-12.
    route around it. § Parked's *everything one video couldn't establish* is
    the list under test.
    - **Half of it ran 2026-08-13, and it moved its own premise** (HISTORY.md
-     § The scale spike, half-run). The 58m08s recording exists and no lucid doc
+     § The scale spike, half-run). The 58m08s recording exists and no proofcut doc
      knew it did. **Cue-table size is not the groan point**: `cue_add` is O(n²)
      over authoring and still sub-second at 450, while the spike read
      **`build_shots`** as the compounding one — `Edit.timeline_span` was an
@@ -4811,7 +4811,7 @@ The order was adopted 2026-08-12.
       fire, so it never double-fires a seek). Backend covered by three new
       real-socket tests in `test_webui_http.py` (91/91 pass); the drag
       gesture itself is the one piece this session could not verify —
-      `lucid web` binds loopback only and no browser tool was available
+      `proofcut web` binds loopback only and no browser tool was available
       here, so it needs a real-browser pass before being called done for
       the UI half. **What is left of this item: that browser pass, then the
       panes, multi-project, HTTP transport, and filmstrip thumbnails.**
@@ -4827,7 +4827,7 @@ The order was adopted 2026-08-12.
       real click produces, the same lesson the assets pane's role toggle
       needed a second time on an unrelated race. Built alongside: the
       assets/properties/filmstrip panes, the multi-project picker, and
-      `lucid mcp --transport http`, whose own review caught an allow-list bug
+      `proofcut mcp --transport http`, whose own review caught an allow-list bug
       admitting the attacker it was meant to exclude, fixed before ship.
       **This item is closed.** HISTORY.md § The cue-drag browser pass, and six
       defects; § The dwell-timing lesson; § The assets, properties and

@@ -1,5 +1,8 @@
 # lucid × Studio — the workflow-first reshape
 
+This document was written when the project was called lucid, and says so
+throughout; nothing in it was rewritten for the rename (HISTORY.md § The rename).
+
 **The direction, set by Tyler 2026-08-17: lucid's window reorganizes around the
 workflow — Home · Edit · Frame · Finish — with direct manipulation on the
 timeline and a truth strip that makes the film's real state ambient.** The

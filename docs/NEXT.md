@@ -27,7 +27,7 @@ recommendation, not a survey.
 
 ## 1. Recommended first: the closed loop — an agent edits a video end to end, unattended, and the run is measured
 
-Lucid's thesis has always been agent-driven editing, and every measurement
+proofcut's thesis has always been agent-driven editing, and every measurement
 so far has been of *pieces* — a tool, a sheet, a check. The sheets that
 landed 2026-08-24/25 were the last missing sense: for the first time an
 agent can look at the timeline (`shot_sheet`), the footage
@@ -68,7 +68,7 @@ the failure list as the queue that follows this file.
 ## 2. Close behind, partly parallel: the public launch
 
 The repo is one scrub away from publishable. Licence, the short README
-front door, generated demo media, `lucid doctor`, scripted screenshots —
+front door, generated demo media, `proofcut doctor`, scripted screenshots —
 the works-for-anyone gap was closed deliberately over the last two weeks
 (docs/plans/POLISH.md, all seven steps). What is left, per the wiki row *publish
 decisions before the repo goes public*:
@@ -100,7 +100,7 @@ The two things only Tyler can do, and the sooner the better:
   mics exist.
 - Make the five-minute two-mic test recording, which pins the margin floor.
 
-The moment that file exists, the lucid-side work unblocks: pinning
+The moment that file exists, the proofcut-side work unblocks: pinning
 `MARGIN_DB` against a real recording rather than one synthetic voice
 (HISTORY.md § Speaker attribution, built — at chance on simultaneous
 speech, measured), the co-hosted note's deferred steps, and attribution

@@ -3,7 +3,7 @@
 Two minutes, start to finish, on footage the repo generates rather than ships.
 By the end you will have cut a retake out of a voiceover by naming the words,
 hung two b-roll clips off phrases in the transcript, rendered the result, and
-had lucid confirm the render says what the timeline says.
+had proofcut confirm the render says what the timeline says.
 
 Every command below is verbatim. The output sketches are from a real run on
 2026-08-24 — yours will differ in the third decimal place and in whatever
@@ -26,42 +26,42 @@ export PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"
 If you are not sure:
 
 ```sh
-uv run lucid doctor
+uv run proofcut doctor
 ```
 
 It probes all of them and, for anything missing, prints the fix rather than
 just a ✗.
 
 On a box with no desktop (a server, a container, SSH), step 6's render needs
-Qt to draw without one. `lucid doctor`'s Display row renders a probe frame and
+Qt to draw without one. `proofcut doctor`'s Display row renders a probe frame and
 says whether `QT_QPA_PLATFORM=offscreen` is enough for your MLT. Where it is
 not, as with Ubuntu 24.04's and Fedora 44's packaged melt, run the render as
-`xvfb-run -a uv run lucid …` (`apt install xvfb`, or `dnf install
+`xvfb-run -a uv run proofcut …` (`apt install xvfb`, or `dnf install
 xorg-x11-server-Xvfb`).
 
 ## 1. Make the footage
 
 ```sh
 uv sync
-uv run python scripts/make_demo.py ~/lucid-demo
+uv run python scripts/make_demo.py ~/proofcut-demo
 ```
 
 ```
-voiceover  -> /home/you/lucid-demo/vo.wav
-b-roll     -> /home/you/lucid-demo/broll-blue.mp4
-b-roll     -> /home/you/lucid-demo/broll-rust.mp4
+voiceover  -> /home/you/proofcut-demo/vo.wav
+b-roll     -> /home/you/proofcut-demo/broll-blue.mp4
+b-roll     -> /home/you/proofcut-demo/broll-rust.mp4
 ```
 
 The voiceover is about 19 seconds and says this — read it, because the fourth
 line is the one you are about to remove:
 
-> This is a demo of lucid, a local first video editor.
+> This is a demo of proofcut, a local first video editor.
 > **Every cut you make names a, hmm, no, let me try that again.**
 > Every cut you make names a word in the transcript.
 > So the edit stays addressable, and the render can be checked against it.
 
 That middle line is a **retake**: the narrator starts a sentence, stops, and
-says it again. Removing it is the thing lucid exists for.
+says it again. Removing it is the thing proofcut exists for.
 
 The two b-roll clips are flat colours carrying three marks — a centred
 counter (`BLUE 3s`), a faint grid, and `TL`/`TR`/`BL`/`BR` in the corners.
@@ -75,18 +75,18 @@ instead.
 ## 2. Make the project
 
 ```sh
-uv run lucid init ~/lucid-demo/proj
-uv run lucid -C ~/lucid-demo/proj import ~/lucid-demo/vo.wav --clip-id vo
-uv run lucid -C ~/lucid-demo/proj import ~/lucid-demo/broll-blue.mp4 --clip-id blue
-uv run lucid -C ~/lucid-demo/proj import ~/lucid-demo/broll-rust.mp4 --clip-id rust
+uv run proofcut init ~/proofcut-demo/proj
+uv run proofcut -C ~/proofcut-demo/proj import ~/proofcut-demo/vo.wav --clip-id vo
+uv run proofcut -C ~/proofcut-demo/proj import ~/proofcut-demo/broll-blue.mp4 --clip-id blue
+uv run proofcut -C ~/proofcut-demo/proj import ~/proofcut-demo/broll-rust.mp4 --clip-id rust
 ```
 
 Each `import` prints the clip record — duration, codecs, dimensions, and
-`vfr` (whether the source is variable frame rate). Nothing is copied: lucid
+`vfr` (whether the source is variable frame rate). Nothing is copied: proofcut
 links the media where it lies.
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj transcribe vo
+uv run proofcut -C ~/proofcut-demo/proj transcribe vo
 ```
 
 whisper, with word timings. Expect **~47 words** and a `text` field that reads
@@ -94,7 +94,7 @@ back the script, disfluencies and all. This is the slow step; on a laptop
 without a GPU it is a minute or two.
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj seed vo
+uv run proofcut -C ~/proofcut-demo/proj seed vo
 ```
 
 auto-editor strips the silences and what is left becomes the timeline.
@@ -111,7 +111,7 @@ Four segments, because the gaps between takes are gone.
 ## 3. Find the retake
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj transcript vo --search "let me try that again"
+uv run proofcut -C ~/proofcut-demo/proj transcript vo --search "let me try that again"
 ```
 
 ```json
@@ -123,7 +123,7 @@ The fluff starts earlier than that, at the beginning of the abandoned
 sentence. Read the words around it:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj transcript vo --first 8 --last 26
+uv run proofcut -C ~/proofcut-demo/proj transcript vo --first 8 --last 26
 ```
 
 Words 11–23 are the whole retake, `Every cut you make names a... Um, no, let
@@ -135,7 +135,7 @@ me try that again.` — and word 24 is where the good take starts.
 thing and writes nothing:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --plan
+uv run proofcut -C ~/proofcut-demo/proj cut vo 11:23 --plan
 ```
 
 ```json
@@ -153,7 +153,7 @@ visible. Word 10 ends the good line before, word 24 starts the good line
 after, so this is the right range. Now do it:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --pad 0.1
+uv run proofcut -C ~/proofcut-demo/proj cut vo 11:23 --pad 0.1
 ```
 
 ```
@@ -164,21 +164,21 @@ uv run lucid -C ~/lucid-demo/proj cut vo 11:23 --pad 0.1
 
 `--pad 0.1` takes a tenth of a second either side, so the cut lands in silence
 rather than on a consonant — which is the 4.7 → 4.8 difference between the
-plan above and this. If you cut the wrong range, `lucid -C … undo`
+plan above and this. If you cut the wrong range, `proofcut -C … undo`
 puts it back.
 
 ## 5. Hang a picture on it
 
 A cue says "from this word onward, show this asset". Address it by phrase and
-lucid resolves it against the transcript, echoing what it matched:
+proofcut resolves it against the transcript, echoing what it matched:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj cue add vo --phrase "Every cut you make names a word" blue
-uv run lucid -C ~/lucid-demo/proj cue add vo --phrase "the render can be checked" rust
+uv run proofcut -C ~/proofcut-demo/proj cue add vo --phrase "Every cut you make names a word" blue
+uv run proofcut -C ~/proofcut-demo/proj cue add vo --phrase "the render can be checked" rust
 ```
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj shots
+uv run proofcut -C ~/proofcut-demo/proj shots
 ```
 
 ```
@@ -192,11 +192,11 @@ so nothing you do to the edit can move it out from under its own line.
 ## 6. Render, and check the render
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj export ~/lucid-demo/demo.mp4 --render
+uv run proofcut -C ~/proofcut-demo/proj export ~/proofcut-demo/demo.mp4 --render
 ```
 
 Two sources plus the voiceover, so this goes through MLT rather than
-auto-editor — lucid picks the writer from the project, never from a flag.
+auto-editor — proofcut picks the writer from the project, never from a flag.
 
 ```
 "writer": "melt", "shots": 2, "sources": 3,
@@ -206,7 +206,7 @@ auto-editor — lucid picks the writer from the project, never from a flag.
 Now the step that matters:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj verify ~/lucid-demo/demo.mp4
+uv run proofcut -C ~/proofcut-demo/proj verify ~/proofcut-demo/demo.mp4
 ```
 
 ```
@@ -215,7 +215,7 @@ uv run lucid -C ~/lucid-demo/proj verify ~/lucid-demo/demo.mp4
 "expected_words": 34
 ```
 
-lucid just transcribed its own render and diffed it against what the timeline
+proofcut just transcribed its own render and diffed it against what the timeline
 claims. 34 words expected, 34 heard, and the retake is not among them. A
 render that quietly dropped a segment, or a cut that landed a frame early,
 shows up here as a number rather than as something you notice a week later.
@@ -224,7 +224,7 @@ Frame counts have their own check, because a duration and a frame grid are
 different questions:
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj frames ~/lucid-demo/demo.mp4
+uv run proofcut -C ~/proofcut-demo/proj frames ~/proofcut-demo/demo.mp4
 ```
 
 ```
@@ -234,7 +234,7 @@ uv run lucid -C ~/lucid-demo/proj frames ~/lucid-demo/demo.mp4
 ## 7. Look at it
 
 ```sh
-uv run lucid -C ~/lucid-demo/proj open
+uv run proofcut -C ~/proofcut-demo/proj open
 ```
 
 The workspace: the transcript with the cut struck through, the timeline lanes,
@@ -247,28 +247,28 @@ would, and it is why the demo footage is labelled.
 
 ## Shortcuts
 
-`scripts/make_demo.py ~/lucid-demo --build` does steps 1 and 2 in one go — the
+`scripts/make_demo.py ~/proofcut-demo --build` does steps 1 and 2 in one go — the
 same commands, run for you — if you would rather start from a seeded project
 and skip to step 3.
 
 ## What to try next
 
-- `lucid -C ~/lucid-demo/proj cut vo 11:23 --plan` again after cutting: it
+- `proofcut -C ~/proofcut-demo/proj cut vo 11:23 --plan` again after cutting: it
   reports `already_cut`, because the words are still addressable even though
   they are no longer on the timeline.
-- `lucid -C ~/lucid-demo/proj caption-style --size 64` then
-  `lucid -C ~/lucid-demo/proj captions ~/lucid-demo/demo.ass --burn ~/lucid-demo/demo.mp4`
+- `proofcut -C ~/proofcut-demo/proj caption-style --size 64` then
+  `proofcut -C ~/proofcut-demo/proj captions ~/proofcut-demo/demo.ass --burn ~/proofcut-demo/demo.mp4`
   — captions come out of the *timeline*, not the transcript, so they land where
   the words actually play. Note that `export --render` does **not** burn them
   — the burn is its own opt-in step against a finished file.
-- `lucid -C ~/lucid-demo/proj finish-report` — everything the truth strip
+- `proofcut -C ~/proofcut-demo/proj finish-report` — everything the truth strip
   draws. Its `captions.burned` reads `"unknown"` after the hand-run burn
   above, and correctly: it reports what the last *render pipeline run* did,
   and a `captions --burn` on an existing file is not one. A manifest can say
   captions are configured while nothing on disk was ever burned, and this is
   the field that stops that reading as clean.
-- `lucid -C ~/lucid-demo/proj reframe blue --rect 0,0,320,180` then
-  `lucid -C ~/lucid-demo/proj reframe-sheet` — a crop window is a rect in the
+- `proofcut -C ~/proofcut-demo/proj reframe blue --rect 0,0,320,180` then
+  `proofcut -C ~/proofcut-demo/proj reframe-sheet` — a crop window is a rect in the
   clip's own *source* pixels, so no cut can invalidate one. That rect keeps
   the top-left quadrant, which the corner tags make obvious: `TL` survives and
   the other three are gone. The sheet draws every window on the frames it

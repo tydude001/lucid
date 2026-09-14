@@ -1,5 +1,10 @@
 # TRIAL — the closed loop, measured, and the queue it produced — 2026-08-25
 
+This document was written when the project was called lucid, and says so
+throughout; nothing in it was rewritten for the rename (HISTORY.md § The rename).
+The commands, environment variables and paths it quotes are as they were
+run then: `lucid X` is `proofcut X` today.
+
 NEXT.md § 1 asked for the one measurement lucid has never made: hand an agent a
 brief and watch it drive `claude -p` against the MCP server from import to
 export, unattended, then score the result. This file is the evidence and the

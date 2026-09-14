@@ -1,4 +1,4 @@
-# lucid — the launch plan: getting eyes on a public repo
+# proofcut — the launch plan: getting eyes on a public repo
 
 Provenance: Tyler asked on 2026-09-11 how a public `tydude001/lucid` gets
 seen. This is the answer, written as a plan. Sources: NEXT.md § 1 (the closed
@@ -31,7 +31,7 @@ pointer, and the wiki row updates.
   can draft every post, build the recording pipeline, and prepare the
   directory submissions, but cannot press record on a screen, cannot flip the
   repo, and cannot be the stranger.
-- **What "eyes" means here is measured in strangers who ran `lucid doctor`,
+- **What "eyes" means here is measured in strangers who ran `proofcut doctor`,
   not stars.** A star is a bookmark. The numbers that say the launch worked
   are issues filed by people who are not Tyler, installs reported by the MCP
   directories, and one outside pull request. Set no targets — there is no
@@ -74,13 +74,13 @@ shape is the one that stands, `~/lucid-work/launch-v4/clip-v6.mp4`
 the clip is the way it is: `~/lucid-work/launch-v4-review/PIN.md`.
 
 **What it is.** A 47-second cut, and the full runs uncut, of one brief driven
-from `lucid init` to a verified render twice: in the agent pane of the
-workspace, then in Claude Code with lucid loaded as a plugin. The cut version is what every channel below posts; the
+from `proofcut init` to a verified render twice: in the agent pane of the
+workspace, then in Claude Code with proofcut loaded as a plugin. The cut version is what every channel below posts; the
 uncut one is the link under it for anyone who wants to check it was not
 staged. The pitch is the thing itself: an agent on a timeline, the render
 checking itself against the edit, and no cloud in the frame.
 
-**Footage rule.** The recording shows only footage lucid owns — the generated
+**Footage rule.** The recording shows only footage proofcut owns — the generated
 demo project, Tyler's own recorded material (the co-hosted recording once
 the second mic is routed, wiki `lucid-second-mic`), or public-domain footage
 with its provenance written down (the clip's is NASA's restored Apollo 11,
@@ -92,9 +92,9 @@ launch does not need. The real-footage trial's *numbers* are quoted in the
 post (9 of 9, 45.23s, similarity 0.984, 123 of 123 heard); its *frames* stay
 in `~/lucid-work/agent-trial/`.
 
-**It is not cut with lucid, so never say it was.** The camera, the speed
+**It is not cut with proofcut, so never say it was.** The camera, the speed
 ramps, the type and the mix are a compositor script
-(`~/lucid-work/launch-v4/clip.py`) over the two recordings. Lucid's own
+(`~/lucid-work/launch-v4/clip.py`) over the two recordings. proofcut's own
 moves are linear and it cannot retime, which is most of why the first three
 shapes read as choppy. "The launch video was cut by the tool" is false, and
 the line that is true is stronger anyway: the film inside the clip is the
@@ -154,9 +154,9 @@ GitHub's cap on a free plan is 10 MB.
 ## Step 2 — one stranger's run, on a Mac
 
 **What it is.** A person who is not Tyler clones the repo, runs `uv sync`,
-`lucid doctor`, and docs/DEMO.md end to end on a machine Tyler does not own,
+`proofcut doctor`, and docs/DEMO.md end to end on a machine Tyler does not own,
 and reports every ✗ and every wrong number. A Mac, because that is where the
-HN / X / Claude Code audience mostly is, and no person has run lucid on one
+HN / X / Claude Code audience mostly is, and no person has run proofcut on one
 (README.md § Requirements says so, and must keep saying so until this step
 passes — GitHub's runner is not a person, § The Mac test in CI below).
 
@@ -207,15 +207,15 @@ VTK among them), whisper with `uv tool` unless one is already on PATH. Then
 it runs DEMO.md's commands to the first failure and zips a report to the
 Desktop. `--uninstall` removes what the run recorded adding and nothing the
 tester already had. What it measures is therefore **this install path plus
-lucid on macOS**, not whether a stranger can follow `doctor`'s fixes. That
+proofcut on macOS**, not whether a stranger can follow `doctor`'s fixes. That
 second question is still open, and this run answers the one PORTABILITY.md
-step 4 needs first: does Shotcut's melt carry the modules lucid's documents
+step 4 needs first: does Shotcut's melt carry the modules proofcut's documents
 use. The report's two frames settle that, never melt's exit code.
 
 **The same script runs from a clone** (2026-09-13): `bash
-lucid/scripts/mac_trial.sh` with no payload uses the checkout it sits in, and
+proofcut/scripts/mac_trial.sh` with no payload uses the checkout it sits in, and
 tells the tester to attach the zip to the issue form rather than send it to
-Tyler. Because that zip is posted publicly, the project's `lucid.json` and
+Tyler. Because that zip is posted publicly, the project's `proofcut.json` and
 `project.otio` are scrubbed of the home folder along with the log — both store
 absolute paths. `--pack` still works, for a tester with no GitHub access.
 HISTORY.md § The Mac test, asked of strangers.
@@ -253,7 +253,7 @@ which is GitHub's documented rule for private uploads, not a broken link.
 After item 1, open it logged out (a private window) and it has to play; if
 it does not, the README's first screen is a dead link on launch day.
 
-1. Flip `tydude001/lucid` public.
+1. Flip `tydude001/proofcut` public.
 2. Sync the GitHub mirror so the public repo is at the tip (wiki
    `git-server.md` § GitHub push mirrors — **never `git push --mirror`**).
    **Flip first, then sync** (2026-09-13): the account's included Actions
@@ -268,16 +268,17 @@ it does not, the README's first screen is a dead link on launch day.
 4. Repo description: `Source-available, local-first AI video editor — an MCP
    server over ffmpeg, whisper and OpenTimelineIO` (pyproject.toml's own
    line). Topics: `mcp`, `mcp-server`, `video-editing`, `whisper`, `ffmpeg`,
-   `local-first`, `claude-code`, `opentimelineio`. **The name is not
+   `local-first`, `claude-code`, `opentimelineio`. **The old name was not
    searchable** — "lucid" is a car, a diagramming suite and a thousand dream
    apps — so the description and the tagline are what get found, and they say
-   the same seven words everywhere: *lucid, the local-first AI video editor*.
+   the same seven words everywhere: *proofcut, the local-first AI video editor*.
    Measured 2026-09-13: Glama's search for the name returns 25 servers led by
    Lucidchart's official `lucidsoftware/lucid-mcp-server`, and its "video
    editor" search returns 24, FableCut among them — the row is what sells, in
-   the query that matters. The rename question is settled in § What this
-   plan deliberately does not do; the HN thread confusing the two is the one
-   thing that would reopen it.
+   the query that matters. The rename question was settled in § What this
+   plan deliberately does not do; the HN thread confusing the two was the one
+   thing that would reopen it, and the registry reopened it first — the name
+   is proofcut (docs/plans/RENAME.md).
 5. Social preview image: `docs/img/edit-mode.png`, which is what every link
    unfurls to on X, Bluesky and Slack. It is already screened for footage and
    paths (CLAUDE.md § Conventions, the screenshot rule).
@@ -320,7 +321,7 @@ awesome-mcp-servers Multimedia section holds several on 2026-09-12, FableCut
 (667★, a browser NLE an agent drives live) and kinocut among them. PRIOR-ART.md
 had said so on 2026-08-25, before this sentence claimed the opposite. The MCP
 ecosystem is still the channel whose audience wants the shape, but a listing
-has to say what lucid does that the line above it does not. What each
+has to say what proofcut does that the line above it does not. What each
 directory actually takes today — PulseMCP paused and reading the registry,
 Smithery local-only as `.mcpb`, Glama scoring tool descriptions — and the
 drafted awesome-list line: `~/lucid-work/launch-listings/LISTINGS.md`.
@@ -332,9 +333,9 @@ twos, with time to fix what they find.
   published `2025-12-11` schema); what remains is the publish through its
   CLI, which proves the `io.github.tydude001` namespace with a GitHub login
   and so cannot be done before the flip. The entry carries **no `packages`
-  block**, because lucid is on no package registry and a `pypi` identifier
+  block**, because proofcut is on no package registry and a `pypi` identifier
   would name something that does not exist — `websiteUrl` points at
-  docs/DEMO.md instead. If lucid is ever published to PyPI, that block is
+  docs/DEMO.md instead. If proofcut is ever published to PyPI, that block is
   the one thing to add. Re-check the schema URL at publish time; the
   mechanics have changed more than once. Shipped — see HISTORY.md § The
   registry entry and the plugin manifest. **Published 2026-09-13** — see
@@ -348,18 +349,18 @@ twos, with time to fix what they find.
   HISTORY.md § The launch clip's product defects, fixed.
 - **A Claude Code plugin.** The agent pane already spawns `claude` against a
   generated MCP config (`webui._agent_bin`), so the one-command install for a
-  Claude Code user is a plugin manifest naming `lucid mcp` as its server.
-  This is lucid *being* a plugin, which PLAN.md's non-goal ("a plugin system
-  before there are two users") does not touch — that non-goal is about lucid
+  Claude Code user is a plugin manifest naming `proofcut mcp` as its server.
+  This is proofcut *being* a plugin, which PLAN.md's non-goal ("a plugin system
+  before there are two users") does not touch — that non-goal is about proofcut
   *having* plugins. **Built 2026-09-12**: `.claude-plugin/plugin.json` and a
   single-plugin `.claude-plugin/marketplace.json`, both read off
   code.claude.com's current references. The server command is
-  `uv run --project ${CLAUDE_PLUGIN_ROOT} lucid mcp` — a static manifest
-  cannot name `sys.executable`, and a bare `lucid` is the silent `tools: []`
+  `uv run --project ${CLAUDE_PLUGIN_ROOT} proofcut mcp` — a static manifest
+  cannot name `sys.executable`, and a bare `proofcut` is the silent `tools: []`
   failure HISTORY.md § The agent panel had no tools at all measured — and it
   was driven over stdio with the repo's venv scrubbed from PATH: 90 tools.
   README.md § Try it carries the two install commands
-  (`/plugin marketplace add tydude001/lucid`, `/plugin install lucid@lucid`),
+  (`/plugin marketplace add tydude001/proofcut`, `/plugin install proofcut@proofcut`),
   which 404 until the flip and need nothing else afterwards. Shipped — see
   HISTORY.md § The registry entry and the plugin manifest.
 
@@ -378,19 +379,19 @@ Eastern, with Tyler at a keyboard for the following six hours.
 
 **Title** (draft; HN strips "Show HN:" formatting quirks, keeps it under 80
 characters, no exclamation):
-> Show HN: Lucid – a local-first AI video editor that's an MCP server
+> Show HN: proofcut – a local-first AI video editor that's an MCP server
 
 **The first comment is Tyler's, posted immediately, and it does three
 things**: says what it is in two sentences, links the 60-second clip and the
 uncut run, and pre-empts the two questions that will otherwise be the
 thread. Draft:
 
-> lucid puts an AI agent on a video timeline and keeps everything on your
+> proofcut puts an AI agent on a video timeline and keeps everything on your
 > own machine — whisper, ffmpeg, auto-editor, MLT and OpenTimelineIO under
 > an MCP server, so any agent that speaks MCP (Claude Code, Codex, your own)
 > can cut by transcript, hang b-roll off phrases, caption, render, and then
 > check the render against the edit. Here is one doing that unattended,
-> start to finish: [clip](https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10) / [the uncut runs](https://github.com/tydude001/lucid/releases/tag/v0.22.0). Two things people will ask:
+> start to finish: [clip](https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10) / [the uncut runs](https://github.com/tydude001/proofcut/releases/tag/v0.22.0). Two things people will ask:
 >
 > *Licence.* PolyForm Shield — source-available; you can read, run, modify
 > and redistribute it, and the one thing reserved is shipping a competing
@@ -399,7 +400,7 @@ thread. Draft:
 > OSI definition, and I'd rather say so here than have it found.
 >
 > *Platforms.* Developed on Linux; the demo has been run end to end on one
-> Mac, and Windows has only CI. `lucid doctor` tells you what's missing and
+> Mac, and Windows has only CI. `proofcut doctor` tells you what's missing and
 > how to fix it, and I'd genuinely like the doctor output from your machine
 > if it says ✗.
 
@@ -417,7 +418,7 @@ reasoning if anyone wants it, and it is public.
   README does not.
 - *"How is this different from kinocut / FableCut?"* — the question the
   Multimedia section guarantees. Answer with the mechanism, not a
-  superlative: lucid re-transcribes the render and diffs it word for word
+  superlative: proofcut re-transcribes the render and diffs it word for word
   against the timeline, and counts its frames against the timeline's.
   kinocut's gate scores signal levels (brightness, saturation, loudness) and
   its receipts are hashes. FableCut is a browser NLE an agent edits live, with
@@ -458,7 +459,7 @@ tuned to the room.
 4. **r/selfhosted** — the hook is "no accounts, no metering", which is the
    README's stated non-goal and their whole reason for being there.
 5. **The films themselves.** Every goodsometimes release from here carries
-   "cut in lucid" and the repo link in its description, and the launch clip's
+   "cut in proofcut" and the repo link in its description, and the launch clip's
    making-of is a short of its own. This is the slow channel and the honest
    one: the tool's best advertisement is the work made with it.
 
@@ -486,9 +487,13 @@ the decision moves to wiki `decisions.md`, not here.
 - **No relicensing for adoption.** Shield was chosen with the trade-off
   known. If the HN thread argues for MIT, the answer is the paragraph in
   step 5, not a change.
-- **No rename.** The discoverability problem is real and it is solved by
-  the tagline appearing everywhere the name does, not by a new name that
-  would orphan every doc citation in the repo.
+- **No rename.** Decided on two grounds, both true: the
+  discoverability problem was solved by the tagline appearing
+  everywhere the name does, and a new name would orphan every doc citation
+  in the repo. It was wrong on a third fact it never weighed: Lucid Software's
+  own MCP server is named `Lucid` in the official registry, first result for
+  the word, and the company holds a live US trademark on the bare word
+  LUCID. So the project is proofcut — docs/plans/RENAME.md.
 - **No container or install script before step 2 says where the stranger
   stopped.** Measure the blocker, then beat it.
 - **No Product Hunt, no paid promotion, no launch-day mass posting.** Wrong

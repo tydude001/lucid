@@ -4,7 +4,7 @@ Survey conducted **2026-08-06**, in two sweeps the same day: the first missed
 the conversational-editor field entirely (see "Corrections"), and a second
 sweep prompted by the stop-or-continue question found OpenChatCut, video-use,
 and open-edit. A third pass on **2026-08-07** covered Daydream, the closed-source
-product closest to lucid's own shape, which neither sweep had checked
+product closest to proofcut's own shape, which neither sweep had checked
 because it has no GitHub repo. Star counts, versions, and wheel matrices are
 snapshots from those dates and go stale; the *conclusions* they support live
 in [PLAN.md](PLAN.md), which is authoritative for decisions. This file is the
@@ -43,7 +43,7 @@ What it has:
 ### The v3 timeline format
 
 Flat, LLM-legible JSON — essentially a flattened OTIO track with different field
-names. This is what makes auto-editor usable as lucid's render backend:
+names. This is what makes auto-editor usable as proofcut's render backend:
 
 ```json
 {"version":"3","timebase":"30/1","background":"#000","resolution":[1280,720],
@@ -84,7 +84,7 @@ commits · v0.1.9 (2026-08-06) ships macOS dmg (arm64+x64), Windows exe, and a
 **Linux x86_64 AppImage**
 
 Missed by the first sweep. A local-first conversational editor whose pitch is
-lucid's pitch: agents (built-in via Vercel AI SDK, or external via MCP) editing
+proofcut's pitch: agents (built-in via Vercel AI SDK, or external via MCP) editing
 a real multi-track timeline, with word-level transcription, text-based cuts,
 speaker labels, linked captions, and undo/redo. Projects persist to
 `~/.openchatcut` as JSON.
@@ -96,7 +96,7 @@ land atomically as a single undo step, optionally gated on in-app human
 approval. That proposal-review shape is arguably *better* for human-in-the-loop
 than raw tool calls.
 
-Against lucid's three differentiators, it plausibly covers all three:
+Against proofcut's three differentiators, it plausibly covers all three:
 addressable word-level cuts (not just filters), persistent projects with undo,
 and real MCP with typed skills. What it does **not** cover:
 
@@ -113,7 +113,7 @@ and real MCP with typed skills. What it does **not** cover:
 3. **Thin dependency graph.** Electron 43 + Node 24 + Remotion versus a Python
    package and three subprocesses.
 
-Whether that remainder justifies lucid is not answerable by reading — it is
+Whether that remainder justifies proofcut is not answerable by reading — it is
 answerable by installing the AppImage and running the addressable-edit test
 ("cut words 30–45; keep take 2, drop take 1", iteratively, via Claude Code
 over its MCP endpoint) on a real recording. That trial is the go/no-go gate in
@@ -128,14 +128,14 @@ desktop app, Apple Silicon (page title literally reads "Download Daydream — AI
 Mac"; no Windows or Linux build found on the download page, docs, or FAQ) · by Pushie, Inc.
 
 Neither sweep covered it, because neither searched outside GitHub — the README named Daydream as
-lucid's foil from the first commit without the claim ever being checked. Verified directly against
+proofcut's foil from the first commit without the claim ever being checked. Verified directly against
 daydreamvideo.com and docs.daydreamvideo.com, 2026-08-07.
 
 **It is a full desktop NLE, not a chat front end that hands off to finish elsewhere.** The editor
 shows a real multi-track timeline (V1/V2 video, A1/A2 audio, CC captions), an asset panel,
 properties/templates panels, frame-accurate scrubbing, and direct transcript-based trimming.
 Watermark-free MP4 rendering happens inside the app; NLE export is an *additional* option, not the
-only way to finish a project. This falsifies README.md's claim that lucid does not build a desktop
+only way to finish a project. This falsifies README.md's claim that proofcut does not build a desktop
 editor "same as Daydream does" — Daydream finishes its own timelines.
 
 MCP: local HTTP server, `http://127.0.0.1:7433/mcp`, no auth documented.
@@ -165,8 +165,8 @@ what's derived from it (transcripts, embeddings) sent out for inference. Docs do
 closed source means it isn't independently checkable the way auto-editor's or OpenChatCut's claims
 were.
 
-**Against lucid's differentiators:** headless — no, it's a GUI app fronting a local MCP server,
-same shape as OpenChatCut, not lucid's CLI-first model. OTIO-native — no, undocumented per-target
+**Against proofcut's differentiators:** headless — no, it's a GUI app fronting a local MCP server,
+same shape as OpenChatCut, not proofcut's CLI-first model. OTIO-native — no, undocumented per-target
 XML/FCPXML export only, no evidence of any timeline IR underneath. Thin dependency graph —
 unconfirmed but unlikely, given the product surface (motion graphics, b-roll search, multi-format
 export) matches OpenChatCut's Electron/Remotion scale more than auto-editor's. Addressable ranges
@@ -189,7 +189,7 @@ that file's § How this was captured). What the pass adds as *competitor* eviden
 homepage retitled to "AI Video Editor for Claude Code & Codex" ("for Mac" survives only
 on `/download`), still macOS-only, so the Linux asymmetry stands; the in-app chat is
 Claude Code/Codex itself as a subprocess on the user's own sign-in — the mechanism
-lucid's agent panel chose independently a day earlier (PLAN.md § The agent panel, in
+proofcut's agent panel chose independently a day earlier (PLAN.md § The agent panel, in
 mechanism); and the MCP tool schema remains unpublished — workflow prose only, no
 tool list, unchanged from the entry above.
 
@@ -212,7 +212,7 @@ Checked 2026-08-06:
 So the handoff formats that actually land on this box are MLT (`kdenlive`,
 `shotcut`), both of which auto-editor already emits, with FCPXML useful only for
 an already-transcoded Resolve project. That is a further argument for OTIO as
-lucid's *internal* source of truth rather than as the pitch.
+proofcut's *internal* source of truth rather than as the pitch.
 
 ## browser-use/video-use — the distribution threat, not a substitute
 
@@ -221,7 +221,7 @@ lucid's *internal* source of truth rather than as the pitch.
 org's distribution)
 
 Agent-driven editing via coding agents (Claude Code, Codex): filler-word
-removal, grading, subtitle burn-in, fades. Fails lucid's core constraint
+removal, grading, subtitle burn-in, fades. Fails proofcut's core constraint
 outright — transcription is **ElevenLabs Scribe cloud API only**, no local
 option — and has no MCP and no real timeline model (text-first: word-level
 transcript packed into ~12KB markdown, ffmpeg execution underneath).
@@ -230,7 +230,7 @@ Two ideas worth stealing regardless:
 
 - **Decision-point composites.** Instead of frame-dumping, it renders PNG
   composites (filmstrip + waveform + labels) only where the agent must make a
-  call. Convergent with lucid's contact-sheet preview lean — the first sweep's
+  call. Convergent with proofcut's contact-sheet preview lean — the first sweep's
   "nobody else in the space does it" was wrong.
 - **`project.md` session memory** persisting editorial decisions across
   sessions — a cheaper cousin of kinocut's receipts.
@@ -244,7 +244,7 @@ Apple Silicon macOS Tahoe only, 11 commits
 VEED's agent-driven caption/motion-graphics pipeline. Default transcription
 uploads audio to VEED (WhisperX local fallback exists); rendering is their
 closed-source binary. Same open-core-with-hosted-tier shape as openshorts.
-Not a lucid substitute — wrong platform, wrong openness — but it belongs in
+Not a proofcut substitute — wrong platform, wrong openness — but it belongs in
 the field map: incumbents are now releasing agent-facing editors.
 
 ## kinocut — the cautionary tale
@@ -278,7 +278,7 @@ input/output hashes, ffmpeg version, and a resume cursor.
 
 ## The OTIO + MCP niche is empty — but the broader thesis is not
 
-Searched GitHub for anyone occupying lucid's exact thesis. The *literal* niche
+Searched GitHub for anyone occupying proofcut's exact thesis. The *literal* niche
 — OTIO as native source of truth behind MCP — remains unoccupied (OpenChatCut
 uses a custom JSON timeline). But the first sweep's stronger reading, that
 nobody offers addressable ranges + persistent state + MCP together, was
@@ -290,7 +290,7 @@ micro-repos found by the first sweep:
 |---|---|---|---|
 | [satoh-y-0323/clipwright](https://github.com/satoh-y-0323/clipwright) | 2 | Python | Closest match — MCP server *suite* wrapping FFmpeg/OTIO, split per domain (`clipwright-stabilize`, `clipwright-transcribe`, …). Careful work; runtime depends only on ffprobe, uses whisper.cpp + ggml models |
 | [alexrienzie/open-post-production](https://github.com/alexrienzie/open-post-production) | 2 | Python | Transcribe/search/cut at documentary scale, local hardware |
-| [chaoz23/otio-diff](https://github.com/chaoz23/otio-diff) | 1 | Python | Structural diff between two OTIO timelines — added/removed/retimed/moved clips. CLI + MCP. **Directly useful to lucid** as the "what did the agent just change?" primitive |
+| [chaoz23/otio-diff](https://github.com/chaoz23/otio-diff) | 1 | Python | Structural diff between two OTIO timelines — added/removed/retimed/moved clips. CLI + MCP. **Directly useful to proofcut** as the "what did the agent just change?" primitive |
 | [plokdalberb-byte/cutible](https://github.com/plokdalberb-byte/cutible) | 0 | Python | Created and abandoned the same day (2026-06-22); ignore |
 
 The OTIO rendering thesis is also still unproven. **Nobody has demonstrated
@@ -308,9 +308,9 @@ run.
   MIT · JavaScript · created 2026-07-06. A Premiere-style NLE in the browser
   whose whole timeline is one `project.json`. An agent edits that document over
   MCP or REST, and the open UI hot-reloads it over SSE, so a person watches the
-  agent's cut land. That is `lucid web`'s agent pane from the other end: no
+  agent's cut land. That is `proofcut web`'s agent pane from the other end: no
   transcript addressing, no OTIO, render in the browser. It is already in the
-  official registry, the awesome list and Glama, which is the listing path lucid
+  official registry, the awesome list and Glama, which is the listing path proofcut
   is about to take. Read from source the same day, below: § FableCut, read —
   and why lucid does not merge with it.
 - **[Cassette-Editor/oh-my-cassette](https://github.com/Cassette-Editor/oh-my-cassette)**
@@ -318,7 +318,7 @@ run.
   It returns a timeline digest and a contact sheet every turn, and renders
   nothing until the plan is approved. It needs a Cassette account, so the edit
   is not local. It quotes its own session cost ($4 on Opus 5), the way TRIAL.md
-  quotes lucid's.
+  quotes proofcut's.
 
 kinocut moved from 101★ to 146★ since the entry above and now pitches "quality
 gates". **Read from source the same day (`faaecc2`), the gate scores signal
@@ -327,20 +327,20 @@ loudness, against fixed ranges. Its receipts are sha256 provenance. The one
 output-against-plan check found is silence removal's duration, within 0.15s.
 No path was found that transcribes a render against intended words or counts
 frames against a timeline, so that pair (`verify`, `check_frames`) stays
-lucid's, stated narrowly. Grep and reading, not a run:
+proofcut's, stated narrowly. Grep and reading, not a run:
 `~/lucid-work/launch-listings/LISTINGS.md` § kinocut's gate, read.
 
 ## FableCut, read — and why lucid does not merge with it
 
-Asked 2026-09-12: is FableCut the same thing, is it better, should lucid merge
+Asked 2026-09-12: is FableCut the same thing, is it better, should proofcut merge
 into it. Read from source at `6ed70b0` (v1.7.0, pushed 2026-09-11; 667★, 67
 forks, 7 contributors). Grep and reading, not a run.
 
 **Same neighbourhood, a different product.** FableCut is a human's NLE with an
-agent as co-editor; lucid is an agent's editing toolkit with a window a human
+agent as co-editor; proofcut is an agent's editing toolkit with a window a human
 watches through.
 
-| | FableCut | lucid |
+| | FableCut | proofcut |
 |---|---|---|
 | Agent surface | 8 MCP tools, mostly get/patch/set of `project.json` — clips placed in seconds | 93 `@_tool()` tools, each with a CLI twin, ranges addressed by transcript word |
 | Speech | None in the editor. `examples/auto-captions/` turns someone else's STT word timestamps into karaoke text clips — captions, never addressing | whisper at import; cut, cue, caption and verify all resolve through words |
@@ -355,12 +355,12 @@ watches through.
   Glama, a Discord, five README translations — the whole of
   docs/plans/LAUNCH.md, already done.
 - **Hand editing.** Keyframes, transitions, marquee multi-select, on-monitor
-  move/resize/rotate, multi-channel audio stems, in/out work area. lucid's
+  move/resize/rotate, multi-channel audio stems, in/out work area. proofcut's
   window has direct-manipulation gestures; it is not a Premiere.
-- **Install.** `node server.js` against lucid's three external binaries. Of
-  everything here, this is the gap most likely to cost lucid a stranger.
+- **Install.** `node server.js` against proofcut's three external binaries. Of
+  everything here, this is the gap most likely to cost proofcut a stranger.
 
-**Where lucid is ahead:** an unattended agent can cut, render and check its own
+**Where proofcut is ahead:** an unattended agent can cut, render and check its own
 cut. FableCut's agent cannot render without a browser tab open, and nothing
 compares what it rendered to what was meant. Word-addressed editing,
 framing detection, the timeline-derived captions, cards and the TTS splice have
@@ -369,17 +369,17 @@ points away from them rather than toward them.
 
 **Why not merge.** Three reasons, any one sufficient:
 
-1. **Nothing ports.** A merge is lucid's ideas rewritten into a single JS file
+1. **Nothing ports.** A merge is proofcut's ideas rewritten into a single JS file
    on a different runtime; none of `ops.py`, whisper or the melt writer
    crosses over.
 2. **The licence.** Code contributed there is MIT, which undoes the PolyForm
    Shield choice (HISTORY.md § The licence, chosen, and wiki `decisions.md`).
 3. **The designs are opposites.** "The project file is the interface" lets
-   any writer place anything; lucid routes every mutation through one `ops`
+   any writer place anything; proofcut routes every mutation through one `ops`
    function and verifies the render. Blending them keeps neither guarantee.
 
 **What to take instead:** its install story and its listing path, both named
-in LAUNCH.md. Interop is the one bridge that makes sense — lucid writing a
+in LAUNCH.md. Interop is the one bridge that makes sense — proofcut writing a
 FableCut `project.json` so a word-cut film can be hand-finished there, the way
 `import_edit` already reads a `.kdenlive` — and it is **not queued**: build it
 when someone asks, not on speculation.
@@ -433,14 +433,14 @@ can be found.
 
 ### The first sweep missed the conversational-editor field
 
-The first sweep searched GitHub for lucid's *architecture* (OTIO, MCP, ffmpeg
+The first sweep searched GitHub for proofcut's *architecture* (OTIO, MCP, ffmpeg
 wrappers) and found micro-repos. A second sweep the same day searched the
 *product space* ("edit by transcript", "AI video editor agent") and immediately
 surfaced OpenChatCut (854★), browser-use/video-use (19.9k★), and
-veedstudio/open-edit — including the one project that plausibly covers lucid's
+veedstudio/open-edit — including the one project that plausibly covers proofcut's
 differentiators. Lesson for the next re-survey: search what a user would type,
 not what the implementation contains. This also falsified the first sweep's
-claim that decision-point frame composites were unique to lucid's preview idea
+claim that decision-point frame composites were unique to proofcut's preview idea
 (video-use ships them).
 
 ### "No FCPXML export" was a search failure
@@ -504,27 +504,27 @@ rather than by reading PyPI metadata alone.
 
 ### "Daydream hands off finishing work, same as lucid would" was never checked
 
-README.md pitched lucid against Daydream from the first commit, and both survey sweeps skipped it
+README.md pitched proofcut against Daydream from the first commit, and both survey sweeps skipped it
 because neither searched outside GitHub — Daydream has no repo. Fetching daydreamvideo.com and its
 docs directly (2026-08-07) shows a full NLE-style timeline editor with in-app watermark-free
 rendering; NLE export to Premiere/Resolve/Final Cut is an optional extra, not the finishing path.
 The README's "same as Daydream does" clause was false and was cut the same day (2c7d119); the
-README no longer pitches lucid against Daydream at all. See the Daydream section above.
+README no longer pitches proofcut against Daydream at all. See the Daydream section above.
 
 ## Convergent signals worth noting
 
 - **Transcription backend.** Both auto-editor and clipwright chose whisper.cpp
-  binaries over faster-whisper. Real signal, but lucid stays with faster-whisper:
+  binaries over faster-whisper. Real signal, but proofcut stays with faster-whisper:
   in-process and pip-installable matters more here than raw throughput, and it
   keeps the dependency graph free of a second hand-managed binary.
 
-  **Overturned 2026-08-07, when ASR was actually built.** lucid shells out to
+  **Overturned 2026-08-07, when ASR was actually built.** proofcut shells out to
   an openai-whisper binary (`asr.py`), which is the same call auto-editor and
   clipwright made and against the reasoning above. Two things decided it. The
   box already had a working openai-whisper install and no faster-whisper one,
   so "pip-installable" bought nothing that wasn't already paid for. And
   in-process is a *cost* here, not a benefit: importing it drags torch and a
-  GPU context into `lucid status`, which never touches audio. The convergent
+  GPU context into `proofcut status`, which never touches audio. The convergent
   signal was right and the counter-argument was theoretical.
 - **Caption format.** kinocut ships word-timed ASS. Word-level highlighting is
   what burned-in captions are actually for, and SRT + ffmpeg `force_style`

@@ -1,4 +1,4 @@
-# lucid
+# proofcut
 
 Architecture, stack decisions, and open questions live in [PLAN.md](docs/PLAN.md).
 The build order and the rationale behind it is PLAN.md § Direction and
@@ -43,9 +43,10 @@ is [docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
 Software's own MCP server is the registry's first result for the word, and
 it holds a live LUCID mark), the measured surface, the decisions, and the
 steps a fresh session works — is
-[docs/plans/RENAME.md](docs/plans/RENAME.md), written 2026-09-13; nothing
-in it has started, and until it lands every command in this file is still
-`lucid`.
+[docs/plans/RENAME.md](docs/plans/RENAME.md), written 2026-09-13; it has
+landed, and HISTORY.md § The rename is its record. The records — HISTORY.md,
+TRIAL.md, and DAYDREAM/POLISH/STUDIO — still say `lucid` by design, and so
+does every citation of a heading that contains the word.
 Open-item status lives in the wiki, not here.
 
 **Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
@@ -61,7 +62,7 @@ would bury any real change. A Markdown *link* is a path and must resolve.
 Each is a case where the training prior is confidently wrong. Check the
 installed package or the upstream repo, not your memory.
 
-**`lucid doctor` probes every binary below and prints the fix under each ✗.**
+**`proofcut doctor` probes every binary below and prints the fix under each ✗.**
 Three rules it holds to and anything added to it must: judge melt by its
 `-version` banner and never its exit code (`picture.MELT_BANNER`, which
 `melt_command` also holds every PATH and bundle candidate to — Windows ships
@@ -69,7 +70,10 @@ WiX's `melt.EXE`, and a real one names itself `melt.exe`); *run* whisper rather 
 (a venv that has lost torch resolves fine and dies minutes into a job); and
 never print the TTS voice path — a voice is somebody's recorded speech. An
 absent optional capability is "unavailable", never a failure, and never moves
-`ok`. HISTORY.md § `lucid doctor`.
+`ok`. **It also lists every `LUCID_*` variable still set, beside its
+`PROOFCUT_*` name** (`legacy_env`) — names, never values, and a note, never a
+✗: no resolver reads the old name, so a stale `60-lucid.conf` otherwise loses what it
+configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
 
 - **The MCP SDK is v2. `FastMCP` no longer exists** — it is `MCPServer`, from
   `mcp.server` (and there is no `mcp.server.fastmcp` module). Training priors
@@ -79,7 +83,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     "streamable-http"]`, verified against the installed 2.0.0** — but calling
     it with `transport="streamable-http"` builds the Starlette app and the
     uvicorn `Config` internally, with no injection point for middleware and no
-    way to learn a `port=0` ephemeral port before it blocks. `lucid mcp
+    way to learn a `port=0` ephemeral port before it blocks. `proofcut mcp
     --transport http` builds `streamable_http_app()`'s pieces by hand instead
     — a Starlette app with its lifespan already wired — because the loopback
     guard needs to wrap the app and the bound port needs to be knowable before
@@ -162,11 +166,11 @@ absent optional capability is "unavailable", never a failure, and never moves
         `asdict` would stamp `"speaker": null` onto every word of every
         transcript and rewrite each file on the next save for no change.
 - **Whisper is a subprocess.** Do not `import whisper` —
-  go through `asr.transcribe()`, which resolves the binary via `LUCID_WHISPER`
+  go through `asr.transcribe()`, which resolves the binary via `PROOFCUT_WHISPER`
   → PATH, and nothing after. **No resolver in `src/` may fall back into a
   path under `~/projects`** — that is another repo's layout on one machine,
   and printing it is how `doctor` told strangers about it; this box's installs
-  ride `~/.local/bin/whisper` and `~/.config/environment.d/60-lucid.conf`
+  ride `~/.local/bin/whisper` and `~/.config/environment.d/60-proofcut.conf`
   instead (HISTORY.md § The repo, readied for strangers). It is openai-whisper, not faster-whisper, whatever
   PLAN.md's older tables say. Why it is not an import: `asr.py`'s docstring.
   - **Both passes hallucinate, and the two rules that catch it are not one
@@ -179,15 +183,15 @@ absent optional capability is "unavailable", never a failure, and never moves
     w/s over three words, because whisper's durations are not to be trusted.
     Every drop is reported as `hallucinated_words`, never only applied.
     HISTORY.md § The ingest path's hallucination guard.
-  - **`describe`'s vision model is the same shape, and lucid's venv has no
-    torch either** — `LUCID_VLM` names an *interpreter*, and `_vlm_worker.py`
+  - **`describe`'s vision model is the same shape, and proofcut's venv has no
+    torch either** — `PROOFCUT_VLM` names an *interpreter*, and `_vlm_worker.py`
     ships in the package to be run by it, never imported. HISTORY.md
     § `describe`.
 - **An MCP tool result can carry an image, and `claude -p` puts it in front
   of the model** — both halves measured 2026-08-24, the second under the agent
   panel's own `--tools ""`. `ImageContent`, via
   `mcp.server.mcpserver.utilities.types.Image`. **A reading is an opinion, not
-  a check**: `reframe_sheet`'s precedent, and nothing in lucid gates on what a
+  a check**: `reframe_sheet`'s precedent, and nothing in proofcut gates on what a
   model said it saw. PLAN.md § The agent contact sheet.
   - **A tool returning one is annotated `-> Any`, and the obvious annotation
     silently returns no picture.** A concrete return type makes the SDK build
@@ -245,23 +249,23 @@ absent optional capability is "unavailable", never a failure, and never moves
   allow/disallow-tools flags do not gate built-in tools.** Without
   `--verbose`, 2.1.226 errors and **exits 0** with empty stdout; a built-in
   tool named in neither list just runs, unprompted — `--tools ''` is what
-  actually confines the agent panel to lucid's MCP tools. Both verified by
+  actually confines the agent panel to proofcut's MCP tools. Both verified by
   reproduction. PLAN.md § The agent panel, in mechanism.
   - **A generated MCP config's `command` is resolved by `claude` against
-    *its* PATH, never by lucid — so it names `sys.executable` and
-    `-m lucid.cli`, never the string `lucid`.** A bare name is absent from
-    PATH for every launch that skips an activated venv (`.venv/bin/lucid
-    web`, a desktop entry, what `lucid open` spawns), and the failure is
+    *its* PATH, never by proofcut — so it names `sys.executable` and
+    `-m proofcut.cli`, never the string `proofcut`.** A bare name is absent from
+    PATH for every launch that skips an activated venv (`.venv/bin/proofcut
+    web`, a desktop entry, what `proofcut open` spawns), and the failure is
     silent in the worst way: the harness reports the server `failed` with
     `tools: []`, `claude` runs anyway, exits 0, and answers the prompt in
     prose while the pane's banner still says it reaches the timeline through
-    lucid's tools. Measured both ways — 0 tools against 68. `agent.js` now
-    draws the init event's `mcp_servers` when lucid is not connected, because
+    proofcut's tools. Measured both ways — 0 tools against 68. `agent.js` now
+    draws the init event's `mcp_servers` when proofcut is not connected, because
     the next thing that breaks this will break it silently too. HISTORY.md
     § The agent panel had no tools at all.
     - **The Claude Code plugin manifest is static JSON, so it cannot name
-      `sys.executable` and must never name a bare `lucid`** — it is
-      `uv run --project ${CLAUDE_PLUGIN_ROOT} lucid mcp`, which for a plugin
+      `sys.executable` and must never name a bare `proofcut`** — it is
+      `uv run --project ${CLAUDE_PLUGIN_ROOT} proofcut mcp`, which for a plugin
       sourced at the repo root resolves to the checkout. HISTORY.md § The
       registry entry and the plugin manifest.
   - **`--model` bakes into `claude -p`'s argv at spawn, so there is no way to
@@ -274,7 +278,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     while the ordinary path (same model, or the first turn) touches nothing
     extra. Never validated against a fixed list, the canvas/framing
     overrides' own reasoning: `claude`'s own accepted model names change out
-    from under any list lucid would keep, so a wrong one surfaces as
+    from under any list proofcut would keep, so a wrong one surfaces as
     `claude`'s own refusal. **The choice is `cache/session.json`, never the
     manifest** — it is a preference about this webui's own chat tool, not
     authored film content, and the manifest's undo/snapshot machinery has no
@@ -284,23 +288,52 @@ absent optional capability is "unavailable", never a failure, and never moves
   `ripple`/`roll`/… have no Python bindings; `opentimelineio.algorithms` gives
   you only trimming, flattening, and transition expansion. Cutting means
   hand-rolled track surgery over Track/Clip/Gap and `source_range`.
+- **The OTIO metadata key is written `"proofcut"` and read as either, through
+  `timeline.proofcut_metadata` and nothing else.** Every snapshot in
+  `cache/history/N.otio` carries `"lucid"` forever and `restore` puts one back
+  whole, so a reader of only `METADATA_KEY` reads a fresh project fine and
+  breaks every undo past the rename. The writer writes the new key
+  only; `migrate` rewrites the *live* `project.otio`
+  (`rewrite_legacy_metadata`) and never a snapshot. The move is assign, then
+  `del` — never `pop`: the value is a view into OTIO's C++ dictionary and dies
+  with the key, nested parts included.
+  - **The manifest name is the opposite rule: a `lucid.json` is never read.**
+    A directory holding only it is refused by `Project.open`
+    (`LegacyManifestError`, naming `proofcut migrate`) and renamed by
+    `migrate`'s filename step — ahead of the version steps, not a
+    `_MIGRATIONS` entry, `SCHEMA_VERSION` untouched. Holding both names is
+    refused by `open` and `migrate` alike. The picker lists the first
+    `needs_migration` and the second `unreadable`. HISTORY.md § The rename.
+- **The MCP server's own name is stated in five places, and they move
+  together** — `server.py`'s `MCPServer(name="proofcut")`, the `"proofcut"`
+  key `webui.AgentSession._mcp_config` writes, `agent.js`'s
+  `servers.find((s) => s && s.name === "proofcut")`,
+  `webui._AGENT_ALLOWED_TOOLS`'s `mcp__proofcut__*`, and the `"proofcut"` key
+  `scripts/agent_trial.py`'s own `_mcp_config` restates rather than imports.
+  A mismatch is the silent no-tools failure, not an error: `claude` exits 0
+  and answers in prose. HISTORY.md § The agent panel had no tools at all.
 
 ## Conventions
 
 - **A new spike/probe/scratch directory goes under `~/lucid-work/<name>`, and a
   finished one is archived to `~/lucid-archive/spikes/<name>`** — still `$HOME`,
-  so melt's flatpak can see both. 29 finished spikes were corralled into that
+  so melt's flatpak can see both. **The rename to proofcut left both roots
+  where they are** (RENAME.md § Decisions): new spikes keep going under
+  `~/lucid-work`, because one scratch root on one machine is not a public
+  surface. 29 finished spikes were corralled into that
   archive 2026-08-19 with their names unchanged, so a doc citation of
   `~/lucid-<name>` that no longer resolves is found there. What stays flat at
-  `~/` is pinned and must not move: `lucid-render` (`picture.RENDER_SCRATCH` is
-  a code literal), `lucid-final-cut` (six manifests point into `proj/`
+  `~/` is pinned and must not move: `proofcut-render` (`picture.RENDER_SCRATCH`
+  is a code literal, and a directory a stranger's install creates, so it did
+  rename — this box's old `~/lucid-render` is deleted by hand once a render
+  has landed in the new root), `lucid-final-cut` (six manifests point into `proj/`
   absolutely, and its own `reference` render is an absolute self-path),
   `lucid-a2-probe` (a2-build's media), `lucid-archive`, `lucid-cards-reauthor`,
   `lucid-scream-v2`, `lucid-kf-probe`, and the settle-against copies
   `lucid-brief-check` / `lucid-framing-detect` / `lucid-threshold` /
   `lucid-split-detect`. Manifests store absolute paths, so moving any project
   directory means rewriting them — grep its `*.json`/`*.otio` first.
-- Every MCP tool gets a matching `lucid` CLI subcommand. The CLI is how the
+- Every MCP tool gets a matching `proofcut` CLI subcommand. The CLI is how the
   same operation gets scripted and debugged without an agent in the loop, so
   parity is a feature, not overhead.
   - **Register tools with `@_tool()`, never `@mcp.tool()`** — it is what
@@ -342,7 +375,7 @@ absent optional capability is "unavailable", never a failure, and never moves
   alone does not guard a server that can rewrite your edit. HISTORY.md § The
   preview/timeline web UI.
   - **Off loopback it is opt-in, and `webui.remote_policy` is the only place
-    that decision is made** — `lucid web --allow-remote`, or `--tailscale`,
+    that decision is made** — `proofcut web --allow-remote`, or `--tailscale`,
     which fills its arguments in from this node. Loopback+Host is this
     server's *whole* credential, so widening it **replaces** that credential
     rather than dropping it: the Host allow-list grows to the names the
@@ -351,7 +384,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     leaked token buys a rebinding page in.
     - **The token travels as a cookie, and that is why `web/` has no idea it
       exists.** `?t=` is answered with
-      `Set-Cookie: lucid_token=…; HttpOnly; SameSite=Strict` and the page's
+      `Set-Cookie: proofcut_token=…; HttpOnly; SameSite=Strict` and the page's
       own fetches, media ranges and `EventSource` carry it unchanged — so
       **never thread a token through a JS request**, which is the obvious
       build and puts the credential in as many places as there are calls.
@@ -419,7 +452,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     literal `light-dark(…)` text, which `fillStyle` **silently ignores** —
     right in one theme, black-on-black in the other. Give the element a real
     `color` and read `getComputedStyle(el).color`; a canvas also needs
-    `theme.js`'s `lucid:theme` event to know to repaint. HISTORY.md § The
+    `theme.js`'s `proofcut:theme` event to know to repaint. HISTORY.md § The
     look pass.
   - **The picture lane draws `timeline_view`'s `shots` — the projection
     *already through `mlt.plan_picture`* — never `build_shots` directly.** The
@@ -588,18 +621,18 @@ absent optional capability is "unavailable", never a failure, and never moves
     Never infer the reason in JS — `media.playability()` behind
     `/api/preview/<asset>` has it, and three of its four refusal classes pass a
     naive codec-name check.
-- **`lucid review serve` (`reviewserver.py`) is a fourth client, on purpose
+- **`proofcut review serve` (`reviewserver.py`) is a fourth client, on purpose
   not `webui.py`'s guard.** It exists to be reached off the machine (a phone
   on Tailscale), so loopback+Host is replaced by a token every request must
   carry (`?t=`). It is still the right tool for a review round rather than
-  `lucid web --tailscale`: no edit surface at all, and a page that needs no
+  `proofcut web --tailscale`: no edit surface at all, and a page that needs no
   JS, so the token rides the links rather than a cookie.
   `review add --kind control --baseline <name>` hashes both files and refuses
   the call on any mismatch — the byte-identical-control rule is enforced at
   registration, not left as a comment. Streaming reuses `webui._stream_file`
   (a standalone function, not a second copy of the Range math). PLAN.md § The
   completion queue, item 6. HISTORY.md § `lucid review`, built.
-- **`lucid mcp` can serve over HTTP, and the guard is loopback+Host, not a
+- **`proofcut mcp` can serve over HTTP, and the guard is loopback+Host, not a
   token — `webui.py`'s model, not `reviewserver.py`'s.** `--transport http`
   (default stays `stdio`; every existing client spawns the server that way
   unchanged) adds `--host`/`--port`/`--allow-remote`/`--allow-remote-host`.
@@ -613,7 +646,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     the banner's own `Host: 0.0.0.0`. A wildcard bind refuses under
     `--allow-remote` unless `--allow-remote-host` names the addresses real
     clients will present. HISTORY.md § MCP over HTTP, built.
-- **`lucid web --root DIR` serves a picker over many projects, but the process
+- **`proofcut web --root DIR` serves a picker over many projects, but the process
   still binds to exactly one.** `POST /api/open` is a *one-way* bind — the
   first project picked calls the same `_bind_singletons` that `-C` already
   calls, deferred under a lock, so `bus`/`agent`/`render_job`/`proxy_job` are
@@ -646,17 +679,17 @@ absent optional capability is "unavailable", never a failure, and never moves
   refuses a mean-luma spread over 30, and `check_timeline_width` is the repo's
   only regression test for the defect below. HISTORY.md § The screenshots
   stopped being captured by hand. **A committed image is public forever**, and
-  no text filter reads pixels: never a frame of footage lucid does not own,
+  no text filter reads pixels: never a frame of footage proofcut does not own,
   and never a pane that prints an absolute path (the properties pane does) —
   both cost blobs stripped out of the whole history. HISTORY.md § The repo,
   readied for strangers.
 - **An unattended agent edit is measured by `scripts/agent_trial.py`, which
   imports the panel's flags from `webui.py` rather than restating them** —
   `_agent_bin`, `_AGENT_ALLOWED_TOOLS`, `_AGENT_DISALLOWED_TOOLS`, and the same
-  interpreter-plus-`-m lucid.cli` config; a trial that retypes them can drift
+  interpreter-plus-`-m proofcut.cli` config; a trial that retypes them can drift
   into measuring a client nobody runs. Its own rules (goal-not-steps brief,
-  `lucid init` start, `--control`) are in its docstring. **Two agents in one
-  project is possible and neither lucid nor `claude` will say so** — `claude`
+  `proofcut init` start, `--control`) are in its docstring. **Two agents in one
+  project is possible and neither proofcut nor `claude` will say so** — `claude`
   is spawned into its own session, so killing a harness leaves the agent
   editing. `write_manifest`/`restore` now refuse (`ProjectConflictError`)
   rather than silently clobbering when the manifest moved under a stale
@@ -672,11 +705,11 @@ absent optional capability is "unavailable", never a failure, and never moves
   discards. HISTORY.md § The stamp that was a clock.
   - **`--source` runs it over real footage, and the material is the only
     thing it moves** — same client, same confinement, same `score()`. It
-    refuses a `--source` that is itself a lucid project, which is the
+    refuses a `--source` that is itself a proofcut project, which is the
     plausible mistake ("run it on a copy of a real project" reads as *hand it
     the project*), and it reads `MANIFEST_NAME`/`TIMELINE_NAME` off
     `project.py` to do so: a guard that looked for `manifest.json` waves every
-    real project through, since the manifest is `lucid.json`. A brief's own
+    real project through, since the manifest is `proofcut.json`. A brief's own
     two checked phrases are `--phrases` and persist into the run directory, so
     `--score-only` scores against the pair the run was scored with; undeclared
     is **unsettled, never failed**. HISTORY.md § The trial over real footage.
@@ -710,14 +743,14 @@ absent optional capability is "unavailable", never a failure, and never moves
   - **That rule now binds the history too: it was rewritten with `git
     filter-repo` on 2026-09-10** to remove what the scrub had left in old
     commits, and again on 2026-09-11 so no tag carries the MIT grant (every
-    old hash maps through `~/lucid-archive/*.commit-map`). GitHub (`tydude001/lucid`, public since 2026-09-13) is fed
+    old hash maps through `~/lucid-archive/*.commit-map`). GitHub (`tydude001/proofcut`, public since 2026-09-13) is fed
     only by Gitea's push mirror — there is no `github`
     remote here. **Never `git push --mirror`**: the reflog still reaches the
     pre-rewrite objects. **And never merge a PR on GitHub** — the next sync
     force-pushes over it; the route is wiki `git-server.md` § GitHub push
     mirrors. HISTORY.md § The repo, readied for strangers.
 - **The version is a hand-typed literal in six places and is bumped
-  deliberately, never derived.** `pyproject.toml`, `lucid/__init__.py`, and
+  deliberately, never derived.** `pyproject.toml`, `proofcut/__init__.py`, and
   the four launch listings (`server.json`, `.claude-plugin/plugin.json`, and
   `.claude-plugin/marketplace.json` twice), held together by
   `tests/test_version.py` — a VCS-derived or
@@ -747,7 +780,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     undo.
 - **`Project.open` refuses an old manifest and must never migrate one** — it
   backs `info` and `status`, so a read would rewrite a project someone only
-  looked at. Migration is explicit (`lucid migrate`), and a schema bump adds a
+  looked at. Migration is explicit (`proofcut migrate`), and a schema bump adds a
   step to `_MIGRATIONS` — keyed by the version it migrates *from* — rather
   than widening `open`. HISTORY.md § The schema migration. **The schema is at
   4**; v4 added `cards`.
@@ -788,7 +821,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     (`frame.js` § buildFilmstrip, `row.asset` and never `row.clip_id`);
     a `card:` asset is skipped, since a card is not a clip id and cards
     reach that view through `skipped` anyway.
-  - **A description does not choose the clip — `synopsis` does, and lucid does
+  - **A description does not choose the clip — `synopsis` does, and proofcut does
     not choose at all.** Which footage goes under a sentence is never a lexical
     match: measured against 25 human picks, the description index agreed 2
     times and the clips' own *filenames* 3, so a better `describe` prompt was
@@ -851,13 +884,13 @@ absent optional capability is "unavailable", never a failure, and never moves
       the same — it is the recipe, not the data, and **do not reach for a
       fine-tune to fix likeness** (local-llm `notes/voice-clone-zero-shot.md`
       § Round 4). `tts.py` is the fourth interpreter-behind-an-env
-      (`LUCID_TTS`/`LUCID_TTS_MODEL` from the environment alone since
+      (`PROOFCUT_TTS`/`PROOFCUT_TTS_MODEL` from the environment alone since
       2026-09-12, when a clean Ubuntu's doctor printed the old fallback into
       `~/lucid-work` back to a stranger; this box sets both in
-      `~/.config/environment.d/60-lucid.conf`, pointing into
+      `~/.config/environment.d/60-proofcut.conf`, pointing into
       `~/lucid-work/voice-clone/` — **which is therefore a runtime dependency
       and stays where it is, never archived as a finished spike** — but **the voice has no default on
-      purpose**: `--voice`/`LUCID_TTS_VOICE` or it refuses, so a public
+      purpose**: `--voice`/`PROOFCUT_TTS_VOICE` or it refuses, so a public
       checkout holds neither a reference clip nor a path to one). Seed moves
       a render more than the reference does, so the op renders N and ranks by
       `sim` less a flatness penalty — likeness alone keeps the flattest read
@@ -957,7 +990,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     resolves through `renderlog.last` — never the manifest and never
     `preview_path()`.** It streams the one file the last pipeline run
     recorded: not a listing, not a path the client names, and confined inside
-    the project anyway, because lucid writing that log itself is the argument
+    the project anyway, because proofcut writing that log itself is the argument
     for not letting one hand-edited line turn a loopback server into a file
     server. The window still plays the *project* everywhere else; this is the
     single place it plays an artifact, and widening it is a new decision.
@@ -1009,7 +1042,7 @@ absent optional capability is "unavailable", never a failure, and never moves
       - **A stale mark is kept, never applied** — recorded text ≠ current text
         means the transcript was replaced under it, and a word wrongly drawn is
         visible to anyone watching while a real word dropped is invisible to
-        every check lucid has. HISTORY.md § The teaser, re-cut.
+        every check proofcut has. HISTORY.md § The teaser, re-cut.
 - **`vfr` is recorded at import and reported, never acted on** — on
   `import`'s return, `assets`/`properties`, and `finish_report`'s `sources`,
   **informational and never a flag**, since the lean is not to transcode and a
@@ -1044,7 +1077,7 @@ absent optional capability is "unavailable", never a failure, and never moves
   `Failed to load` and **exits 0**, so its exit code proves nothing — check its
   output. Anything writing a project for melt to read puts it under `$HOME`,
   and that includes what it *writes*: `picture.render` stages into
-  `~/lucid-render/` and copies out only after the file agrees with the timeline.
+  `~/proofcut-render/` and copies out only after the file agrees with the timeline.
   - **A *failed* render's staging directory survives on purpose, and
     `sweep_scratch` drops it after `SCRATCH_RETENTION_DAYS`.** It sweeps by
     name (`_SCRATCH_NAME`), never by age alone — a hand-placed directory in
@@ -1146,7 +1179,7 @@ absent optional capability is "unavailable", never a failure, and never moves
   resize path and a card is *authored* at the canvas — which is why `card_new`
   defaults its canvas to `_mlt_resolution`. Never hand melt the SVG: it goes
   through Qt, not librsvg, and the two disagree with no error on either side.
-  Templates escape every user value and insert only lucid's own markup raw.
+  Templates escape every user value and insert only proofcut's own markup raw.
   HISTORY.md § The card renderer, § Card templates.
   - **A wrap is measured or there is no wrap** — `fill_template(flow=True)`
     renders each candidate through `render_svg`'s own coder, `flow=False` is
@@ -1280,7 +1313,7 @@ absent optional capability is "unavailable", never a failure, and never moves
       - **`--extremes` is the answer, and it is opt-in**: the rect does not
         move inside a stretch, so the worst moment is at the subject's own
         leftmost or rightmost by construction — three tiles, worst first. It
-        costs `LUCID_FACE` and ~0.5s a probe. **Its probe grid contains the
+        costs `PROOFCUT_FACE` and ~0.5s a probe. **Its probe grid contains the
         fixed fractions deliberately**: probing at a rate finds the extreme of
         the *sample*, and without them it was worse than the default on 5 rows
         of 16. **Read `worst_offset` beside `multi_face`, never after it** —
@@ -1350,7 +1383,7 @@ absent optional capability is "unavailable", never a failure, and never moves
     the opposite of `cut --plan`, because the pass is 114px out on a 459px
     window and 2 of 15 hand numbers were wrong invisibly — judge it on
     `reframe_sheet`. It never writes over an existing override, and it is the
-    *third* subprocess-behind-an-interpreter (`LUCID_FACE`, with
+    *third* subprocess-behind-an-interpreter (`PROOFCUT_FACE`, with
     `_face_worker.py` shipped to be run and never imported). Its placement rule
     is sound — reviewed one window at a time, all 39 on the film are right for
     the shot they were placed on — and **every defect found is coverage**:

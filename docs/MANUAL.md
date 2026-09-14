@@ -1,7 +1,7 @@
-# lucid — the manual
+# proofcut — the manual
 
 Every capability, walked in the order a project meets them, with the rationale
-beside each behaviour. The short version — what lucid is, what it needs
+beside each behaviour. The short version — what proofcut is, what it needs
 installed, and the quickstart — is the [README](../README.md); the design and
 the dated evidence behind everything here are [PLAN.md](PLAN.md) and
 [HISTORY.md](HISTORY.md).
@@ -12,20 +12,20 @@ Trimming the retakes out of a voiceover, end to end:
 
 ```sh
 uv sync
-uv run lucid init myproject
-uv run lucid -C myproject import VO.wav --clip-id vo
-uv run lucid -C myproject import cohost.mp4 --mix         # two mics on one recording, summed
-uv run lucid -C myproject attach-transcript vo VO.json   # word-timed whisper JSON
-uv run lucid -C myproject transcribe vo                  # or: run whisper on vo directly
-uv run lucid -C myproject seed vo                        # auto-editor strips silences
-uv run lucid -C myproject transcript vo --search "here's the thing"
-uv run lucid -C myproject cut vo 111:114 --plan          # what do those indices say?
-uv run lucid -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
-uv run lucid -C myproject cut-at 40.4+4.4                # or cut by what an export played
-uv run lucid -C myproject restore vo 111:114             # changed your mind about one cut
-uv run lucid -C myproject export cut.kdenlive            # an MLT project to finish in
-uv run lucid -C myproject import-edit trimmed.kdenlive   # ...and the trim you made there, back
-uv run lucid -C myproject verify final.mp4               # did the render say what you edited?
+uv run proofcut init myproject
+uv run proofcut -C myproject import VO.wav --clip-id vo
+uv run proofcut -C myproject import cohost.mp4 --mix         # two mics on one recording, summed
+uv run proofcut -C myproject attach-transcript vo VO.json   # word-timed whisper JSON
+uv run proofcut -C myproject transcribe vo                  # or: run whisper on vo directly
+uv run proofcut -C myproject seed vo                        # auto-editor strips silences
+uv run proofcut -C myproject transcript vo --search "here's the thing"
+uv run proofcut -C myproject cut vo 111:114 --plan          # what do those indices say?
+uv run proofcut -C myproject cut vo 111:114 --pad 0.1       # inclusive word range
+uv run proofcut -C myproject cut-at 40.4+4.4                # or cut by what an export played
+uv run proofcut -C myproject restore vo 111:114             # changed your mind about one cut
+uv run proofcut -C myproject export cut.kdenlive            # an MLT project to finish in
+uv run proofcut -C myproject import-edit trimmed.kdenlive   # ...and the trim you made there, back
+uv run proofcut -C myproject verify final.mp4               # did the render say what you edited?
 ```
 
 ## The window
@@ -36,11 +36,11 @@ also shows the shot under the playhead, read from the same place the export
 will read it:
 
 ```sh
-uv run lucid -C myproject open            # server + an app window, and it reopens where you left off
-uv run lucid -C myproject web --open      # the same page in an ordinary tab
-uv run lucid open --root ~/projects/video # Home: every project under a directory
-uv run lucid -C myproject view            # the same read model as JSON
-uv run lucid -C myproject preview vo      # will a browser play this asset, and if not why
+uv run proofcut -C myproject open            # server + an app window, and it reopens where you left off
+uv run proofcut -C myproject web --open      # the same page in an ordinary tab
+uv run proofcut open --root ~/projects/video # Home: every project under a directory
+uv run proofcut -C myproject view            # the same read model as JSON
+uv run proofcut -C myproject preview vo      # will a browser play this asset, and if not why
 ```
 
 The window carries the workflow rather than only the timeline: **Edit** (the
@@ -51,7 +51,7 @@ contain, verify after, and the finished file playable in the page). Footage
 goes in there too — the assets pane imports a clip and transcribes it, so the
 first three commands above have a window equivalent and the terminal is never
 required. Riding all three is the truth strip —
-`lucid finish-report` made ambient, so a film that would ship wrong says so
+`proofcut finish-report` made ambient, so a film that would ship wrong says so
 while you edit. docs/plans/STUDIO.md is the design.
 
 ## Multi-mic recordings
@@ -60,7 +60,7 @@ A recording with more than one audio stream is **refused** rather than
 registered as if the first mic were the whole of it — three separate places
 would otherwise pick a stream without saying so, and the film would play half
 a conversation with every check clean. `--mix` sums the mics into the one
-track lucid edits; `--audio-stream k` keeps one. Either writes the choice down
+track proofcut edits; `--audio-stream k` keeps one. Either writes the choice down
 and every later command reads it without knowing.
 
 ## Renders, presets, undo, migration
@@ -69,11 +69,11 @@ and every later command reads it without knowing.
 `--preset youtube|web|tiktok-reels|custom` picks a quality bundle for it
 (`tiktok-reels` checks the project's canvas is vertical and refuses rather than
 reshaping it), and `undo` rolls back the last mutation while
-`restore` un-cuts one specific range. A project written by an older lucid is
-refused rather than guessed at; `lucid migrate` brings it forward (`--plan`
+`restore` un-cuts one specific range. A project written by an older proofcut is
+refused rather than guessed at; `proofcut migrate` brings it forward (`--plan`
 says what it would do first, and the old manifest is kept under
 `cache/history/`). A timeline with a cue table or a second
-clip on it is written as MLT by lucid and rendered by `melt` — auto-editor never
+clip on it is written as MLT by proofcut and rendered by `melt` — auto-editor never
 sees one, because it degrades a two-source render to 720x576 and exits 0.
 
 ## The MCP server
@@ -84,9 +84,9 @@ allowlist of commands there is nothing for an agent to do with (`web`,
 `open`, `waveform`, `preview`, `info`, `mcp`):
 
 ```sh
-uv run lucid mcp                                          # serve MCP over stdio
-uv run lucid -C myproject mcp                             # ...bound to one project
-claude mcp add lucid -- uv run --project /path/to/lucid lucid mcp
+uv run proofcut mcp                                          # serve MCP over stdio
+uv run proofcut -C myproject mcp                             # ...bound to one project
+claude mcp add proofcut -- uv run --project /path/to/proofcut proofcut mcp
 ```
 
 ## Word indices and `locate`
@@ -98,9 +98,9 @@ further apart — `locate` is the conversion, in the direction `cut-at` does not
 go:
 
 ```sh
-lucid locate vo --words 874:875              # where does that phrase play now?
-lucid locate vo --at 360.1                   # or a source instant
-lucid locate vo --span 127.0-130.5           # or a source interval
+proofcut locate vo --words 874:875              # where does that phrase play now?
+proofcut locate vo --at 360.1                   # or a source instant
+proofcut locate vo --span 127.0-130.5           # or a source interval
 ```
 
 It answers in the render's own seconds, reports `present: false` for material
@@ -117,12 +117,12 @@ are derived from it, which is what makes a restyle survive every later edit —
 there is nothing coupling the two, so regenerating just re-reads the style:
 
 ```sh
-lucid caption-style --preset karaoke --size 80 --highlight yellow
-lucid caption-style                          # read it back, resolved
-lucid caption-view                           # the cues this timeline produces
-lucid captions subs.ass                      # sidecar ASS, Kdenlive loads it
-lucid captions subs.ass --burn render.mp4    # or burn in with ffmpeg
-lucid fonts --install                        # put the face the preset names where libass looks
+proofcut caption-style --preset karaoke --size 80 --highlight yellow
+proofcut caption-style                          # read it back, resolved
+proofcut caption-view                           # the cues this timeline produces
+proofcut captions subs.ass                      # sidecar ASS, Kdenlive loads it
+proofcut captions subs.ass --burn render.mp4    # or burn in with ffmpeg
+proofcut fonts --install                        # put the face the preset names where libass looks
 ```
 
 Colours take `#rrggbb`, a name, or ASS's own `&H…`, and come back resolved in
@@ -144,8 +144,8 @@ word is usually grammatical. Findings are returned by the attach call, so an
 older project asks for them again:
 
 ```sh
-lucid transcript-checks                      # every clip with a transcript
-lucid transcript-checks vo                   # just this one
+proofcut transcript-checks                      # every clip with a transcript
+proofcut transcript-checks vo                   # just this one
 ```
 
 Finding one is not removing it, and the removing is settled by the render
@@ -155,9 +155,9 @@ never said; captions, `caption-view` and `verify` all stop expecting it, and
 the transcript file is untouched, so word indices never move under a cue:
 
 ```sh
-lucid unspoken detect render.mp4             # propose; writes nothing
-lucid unspoken detect render.mp4 --apply     # ...or write the marks
-lucid unspoken ls                            # what is marked, and what went stale
+proofcut unspoken detect render.mp4             # propose; writes nothing
+proofcut unspoken detect render.mp4 --apply     # ...or write the marks
+proofcut unspoken ls                            # what is marked, and what went stale
 ```
 
 `detect` takes its candidates from a seam and from a word a cut left a sliver
@@ -169,7 +169,7 @@ same short-overlapping-window pass `verify --windowed` uses, and reports what
 it heard beside what the transcript says there. It attaches nothing:
 
 ```sh
-lucid hear vo --from 1:02 --to 1:14           # heard_text beside transcript_text
+proofcut hear vo --from 1:02 --to 1:14           # heard_text beside transcript_text
 ```
 
 ## Speaker attribution
@@ -181,8 +181,8 @@ and attribution then reads the *container*, comparing each mic's level over
 each word:
 
 ```sh
-lucid attribute-speakers ep1 --stream 0 --label ana --stream 1 --label ben
-lucid attribute-speakers ep1 --margin-db 9 --apply     # ...and write the labels
+proofcut attribute-speakers ep1 --stream 0 --label ana --stream 1 --label ben
+proofcut attribute-speakers ep1 --margin-db 9 --apply     # ...and write the labels
 ```
 
 The speaker is a label on the word, never an address: every cue, caption and
@@ -191,7 +191,7 @@ decides — the rule is ~99% right per word on clear speech and no better than
 chance on two people talking at once, so anything whose loudest mic does not
 lead by `--margin-db` comes back in `ambiguous_spans` to go and listen to,
 and `--apply` keeps any label it refuses to replace. On a single mixed track
-there is nothing to compare, and lucid says so rather than guessing.
+there is nothing to compare, and proofcut says so rather than guessing.
 
 ## Verifying a render
 
@@ -204,15 +204,15 @@ in the project file to show for it. Reading the timeline can only prove the
 cuts you made are the cuts you meant.
 
 ```sh
-lucid verify final.mp4                       # transcribes with whisper
-lucid verify final.mp4 --windowed            # second opinion, in short windows
-lucid verify final.mp4 --transcript render.json   # or re-diff without re-running it
+proofcut verify final.mp4                       # transcribes with whisper
+proofcut verify final.mp4 --windowed            # second opinion, in short windows
+proofcut verify final.mp4 --transcript render.json   # or re-diff without re-running it
 ```
 
 Similarity around 0.97 is normal on a clean render — whisper spells its own
 output differently on a second pass — so the diff is the artifact, and a
 `repeated` entry is the retake signal. Whisper is a subprocess, not a
-dependency: set `LUCID_WHISPER` if `whisper` is not on your `PATH`.
+dependency: set `PROOFCUT_WHISPER` if `whisper` is not on your `PATH`.
 
 A clean single-pass result is not proof, because that pass is itself one
 whisper transcription and collapses a repeat the same way the source did.
@@ -236,10 +236,10 @@ escapes a diff.
 the price of reading it:
 
 ```sh
-lucid frames                                 # what the timeline will be
-lucid frames cut.kdenlive                    # what melt says it would render
-lucid frames final.mp4                       # what actually came out
-lucid film-check the-film.mp4                # is this project even the right cut?
+proofcut frames                                 # what the timeline will be
+proofcut frames cut.kdenlive                    # what melt says it would render
+proofcut frames final.mp4                       # what actually came out
+proofcut film-check the-film.mp4                # is this project even the right cut?
 ```
 
 `agrees` is the answer and `delta` is how far off. Two things this finds that
@@ -251,7 +251,7 @@ reported rather than corrected, and `export --render` does not have it. HISTORY.
 `film-check` asks the other question, and it is the one `frames` structurally
 cannot: not "does this render match my arithmetic" but "is this project the
 film at all". A project seeded from a stale stage of an outside edit passes
-every check lucid has — 411s of silence-cut VO once did, against a 336s film —
+every check proofcut has — 411s of silence-cut VO once did, against a 336s film —
 because nothing was comparing it to anything outside itself. The reference is
 remembered, so a later call re-asks without retyping the path.
 
@@ -263,8 +263,8 @@ frames out as PNGs, darkest first, with the word and clip they land on when
 the render still agrees with the timeline:
 
 ```sh
-lucid black final.mp4                        # black stretches, explained or not
-lucid spots final.mp4                        # sample frames, ranked darkest-first
+proofcut black final.mp4                        # black stretches, explained or not
+proofcut spots final.mp4                        # sample frames, ranked darkest-first
 ```
 
 ## Attenuation
@@ -276,8 +276,8 @@ trust the transcript around it; anything riskier is reported and left alone
 unless confirmed:
 
 ```sh
-lucid attenuate vo --plan                    # what would be attenuated, and why not the rest
-lucid attenuate vo --confirm-suspect         # write it, including the edge cases
+proofcut attenuate vo --plan                    # what would be attenuated, and why not the rest
+proofcut attenuate vo --confirm-suspect         # write it, including the edge cases
 ```
 
 ## Previews and proxies
@@ -289,8 +289,8 @@ records it in the manifest, so `export` has no way to reach it and cannot be
 silently taken at preview quality.
 
 ```sh
-lucid preview clip-id                        # will a browser play this, and if not, why
-lucid proxy clip-id                          # make it playable in the window
+proofcut preview clip-id                        # will a browser play this, and if not, why
+proofcut proxy clip-id                          # make it playable in the window
 ```
 
 ## Looking at the picture track
@@ -305,9 +305,9 @@ four sheets do that now — `shot-sheet`, `footage-sheet`, `contact-sheet` and
 `reframe-sheet` — and so does `spots`, whose montage comes back the same way.
 
 ```sh
-lucid -C myproject shot-sheet                # the picture track, drawn
-lucid -C myproject shot-sheet --page 1       # the rest of a longer film
-lucid -C myproject shot-sheet --out /tmp/look.jpg
+proofcut -C myproject shot-sheet                # the picture track, drawn
+proofcut -C myproject shot-sheet --page 1       # the rest of a longer film
+proofcut -C myproject shot-sheet --out /tmp/look.jpg
 ```
 
 Each tile is labelled `asset t=<timeline second>s src=<source second>s`. Read
@@ -328,10 +328,10 @@ nothing for a transcript to address. `describe` and `describe-ls` can already
 *find* a moment in that footage by text; this is how you look at one.
 
 ```sh
-lucid -C myproject footage-sheet gopro-04              # every 10 seconds
-lucid -C myproject footage-sheet gopro-04 --page 2     # a long recording
-lucid -C myproject footage-sheet gopro-04 --interval 30
-lucid -C myproject footage-sheet gopro-04 --mode scenes
+proofcut -C myproject footage-sheet gopro-04              # every 10 seconds
+proofcut -C myproject footage-sheet gopro-04 --page 2     # a long recording
+proofcut -C myproject footage-sheet gopro-04 --interval 30
+proofcut -C myproject footage-sheet gopro-04 --mode scenes
 ```
 
 `--mode` picks which instants get drawn, and the default is deliberately the
@@ -366,7 +366,7 @@ the two would collide, both mapped through the timeline the same way captions
 are:
 
 ```sh
-lucid speech-overlap clip-id --at 106.4      # does the VO already speak there?
+proofcut speech-overlap clip-id --at 106.4      # does the VO already speak there?
 ```
 
 The clip need not have a transcript. Without one its side is read off its
@@ -380,14 +380,14 @@ a word-level one. `--evidence transcript` refuses instead and names
 Clips and cards lay over the VO from the same word-indexed address space:
 
 ```sh
-lucid -C myproject card templates                   # what each one takes
-lucid -C myproject card new reveal-scream2 --template reveal \
+proofcut -C myproject card templates                   # what each one takes
+proofcut -C myproject card new reveal-scream2 --template reveal \
   --set 'title=Scream 2' --set "note=Billy's mother" --set year=1997
-lucid -C myproject card render reveal-scream2       # re-render after an edit
-lucid -C myproject cue add vo 318 s1996-billy-stu   # from this word on, show this
-lucid -C myproject cue add vo 503 card:reveal-scream2
-lucid -C myproject shots --fps 30                   # what that projects to, in frames
-lucid -C myproject export assembly.kdenlive         # both lanes, written as MLT
+proofcut -C myproject card render reveal-scream2       # re-render after an edit
+proofcut -C myproject cue add vo 318 s1996-billy-stu   # from this word on, show this
+proofcut -C myproject cue add vo 503 card:reveal-scream2
+proofcut -C myproject shots --fps 30                   # what that projects to, in frames
+proofcut -C myproject export assembly.kdenlive         # both lanes, written as MLT
 ```
 
 A card is an SVG under `assets/cards/` and the PNG `card:<name>` resolves to;
@@ -395,20 +395,20 @@ both are kept, so a card is re-edited rather than redrawn. `card new` fills one
 of six templates — `receipt`, `reveal`, `rerate`, `chapter`, `endcard`,
 `bumper` — and `card render` re-rasterises after a hand edit. Five of the six
 carry a `mark` slot (`chapter` does not) and every one of them defaults to
-empty: lucid stays generic and the channel supplies its own mark, usually
-through a preset pack (`lucid pack`). **Cards generate at the project's own
+empty: proofcut stays generic and the channel supplies its own mark, usually
+through a preset pack (`proofcut pack`). **Cards generate at the project's own
 canvas**, so a card in a 1920x816 cut is 1920x816 rather than a 16:9 still with
 a quarter of its width in black bar.
 
 Change the canvas later and the cards are the one thing that cannot follow on
 their own — the aspect is baked into the SVG's viewBox, and rasterising a 16:9
-document into a 9:16 frame *fits* it rather than reflowing it. So lucid records
+document into a 9:16 frame *fits* it rather than reflowing it. So proofcut records
 what each card was made from and draws it again:
 
 ```sh
-lucid -C myproject canvas 1080x1920                 # names the cards left behind
-lucid -C myproject card reauthor --plan             # what would be redrawn
-lucid -C myproject card reauthor                    # every stale card, at the canvas
+proofcut -C myproject canvas 1080x1920                 # names the cards left behind
+proofcut -C myproject card reauthor --plan             # what would be redrawn
+proofcut -C myproject card reauthor                    # every stale card, at the canvas
 ```
 
 A card whose files predate the record — drawn elsewhere and copied in — is
@@ -420,8 +420,8 @@ bumper, which every earlier cut applied downstream of `export` and so lost on
 any re-cut, silently:
 
 ```sh
-lucid -C myproject tail --asset card:endcard --seconds 6  # what plays after the film
-lucid -C myproject tail --reset                          # back to ending on the edit
+proofcut -C myproject tail --asset card:endcard --seconds 6  # what plays after the film
+proofcut -C myproject tail --reset                          # back to ending on the edit
 ```
 
 It is project state, so a derivation knows it existed rather than dropping it
@@ -436,11 +436,11 @@ each one's voice is to the reference, reads the winner back through whisper,
 and optionally splices it into the VO track the way `vo-extend` splices a hold:
 
 ```sh
-lucid -C myproject vo-synth "And that is the whole trick."            # 3 seeds, ranked, read back
-lucid -C myproject vo-synth "…" --candidates 5 --seed 10              # a different set of tickets
-lucid -C myproject vo-synth "…" --after vo 11                         # splice after word 11 of clip vo
-lucid -C myproject vo-synth "…" --after vo 11 --plan                  # rank (if cached) and preview, write nothing
-lucid -C myproject vo-synth "…" --voice ~/voices/me                   # a directory holding ref.wav + ref.txt
+proofcut -C myproject vo-synth "And that is the whole trick."            # 3 seeds, ranked, read back
+proofcut -C myproject vo-synth "…" --candidates 5 --seed 10              # a different set of tickets
+proofcut -C myproject vo-synth "…" --after vo 11                         # splice after word 11 of clip vo
+proofcut -C myproject vo-synth "…" --after vo 11 --plan                  # rank (if cached) and preview, write nothing
+proofcut -C myproject vo-synth "…" --voice ~/voices/me                   # a directory holding ref.wav + ref.txt
 ```
 
 The reply names every candidate with its `sim` (the model's own speaker-encoder
@@ -455,13 +455,13 @@ lacks. A splice registers the winner as `synth-<key>-s<seed>` and goes through
 `restore` refuses across the seam, and `covered_by` names any picture now
 running over the new seconds.
 
-The synthesiser is a subprocess in another interpreter: `LUCID_TTS` names it
-and `LUCID_TTS_MODEL` the Qwen3-TTS model directory, with no fallback for
+The synthesiser is a subprocess in another interpreter: `PROOFCUT_TTS` names it
+and `PROOFCUT_TTS_MODEL` the Qwen3-TTS model directory, with no fallback for
 either.
-**The voice is yours to supply** — `--voice` or `LUCID_TTS_VOICE`; lucid ships
-no reference clip and has no default voice. `lucid vo-synth … --plan` reports
+**The voice is yours to supply** — `--voice` or `PROOFCUT_TTS_VOICE`; proofcut ships
+no reference clip and has no default voice. `proofcut vo-synth … --plan` reports
 what it resolved. Why a reference clip and not a fine-tuned model: HISTORY.md
-§ `vo_synth`, built. It loads onto CUDA; `LUCID_TTS_DEVICE` (`mps`, `cpu`)
+§ `vo_synth`, built. It loads onto CUDA; `PROOFCUT_TTS_DEVICE` (`mps`, `cpu`)
 hands the worker another device, which has never been run, so a Mac reports
 the synthesiser unavailable until it is set.
 
@@ -474,17 +474,17 @@ say, and the default is a centre crop, **which is wrong whenever the subject
 is not centred**:
 
 ```sh
-lucid -C myproject reframe                          # every crop in force
-lucid -C myproject reframe cold-open --rect 1400,0,459,816
-lucid -C myproject reframe cold-open --rect 0,0,459,816 --at 20.4   # from there on
-lucid -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
-lucid -C myproject reframe cold-open --rect 930,0,450,800 --at 7.34 --interp  # slide, don't step
-lucid -C myproject reframe cold-open --reset        # back to the centre
-lucid -C myproject reframe-detect                   # propose a window per shot
-lucid -C myproject reframe-sheet                    # every window, drawn, for review
-lucid -C myproject reframe-sheet --extremes         # ...drawn where the subject is extreme
-lucid -C myproject reframe-sheet --per-page 6 --page 0   # a page at a time, and cheaper
-lucid -C myproject reframe-coverage                 # seconds framed for an earlier shot
+proofcut -C myproject reframe                          # every crop in force
+proofcut -C myproject reframe cold-open --rect 1400,0,459,816
+proofcut -C myproject reframe cold-open --rect 0,0,459,816 --at 20.4   # from there on
+proofcut -C myproject reframe cold-open --rect 0,0,918,816 --pane 1002,0,918,816
+proofcut -C myproject reframe cold-open --rect 930,0,450,800 --at 7.34 --interp  # slide, don't step
+proofcut -C myproject reframe cold-open --reset        # back to the centre
+proofcut -C myproject reframe-detect                   # propose a window per shot
+proofcut -C myproject reframe-sheet                    # every window, drawn, for review
+proofcut -C myproject reframe-sheet --extremes         # ...drawn where the subject is extreme
+proofcut -C myproject reframe-sheet --per-page 6 --page 0   # a page at a time, and cheaper
+proofcut -C myproject reframe-coverage                 # seconds framed for an earlier shot
 ```
 
 A rect is in that clip's own source pixels, so no cut can invalidate one, and
@@ -554,8 +554,8 @@ usually a *second* deliverable rather than a replacement — a 5:36 essay does n
 reach a feed that stops at 3:00. So the reel is a derived project:
 
 ```sh
-lucid -C myproject reel ../teaser 1:32+44 --plan     # what it would keep and drop
-lucid -C myproject reel ../teaser 1:32+44 --canvas 1080x1920
+proofcut -C myproject reel ../teaser 1:32+44 --plan     # what it would keep and drop
+proofcut -C myproject reel ../teaser 1:32+44 --canvas 1080x1920
 ```
 
 The span is what to **keep**, in the seconds the current export plays at — the
@@ -583,9 +583,9 @@ Each survivor is pinned to the in-point the film's own plan gave it; 2 of the
 To find the b-roll to cue in the first place, describe it:
 
 ```sh
-lucid -C myproject describe --plan          # what it would cost, no model loaded
-lucid -C myproject describe                 # every video clip not yet described
-lucid -C myproject describe cold-open       # or just one
+proofcut -C myproject describe --plan          # what it would cost, no model loaded
+proofcut -C myproject describe                 # every video clip not yet described
+proofcut -C myproject describe cold-open       # or just one
 ```
 
 Each clip is split into fixed ~10-second windows and each window gets a couple
@@ -596,19 +596,19 @@ footage is minutes of GPU time, which is what `--plan` is for. **The windows
 are never widened to save time** — one pass over a whole clip described six
 frames as six people, fluently, with nothing on screen saying it was wrong.
 
-The model runs under a separate interpreter (`LUCID_VLM`), so nothing here
-puts torch in lucid's own environment. `--plan` reports whether this machine
+The model runs under a separate interpreter (`PROOFCUT_VLM`), so nothing here
+puts torch in proofcut's own environment. `--plan` reports whether this machine
 can run it at all — never on a Mac today: the model loads 4-bit through
-bitsandbytes, which is CUDA-only, so `LUCID_VLM_DEVICE` exists for whoever
+bitsandbytes, which is CUDA-only, so `PROOFCUT_VLM_DEVICE` exists for whoever
 builds another path and the worker refuses anything but CUDA until then.
 
 Then read them back, which **is** the search — no ranking, no embeddings, no
 similarity score to tune:
 
 ```sh
-lucid -C myproject describe-ls                        # the whole table
-lucid -C myproject describe-ls --contains "kitchen knife"
-lucid -C myproject describe-ls cold-open              # or one clip's
+proofcut -C myproject describe-ls                        # the whole table
+proofcut -C myproject describe-ls --contains "kitchen knife"
+proofcut -C myproject describe-ls cold-open              # or one clip's
 ```
 
 `--contains` takes terms rather than a phrase: every term has to appear
@@ -622,7 +622,7 @@ inside the asset the shot reads, so the cut shows the moment you searched for
 rather than wherever that clip's re-use cursor had got to:
 
 ```sh
-lucid -C myproject cue add vo 318 cold-open --src-start 92.4
+proofcut -C myproject cue add vo 318 cold-open --src-start 92.4
 ```
 
 In-point only — the out-point stays derived from the next cue, so a later
@@ -630,8 +630,8 @@ recut still moves the shot. A pinned shot that would run past the end of its
 asset is **refused** by `shots` and `export` rather than rewinding to the
 clip's opening seconds, which would be plausible footage and the wrong film.
 
-Descriptions live in the manifest, so `lucid info` reports a count and points
-here rather than printing them; `lucid info --raw` still prints the manifest
+Descriptions live in the manifest, so `proofcut info` reports a count and points
+here rather than printing them; `proofcut info --raw` still prints the manifest
 verbatim.
 
 A cue names a *word*, so a later recut recomputes every shot position rather

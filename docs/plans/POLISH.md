@@ -1,5 +1,8 @@
 # lucid — the polish plan: user-friendly, finished, useful to strangers
 
+This document was written when the project was called lucid, and says so
+throughout; nothing in it was rewritten for the rename (HISTORY.md § The rename).
+
 Provenance: a recommendation review on 2026-08-24, after the Studio reshape's
 definition of done was met (docs/plans/STUDIO.md — footage in, film out, terminal never
 required) and PLAN.md § The completion queue closed its last item. The finding

@@ -1,5 +1,8 @@
 # lucid × Daydream — the parity plan
 
+This document was written when the project was called lucid, and says so
+throughout; nothing in it was rewritten for the rename (HISTORY.md § The rename).
+
 **The direction, set by Tyler 2026-08-08: lucid copies Daydream — the full
 feature set and the look/feel.** This is the one document for that work: what
 Daydream actually is (observed, not recalled), the design system to copy, the
