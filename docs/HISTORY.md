@@ -14370,4 +14370,11 @@ half-made project. Windows' limit on *creating a directory* is 248, not 260.
   doctor states — under a fake `winreg` and `sys.platform` patched, so the
   registry read is tested rather than stubbed past, and a Windows runner's own
   setting of 1 cannot decide them.
+- **Confirmed on the laptop, 2026-09-14, at `c68ebf0` with `LongPathsEnabled`
+  0.** `init` on the 235-character root exited with one line naming the
+  235-character length, the 148 limit and both fixes, no traceback, and no
+  folder behind it; the demo's edit then ran clean in a 148-character root
+  (289 of 289 frames, `frames` delta 0, blue at 3s and rust at 10s), its
+  longest path 179 characters — the same number the Linux dry run gave. Every
+  other case ran clean too; the second drive and own footage were not asked.
 
