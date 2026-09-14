@@ -49,6 +49,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from make_demo import BROLL
 
+from proofcut.project import max_root_length
+
 WINDOWS = os.name == "nt"
 #: Same tolerance as `trial_check.py`: the two clips sit ~116 apart in RGB,
 #: and a right frame measured within 3 on every kit run so far.
@@ -59,7 +61,9 @@ FRAMES = [(3.0, "BLUE"), (10.0, "RUST")]
 #: `cache\thumbs\blue\` (+18) past the directory limit and
 #: `cache\transcripts\vo.json` (+26) past the file one, while the footage and
 #: the render (+19 or less) stay under both — so a failure names which side
-#: of the line it was on.
+#: of the line it was on. With long paths off it measured exactly that on a
+#: laptop, dying on `cache\transcripts`; `init` now refuses such a root, so
+#: the case asks for that refusal and then runs the edit at the limit it names.
 LONG_ROOT = 235
 #: A luma change a caption's glyph makes and a re-encode does not.
 CAPTION_LUMA_STEP = 60
@@ -421,16 +425,38 @@ def main() -> int:
     def cjk(c: Case) -> None:
         demo_edit(c, work / "映像 проект" / "proj", work / "映像 проект" / "footage", demo, frames_dir)
 
-    def long_path(c: Case) -> None:
+    def deep_root(length: int) -> Path:
         root = work / "long"
         n = 0
-        while len(str(root)) < LONG_ROOT - 12:
+        while len(str(root)) < length - 12:
             root = root / f"nested-{n:02d}"
             n += 1
-        project = Path(str(root) + "-" + "p" * max(1, LONG_ROOT - len(str(root)) - 1))
+        return Path(str(root) + "-" + "p" * max(1, length - len(str(root)) - 1))
+
+    def long_path(c: Case) -> None:
+        project = deep_root(LONG_ROOT)
         c.facts["long_paths_enabled"] = env.get("long_paths_enabled")
+        limit = max_root_length()
         try:
-            demo_edit(c, project, project.parent / "f", demo, frames_dir)
+            if limit is None:
+                demo_edit(c, project, project.parent / "f", demo, frames_dir)
+                return
+            # Long paths off: `init` refuses this root in one line before
+            # writing anything (HISTORY.md § A long project path on Windows),
+            # and a project at exactly the limit it names runs the whole edit.
+            say(f"── {c.name}: init refuses a {LONG_ROOT}-character root (the limit here is {limit})")
+            argv = [sys.executable, "-m", "proofcut.cli", "init", str(project)]
+            say(scrub("$ " + " ".join(argv)))
+            code, _, output = run(argv, timeout=60)
+            say(scrub(output.rstrip()))
+            c.facts["max_root_length"] = limit
+            clean = code == 1 and "Traceback" not in output and f"at most {limit} characters" in output
+            c.fact("refused in one line, naming the limit", clean,
+                   "" if clean else f"exit {code}, {'a traceback' if 'Traceback' in output else 'no limit named'}")
+            c.fact("and wrote nothing", not os.path.exists(long_form(project)),
+                   "" if not os.path.exists(long_form(project)) else "the refused root exists")
+            at_limit = deep_root(limit)
+            demo_edit(c, at_limit, at_limit.parent / "f", demo, frames_dir)
         finally:
             c.facts["longest_path_written"] = longest_path(work / "long")
             say(f"longest path written under the long case: {c.facts['longest_path_written']} characters")

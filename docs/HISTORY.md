@@ -14327,3 +14327,47 @@ quiet, and the truth strip's framing chip reads Frame's own scan.
   open and close, keyboard both ways, no console errors, and the 700px
   sweeps (`overflowing: []`, `scrollers: []`) with the card open. The
   affected test files, 656 passed.
+
+## A long project path on Windows — 2026-09-14
+
+The fix for the probe's first real Windows finding (§ The editor on Windows,
+looked at): with `LongPathsEnabled` 0 — the stock setting — `proofcut init`
+on a 235-character folder made the root and `cache`, died on
+`cache\transcripts` with `WinError 206` and a Python traceback, and left a
+half-made project. Windows' limit on *creating a directory* is 248, not 260.
+
+- **`Project.create` refuses a root it cannot hold the layout under**, before
+  it writes anything: `PathTooLongError`, a `ProjectError` carrying `length`
+  and `limit`, whose one line gives the path's length, the limit, and both
+  fixes — a shorter folder, or the `Set-ItemProperty … LongPathsEnabled 1`
+  line to run in an administrator PowerShell. It fires only on Windows with
+  the setting off; `windows_long_paths()` reads the registry and answers
+  `None` off Windows, and a missing key reads as off.
+- **The limit is 148 = 248 − `PATH_HEADROOM` (100), and 100 is a measurement
+  doubled, not a bound.** The shipped film's project, every cache family
+  populated, reaches 44 characters under its root (`renders/<a name someone
+  chose>.mp4`) and 41 through `cache/thumbs/<clip>/`. Both depths are names a
+  person chose, so a long enough clip id or render name can still spend the
+  rest. That case gets `cli.main`'s one line for any `OSError` whose
+  `winerror` is 206 (`project.path_too_long`), instead of a traceback; every
+  other `OSError` still raises. MCP and the web UI return the exception's
+  own text as before — not changed here.
+- **`doctor` reports the setting on Windows**: `✓ enabled`, or `– off — a
+  project folder can be at most 148 characters` with the fix. A note, never
+  a ✗, and `ok` does not read it. Off Windows the section is not drawn.
+- **The probe asks for the refusal now.** With long paths off, its
+  `long-path` case wants `init` on the 235-character root to exit 1 with no
+  traceback, name the limit, and leave no folder behind — then runs the
+  demo's whole edit in a root at exactly the limit it named. With them on, it
+  runs the edit at 235 as before and keeps saying `ok, but long paths are
+  enabled here`. Dry-run on Linux with only `windows_long_paths` faked to
+  `False` in both processes: refused in one line, nothing written, and the
+  edit clean at 148, its longest path 179 characters. A real Windows with the
+  setting off is still the check; the laptop's next run is it.
+- Tests hold the refusal, the root at exactly the limit, the same deep root
+  accepted with the setting on (the control), a missing key, no limit off
+  Windows, the CLI's one line and a non-206 `OSError` still raising, and both
+  doctor states — under a fake `winreg` and `sys.platform` patched, so the
+  registry read is tested rather than stubbed past, and a Windows runner's own
+  setting of 1 cannot decide them.
+

@@ -385,6 +385,10 @@ candidates until judged:
 - **`MAX_PATH` (260 chars).** `cache/sheets/`, `cache/thumbs/<clip_id>/`
   and the render scratch nest deeply under a project path; either opt the
   process into long paths or measure the deepest path proofcut writes.
+  *Measured 2026-09-14:* with `LongPathsEnabled` 0 a 235-character root died
+  at `init` on the 248-character directory limit; with it on, 266-character
+  paths rendered cleanly. `Project.create` now refuses a root past 148 while
+  it is off — HISTORY.md § A long project path on Windows.
 - **Case-insensitive filesystem vs the confinement checks.** `server._confine`
   and `webui`'s root checks compare `resolve()`d paths (`server.py:171`);
   `Path.resolve()` on Windows returns on-disk case for existing paths, so

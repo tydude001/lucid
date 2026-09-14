@@ -780,3 +780,45 @@ def test_an_old_name_variables_value_is_never_printed(
     raw = capsys.readouterr().out
     for output in (text, raw):
         assert "/sentinel/" not in output
+
+
+# -- long paths ---------------------------------------------------------------
+
+
+def test_long_paths_off_is_a_note_with_the_limit_and_never_moves_ok(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A stranger should learn the folder limit from doctor, before `init`
+    refuses — and a stock Windows is not a broken install."""
+    from proofcut import project
+
+    _clear_legacy_env(monkeypatch)
+    _healthy_box(monkeypatch)
+    monkeypatch.setattr(project, "windows_long_paths", lambda: False)
+
+    payload = doctor.report()
+    assert payload["long_paths"]["enabled"] is False
+    assert payload["long_paths"]["max_root"] == project.WINDOWS_DIR_LIMIT - project.PATH_HEADROOM
+    assert payload["ok"] is True
+    assert main(["doctor"]) == 0
+    text = capsys.readouterr().out
+    assert f"– off — a project folder can be at most {payload['long_paths']['max_root']} characters" in text
+    assert "LongPathsEnabled 1" in text
+
+
+def test_long_paths_on_says_so_and_off_windows_the_section_is_absent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from proofcut import project
+
+    _clear_legacy_env(monkeypatch)
+    _healthy_box(monkeypatch)
+    monkeypatch.setattr(project, "windows_long_paths", lambda: True)
+    assert doctor.report()["long_paths"] == {"enabled": True, "max_root": None, "note": None, "fix": None}
+    main(["doctor"])
+    assert "✓ enabled" in capsys.readouterr().out
+
+    monkeypatch.setattr(project, "windows_long_paths", lambda: None)
+    assert doctor.report()["long_paths"] is None
+    main(["doctor"])
+    assert "Long paths" not in capsys.readouterr().out

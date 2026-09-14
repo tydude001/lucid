@@ -1342,3 +1342,33 @@ def test_attribute_speakers_defaults_leave_every_choice_to_the_op() -> None:
     assert args.streams is None
     assert args.labels is None
     assert args.margin_db == ops.spk.MARGIN_DB
+
+
+def test_a_path_windows_refuses_as_too_long_is_one_line_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`Project.create` refuses the common case up front; a clip id or render
+    name that spends the headroom later still reaches Win32's 206, and a person
+    gets the fix rather than a stack."""
+    where = "C:\\deep\\cache\\thumbs\\a-very-long-clip"
+    too_long = OSError(2, "The filename or extension is too long", where)
+    too_long.winerror = 206  # type: ignore[attr-defined]
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise too_long
+
+    monkeypatch.setattr(ops, "init", refuse)
+    assert main(["init", str(tmp_path / "proj")]) == 1
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1
+    assert err.startswith(f"proofcut: Windows refused a path as too long ({len(where)} characters: {where})")
+    assert "LongPathsEnabled 1" in err
+
+
+def test_any_other_os_error_still_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(ops, "init", refuse)
+    with pytest.raises(PermissionError):
+        main(["init", str(tmp_path / "proj")])

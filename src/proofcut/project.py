@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -131,6 +132,90 @@ class LegacyManifestError(ProjectError):
     `proofcut migrate` renames. A subclass so every `except ProjectError`
     handler still refuses it, and distinct so the picker's scan can list it as
     `needs_migration` without matching a sentence."""
+
+
+#: Windows refuses to create a directory whose path is longer than this —
+#: MAX_PATH (260) less 12 for an 8.3 name — unless `LongPathsEnabled` is set.
+#: The laptop's probe with the setting off made a 235-character root and its
+#: `cache` (241), then died on `cache\transcripts` (253) with WinError 206.
+#: The same 266-character paths rendered cleanly through melt and ffmpeg with
+#: the setting on, on the laptop and on GitHub's runner. HISTORY.md § A long
+#: project path on Windows.
+WINDOWS_DIR_LIMIT = 248
+#: What proofcut's own layout gets under a project root. The shipped film's
+#: project, every cache family populated, reaches 44 characters
+#: (`renders/<a render someone named>.mp4`) and 41 through `cache/thumbs/<clip>/`
+#: — both names a person chose, so this is that measurement doubled plus the
+#: separator, not a bound. A clip id or render name long enough to spend the
+#: rest still fails later, with `path_too_long`'s one line rather than a
+#: traceback.
+PATH_HEADROOM = 100
+#: `ERROR_FILENAME_EXCED_RANGE` — what Win32 answers a path past its limit with.
+WINERROR_PATH_TOO_LONG = 206
+_LONG_PATHS_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
+LONG_PATHS_FIX = (
+    "in an administrator PowerShell, run "
+    "`Set-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' LongPathsEnabled 1`, "
+    "then run the command again"
+)
+
+
+def windows_long_paths() -> bool | None:
+    """Whether Windows lets this process past `WINDOWS_DIR_LIMIT`; `None` off
+    Windows, where there is no such limit to ask about.
+
+    Read once per process by Windows itself, at process start — so a change
+    reaches the next command run, never the one already running. An
+    unreadable key reads as off, which is the stock default.
+    """
+    if sys.platform != "win32":
+        return None
+    import winreg  # Windows-only stdlib, so imported where it is used
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _LONG_PATHS_KEY) as key:
+            return winreg.QueryValueEx(key, "LongPathsEnabled")[0] == 1
+    except OSError:
+        return False
+
+
+def max_root_length() -> int | None:
+    """The longest project root this machine can hold proofcut's layout under,
+    or `None` when there is no limit (not Windows, or long paths on)."""
+    if windows_long_paths() is not False:
+        return None
+    return WINDOWS_DIR_LIMIT - PATH_HEADROOM
+
+
+def path_too_long(exc: OSError) -> str | None:
+    """One line for a path Windows refused as too long, or `None` for any
+    other `OSError` — the message a traceback would have buried."""
+    if getattr(exc, "winerror", None) != WINERROR_PATH_TOO_LONG:
+        return None
+    where = f" ({len(str(exc.filename))} characters: {exc.filename})" if exc.filename else ""
+    return (
+        f"Windows refused a path as too long{where} — it limits a folder path to "
+        f"{WINDOWS_DIR_LIMIT} characters while long paths are off. Move the project to a "
+        f"shorter folder, or turn long paths on: {LONG_PATHS_FIX}."
+    )
+
+
+class PathTooLongError(ProjectError):
+    """Raised by `Project.create` for a root too long for proofcut's own layout
+    on a Windows with long paths off — before anything is written, so a
+    refusal leaves no half-made project behind. Carries `length` and `limit`,
+    so a caller never reads the numbers out of the sentence."""
+
+    def __init__(self, root: Path, *, limit: int) -> None:
+        self.length = len(str(root))
+        self.limit = limit
+        super().__init__(
+            f"this project's folder path is {self.length} characters, and Windows limits a "
+            f"folder path to {WINDOWS_DIR_LIMIT} while long paths are off — proofcut keeps "
+            f"files up to about {PATH_HEADROOM} characters deep inside a project, so a project "
+            f"folder here can be at most {limit} characters: {root}. Put the project in a "
+            f"shorter folder, or turn long paths on: {LONG_PATHS_FIX}."
+        )
 
 
 class ProjectConflictError(ProjectError):
@@ -576,6 +661,9 @@ class Project:
                 f"({LEGACY_MANIFEST_NAME}) — run `proofcut migrate` there instead"
             )
 
+        limit = max_root_length()
+        if limit is not None and len(str(project.root)) > limit:
+            raise PathTooLongError(project.root, limit=limit)
         project.root.mkdir(parents=True, exist_ok=True)
         for sub in _SUBDIRS:
             (project.root / sub).mkdir(parents=True, exist_ok=True)

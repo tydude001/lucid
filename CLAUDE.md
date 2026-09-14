@@ -729,6 +729,13 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
     `#!` script** — Windows cannot run one, and every stub the suite had was
     one. Python source in, the path to run out; use the returned path, which
     is a `.cmd` on Windows. HISTORY.md § The first run on macOS and Windows.
+  - **A stock Windows cannot create a directory past 248 characters**
+    (`LongPathsEnabled` 0; GitHub's runner and Tyler's laptop both have 1,
+    so neither shows it unasked). `Project.create` refuses a root past
+    `248 − PATH_HEADROOM` while it is off; a new deep layout under a project
+    spends that headroom, which is 100 and was measured at 44. A test of it
+    fakes `winreg` in `sys.modules` beside `sys.platform`, or a Windows
+    runner's own 1 decides it. HISTORY.md § A long project path on Windows.
 - **A reachable identifier in the docs is elided, never swapped for a
   plausible one.** The tailnet address, MagicDNS name, IPv6 suffix and
   absolute `/home/<user>` paths that a measurement quoted are written

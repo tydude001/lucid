@@ -33,7 +33,7 @@ from proofcut.media import MediaError
 from proofcut.mlt import MLTError
 from proofcut.pack import PackError
 from proofcut.picture import PictureError
-from proofcut.project import ProjectError
+from proofcut.project import ProjectError, path_too_long
 from proofcut.timeline import TimelineError
 from proofcut.transcript import TranscriptError
 from proofcut.verify import VerifyError
@@ -3061,6 +3061,15 @@ def main(argv: list[str] | None = None) -> int:
         return _COMMANDS[args.command](args)
     except _EXPECTED as exc:
         print(f"proofcut: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        # Windows' 206 is a person's folder being too deep, not a bug to trace
+        # — `Project.create` refuses the common case up front, and this is the
+        # one line for a clip id or render name that spends the headroom later.
+        message = path_too_long(exc)
+        if message is None:
+            raise
+        print(f"proofcut: {message}", file=sys.stderr)
         return 1
 
 

@@ -43,6 +43,7 @@ from proofcut import (
     fonts,
     graphics,
     picture,
+    project,
     tts,
 )
 
@@ -794,6 +795,35 @@ def _legacy_env() -> dict[str, Any]:
     }
 
 
+# -- long paths ----------------------------------------------------------
+
+
+def _long_paths() -> dict[str, Any] | None:
+    """Whether Windows' 248-character folder limit applies to this machine.
+
+    `None` off Windows, where it does not exist. A note, never a ✗: with long
+    paths off every project in an ordinary folder works, and `ok` does not read
+    it — but a project folder past `max_root_length` is refused at `init`, and
+    a stranger should be able to learn why before that. HISTORY.md § A long
+    project path on Windows.
+    """
+    enabled = project.windows_long_paths()
+    if enabled is None:
+        return None
+    if enabled:
+        return {"enabled": True, "max_root": None, "note": None, "fix": None}
+    limit = project.max_root_length()
+    return {
+        "enabled": False,
+        "max_root": limit,
+        "note": (
+            f"Windows limits a folder path to {project.WINDOWS_DIR_LIMIT} characters, so a "
+            f"project folder can be at most {limit} characters long on this PC."
+        ),
+        "fix": f"only if you need deeper project folders: {project.LONG_PATHS_FIX}.",
+    }
+
+
 # -- the report ----------------------------------------------------------
 
 
@@ -828,6 +858,7 @@ def report() -> dict[str, Any]:
         "caption_font": _caption_font(),
         "agent": _agent(),
         "legacy_env": _legacy_env(),
+        "long_paths": _long_paths(),
     }
 
 
@@ -951,6 +982,18 @@ def render(payload: dict[str, Any]) -> str:
                 )
             lines += _wrap(f"note: {legacy['note']}", indent="      ")
             lines += _wrap(f"fix: {legacy['fix']}", indent="      ")
+
+    # `.get`, the agent section's reason; and `None` off Windows, where the
+    # limit does not exist and the section is not drawn at all.
+    long_paths = payload.get("long_paths")
+    if long_paths is not None:
+        lines += ["", "Long paths (Windows)"]
+        if long_paths["enabled"]:
+            lines.append(f"  {_TICK} enabled — project folders can be any depth")
+        else:
+            lines.append(f"  {_DASH} off — a project folder can be at most {long_paths['max_root']} characters")
+            lines += _wrap(f"note: {long_paths['note']}", indent="      ")
+            lines += _wrap(f"fix: {long_paths['fix']}", indent="      ")
 
     failures = [e["name"] for e in payload["required"] if not e["ok"]]
     lines.append("")

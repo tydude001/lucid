@@ -461,3 +461,104 @@ def test_a_second_write_inside_the_same_clock_tick_is_still_a_conflict(tmp_path:
 
     with pytest.raises(ProjectConflictError, match="changed on disk"):
         stale.write_manifest({**held, "name": "written-by-stale"})
+
+
+# -- the Windows folder-path limit -------------------------------------------
+
+
+def _windows(monkeypatch: pytest.MonkeyPatch, *, long_paths: int | None) -> None:
+    """Stand in for Windows with `LongPathsEnabled` at `long_paths` (`None`:
+    the key is missing). A fake `winreg`, so the registry read itself is under
+    test rather than stubbed past — and the same fake on a real Windows runner,
+    whose own setting is 1 and would otherwise decide the test."""
+    import sys
+    import types
+
+    class _Key:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+    def open_key(hive: object, path: str) -> object:
+        assert path == r"SYSTEM\CurrentControlSet\Control\FileSystem"
+        if long_paths is None:
+            raise FileNotFoundError(path)
+        return _Key()
+
+    fake = types.ModuleType("winreg")
+    fake.HKEY_LOCAL_MACHINE = object()  # type: ignore[attr-defined]
+    fake.OpenKey = open_key  # type: ignore[attr-defined]
+    fake.QueryValueEx = lambda key, name: (long_paths, 4)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "winreg", fake)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+
+def _root_of_length(tmp_path: Path, length: int) -> Path:
+    base = str(tmp_path.resolve() / "deep")
+    assert len(base) < length - 2, "tmp_path is already longer than the root asked for"
+    return Path(base + "-" + "d" * (length - len(base) - 1))
+
+
+def test_create_refuses_a_root_too_deep_for_windows_with_long_paths_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The laptop's probe: with `LongPathsEnabled` 0 a 235-character root got as
+    far as `cache` and died on `cache\\transcripts` with a traceback, leaving a
+    half-made project. The refusal comes first, writes nothing, and names both
+    fixes."""
+    from proofcut.project import (
+        PATH_HEADROOM,
+        WINDOWS_DIR_LIMIT,
+        PathTooLongError,
+        max_root_length,
+    )
+
+    _windows(monkeypatch, long_paths=0)
+    limit = WINDOWS_DIR_LIMIT - PATH_HEADROOM
+    assert max_root_length() == limit
+    root = _root_of_length(tmp_path, limit + 1)
+
+    with pytest.raises(PathTooLongError) as refused:
+        Project.create(root)
+    assert (refused.value.length, refused.value.limit) == (limit + 1, limit)
+    assert isinstance(refused.value, ProjectError)
+    assert f"at most {limit} characters" in str(refused.value)
+    assert "LongPathsEnabled 1" in str(refused.value)
+    assert not root.exists()
+
+
+def test_create_takes_a_root_at_exactly_the_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from proofcut.project import max_root_length
+
+    _windows(monkeypatch, long_paths=0)
+    root = _root_of_length(tmp_path, max_root_length())
+    assert (Project.create(root).root / MANIFEST_NAME).exists()
+
+
+def test_create_takes_a_deep_root_when_long_paths_are_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control: the same root, one registry value apart."""
+    from proofcut.project import WINDOWS_DIR_LIMIT, max_root_length
+
+    _windows(monkeypatch, long_paths=1)
+    assert max_root_length() is None
+    root = _root_of_length(tmp_path, WINDOWS_DIR_LIMIT - 60)
+    assert (Project.create(root).root / MANIFEST_NAME).exists()
+
+
+def test_a_missing_long_paths_key_reads_as_the_stock_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from proofcut.project import windows_long_paths
+
+    _windows(monkeypatch, long_paths=None)
+    assert windows_long_paths() is False
+
+
+def test_no_limit_is_asked_about_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    from proofcut.project import max_root_length, windows_long_paths
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert windows_long_paths() is None
+    assert max_root_length() is None
