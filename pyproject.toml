@@ -1,5 +1,5 @@
 [project]
-name = "lucid"
+name = "proofcut"
 version = "0.22.0"
 description = "Source-available, local-first AI video editor — an MCP server over ffmpeg, whisper, and OpenTimelineIO"
 readme = "README.md"
@@ -11,7 +11,7 @@ license = "LicenseRef-PolyForm-Shield-1.0.0"
 # what PEP 639 provides for exactly this. HISTORY.md § The licence, chosen.
 # The vendored typefaces are not covered by it and carry their own OFL-1.1
 # texts beside them, which ship in the package because they sit inside it:
-# src/lucid/fonts/ (the caption face, FONTS.md) and src/lucid/web/ (the three
+# src/proofcut/fonts/ (the caption face, FONTS.md) and src/proofcut/web/ (the three
 # UI faces, web/FONTS.md).
 license-files = ["LICENSE"]
 authors = [
@@ -26,12 +26,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/tydude001/lucid"
-Documentation = "https://github.com/tydude001/lucid/blob/main/docs/MANUAL.md"
-Issues = "https://github.com/tydude001/lucid/issues"
+Homepage = "https://github.com/tydude001/proofcut"
+Documentation = "https://github.com/tydude001/proofcut/blob/main/docs/MANUAL.md"
+Issues = "https://github.com/tydude001/proofcut/issues"
 
 [project.scripts]
-lucid = "lucid.cli:main"
+proofcut = "proofcut.cli:main"
 
 [dependency-groups]
 dev = [

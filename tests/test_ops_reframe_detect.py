@@ -23,10 +23,10 @@ from typing import Any
 
 import pytest
 
-from lucid import faces, mlt, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import faces, mlt, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None, reason="the scene scan is ffmpeg's own answer"

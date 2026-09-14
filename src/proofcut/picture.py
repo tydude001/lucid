@@ -44,7 +44,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from lucid import media
+from proofcut import media
 
 #: Suffixes routed to `melt` rather than to ffprobe. `.xml` is here because
 #: that is what a bare MLT document is called; auto-editor writes `.kdenlive`.

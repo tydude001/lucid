@@ -73,15 +73,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from lucid import captions, media, ops, renderlog
-from lucid.asr import ASRError
-from lucid.autoeditor import AutoEditorError
-from lucid.energy import EnergyError
-from lucid.faces import FaceError
-from lucid.media import MediaError
-from lucid.mlt import MLTError
-from lucid.picture import PictureError
-from lucid.project import (
+from proofcut import captions, media, ops, renderlog
+from proofcut.asr import ASRError
+from proofcut.autoeditor import AutoEditorError
+from proofcut.energy import EnergyError
+from proofcut.faces import FaceError
+from proofcut.media import MediaError
+from proofcut.mlt import MLTError
+from proofcut.picture import PictureError
+from proofcut.project import (
     CACHE_DIR,
     MANIFEST_NAME,
     SCHEMA_VERSION,
@@ -89,9 +89,9 @@ from lucid.project import (
     Project,
     ProjectError,
 )
-from lucid.timeline import TimelineError
-from lucid.transcript import TranscriptError
-from lucid.verify import VerifyError
+from proofcut.timeline import TimelineError
+from proofcut.transcript import TranscriptError
+from proofcut.verify import VerifyError
 
 #: The same family the CLI flattens into a one-line message. Anything outside
 #: it is a bug and keeps its traceback rather than being reported as a 400.
@@ -850,7 +850,7 @@ class AgentSession:
         with no way to touch the project, while the pane's banner goes on
         saying it reaches the timeline through lucid's tools. Same probe with
         this interpreter: `"status": "connected"`, 68 tools. `sys.executable`
-        plus `-m lucid.cli` is the same resolution `_vlm_worker`/`_face_worker`
+        plus `-m proofcut.cli` is the same resolution `_vlm_worker`/`_face_worker`
         already use — run the interpreter you are, not a name you hope is on
         someone's PATH.
         """
@@ -859,7 +859,7 @@ class AgentSession:
                 "mcpServers": {
                     "lucid": {
                         "command": sys.executable,
-                        "args": ["-m", "lucid.cli", "-C", str(self.project_root), "mcp"],
+                        "args": ["-m", "proofcut.cli", "-C", str(self.project_root), "mcp"],
                     }
                 }
             }
@@ -1816,7 +1816,7 @@ class TranscribeJob:
     **`ASRError` has to be in `EXPECTED`, or a missing whisper binary would
     leave this slot latched busy with no event ever published** — the same
     `FaceError` precedent `ReframeDetectJob` documents above. It already is:
-    `lucid.asr.ASRError` is imported and listed in the tuple at the top of
+    `proofcut.asr.ASRError` is imported and listed in the tuple at the top of
     this file (for `verify --windowed`'s sake, predating this job) — this
     note is for whoever next reorders that tuple and assumes it is only
     about `verify`.

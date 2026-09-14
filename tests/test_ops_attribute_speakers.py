@@ -19,9 +19,9 @@ from typing import Any
 
 import pytest
 
-from lucid import media, ops
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import media, ops
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 needs_ffprobe = pytest.mark.skipif(

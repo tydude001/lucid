@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid.project import (
+from proofcut.project import (
     MANIFEST_NAME,
     SCHEMA_VERSION,
     Project,

@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import energy, ops
-from lucid.project import Project
+from proofcut import energy, ops
+from proofcut.project import Project
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 needs_ffprobe = pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe is not installed")

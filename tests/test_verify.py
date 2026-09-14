@@ -7,7 +7,7 @@ The end-to-end wiring is checked over stdio in test_server_stdio.py.
 
 from __future__ import annotations
 
-from lucid import verify
+from proofcut import verify
 
 
 def test_tokens_normalise_away_punctuation_and_case() -> None:

@@ -12,8 +12,8 @@ import shutil
 
 import pytest
 
-from lucid import fonts
-from lucid.captions import CAPTION_FONT, font_match
+from proofcut import fonts
+from proofcut.captions import CAPTION_FONT, font_match
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("magick") is None,
@@ -30,7 +30,7 @@ def test_the_face_the_presets_name_ships_in_the_package() -> None:
     `~/.local/share/fonts` months earlier."""
     names = [p.name for p in fonts.vendored()]
 
-    assert names, "no face ships in src/lucid/fonts/"
+    assert names, "no face ships in src/proofcut/fonts/"
     assert any(CAPTION_FONT.split()[0].lower() in name.lower() for name in names), (
         f"nothing vendored looks like {CAPTION_FONT!r}, which every caption preset names"
     )

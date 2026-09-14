@@ -21,10 +21,10 @@ from typing import Any
 
 import pytest
 
-from lucid import ops, renderlog
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import ops, renderlog
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 CLIPS = {
     "vo": {

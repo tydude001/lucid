@@ -21,10 +21,10 @@ from typing import Any
 
 import pytest
 
-from lucid import autoeditor, captions, ops, renderlog
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project
+from proofcut import autoeditor, captions, ops, renderlog
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project
 
 
 @pytest.fixture

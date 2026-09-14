@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import energy
+from proofcut import energy
 
 RATE = energy.RATE
 

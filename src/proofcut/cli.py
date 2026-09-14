@@ -1,7 +1,7 @@
 """The `lucid` CLI.
 
 Every MCP tool is also reachable here, so the same operations can be scripted
-or debugged without an agent in the loop. Both front ends call `lucid.ops`;
+or debugged without an agent in the loop. Both front ends call `proofcut.ops`;
 neither holds logic of its own.
 """
 
@@ -12,7 +12,7 @@ import json
 import sys
 from typing import Any
 
-from lucid import (
+from proofcut import (
     __version__,
     asr,
     captions,
@@ -23,20 +23,20 @@ from lucid import (
     tts,
     webui,
 )
-from lucid.asr import ASRError
-from lucid.autoeditor import AutoEditorError
-from lucid.describe import DescribeError
-from lucid.energy import EnergyError
-from lucid.finish import FinishError
-from lucid.graphics import GraphicsError
-from lucid.media import MediaError
-from lucid.mlt import MLTError
-from lucid.pack import PackError
-from lucid.picture import PictureError
-from lucid.project import ProjectError
-from lucid.timeline import TimelineError
-from lucid.transcript import TranscriptError
-from lucid.verify import VerifyError
+from proofcut.asr import ASRError
+from proofcut.autoeditor import AutoEditorError
+from proofcut.describe import DescribeError
+from proofcut.energy import EnergyError
+from proofcut.finish import FinishError
+from proofcut.graphics import GraphicsError
+from proofcut.media import MediaError
+from proofcut.mlt import MLTError
+from proofcut.pack import PackError
+from proofcut.picture import PictureError
+from proofcut.project import ProjectError
+from proofcut.timeline import TimelineError
+from proofcut.transcript import TranscriptError
+from proofcut.verify import VerifyError
 
 
 def _word_range(value: str) -> list[int]:
@@ -162,7 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="stdio (default — every existing client spawns the server this way) or http",
     )
     # `default=None` rather than `webui.DEFAULT_HOST`/`server.DEFAULT_HTTP_PORT`
-    # directly: `lucid.server` imports the MCP SDK and is only ever imported
+    # directly: `proofcut.server` imports the MCP SDK and is only ever imported
     # lazily (inside `_cmd_mcp`), and resolving the real default here would
     # force that import on every `lucid` invocation, not just `mcp`.
     p_mcp.add_argument(
@@ -2875,7 +2875,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     that always exits 0 cannot be gated on. Optional capabilities never move
     it — they gate a feature, not the install.
     """
-    from lucid import doctor as doc
+    from proofcut import doctor as doc
 
     payload = ops.doctor()
     if args.json:
@@ -2886,13 +2886,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _cmd_ping(_args: argparse.Namespace) -> int:
-    from lucid.server import ping
+    from proofcut.server import ping
 
     return _emit(ping())
 
 
 def _cmd_mcp(args: argparse.Namespace) -> int:
-    from lucid.server import DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT, serve
+    from proofcut.server import DEFAULT_HTTP_HOST, DEFAULT_HTTP_PORT, serve
 
     # `-C` binds the server to one project, and is honoured only when it was
     # actually typed: `main()` defaults it to ".", so binding unconditionally

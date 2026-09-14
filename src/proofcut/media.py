@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lucid.project import Project
+    from proofcut.project import Project
 
 FFPROBE = "ffprobe"
 

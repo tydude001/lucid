@@ -21,7 +21,7 @@ import difflib
 from collections.abc import Iterable
 from typing import Any
 
-from lucid.transcript import _normalise
+from proofcut.transcript import _normalise
 
 #: Shorter runs are noise. A single extra word is usually a filler whisper
 #: caught on one pass and not the other; two in a row that also appear in the

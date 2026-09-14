@@ -29,10 +29,10 @@ import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from stubs import write_stub
 
-from lucid import energy, finishlog, graphics, media, ops, picture
-from lucid.project import Project
+from proofcut import energy, finishlog, graphics, media, ops, picture
+from proofcut.project import Project
 
-SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
+SERVER = StdioServerParameters(command=sys.executable, args=["-m", "proofcut.cli", "mcp"])
 
 #: Every tool the MCP surface is expected to expose. Asserted exactly, so a
 #: tool that is written but never registered fails the suite instead of
@@ -482,7 +482,7 @@ def test_every_tool_says_what_it_does_to_the_project() -> None:
 
 def test_a_tool_missing_from_the_hint_table_refuses_to_register() -> None:
     """The table is only a contract if a new tool cannot skip it."""
-    from lucid import server
+    from proofcut import server
 
     def not_a_classified_tool(path: str | None = None) -> dict[str, Any]:
         return {}
@@ -606,7 +606,7 @@ CLI_ONLY = {
 
 def test_every_mcp_tool_has_a_cli_subcommand() -> None:
     """Parity is a project convention, so it gets asserted rather than trusted."""
-    from lucid.cli import _COMMANDS
+    from proofcut.cli import _COMMANDS
 
     assert set(TOOL_TO_COMMAND) == EXPECTED_TOOLS - {"ping"}, (
         "the tool -> command map has drifted from the registered tool list"
@@ -2258,7 +2258,7 @@ def test_transcribe_runs_whisper_and_attaches_the_result(tmp_path: Path) -> None
     project = tmp_path / "proj"
     server = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "lucid.cli", "mcp"],
+        args=["-m", "proofcut.cli", "mcp"],
         env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
     )
 
@@ -2338,7 +2338,7 @@ def test_transcribe_drops_a_runaway_tail_and_says_how_many(tmp_path: Path) -> No
     project = tmp_path / "proj"
     server = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "lucid.cli", "mcp"],
+        args=["-m", "proofcut.cli", "mcp"],
         env={"LUCID_WHISPER": str(_fake_whisper_runaway(tmp_path))},
     )
 
@@ -2448,7 +2448,7 @@ def test_finish_check_reachable_over_stdio_and_recovers_a_boundary_miss(
 
     server = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "lucid.cli", "mcp"],
+        args=["-m", "proofcut.cli", "mcp"],
         env={"LUCID_WHISPER": str(_fake_whisper_finish_check(tmp_path))},
     )
 
@@ -2809,7 +2809,7 @@ def test_music_over_the_wire(tmp_path: Path) -> None:
     word indices and never a length, both boundary words come back echoed
     with their neighbours, and `reset` drops the key (PLAN.md § The A2 music
     lane — the design note)."""
-    from lucid import transcript as tx
+    from proofcut import transcript as tx
 
     project = tmp_path / "proj"
 
@@ -7515,7 +7515,7 @@ def test_export_resolution_is_a_documented_noop_on_an_audio_only_project(
 
 def _bound(root: Path) -> StdioServerParameters:
     return StdioServerParameters(
-        command=sys.executable, args=["-m", "lucid.cli", "-C", str(root), "mcp"]
+        command=sys.executable, args=["-m", "proofcut.cli", "-C", str(root), "mcp"]
     )
 
 
@@ -7642,7 +7642,7 @@ def test_a_bound_server_expands_a_tilde_in_the_confined_path(tmp_path: Path) -> 
     project, _ = _two_projects(tmp_path)
     env = dict(os.environ, HOME=str(tmp_path), USERPROFILE=str(tmp_path))
     server = StdioServerParameters(
-        command=sys.executable, args=["-m", "lucid.cli", "-C", str(project), "mcp"], env=env
+        command=sys.executable, args=["-m", "proofcut.cli", "-C", str(project), "mcp"], env=env
     )
 
     async def body(session: ClientSession) -> Any:
@@ -7819,7 +7819,7 @@ def test_binding_to_a_directory_that_is_not_there_fails_at_startup() -> None:
     """A bad root is caught when the server starts rather than on every call,
     which would blame the client's argument for the server's own start-up."""
     result = subprocess.run(
-        [sys.executable, "-m", "lucid.cli", "-C", "/nonexistent-project", "mcp"],
+        [sys.executable, "-m", "proofcut.cli", "-C", "/nonexistent-project", "mcp"],
         capture_output=True,
         text=True,
         check=False,
@@ -7835,7 +7835,7 @@ def test_every_tool_taking_a_path_goes_through_the_binding() -> None:
     wrapper for anything taking a `path`, and `functools.wraps` is what puts
     `__wrapped__` on it; `mcp.tool()` returns the function untouched.
     """
-    import lucid.server as server_module
+    import proofcut.server as server_module
 
     for name in sorted(EXPECTED_TOOLS):
         fn = getattr(server_module, name)
@@ -7854,7 +7854,7 @@ def test_the_sheet_advertises_its_extremes_argument() -> None:
     sides still exist. `extremes` is the whole difference between a sheet that
     samples the clock and one that samples the subject.
     """
-    import lucid.server as server_module
+    import proofcut.server as server_module
 
     taken = inspect.signature(server_module.reframe_sheet).parameters
     assert "extremes" in taken and taken["extremes"].default is False, (
@@ -8746,7 +8746,7 @@ def test_hold_check_over_the_wire(tmp_path: Path) -> None:
 
     server = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "lucid.cli", "mcp"],
+        args=["-m", "proofcut.cli", "mcp"],
         env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
     )
 

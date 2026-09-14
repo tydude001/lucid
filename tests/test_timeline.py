@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid.timeline import EPSILON, Edit, Segment, TimelineError, from_otio, to_otio
+from proofcut.timeline import EPSILON, Edit, Segment, TimelineError, from_otio, to_otio
 
 CLIPS = {
     "vo": {"clip_id": "vo", "source": "/tmp/vo.wav", "duration": 60.0, "has_video": False, "has_audio": True},

@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from lucid import mlt, ops
-from lucid import timeline as tl
-from lucid.project import Project, ProjectError
+from proofcut import mlt, ops
+from proofcut import timeline as tl
+from proofcut.project import Project, ProjectError
 
 WIDE = {
     "clip_id": "cold-open",

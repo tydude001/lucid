@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from lucid import ops
-from lucid import transcript as tx
+from proofcut import ops
+from proofcut import transcript as tx
 
 
 def _words(*specs: tuple[str, float, float]) -> tx.Transcript:

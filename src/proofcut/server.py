@@ -1,6 +1,6 @@
 """The `lucid mcp` server — MCP tools over stdio, or over HTTP.
 
-Every tool here is a thin wrapper over `lucid.ops`, and every one has a
+Every tool here is a thin wrapper over `proofcut.ops`, and every one has a
 matching `lucid` CLI subcommand (CLAUDE.md). Tool bodies stay trivial on
 purpose: logic that lives here is logic the CLI cannot reach and the stdio
 tests cannot isolate.
@@ -33,8 +33,8 @@ from starlette.datastructures import Headers
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from lucid import __version__, asr, energy, ops, webui
-from lucid.project import ProjectError
+from proofcut import __version__, asr, energy, ops, webui
+from proofcut.project import ProjectError
 
 mcp: MCPServer = MCPServer(
     name="lucid",

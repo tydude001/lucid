@@ -40,7 +40,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from lucid.timeline import Edit, Segment
+from proofcut.timeline import Edit, Segment
 
 #: Milliseconds. Audio-only timelines are not bound to a frame grid, and 30fps
 #: quantisation (33ms) is coarse enough to clip a consonant off a word. Verified

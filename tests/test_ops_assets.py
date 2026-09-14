@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import media, ops, picture
-from lucid.project import Project
+from proofcut import media, ops, picture
+from proofcut.project import Project
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,

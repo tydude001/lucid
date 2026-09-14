@@ -20,10 +20,10 @@ from typing import Any
 
 import pytest
 
-from lucid import autoeditor, mlt, ops, picture
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import autoeditor, mlt, ops, picture
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 EXPORT_FPS = 30.0
 

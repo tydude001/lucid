@@ -22,10 +22,10 @@ from typing import Any
 
 import pytest
 
-from lucid import ops, tts
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project
+from proofcut import ops, tts
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project
 
 CLIP = {
     "clip_id": "vo",

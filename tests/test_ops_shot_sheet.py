@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid.project import Project
+from proofcut import ops
+from proofcut.project import Project
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 needs_magick = pytest.mark.skipif(
@@ -179,7 +179,7 @@ def test_a_page_past_the_end_draws_nothing_and_still_reports_the_range(
 
 
 def test_a_bad_page_size_refuses_before_anything_is_drawn(project: Project) -> None:
-    from lucid.project import ProjectError
+    from proofcut.project import ProjectError
 
     with pytest.raises(ProjectError):
         ops.shot_sheet(project.root, per_page=0)

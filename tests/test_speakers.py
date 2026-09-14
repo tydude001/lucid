@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import speakers as spk
+from proofcut import speakers as spk
 
 RATE = 16000
 TURN = 3.0

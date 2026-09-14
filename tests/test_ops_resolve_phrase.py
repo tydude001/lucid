@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid import transcript as tx
-from lucid.project import Project
+from proofcut import ops
+from proofcut import transcript as tx
+from proofcut.project import Project
 
 CLIPS = {
     "vo": {

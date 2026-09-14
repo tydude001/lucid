@@ -21,10 +21,10 @@ from typing import Any
 
 import pytest
 
-from lucid import media, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import media, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 CLIP: dict[str, Any] = {
     "clip_id": "vo",

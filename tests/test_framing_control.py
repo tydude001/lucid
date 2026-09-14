@@ -51,10 +51,10 @@ from typing import Any
 
 import pytest
 
-from lucid import describe as dsc
-from lucid import faces, ops
-from lucid import timeline as tl
-from lucid.project import Project
+from proofcut import describe as dsc
+from proofcut import faces, ops
+from proofcut import timeline as tl
+from proofcut.project import Project
 
 # The source geometry the control is written against. Heights differ per clip,
 # and the full-height 9:16 window differs with them — the hand table was a set
@@ -239,7 +239,7 @@ def test_a_control_window_at_the_head_stays_a_bare_entry(project: Project) -> No
 #
 # PLAN.md § The auto-framing detector, item 4: *"the detector must beat
 # 0.568/199.4 on the control and must never return `lost > 0`."* Everything
-# below is that gate. It scores `lucid.faces`' own two functions rather than a
+# below is that gate. It scores `proofcut.faces`' own two functions rather than a
 # re-derivation of them, because a test that re-implements the rule it is
 # checking passes whatever the shipped code does.
 

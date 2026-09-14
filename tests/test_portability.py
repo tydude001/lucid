@@ -28,7 +28,7 @@ from typing import Self
 import pytest
 from stubs import write_stub
 
-from lucid import (
+from proofcut import (
     autoeditor,
     describe,
     doctor,
@@ -769,7 +769,7 @@ def test_a_windows_burn_stages_the_static_faces_and_the_installed_ones(
 def test_the_caption_burn_names_the_font_directory_only_on_windows(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, option: str
 ) -> None:
-    from lucid import captions
+    from proofcut import captions
 
     video = tmp_path / "in.mp4"
     video.write_bytes(b"")

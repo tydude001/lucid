@@ -24,11 +24,11 @@ from typing import Any
 
 import pytest
 
-from lucid import ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.ops import REFRAME_KEY
-from lucid.project import MANIFEST_SNAPSHOT_SUFFIX, Project, ProjectError
+from proofcut import ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.ops import REFRAME_KEY
+from proofcut.project import MANIFEST_SNAPSHOT_SUFFIX, Project, ProjectError
 
 CLIP: dict[str, Any] = {
     "clip_id": "vo",

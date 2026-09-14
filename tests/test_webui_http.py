@@ -28,10 +28,10 @@ from urllib.parse import urlsplit
 import pytest
 from stubs import write_stub
 
-from lucid import media, ops, webui
-from lucid import timeline as tl
-from lucid.faces import FaceError
-from lucid.project import Project, ProjectError
+from proofcut import media, ops, webui
+from proofcut import timeline as tl
+from proofcut.faces import FaceError
+from proofcut.project import Project, ProjectError
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -1842,7 +1842,7 @@ def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
     command = Path(entry["command"])
     assert command.is_absolute(), f"{entry['command']!r} is a PATH lookup, not a resolved binary"
     assert command.exists(), f"{command} does not exist"
-    assert entry["args"][:2] == ["-m", "lucid.cli"]
+    assert entry["args"][:2] == ["-m", "proofcut.cli"]
     assert entry["args"][-1] == "mcp"
     assert "-C" in entry["args"]
 

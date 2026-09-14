@@ -12,7 +12,7 @@ It runs the same client the agent panel runs, with the same confinement:
 `claude -p` against a generated one-server MCP config, `--tools ""` so the
 built-in set is gone and lucid's tools are the agent's *only* reach (CLAUDE.md
 — the allow/disallow flags do not gate built-ins, `--tools ""` does), and the
-command in that config is this interpreter with `-m lucid.cli`, never the name
+command in that config is this interpreter with `-m proofcut.cli`, never the name
 `lucid`, which is absent from PATH for every launch that skips an activated
 venv. Those three facts are imported from `webui.py` rather than restated, so
 the trial cannot silently measure a different client than the one that ships.
@@ -81,9 +81,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import make_demo
 
-from lucid import media as lucid_media
-from lucid import ops, webui
-from lucid.project import MANIFEST_NAME, TIMELINE_NAME
+from proofcut import media as lucid_media
+from proofcut import ops, webui
+from proofcut.project import MANIFEST_NAME, TIMELINE_NAME
 
 
 class TrialError(RuntimeError):
@@ -298,7 +298,7 @@ def _mcp_config(project: Path, dest: Path) -> Path:
     """The generated one-server config, written where the run keeps its record.
 
     Shaped exactly like `webui.AgentSession._mcp_config`'s — this interpreter
-    and `-m lucid.cli`, never the name `lucid` — but written into the run
+    and `-m proofcut.cli`, never the name `lucid` — but written into the run
     directory rather than `$TMPDIR`, so a run's own config is part of its
     evidence instead of being swept.
     """
@@ -306,7 +306,7 @@ def _mcp_config(project: Path, dest: Path) -> Path:
         "mcpServers": {
             "lucid": {
                 "command": sys.executable,
-                "args": ["-m", "lucid.cli", "-C", str(project), "mcp"],
+                "args": ["-m", "proofcut.cli", "-C", str(project), "mcp"],
             }
         }
     }
@@ -861,7 +861,7 @@ def run_control(project: Path, media: Path, output: Path, run_dir: Path) -> dict
     breaks the first time the transcript moves under it, which is the same
     trap `cue_reresolve` exists for.
     """
-    lucid = [sys.executable, "-m", "lucid.cli", "-C", str(project)]
+    lucid = [sys.executable, "-m", "proofcut.cli", "-C", str(project)]
     log: list[dict[str, Any]] = []
 
     def step(*argv: str) -> str:

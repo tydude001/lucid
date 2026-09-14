@@ -32,7 +32,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from test_server_stdio import SERVER, Client, _refused, _with_server
 
-from lucid import ops
+from proofcut import ops
 
 _URL_RE = re.compile(r"(http://[^\s]+/mcp)")
 
@@ -44,7 +44,7 @@ def _start_http(root: Path | None, *extra: str, timeout: float = 15.0) -> tuple[
     server prints the URL it actually bound (`server._serve_http`) as its
     first line, which is how the ephemeral port is discovered here.
     """
-    args = [sys.executable, "-m", "lucid.cli"]
+    args = [sys.executable, "-m", "proofcut.cli"]
     if root is not None:
         args = [*args, "-C", str(root)]
     args = [*args, "mcp", "--transport", "http", "--port", "0", *extra]
@@ -194,7 +194,7 @@ def test_http_refuses_non_loopback_host_without_allow_remote(tmp_path: Path) -> 
     args = [
         sys.executable,
         "-m",
-        "lucid.cli",
+        "proofcut.cli",
         "mcp",
         "--transport",
         "http",
@@ -225,7 +225,7 @@ def test_http_refuses_wildcard_bind_without_allow_remote_hosts(tmp_path: Path) -
     args = [
         sys.executable,
         "-m",
-        "lucid.cli",
+        "proofcut.cli",
         "mcp",
         "--transport",
         "http",

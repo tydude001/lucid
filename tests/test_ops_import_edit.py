@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from lucid import autoeditor, ops
-from lucid.project import ProjectError
+from proofcut import autoeditor, ops
+from proofcut.project import ProjectError
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,

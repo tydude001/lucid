@@ -20,12 +20,12 @@ from typing import Any
 
 import pytest
 
-from lucid import describe as dsc
-from lucid import ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.describe import DescribeError
-from lucid.project import Project, ProjectError
+from proofcut import describe as dsc
+from proofcut import ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.describe import DescribeError
+from proofcut.project import Project, ProjectError
 
 CLIPS = {
     "vo": {

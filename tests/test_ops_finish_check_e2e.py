@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from lucid import finishlog, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project
+from proofcut import finishlog, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 needs_ffprobe = pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe is not installed")

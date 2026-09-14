@@ -33,7 +33,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from lucid.project import Project
+from proofcut.project import Project
 
 
 def append(

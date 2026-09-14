@@ -2,7 +2,7 @@
 
 The public surface is the MCP server (``lucid mcp``) and the equivalent CLI
 (``lucid <subcommand>``). Everything operates on a *project directory*; see
-:mod:`lucid.project` for its layout.
+:mod:`proofcut.project` for its layout.
 """
 
 #: Duplicated in ``pyproject.toml`` deliberately. The metadata lookup that

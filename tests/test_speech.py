@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lucid import speech
+from proofcut import speech
 
 
 def test_merge_runs_closes_gaps_within_threshold() -> None:

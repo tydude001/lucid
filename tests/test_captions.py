@@ -14,8 +14,8 @@ from itertools import pairwise
 
 import pytest
 
-from lucid import captions as captions_module
-from lucid.captions import (
+from proofcut import captions as captions_module
+from proofcut.captions import (
     DEFAULT_GROUPING,
     PRESETS,
     CaptionError,
@@ -29,8 +29,8 @@ from lucid.captions import (
     resolve,
     to_ass,
 )
-from lucid.timeline import Edit, Segment
-from lucid.transcript import Transcript, Word
+from proofcut.timeline import Edit, Segment
+from proofcut.transcript import Transcript, Word
 
 
 def _edit(*spans: tuple[float, float], clip_id: str = "vo") -> Edit:
@@ -216,7 +216,7 @@ def test_resolution_reaches_the_script_header() -> None:
 
 def test_the_canvas_keeps_a_fixed_height_so_font_sizes_travel() -> None:
     """PlayRes is a reference frame; writing real pixel sizes there breaks scale."""
-    from lucid.captions import canvas
+    from proofcut.captions import canvas
 
     assert canvas(3840, 2160) == (1920, 1080)
     assert canvas(320, 240) == (1440, 1080)  # 4:3, not 320x240

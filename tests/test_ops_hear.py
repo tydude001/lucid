@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 from stubs import write_stub
 
-from lucid import asr, energy, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project
+from proofcut import asr, energy, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 

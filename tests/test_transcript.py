@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from lucid import transcript as tx
+from proofcut import transcript as tx
 
 WHISPER = {
     "language": "en",

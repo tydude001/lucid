@@ -20,11 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from lucid import autoeditor, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.media import MediaError
-from lucid.project import Project, ProjectError
+from proofcut import autoeditor, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.media import MediaError
+from proofcut.project import Project, ProjectError
 
 CLIPS = {
     "vo": {

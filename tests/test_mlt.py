@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from lucid import mlt
+from proofcut import mlt
 
 RATE = 30.0
 

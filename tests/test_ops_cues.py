@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid import transcript as tx
-from lucid.media import MediaError
-from lucid.project import Project
+from proofcut import ops
+from proofcut import transcript as tx
+from proofcut.media import MediaError
+from proofcut.project import Project
 
 CLIPS = {
     "vo": {

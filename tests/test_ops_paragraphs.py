@@ -9,8 +9,8 @@ section, wired into the real server.
 
 from __future__ import annotations
 
-from lucid import ops
-from lucid import transcript as tx
+from proofcut import ops
+from proofcut import transcript as tx
 
 Spec = tuple[str, float, float]
 

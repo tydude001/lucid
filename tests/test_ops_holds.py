@@ -22,10 +22,10 @@ from typing import Any
 
 import pytest
 
-from lucid import finish, ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.project import Project, ProjectError
+from proofcut import finish, ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.project import Project, ProjectError
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None, reason="ffmpeg is not installed"
@@ -438,7 +438,7 @@ def test_hold_gain_db_lands_the_hold_under_the_vo_by_exactly_under() -> None:
 
 @needs_ffmpeg
 def test_gate_music_lane_is_a_no_op_with_no_hold_spans(project: Project) -> None:
-    from lucid import mlt
+    from proofcut import mlt
 
     lane = [mlt.Entry("/tmp/bed.wav", 0, 100, has_video=False)]
     assert ops._gate_music_lane(project, lane, "/tmp/bed.wav", [], 30.0) is lane
@@ -446,7 +446,7 @@ def test_gate_music_lane_is_a_no_op_with_no_hold_spans(project: Project) -> None
 
 @needs_ffmpeg
 def test_gate_music_lane_splits_the_bed_entry_around_one_span(project: Project) -> None:
-    from lucid import mlt
+    from proofcut import mlt
 
     lane = [mlt.Entry("/tmp/bed.wav", 0, 100, has_video=False, fade_in_frames=5, fade_out_frames=5)]
     gated = ops._gate_music_lane(project, lane, "/tmp/bed.wav", [(40, 60)], 30.0)
@@ -473,7 +473,7 @@ def test_gate_music_lane_splits_the_bed_entry_around_one_span(project: Project) 
 
 @needs_ffmpeg
 def test_gate_music_lane_leaves_a_span_outside_the_bed_entry_untouched(project: Project) -> None:
-    from lucid import mlt
+    from proofcut import mlt
 
     lane = [mlt.Entry("/tmp/bed.wav", 0, 100, has_video=False)]
     gated = ops._gate_music_lane(project, lane, "/tmp/bed.wav", [(500, 600)], 30.0)

@@ -52,8 +52,8 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from lucid.captions import font_match
-from lucid.picture import command_override
+from proofcut.captions import font_match
+from proofcut.picture import command_override
 
 
 class GraphicsError(RuntimeError):

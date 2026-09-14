@@ -39,7 +39,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import media, ops
+from proofcut import media, ops
 
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
 needs_ffprobe = pytest.mark.skipif(
@@ -183,7 +183,7 @@ def test_an_older_manifest_with_no_vfr_key_reads_as_not_variable(tmp_path: Path)
     which is the honest answer ("nobody probed this") — and every consumer
     that has to decide reads it through `.get`, where absent and false lead
     to the same place."""
-    from lucid.project import Project
+    from proofcut.project import Project
 
     root = tmp_path / "proj"
     ops.init(root)

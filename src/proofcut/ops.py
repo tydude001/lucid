@@ -28,7 +28,7 @@ from math import ceil, gcd, hypot
 from pathlib import Path
 from typing import Any
 
-from lucid import (
+from proofcut import (
     asr,
     autoeditor,
     captions,
@@ -46,25 +46,25 @@ from lucid import (
 
 # `describe` is also the name of the op below — the same collision `verify`
 # has, and the same fix.
-from lucid import describe as dsc
+from proofcut import describe as dsc
 
 # `doctor` is also the name of the op below — the `describe`/`verify`/`fonts`
 # collision again, and the same fix.
-from lucid import doctor as doc
+from proofcut import doctor as doc
 
 # `fonts` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time — the `describe`/`verify` fix.
-from lucid import fonts as lucid_fonts
-from lucid import pack as pk
-from lucid import speakers as spk
-from lucid import speech as sp
-from lucid import timeline as tl
-from lucid import transcript as tx
+from proofcut import fonts as lucid_fonts
+from proofcut import pack as pk
+from proofcut import speakers as spk
+from proofcut import speech as sp
+from proofcut import timeline as tl
+from proofcut import transcript as tx
 
 # `verify` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time.
-from lucid import verify as vfy
-from lucid.project import Project, ProjectError
+from proofcut import verify as vfy
+from proofcut.project import Project, ProjectError
 
 WordRange = tuple[int, int]
 
@@ -1281,7 +1281,7 @@ def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str,
     **`install` is off by default**, like `reframe_detect`'s `apply` and for
     the same reason: it writes into `$HOME`. Vendoring the face is what makes
     the default resolve on a machine rather than aspirationally
-    (`src/lucid/fonts/FONTS.md`), and it is a side effect somebody should ask
+    (`src/proofcut/fonts/FONTS.md`), and it is a side effect somebody should ask
     for rather than one a report performs on the way past.
     """
     checked: list[str] = []
@@ -4857,7 +4857,7 @@ def shot_sheet(
         # `timeline_view`'s policy, and the reason it is right here too: a
         # refusing plan is a real editorial state (someone cut the line a
         # picture hung on), and raising would make the agent's own look at
-        # the film indistinguishable from lucid being broken.
+        # the film indistinguishable from proofcut being broken.
         return {
             "project": str(project.root),
             "sheet": None,

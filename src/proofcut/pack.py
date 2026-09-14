@@ -41,7 +41,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from lucid import captions, graphics
+from proofcut import captions, graphics
 
 #: The only format version this build understands. Bumped only if the shape
 #: below changes in a way an older loader could not read safely — additive

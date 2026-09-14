@@ -11,7 +11,7 @@ split `test_fonts.py` and `test_ops_card_reauthor.py` already use.
 MCP registration/reachability is covered here too, against a real `lucid mcp`
 process — `test_server_stdio.py` has an uncommitted diff of its own in this
 working tree as this session starts (`git status` on this repo shows it, and
-`src/lucid/cli.py`/`ops.py`/`server.py` alongside it), so its `EXPECTED_TOOLS`
+`src/proofcut/cli.py`/`ops.py`/`server.py` alongside it), so its `EXPECTED_TOOLS`
 exact-equality assertions are not this session's to extend. A second,
 independent stdio round trip proves the six new tools are registered and
 reachable without touching that file.
@@ -30,10 +30,10 @@ import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 
-from lucid import fonts, graphics, ops
-from lucid import timeline as tl
-from lucid.pack import PackError, load_pack, pack_hash
-from lucid.project import Project, ProjectError
+from proofcut import fonts, graphics, ops
+from proofcut import timeline as tl
+from proofcut.pack import PackError, load_pack, pack_hash
+from proofcut.project import Project, ProjectError
 
 needs_magick = pytest.mark.skipif(
     shutil.which("magick") is None, reason="ImageMagick is not installed"
@@ -399,7 +399,7 @@ def test_pack_apply_records_unvendored_provenance_for_a_real_but_unshipped_face(
     suite (goodsometimes' own real pack does exercise the real path with
     Zilla Slab — see its own README note — but that is this *box's* local
     font inventory, not a portable fixture)."""
-    from lucid import ops as ops_module
+    from proofcut import ops as ops_module
 
     def _stub_probe(family: str, **kwargs: Any) -> dict[str, Any]:
         return {"font": family, "drew": True, "rmse_against_substitute": 999.0}
@@ -418,7 +418,7 @@ def test_pack_apply_records_unvendored_provenance_for_a_real_but_unshipped_face(
 def test_pack_apply_does_not_flag_a_family_lucid_actually_vendors(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from lucid import ops as ops_module
+    from proofcut import ops as ops_module
 
     def _stub_probe(family: str, **kwargs: Any) -> dict[str, Any]:
         return {"font": family, "drew": True, "rmse_against_substitute": 999.0}
@@ -897,7 +897,7 @@ def test_an_older_manifest_with_no_pack_key_still_opens(tmp_path: Path) -> None:
 # EXPECTED_TOOLS is an exact-equality set this session did not touch, so this
 # proves the six new tools independently, over a real `lucid mcp` subprocess.
 
-SERVER = StdioServerParameters(command=sys.executable, args=["-m", "lucid.cli", "mcp"])
+SERVER = StdioServerParameters(command=sys.executable, args=["-m", "proofcut.cli", "mcp"])
 NEW_PACK_TOOLS = {
     "pack_apply",
     "pack_activate",

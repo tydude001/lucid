@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid import timeline as tl
-from lucid import transcript as tx
-from lucid.captions import CaptionError, ass_colour
-from lucid.project import Project
+from proofcut import ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
+from proofcut.captions import CaptionError, ass_colour
+from proofcut.project import Project
 
 CLIP = {
     "clip_id": "vo",

@@ -34,7 +34,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from lucid import (
+from proofcut import (
     asr,
     autoeditor,
     captions,
@@ -712,7 +712,7 @@ def _agent() -> dict[str, Any]:
     Whether that `claude` is logged in is not probed: finding out costs a
     model call.
     """
-    from lucid import webui
+    from proofcut import webui
 
     binary = webui._agent_bin()
     found = shutil.which(binary)
@@ -754,7 +754,7 @@ def report() -> dict[str, Any]:
     capability that is absent is a feature that is unavailable, not a broken
     install, and everything lucid promises works without all four of them.
     """
-    from lucid import __version__
+    from proofcut import __version__
 
     required = [
         _ffmpeg_entry("ffmpeg", "every media read, write and burn"),

@@ -25,8 +25,8 @@ from typing import Any
 import pytest
 from stubs import write_stub
 
-from lucid import asr, autoeditor, doctor, graphics, ops, picture, tts
-from lucid.cli import main
+from proofcut import asr, autoeditor, doctor, graphics, ops, picture, tts
+from proofcut.cli import main
 
 
 @pytest.fixture(autouse=True)

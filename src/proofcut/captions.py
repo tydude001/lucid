@@ -32,9 +32,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lucid import fonts
-from lucid.timeline import Edit
-from lucid.transcript import Transcript
+from proofcut import fonts
+from proofcut.timeline import Edit
+from proofcut.transcript import Transcript
 
 FFMPEG = "ffmpeg"
 

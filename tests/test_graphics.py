@@ -16,9 +16,9 @@ from string import Formatter
 
 import pytest
 
-from lucid import captions, graphics, ops
-from lucid.graphics import GraphicsError
-from lucid.project import Project, ProjectError
+from proofcut import captions, graphics, ops
+from proofcut.graphics import GraphicsError
+from proofcut.project import Project, ProjectError
 
 needs_magick = pytest.mark.skipif(
     shutil.which("magick") is None, reason="ImageMagick is not installed"

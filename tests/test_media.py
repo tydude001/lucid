@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lucid import media
-from lucid.project import Project
+from proofcut import media
+from proofcut.project import Project
 
 
 def test_media_path_resolves_to_media_when_no_attenuated_key_exists() -> None:

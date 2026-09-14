@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid import transcript as tx
+from proofcut import ops
+from proofcut import transcript as tx
 
 #: Ten words, 0.3s each, 0.2s of silence between them.
 WORDS = [{"word": f"w{n}", "start": n * 0.5, "end": n * 0.5 + 0.3} for n in range(10)]

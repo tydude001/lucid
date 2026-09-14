@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
-from lucid import ops
-from lucid.cli import _parse_timecode, _slot_assignments, _time_span, main
-from lucid.project import ProjectError
+from proofcut import ops
+from proofcut.cli import _parse_timecode, _slot_assignments, _time_span, main
+from proofcut.project import ProjectError
 
 needs_ffprobe = pytest.mark.skipif(
     shutil.which("ffprobe") is None, reason="ffprobe is not installed"
@@ -121,7 +121,7 @@ def test_open_parses_root_with_no_host_or_port_flags() -> None:
     """`open` is deliberately narrower than `web`: no `--host`/`--port`/
     `--open`/`--verbose` — the port is always ephemeral, per docs/plans/STUDIO.md's own
     wording — so `--root` is the only flag it should accept."""
-    from lucid.cli import _build_parser
+    from proofcut.cli import _build_parser
 
     args = _build_parser().parse_args(["open", "--root", "/tmp/somewhere"])
     assert args.command == "open"
@@ -134,7 +134,7 @@ def test_open_parses_root_with_no_host_or_port_flags() -> None:
 def test_open_defaults_root_to_none(tmp_path: Path) -> None:
     """With no `--root`, `open` means "open -C's project directly" — `args.root`
     stays `None` so `_cmd_open` takes the `-C` branch, not the picker one."""
-    from lucid.cli import _build_parser
+    from proofcut.cli import _build_parser
 
     args = _build_parser().parse_args(["-C", str(tmp_path / "proj"), "open"])
     assert args.root is None
@@ -463,14 +463,14 @@ def test_restore_flag_parses_and_reaches_ops(
 
 
 def test_resolution_reads_widthxheight() -> None:
-    from lucid.cli import _resolution
+    from proofcut.cli import _resolution
 
     assert _resolution("1920x1080") == (1920, 1080)
     assert _resolution("608x1080") == (608, 1080)
 
 
 def test_resolution_rejects_garbage() -> None:
-    from lucid.cli import _resolution
+    from proofcut.cli import _resolution
 
     with pytest.raises(argparse.ArgumentTypeError):
         _resolution("banana")
@@ -556,7 +556,7 @@ def test_slot_assignments_refuses_a_pair_with_no_equals() -> None:
 
 
 def _described_project(tmp_path: Path) -> Path:
-    from lucid.project import Project
+    from proofcut.project import Project
 
     root = tmp_path / "proj"
     project = Project.create(root)
@@ -650,7 +650,7 @@ def test_head_flags_parse_and_reach_ops(
     --plan all reach `ops.head` under the right keywords — `tail`'s own test,
     mirrored, with a registered clip written straight into the manifest
     since `head` needs no ffprobe of its own."""
-    from lucid.project import Project
+    from proofcut.project import Project
 
     project = tmp_path / "proj"
     assert main(["-C", str(project), "init"]) == 0
@@ -970,7 +970,7 @@ def test_proxy_force_flag_parses_and_reaches_ops(
     arriving at `ops.proxy_transcode` under the right keyword. The transcode
     itself is covered by real encodes in test_ops_proxy.py, so this stubs it —
     what is under test is the wiring, not ffmpeg."""
-    from lucid import cli as cli_module
+    from proofcut import cli as cli_module
 
     seen: dict[str, object] = {}
 
@@ -1002,7 +1002,7 @@ def test_reframe_interp_flag_parses_and_reaches_ops(
     The clip is written into the manifest rather than imported: a reframe is
     arithmetic over a declared shape, and ffprobe is not what is under test.
     """
-    from lucid.project import Project
+    from proofcut.project import Project
 
     project = tmp_path / "proj"
     assert main(["-C", str(project), "init"]) == 0
@@ -1068,7 +1068,7 @@ def test_import_edit_flags_parse_and_reach_ops(
     keywords. The parse and the refusals are covered against ops in
     test_ops_import_edit.py and over the wire in test_server_stdio.py, so this
     stubs the op — what is under test is the wiring."""
-    from lucid import cli as cli_module
+    from proofcut import cli as cli_module
 
     seen: dict[str, object] = {}
 
@@ -1103,7 +1103,7 @@ def test_import_audio_flags_parse_and_reach_ops(
     `--audio-stream 0` in particular must arrive as `0`, not as `None` —
     they are the same falsy value and mean opposite things here.
     """
-    from lucid import cli as cli_module
+    from proofcut import cli as cli_module
 
     seen: dict[str, object] = {}
 
@@ -1318,7 +1318,7 @@ def test_thumbnail_parses_at_and_interval_and_reaches_ops(
 def test_attribute_speakers_pairs_each_stream_with_its_label() -> None:
     """The two lists are positional and the op checks them against each other,
     so the parser's job is only to keep the order they were typed in."""
-    from lucid.cli import _build_parser
+    from proofcut.cli import _build_parser
 
     args = _build_parser().parse_args(
         ["attribute-speakers", "vo", "--stream", "0", "--label", "ana",
@@ -1335,7 +1335,7 @@ def test_attribute_speakers_pairs_each_stream_with_its_label() -> None:
 def test_attribute_speakers_defaults_leave_every_choice_to_the_op() -> None:
     """No streams and no labels means "every mic the container holds", which is
     the op's default rather than a number the CLI picks."""
-    from lucid.cli import _build_parser
+    from proofcut.cli import _build_parser
 
     args = _build_parser().parse_args(["attribute-speakers", "vo"])
 

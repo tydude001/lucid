@@ -14,7 +14,7 @@ until now it resolved on this machine *by coincidence*: the file arrived in
 tooling for its own reasons. On a fresh box the caption default would have
 substituted silently, with `verify`, `check_frames` and `caption-view` all
 still clean — the failure shape PLAN.md § A default font describes and the one
-`src/lucid/fonts/FONTS.md` exists to close.
+`src/proofcut/fonts/FONTS.md` exists to close.
 
 Why the two burns end up identical for an absent family, traced through
 `ffmpeg -v verbose` on this box: `DejaVu Sans` and a name that cannot exist are

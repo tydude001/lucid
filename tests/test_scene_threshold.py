@@ -42,7 +42,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lucid import media, ops
+from proofcut import media, ops
 
 JUDGEMENTS: list[dict[str, Any]] = json.loads(
     (Path(__file__).parent / "data" / "scene_cut_judgements.json").read_text(encoding="utf-8")

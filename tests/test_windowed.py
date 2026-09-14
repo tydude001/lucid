@@ -17,7 +17,7 @@ import itertools
 
 import pytest
 
-from lucid import asr
+from proofcut import asr
 
 
 def _word(text: str, start: float, end: float) -> dict[str, object]:

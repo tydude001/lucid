@@ -1,4 +1,4 @@
-"""`lucid.finish` — the seam machinery `hold_check` and (later) `finish_check`
+"""`proofcut.finish` — the seam machinery `hold_check` and (later) `finish_check`
 share (WORK-ORDERS ruling 5): `parse_ebur128`, `loudness`, `hold_seams`, all
 built on a 48 kHz stdlib-`array` decode, no numpy (CLAUDE.md).
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from lucid import finish
+from proofcut import finish
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None, reason="ffmpeg is not installed"

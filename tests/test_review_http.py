@@ -22,8 +22,8 @@ from urllib.parse import urlencode, urlsplit
 
 import pytest
 
-from lucid import finishlog, ops, reviewserver
-from lucid.project import Project
+from proofcut import finishlog, ops, reviewserver
+from proofcut.project import Project
 
 TOKEN = "test-token-not-a-secret"
 

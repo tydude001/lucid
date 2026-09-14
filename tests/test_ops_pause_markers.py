@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from lucid import ops
-from lucid import timeline as tl
-from lucid import transcript as tx
+from proofcut import ops
+from proofcut import timeline as tl
+from proofcut import transcript as tx
 
 Spec = tuple[str, float, float]
 

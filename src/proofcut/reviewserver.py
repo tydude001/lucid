@@ -72,9 +72,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from lucid import finishlog, ops
-from lucid import webui as _webui
-from lucid.project import Project, ProjectError
+from proofcut import finishlog, ops
+from proofcut import webui as _webui
+from proofcut.project import Project, ProjectError
 
 DEFAULT_HOST = "127.0.0.1"
 #: Deliberately not 8710 (`webui.DEFAULT_PORT`) or 8000/8080 — a review round

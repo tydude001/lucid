@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import autoeditor, media, picture
-from lucid.timeline import Edit, Segment
+from proofcut import autoeditor, media, picture
+from proofcut.timeline import Edit, Segment
 
 MELT_XML = """<?xml version="1.0"?>
 <mlt LC_NUMERIC="C" version="7.40.0" title="out.kdenlive">

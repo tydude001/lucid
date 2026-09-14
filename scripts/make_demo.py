@@ -197,7 +197,7 @@ def make_broll(directory: Path) -> list[Path]:
 
 def build_project(root: Path, media: Path) -> None:
     """Run the walkthrough's own commands, so `--build` and DEMO.md cannot drift."""
-    lucid = [sys.executable, "-m", "lucid.cli"]
+    lucid = [sys.executable, "-m", "proofcut.cli"]
     steps = [
         [*lucid, "init", str(root)],
         [*lucid, "-C", str(root), "import", str(media / "vo.wav"), "--clip-id", "vo"],
@@ -210,7 +210,7 @@ def build_project(root: Path, media: Path) -> None:
         # Echoed as the command `docs/DEMO.md` prints, not as the argv this
         # runs: the interpreter prefix is how lucid is reached without an
         # activated venv, and printing `step[2:]` left the line starting
-        # `lucid.cli init …`, which is not a command anybody can type. Caught
+        # `proofcut.cli init …`, which is not a command anybody can type. Caught
         # on the first fresh-checkout dry run, which is what that rehearsal is
         # for (HISTORY.md § The closed-loop trial).
         shown = ["lucid", *step[len(lucid):]] if step[: len(lucid)] == lucid else step

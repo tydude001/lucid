@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from lucid import graphics, ops
-from lucid.project import Project, ProjectError
+from proofcut import graphics, ops
+from proofcut.project import Project, ProjectError
 
 needs_magick = pytest.mark.skipif(
     shutil.which("magick") is None, reason="ImageMagick is not installed"

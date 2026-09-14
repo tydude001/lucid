@@ -105,7 +105,7 @@ def lucid(root: Path | None, *args: str) -> str:
     venv, which is the failure CLAUDE.md records against the generated MCP
     config.
     """
-    command = [sys.executable, "-m", "lucid.cli"]
+    command = [sys.executable, "-m", "proofcut.cli"]
     if root is not None:
         command += ["-C", str(root)]
     command += list(args)
@@ -153,7 +153,7 @@ def render_env() -> dict[str, str]:
     documented route and is sufficient alone (CLAUDE.md).
     """
     sys.path.insert(0, str(REPO / "src"))
-    from lucid import picture
+    from proofcut import picture
 
     env = dict(os.environ)
     env.update(picture.display_env())
@@ -184,7 +184,7 @@ def build_project(work: Path, reuse: bool) -> Path:
 
 def serve(root: Path, port: int, env: dict[str, str]) -> subprocess.Popen:
     process = subprocess.Popen(
-        [sys.executable, "-m", "lucid.cli", "-C", str(root), "web", "--port", str(port)],
+        [sys.executable, "-m", "proofcut.cli", "-C", str(root), "web", "--port", str(port)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

@@ -1,7 +1,7 @@
 """The version literal exists twice, and this is what keeps the two one fact.
 
 `pyproject.toml` is what a build stamps into the wheel's metadata;
-`lucid.__version__` is what `lucid --version` prints. A bump that touches one
+`proofcut.__version__` is what `lucid --version` prints. A bump that touches one
 of them ships a package whose own metadata disagrees with the code inside it,
 and nothing else in this repo reads either number, so nothing else would ever
 notice.
@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-import lucid
-from lucid.cli import main
+import proofcut
+from proofcut.cli import main
 
 _REPO = Path(__file__).resolve().parent.parent
 _PYPROJECT = _REPO / "pyproject.toml"
@@ -38,14 +38,14 @@ def _project_table() -> dict:
 
 
 def test_pyproject_and_package_agree_on_the_version() -> None:
-    assert lucid.__version__ == _project_table()["version"]
+    assert proofcut.__version__ == _project_table()["version"]
 
 
 def test_cli_version_flag_prints_the_package_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
     assert exc.value.code == 0
-    assert capsys.readouterr().out.strip() == f"lucid {lucid.__version__}"
+    assert capsys.readouterr().out.strip() == f"lucid {proofcut.__version__}"
 
 
 def test_every_declared_licence_file_is_actually_there() -> None:
@@ -53,7 +53,7 @@ def test_every_declared_licence_file_is_actually_there() -> None:
 
     The wheel carries the LICENSE text in `dist-info/licenses/`, and the four OFL
     texts ride along inside the package directories they document
-    (`src/lucid/fonts/`, `src/lucid/web/`) rather than through this key.
+    (`src/proofcut/fonts/`, `src/proofcut/web/`) rather than through this key.
     """
     declared = _project_table()["license-files"]
     assert declared, "the project declares no licence file"
@@ -80,7 +80,7 @@ def test_every_launch_listing_states_the_package_version() -> None:
     would ever notice a bump that missed one — and the way it surfaces is a
     registry entry advertising a version the release does not have.
     """
-    version = lucid.__version__
+    version = proofcut.__version__
     marketplace = _listing(".claude-plugin/marketplace.json")
     stated = {
         "server.json": [_listing("server.json")["version"]],
