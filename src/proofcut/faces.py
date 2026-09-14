@@ -29,13 +29,13 @@ does not choose the clip (CLAUDE.md) — arriving in a new place, and it is why
 `ops.reframe_detect` proposes and `reframe_sheet` disposes.
 
 **The detector is a subprocess, resolved the way whisper and the VLM are.**
-`LUCID_FACE` names a Python interpreter with insightface and onnxruntime in it;
-failing that, a refusal naming what it needs. lucid's own venv holds neither, and should not start now — the argument that put whisper
+`PROOFCUT_FACE` names a Python interpreter with insightface and onnxruntime in it;
+failing that, a refusal naming what it needs. proofcut's own venv holds neither, and should not start now — the argument that put whisper
 behind a binary (`asr.py`'s docstring) and the vision model behind an interpreter
-(`describe.py`) puts this behind one too. `lucid status` should not pay for an
+(`describe.py`) puts this behind one too. `proofcut status` should not pay for an
 ONNX runtime.
 
-This module has no lucid dependencies on purpose, the same as `asr` and
+This module has no proofcut dependencies on purpose, the same as `asr` and
 `describe`.
 """
 
@@ -76,7 +76,7 @@ class FaceError(Exception):
 def face_python() -> Path:
     """Locate an interpreter that can run the face detector.
 
-    `LUCID_FACE`, and nothing after it. No PATH step, for
+    `PROOFCUT_FACE`, and nothing after it. No PATH step, for
     `describe.vlm_python`'s reason: `python` is always on PATH and is almost
     never the one with onnxruntime in it, so searching it would resolve to an
     interpreter that fails with an ImportError instead of refusing now.
@@ -88,12 +88,12 @@ def face_python() -> Path:
     with two capabilities is the tidier build and it wants a third consumer
     before it is worth the indirection (PLAN.md § The auto-framing detector).
     """
-    override = os.environ.get("LUCID_FACE")
+    override = os.environ.get("PROOFCUT_FACE")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
     raise FaceError(
-        f"no interpreter with a face detector. $LUCID_FACE is {override or 'unset'}"
-        f"{'' if not override else ', and nothing is there'}. Set LUCID_FACE to "
+        f"no interpreter with a face detector. $PROOFCUT_FACE is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set PROOFCUT_FACE to "
         "the python in a venv that has insightface, onnxruntime and opencv."
     )
 
@@ -112,7 +112,7 @@ def available() -> dict[str, Any]:
         report["why"] = str(exc)
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
-        report["why"] = f"lucid's own worker script is missing: {_WORKER}"
+        report["why"] = f"proofcut's own worker script is missing: {_WORKER}"
         return report
     report["available"] = True
     return report
@@ -140,7 +140,7 @@ def detect(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return []
     python = face_python()
 
-    with tempfile.TemporaryDirectory(prefix="lucid-face-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-face-") as tmp:
         job_path = Path(tmp) / "job.json"
         out_path = Path(tmp) / "out.json"
         job_path.write_text(

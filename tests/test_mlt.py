@@ -491,7 +491,7 @@ def test_the_bin_keeps_the_raw_media() -> None:
 
 def test_a_still_is_never_cropped() -> None:
     """A card is authored at the canvas and re-authored when it moves
-    (`card_reauthor`) — cropping one would be lucid losing a corner of a
+    (`card_reauthor`) — cropping one would be proofcut losing a corner of a
     title it drew itself."""
     audio = [mlt.Entry("/media/vo.wav", 0, 60)]
     lane = mlt.plan_picture([_shot("card:title", 60, is_image=True,
@@ -969,7 +969,7 @@ def test_playlists_carrying_the_same_cut_agree_and_are_read_once() -> None:
 def test_playlists_carrying_different_cuts_are_refused_not_preferred() -> None:
     """**Preferring a track would import half of somebody's edit and report
     success.** Two playlists that disagree are a multi-track picture edit,
-    which lucid's one linked A/V track has no shape for, so it refuses by
+    which proofcut's one linked A/V track has no shape for, so it refuses by
     name.
     """
     with pytest.raises(mlt.MLTError, match="different cuts"):

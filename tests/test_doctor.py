@@ -1,4 +1,4 @@
-"""`lucid doctor` — the probes, and the sentence after each ✗.
+"""`proofcut doctor` — the probes, and the sentence after each ✗.
 
 The report itself is trivially true on a working box, which is exactly why
 these tests drive the *failing* shapes instead: a binary that is not there, an
@@ -32,7 +32,7 @@ from proofcut.cli import main
 @pytest.fixture(autouse=True)
 def _no_voice(monkeypatch: pytest.MonkeyPatch) -> None:
     """A voice on the developer's box would change what these tests measure."""
-    monkeypatch.delenv("LUCID_TTS_VOICE", raising=False)
+    monkeypatch.delenv("PROOFCUT_TTS_VOICE", raising=False)
 
 
 def _row(rows: list[dict[str, Any]], name: str) -> dict[str, Any]:
@@ -54,12 +54,12 @@ def test_every_row_carries_every_key() -> None:
 def test_ok_reads_the_required_section_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     """An optional capability that is absent gates a feature, not the install."""
     monkeypatch.setattr(
-        doctor, "_vlm_entry", lambda: doctor._entry("LUCID_VLM", "describe", ok=False)
+        doctor, "_vlm_entry", lambda: doctor._entry("PROOFCUT_VLM", "describe", ok=False)
     )
     monkeypatch.setattr(
-        doctor, "_face_entry", lambda: doctor._entry("LUCID_FACE", "reframe", ok=False)
+        doctor, "_face_entry", lambda: doctor._entry("PROOFCUT_FACE", "reframe", ok=False)
     )
-    monkeypatch.setattr(doctor, "_tts_entry", lambda: doctor._entry("LUCID_TTS", "vo", ok=False))
+    monkeypatch.setattr(doctor, "_tts_entry", lambda: doctor._entry("PROOFCUT_TTS", "vo", ok=False))
     monkeypatch.setattr(doctor, "_magick_entry", lambda: doctor._entry("magick", "cards", ok=False))
     payload = doctor.report()
     assert payload["ok"] == all(r["ok"] for r in payload["required"])
@@ -68,7 +68,7 @@ def test_ok_reads_the_required_section_alone(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_doctor_needs_no_project(tmp_path: Path) -> None:
     """The one op that answers a question asked before a project exists."""
-    assert ops.doctor()["lucid"]
+    assert ops.doctor()["proofcut"]
     assert not list(tmp_path.iterdir())  # and it wrote nothing anywhere
 
 
@@ -200,13 +200,13 @@ def test_missing_whisper_carries_the_resolution_chain(monkeypatch: pytest.Monkey
     """The chain is three steps and none of them is obvious, so it is printed."""
 
     def refuse() -> Path:
-        raise asr.ASRError("whisper not found. Looked at $LUCID_WHISPER (unset), then PATH")
+        raise asr.ASRError("whisper not found. Looked at $PROOFCUT_WHISPER (unset), then PATH")
 
     monkeypatch.setattr(doctor.asr, "whisper_binary", refuse)
     row = doctor._whisper_entry()
     assert row["ok"] is False
-    assert "LUCID_WHISPER" in row["looked_for"]
-    assert "does not have to live in lucid's own venv" in row["fix"]
+    assert "PROOFCUT_WHISPER" in row["looked_for"]
+    assert "does not have to live in proofcut's own venv" in row["fix"]
 
 
 def test_whisper_on_disk_but_unstartable_is_not_ok(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,7 +224,7 @@ def test_whisper_on_disk_but_unstartable_is_not_ok(monkeypatch: pytest.MonkeyPat
 def test_whisper_without_word_timestamps_is_noted_not_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """It starts, so it is not broken — but every cut lucid makes is word-indexed."""
+    """It starts, so it is not broken — but every cut proofcut makes is word-indexed."""
     monkeypatch.setattr(doctor.asr, "whisper_binary", lambda: Path("/bin/whisper"))
     monkeypatch.setattr(doctor, "_run", lambda cmd: ("usage: whisper [-h]", "", 0))
     row = doctor._whisper_entry()
@@ -250,7 +250,7 @@ def test_stale_auto_editor_is_refused_by_major(monkeypatch: pytest.MonkeyPatch) 
 def test_current_auto_editor_reports_the_gate_as_designed_around(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The paid-key gate is real and lucid routes around it — say so, don't scare."""
+    """The paid-key gate is real and proofcut routes around it — say so, don't scare."""
     monkeypatch.setattr(doctor.autoeditor, "binary", lambda: "/usr/bin/auto-editor")
     monkeypatch.setattr(doctor, "_run", lambda cmd: ("31.4.2\n", "", 0))
     row = doctor._auto_editor_entry()
@@ -374,7 +374,7 @@ def test_unset_voice_is_an_expected_refusal_not_an_error(
     assert row["ok"] is False
     assert "no default voice on purpose" in row["why"]
     assert "expected refusal" in row["why"]
-    assert "LUCID_TTS_VOICE" in row["fix"]
+    assert "PROOFCUT_TTS_VOICE" in row["fix"]
 
 
 def test_a_configured_voice_never_has_its_path_printed(
@@ -385,7 +385,7 @@ def test_a_configured_voice_never_has_its_path_printed(
     voice.mkdir()
     (voice / "ref.wav").write_bytes(b"")
     (voice / "ref.txt").write_text("hello", encoding="utf-8")
-    monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.setenv("PROOFCUT_TTS_VOICE", str(voice))
     monkeypatch.setattr(sys, "platform", "linux")  # the voice is asked after the device
     monkeypatch.setattr(doctor.tts, "tts_python", lambda: Path("/venv/bin/python"))
     monkeypatch.setattr(doctor.tts, "model_dir", lambda: Path("/models/Qwen3-TTS"))
@@ -401,7 +401,7 @@ def test_an_incomplete_voice_names_the_files_and_not_the_directory(
     voice = tmp_path / "private-voice"
     voice.mkdir()
     (voice / "ref.wav").write_bytes(b"")
-    monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.setenv("PROOFCUT_TTS_VOICE", str(voice))
     monkeypatch.setattr(sys, "platform", "linux")  # the voice is asked after the device
     monkeypatch.setattr(doctor.tts, "tts_python", lambda: Path("/venv/bin/python"))
     monkeypatch.setattr(doctor.tts, "model_dir", lambda: Path("/models/Qwen3-TTS"))
@@ -427,11 +427,11 @@ def test_the_synthesiser_resolves_from_the_environment_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A clean Ubuntu's doctor printed `/home/you/lucid-work/voice-clone/…` —
-    this box's layout, read back to a stranger. `LUCID_TTS` and
-    `LUCID_TTS_MODEL` are the whole search now, `describe.vlm_python`'s rule.
+    this box's layout, read back to a stranger. `PROOFCUT_TTS` and
+    `PROOFCUT_TTS_MODEL` are the whole search now, `describe.vlm_python`'s rule.
     HISTORY.md § A stranger's install, on a clean Ubuntu."""
-    monkeypatch.delenv("LUCID_TTS", raising=False)
-    monkeypatch.delenv("LUCID_TTS_MODEL", raising=False)
+    monkeypatch.delenv("PROOFCUT_TTS", raising=False)
+    monkeypatch.delenv("PROOFCUT_TTS_MODEL", raising=False)
     with pytest.raises(tts.TTSError) as venv:
         tts.tts_python()
     with pytest.raises(tts.TTSError) as model:
@@ -499,7 +499,7 @@ def test_a_native_qt_platform_is_not_applicable_rather_than_a_pass_or_a_cross(
 
     text = doctor.render(
         {
-            "lucid": "0.0.0",
+            "proofcut": "0.0.0",
             "ok": True,
             "required": [],
             "optional": [],
@@ -533,7 +533,7 @@ def test_a_substituted_caption_face_carries_the_install_command(
     font = doctor._caption_font()
     assert font["ok"] is False
     assert font["resolves_to"] == "DejaVu Sans"
-    assert "lucid fonts --install" in font["fix"]
+    assert "proofcut fonts --install" in font["fix"]
 
 
 def test_fontconfig_and_the_render_are_reported_side_by_side(
@@ -558,7 +558,7 @@ def test_fontconfig_and_the_render_are_reported_side_by_side(
 
 def test_render_puts_the_fix_under_every_cross() -> None:
     payload = {
-        "lucid": "0.0.0",
+        "proofcut": "0.0.0",
         "ok": False,
         "required": [
             doctor._entry(
@@ -580,7 +580,7 @@ def test_cli_doctor_exits_nonzero_when_something_required_is_missing(
 ) -> None:
     """A command that always exits 0 cannot be gated on by a setup script."""
     broken = {
-        "lucid": "0.0.0",
+        "proofcut": "0.0.0",
         "ok": False,
         "required": [doctor._entry("melt", "layered renders", why="not here", fix="install it")],
         "optional": [],
@@ -600,7 +600,7 @@ def test_cli_doctor_prints_its_marks_into_a_pipe_that_cannot_encode_them(
     doctor step, and in the paste a tester is asked for. The stream here is
     that pipe, built on Linux: the control against the old `main` raises."""
     broken = {
-        "lucid": "0.0.0",
+        "proofcut": "0.0.0",
         "ok": False,
         "required": [doctor._entry("melt", "layered renders", why="not here", fix="install it")],
         "optional": [],
@@ -625,7 +625,7 @@ def test_cli_leaves_a_stream_that_can_already_encode_the_marks_alone(
     stream = io.TextIOWrapper(io.BytesIO(), encoding="utf-16")
     monkeypatch.setattr(sys, "stdout", stream)
     fine = {
-        "lucid": "0.0.0",
+        "proofcut": "0.0.0",
         "ok": True,
         "required": [],
         "optional": [],
@@ -641,7 +641,7 @@ def test_cli_doctor_json_is_the_same_dict_the_tool_returns(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fine = {
-        "lucid": "0.0.0",
+        "proofcut": "0.0.0",
         "ok": True,
         "required": [doctor._entry("melt", "layered renders", ok=True)],
         "optional": [],
@@ -660,12 +660,12 @@ def test_an_absent_claude_is_unavailable_and_never_moves_ok(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The agent pane is one client's feature: missing is `–`, not a failure."""
-    monkeypatch.setenv("LUCID_AGENT_BIN", "lucid-test-no-such-claude")
+    monkeypatch.setenv("PROOFCUT_AGENT_BIN", "proofcut-test-no-such-claude")
     payload = doctor.report()
     agent = payload["agent"]
     assert agent["ok"] is False
-    assert "lucid-test-no-such-claude" in agent["why"]
-    assert "LUCID_AGENT_BIN" in agent["fix"]
+    assert "proofcut-test-no-such-claude" in agent["why"]
+    assert "PROOFCUT_AGENT_BIN" in agent["fix"]
     assert payload["ok"] == all(r["ok"] for r in payload["required"])
     text = doctor.render(payload)
     assert "– claude" in text
@@ -677,7 +677,7 @@ def test_a_claude_is_run_for_its_version_rather_than_found(
 ) -> None:
     """Found-but-silent is not a pass — the rule every other probe holds to."""
     fake = write_stub(tmp_path / "claude", "print('9.9.9 (Claude Code)')\n")
-    monkeypatch.setenv("LUCID_AGENT_BIN", str(fake))
+    monkeypatch.setenv("PROOFCUT_AGENT_BIN", str(fake))
     agent = doctor._agent()
     assert agent["ok"] is True
     assert agent["version"] == "9.9.9 (Claude Code)"
@@ -687,3 +687,96 @@ def test_a_claude_is_run_for_its_version_rather_than_found(
     assert agent["ok"] is False
     assert agent["found"] == str(fake)
     assert "exited 3" in agent["why"]
+
+
+# -- the old name's variables ----------------------------------------------
+
+
+def _clear_legacy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A box still carrying a `60-lucid.conf` sets some of them (this one did
+    until RENAME.md step 5), so start from none."""
+    for name in list(os.environ):
+        if name.startswith("LUCID_"):
+            monkeypatch.delenv(name)
+
+
+def _healthy_box(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every other section answers clean, so the only thing moving is the variable."""
+    for probe in ("_whisper_entry", "_auto_editor_entry", "_melt_entry"):
+        monkeypatch.setattr(doctor, probe, lambda probe=probe: doctor._entry(probe, "stub", ok=True))
+    monkeypatch.setattr(doctor, "_ffmpeg_entry", lambda binary, what: doctor._entry(binary, what, ok=True))
+    for probe in ("_magick_entry", "_vlm_entry", "_face_entry", "_tts_entry"):
+        monkeypatch.setattr(doctor, probe, lambda probe=probe: doctor._entry(probe, "stub", ok=False))
+    monkeypatch.setattr(doctor, "_display", lambda: {"ok": True, "how": "a Wayland session"})
+    monkeypatch.setattr(
+        doctor, "_caption_font", lambda: {"ok": True, "font": "Outfit", "resolves_to": "Outfit"}
+    )
+    monkeypatch.setattr(doctor, "_agent", lambda: {"ok": True, "found": "/bin/claude", "version": "9.9.9"})
+
+
+def test_no_old_name_variable_set_reads_as_the_all_clear(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty list has to say so — a quiet section reads like one that never ran."""
+    _clear_legacy_env(monkeypatch)
+    _healthy_box(monkeypatch)
+    payload = doctor.report()
+    assert payload["legacy_env"] == {"ok": True, "stale": [], "note": None, "fix": None}
+    assert payload["ok"] is True
+    assert main(["doctor"]) == 0
+    assert "✓ none set" in capsys.readouterr().out
+
+
+def test_a_stale_lucid_face_is_named_beside_its_new_name_and_never_moves_ok(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """RENAME.md decision 3: without this a stranger's `60-lucid.conf` loses face
+    detection at exit 0. Nothing reads the old name, so doctor is where it shows —
+    as a note, never a ✗, on a box whose install is otherwise sound."""
+    _clear_legacy_env(monkeypatch)
+    _healthy_box(monkeypatch)
+    monkeypatch.delenv("PROOFCUT_FACE", raising=False)
+    monkeypatch.setenv("LUCID_FACE", "/sentinel/face-venv/bin/python")
+
+    payload = doctor.report()
+    assert payload["legacy_env"]["stale"] == [
+        {"name": "LUCID_FACE", "rename_to": "PROOFCUT_FACE", "rename_to_set": False}
+    ]
+    assert payload["ok"] is True
+    assert main(["doctor"]) == 0
+    text = capsys.readouterr().out
+    assert "– LUCID_FACE — now PROOFCUT_FACE" in text
+    assert "✗ LUCID_FACE" not in text
+    assert "Everything required is here." in text
+    assert main(["doctor", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_an_old_name_variables_value_is_never_printed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`LUCID_TTS_VOICE` is somebody's recorded speech — the voice rule, applied
+    to the old name too. The name is the whole answer a rename needs."""
+    _clear_legacy_env(monkeypatch)
+    _healthy_box(monkeypatch)
+    voice = "/sentinel/private-voice-7f3a"
+    face = "/sentinel/face-python-9c1e"
+    monkeypatch.setenv("LUCID_TTS_VOICE", voice)
+    monkeypatch.setenv("LUCID_FACE", face)
+    monkeypatch.setenv("PROOFCUT_FACE", "/sentinel/new-face-python-2b8d")
+
+    legacy = doctor.report()["legacy_env"]
+    assert [v["name"] for v in legacy["stale"]] == ["LUCID_FACE", "LUCID_TTS_VOICE"]
+    assert {v["name"]: v["rename_to_set"] for v in legacy["stale"]} == {
+        "LUCID_FACE": True,
+        "LUCID_TTS_VOICE": False,
+    }
+
+    main(["doctor"])
+    text = capsys.readouterr().out
+    assert "LUCID_FACE — now PROOFCUT_FACE (already set)" in text
+    assert "LUCID_TTS_VOICE — now PROOFCUT_TTS_VOICE" in text
+    main(["doctor", "--json"])
+    raw = capsys.readouterr().out
+    for output in (text, raw):
+        assert "/sentinel/" not in output

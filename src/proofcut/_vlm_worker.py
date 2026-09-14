@@ -1,8 +1,8 @@
 """The vision-model side of `describe`, run under a *different* interpreter.
 
-**This module is never imported by lucid.** It is executed by the Python that
+**This module is never imported by proofcut.** It is executed by the Python that
 `describe.vlm_python()` resolves — a venv with torch, transformers and
-bitsandbytes in it — which is the whole reason it is a separate file. lucid's
+bitsandbytes in it — which is the whole reason it is a separate file. proofcut's
 own venv stays free of torch, exactly as `asr.py` keeps whisper behind a
 binary. It lives inside the package only so it ships with it.
 
@@ -66,7 +66,7 @@ def _load(model_path: str, device: str) -> tuple:
 
     The config every VRAM figure in PLAN.md § B-roll by description was
     measured under — until 2026-09-10 it was imported from a sibling repo's
-    tagger at run time, and it is carried here unchanged so that lucid can
+    tagger at run time, and it is carried here unchanged so that proofcut can
     describe on a box that has never seen that repo.
     """
     import torch

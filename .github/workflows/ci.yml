@@ -1,4 +1,4 @@
-# Lint, and the suite on a runner with ffmpeg and nothing else lucid shells
+# Lint, and the suite on a runner with ffmpeg and nothing else proofcut shells
 # out to. Tests that need whisper, auto-editor, melt or ImageMagick skip
 # there rather than fail — measured 2026-09-10 by running the suite with all
 # four off PATH (HISTORY.md § The repo, readied for strangers) — so a green
@@ -64,12 +64,12 @@ jobs:
       # Windows image ships one — so without this they measured a runner
       # nobody had set up (the first Windows run, 2026-09-10). On Windows it
       # is also the registration `fonts._register_windows` writes, exercised.
-      - run: uv run lucid fonts --install
+      - run: uv run proofcut fonts --install
       # What each runner actually resolves, printed before the suite rather
       # than inferred from which tests skipped: the first Windows run ran the
       # `@needs_melt` tests on a runner nobody had put melt on, and nothing in
       # the log said what had answered. Informational — a runner with only
       # ffmpeg is missing required tools by design.
-      - run: uv run lucid doctor
+      - run: uv run proofcut doctor
         continue-on-error: true
       - run: uv run pytest -q -rfE

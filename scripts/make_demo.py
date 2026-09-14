@@ -3,7 +3,7 @@
 
 The README quickstart assumes you have a voiceover with retakes lying around.
 Most people do not, and a demo you can run in two minutes is the difference
-between reading about lucid and using it (docs/plans/POLISH.md § Step 02).
+between reading about proofcut and using it (docs/plans/POLISH.md § Step 02).
 
 **Everything here is generated, and that is the design.** The repo carries no
 media at all: the voiceover is synthesised from a script written a few lines
@@ -13,7 +13,7 @@ means the demo is *inspectable* — you can read exactly what the narrator is
 about to say, including the fluff the walkthrough cuts out.
 
 The voiceover carries a **deliberate retake**: the narrator starts a sentence,
-stops, and says it again. That is the thing lucid was built to remove, and
+stops, and says it again. That is the thing proofcut was built to remove, and
 cutting it is what `docs/DEMO.md` does. The two takes are rendered separately
 and joined with real silence between them, exactly the way a retake sits in a
 real recording — which is what makes the cut land in silence rather than
@@ -27,10 +27,10 @@ asks a question a counter cannot answer: a crop window that keeps all four
 corners is not cropping. Real footage screenshots better; synthetic footage is
 what ships because it costs nobody a licence review.
 
-    python scripts/make_demo.py ~/lucid-demo          # just the media
-    python scripts/make_demo.py ~/lucid-demo --build  # ...and a seeded project
+    python scripts/make_demo.py ~/proofcut-demo          # just the media
+    python scripts/make_demo.py ~/proofcut-demo --build  # ...and a seeded project
 
-`--build` runs the same `lucid` commands `docs/DEMO.md` lists, so a reader can
+`--build` runs the same `proofcut` commands `docs/DEMO.md` lists, so a reader can
 skip ahead or check their own run against it.
 """
 
@@ -47,7 +47,7 @@ from pathlib import Path
 #: string so the walkthrough can quote the exact words the transcript will
 #: hold, and so a reader can see what is about to be removed before it is.
 SCRIPT: list[tuple[str, bool]] = [
-    ("This is a demo of lucid, a local first video editor.", False),
+    ("This is a demo of proofcut, a local first video editor.", False),
     ("Every cut you make names a, hmm, no, let me try that again.", True),
     ("Every cut you make names a word in the transcript.", False),
     ("So the edit stays addressable, and the render can be checked against it.", False),
@@ -106,7 +106,7 @@ def make_voiceover(out: Path) -> Path:
         "the demo voiceover is synthesised rather than vendored",
         "Install it (`dnf install espeak-ng`, `apt install espeak-ng`, "
         "`brew install espeak-ng`) — it is a few megabytes and is needed only "
-        "to build the demo, never by lucid itself.",
+        "to build the demo, never by proofcut itself.",
     )
     _require("ffmpeg", "every media step goes through it", "Install ffmpeg.")
 
@@ -197,23 +197,23 @@ def make_broll(directory: Path) -> list[Path]:
 
 def build_project(root: Path, media: Path) -> None:
     """Run the walkthrough's own commands, so `--build` and DEMO.md cannot drift."""
-    lucid = [sys.executable, "-m", "proofcut.cli"]
+    proofcut = [sys.executable, "-m", "proofcut.cli"]
     steps = [
-        [*lucid, "init", str(root)],
-        [*lucid, "-C", str(root), "import", str(media / "vo.wav"), "--clip-id", "vo"],
-        [*lucid, "-C", str(root), "import", str(media / "broll-blue.mp4"), "--clip-id", "blue"],
-        [*lucid, "-C", str(root), "import", str(media / "broll-rust.mp4"), "--clip-id", "rust"],
-        [*lucid, "-C", str(root), "transcribe", "vo"],
-        [*lucid, "-C", str(root), "seed", "vo"],
+        [*proofcut, "init", str(root)],
+        [*proofcut, "-C", str(root), "import", str(media / "vo.wav"), "--clip-id", "vo"],
+        [*proofcut, "-C", str(root), "import", str(media / "broll-blue.mp4"), "--clip-id", "blue"],
+        [*proofcut, "-C", str(root), "import", str(media / "broll-rust.mp4"), "--clip-id", "rust"],
+        [*proofcut, "-C", str(root), "transcribe", "vo"],
+        [*proofcut, "-C", str(root), "seed", "vo"],
     ]
     for step in steps:
         # Echoed as the command `docs/DEMO.md` prints, not as the argv this
-        # runs: the interpreter prefix is how lucid is reached without an
+        # runs: the interpreter prefix is how proofcut is reached without an
         # activated venv, and printing `step[2:]` left the line starting
-        # `proofcut.cli init …`, which is not a command anybody can type. Caught
+        # `lucid.cli init …`, which is not a command anybody can type. Caught
         # on the first fresh-checkout dry run, which is what that rehearsal is
         # for (HISTORY.md § The closed-loop trial).
-        shown = ["lucid", *step[len(lucid):]] if step[: len(lucid)] == lucid else step
+        shown = ["proofcut", *step[len(proofcut):]] if step[: len(proofcut)] == proofcut else step
         print("  $", " ".join(shown))
         _run(step)
 
@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--build",
         action="store_true",
-        help="also create and seed a lucid project from it (needs whisper and auto-editor)",
+        help="also create and seed a proofcut project from it (needs whisper and auto-editor)",
     )
     args = parser.parse_args(argv)
 
@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
             root = media / "proj"
             print(f"project    -> {root}")
             build_project(root, media)
-            print(f"\nOpen it:  lucid -C {root} open")
+            print(f"\nOpen it:  proofcut -C {root} open")
         else:
             print(f"\nNext:  {Path(__file__).parent.parent / 'docs' / 'DEMO.md'}")
     except DemoError as exc:

@@ -1,6 +1,6 @@
 """Project operations — the single implementation behind both front ends.
 
-Every MCP tool and every `lucid` CLI subcommand is a thin wrapper over a
+Every MCP tool and every `proofcut` CLI subcommand is a thin wrapper over a
 function here. That is what keeps the two in parity without duplicating logic,
 and it is why the CLI is a debugging surface rather than a second codebase
 (CLAUDE.md).
@@ -54,7 +54,7 @@ from proofcut import doctor as doc
 
 # `fonts` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time — the `describe`/`verify` fix.
-from proofcut import fonts as lucid_fonts
+from proofcut import fonts as proofcut_fonts
 from proofcut import pack as pk
 from proofcut import speakers as spk
 from proofcut import speech as sp
@@ -85,7 +85,7 @@ def _rate(project: Project) -> float:
 def _load_edit(project: Project) -> tl.Edit:
     if not project.timeline_path.exists():
         raise ProjectError(
-            "this project has no timeline yet — run `lucid seed <clip_id>` "
+            "this project has no timeline yet — run `proofcut seed <clip_id>` "
             "(or the seed_timeline tool) to lay the source down first"
         )
     return tl.read(project.timeline_path)
@@ -107,15 +107,15 @@ def init(path: Path | str, *, name: str | None = None) -> dict[str, Any]:
 
 
 def doctor() -> dict[str, Any]:
-    """Probe every external dependency lucid needs, and name each one's trap.
+    """Probe every external dependency proofcut needs, and name each one's trap.
 
     The one op that takes no project, because it answers a question asked
-    *before* there is one: can this machine run lucid at all. Report-only —
+    *before* there is one: can this machine run proofcut at all. Report-only —
     it installs nothing, writes nothing, and opens no project.
 
     `ok` reads the **required** section alone. The four optional
     capabilities gate one feature each (cards, `describe`, `reframe-detect`,
-    `vo-synth`), and everything lucid promises works without all four, so a
+    `vo-synth`), and everything proofcut promises works without all four, so a
     box with none of them still gets a clean bill of health.
 
     The value is not the ✓/✗ — it is the sentence after a ✗. Every failure
@@ -124,7 +124,7 @@ def doctor() -> dict[str, Any]:
     auto-editor is a stale fork of a different program, that an unattended box
     renders under `QT_QPA_PLATFORM=offscreen` rather than needing a session.
     `doctor.render()` is the human rendering of the same dict, which is what
-    `lucid doctor` prints.
+    `proofcut doctor` prints.
     """
     return doc.report()
 
@@ -155,7 +155,7 @@ def info(path: Path | str, *, raw: bool = False) -> dict[str, Any]:
         "descriptions": {
             "count": len(descriptions),
             "clips": per_clip,
-            "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
+            "read": "proofcut describe-ls (or `proofcut info --raw` for the stored entries)",
         },
     }
 
@@ -166,7 +166,8 @@ def migrate(path: Path | str, *, plan: bool = False) -> dict[str, Any]:
     Every other op goes through `Project.open`, which refuses a manifest it
     does not recognise rather than guessing at its shape; this is what clears
     that refusal. Forward-only, and the pre-migration manifest is copied into
-    `cache/history/` before anything is written.
+    `cache/history/` before anything is written. A project written before the
+    rename (`lucid.json`) takes a filename step first — `Project.migrate`.
     """
     return Project.migrate(path, plan=plan)
 
@@ -213,7 +214,7 @@ def list_media(path: Path | str, source_dir: Path | str, *, recursive: bool = Tr
 
     TRIAL.md item 7: with `--tools ""` the agent panel gives an agent no
     directory listing, so on a real job something has to hand it source
-    paths. This is that something — a lucid tool, so it is reachable inside
+    paths. This is that something — a proofcut tool, so it is reachable inside
     the same sandbox the panel already confines the agent to, rather than a
     wrapper or a person pasting paths into the brief.
 
@@ -299,7 +300,7 @@ def _repeats(parsed: tx.Transcript) -> list[dict[str, Any]]:
     but `tx.find_repeats` is the one ported straight from the tool that
     actually caught the Scream VO's retake pass by hand
     (`goodsometimes/scripts/vo_windows.py --repeats`, which lives outside
-    lucid). See its docstring for the blind spot this still has — it can only
+    proofcut). See its docstring for the blind spot this still has — it can only
     see a retake that survived as distinct words, which is a *different*
     subset of retakes than `_overlaps`' seam scan finds, not a smaller one.
     """
@@ -315,7 +316,7 @@ def attach_transcript(
     """Ingest an existing word-timed transcript instead of re-running ASR.
 
     Recordings often already have one — the Scream VO was transcribed before
-    lucid existed. Re-transcribing to get an index lucid could have read is
+    proofcut existed. Re-transcribing to get an index proofcut could have read is
     wasted GPU time and a second set of timings to disagree with.
     """
     project = Project.open(path)
@@ -346,7 +347,7 @@ def transcribe(
 
     `attach_transcript`'s ASR-driven sibling: use that when the recording
     already has a transcript (common — the Scream VO was transcribed before
-    lucid existed), use this when it doesn't and whisper has to make one.
+    proofcut existed), use this when it doesn't and whisper has to make one.
 
     `hallucinated_words` is reported for the same reason the windowed pass
     reports it: non-zero means whisper stumbled somewhere in this transcription
@@ -493,7 +494,7 @@ def _transcript(project: Project, clip_id: str) -> tx.Transcript:
     if not cached.exists():
         raise tx.TranscriptError(
             f"no transcript for {clip_id!r} — attach one with "
-            f"`lucid transcript attach {clip_id} <whisper.json>`"
+            f"`proofcut transcript attach {clip_id} <whisper.json>`"
         )
     return tx.load(cached, clip_id=clip_id)
 
@@ -671,7 +672,7 @@ def transcript_checks(path: Path | str, clip_id: str | None = None) -> dict[str,
 # performance, cut together.
 #
 # It reads the registered container rather than `media_path()`, which is the
-# one place in lucid that is right: import derives a mixdown and every other
+# one place in proofcut that is right: import derives a mixdown and every other
 # resolver prefers it, because the untouched original of a two-mic container
 # *is* the mixdown. The mics themselves are only in the container.
 
@@ -790,7 +791,7 @@ def attribute_speakers(
         )
     try:
         named = spk.check_labels(named)
-        with tempfile.TemporaryDirectory(prefix="lucid-mics-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="proofcut-mics-") as scratch:
             mics = []
             for stream, label in zip(wanted, named, strict=True):
                 decoded = Path(scratch) / f"{clip_id}-a{stream}.wav"
@@ -1125,7 +1126,7 @@ def synopsis(
     who wrote it, what the twist means, which entry in the series it is.
     HISTORY.md § Choosing the b-roll.
 
-    Nothing generates these. A VLM cannot — that is the finding — and lucid
+    Nothing generates these. A VLM cannot — that is the finding — and proofcut
     will not guess a title from a filename, because a wrong synopsis is worse
     than an absent one: it produces confident, plausible, wrong placements
     rather than an empty catalogue somebody notices. `broll_brief` reports
@@ -1237,7 +1238,7 @@ def _cards_on_disk(project: Project) -> list[str]:
 
     Both extensions, because the two are separately sufficient to make a card
     real: an SVG with no PNG is a card no cue can resolve yet, and a PNG with
-    no SVG is a card made outside lucid — which is what the Scream project
+    no SVG is a card made outside proofcut — which is what the Scream project
     holds, and the reason `card_new`'s guard cannot look at the SVG alone.
     """
     if not project.cards_dir.is_dir():
@@ -1246,7 +1247,7 @@ def _cards_on_disk(project: Project) -> list[str]:
 
 
 def card_templates() -> dict[str, Any]:
-    """Every card template lucid ships, with the slots each one takes.
+    """Every card template proofcut ships, with the slots each one takes.
 
     Takes no project: a template is package data, the same for every one.
     """
@@ -1275,7 +1276,7 @@ def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str,
 
     `path` is optional because a font is not project state, but a project's
     `caption_style` may *name* one — so given a project this reports the font
-    that project would actually burn, and given none it reports lucid's own
+    that project would actually burn, and given none it reports proofcut's own
     default. `card_templates` is the precedent for the no-project half.
 
     **`install` is off by default**, like `reframe_detect`'s `apply` and for
@@ -1299,11 +1300,11 @@ def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str,
         "project": str(Project.open(path).root) if path is not None else None,
         "caption_font": project_font or default,
         "default_font": default,
-        "vendored": [p.name for p in lucid_fonts.vendored()],
-        "font_dir": str(lucid_fonts.user_font_dir()),
+        "vendored": [p.name for p in proofcut_fonts.vendored()],
+        "font_dir": str(proofcut_fonts.user_font_dir()),
     }
     if install:
-        report["install"] = lucid_fonts.install()
+        report["install"] = proofcut_fonts.install()
 
     seen: dict[str, dict[str, Any]] = {}
     for family in checked:
@@ -1311,8 +1312,8 @@ def fonts(path: Path | str | None = None, *, install: bool = False) -> dict[str,
             continue
         entry: dict[str, Any] = {"fontconfig": captions.font_match(family)}
         try:
-            entry["render"] = lucid_fonts.probe(family)
-        except lucid_fonts.FontError as exc:
+            entry["render"] = proofcut_fonts.probe(family)
+        except proofcut_fonts.FontError as exc:
             # "could not tell" and "it does not draw" are different answers,
             # the same distinction `font_match` makes with a null `available`.
             entry["render"] = {"font": family, "drew": None, "error": str(exc)}
@@ -1388,7 +1389,7 @@ def _family_vendored(family: str, *directories: Path | None) -> bool:
     """Is `family` (loosely) one of the faces at any of `directories`?
 
     A filename-contains check rather than a read of the font's own `name`
-    table: lucid's vendored `Outfit[wght].ttf` does not share a byte-for-byte
+    table: proofcut's vendored `Outfit[wght].ttf` does not share a byte-for-byte
     name with the family `Outfit`, and this only ever gates a *provenance
     label* — never a refusal — so an exact parse is not worth a second
     subprocess per font role.
@@ -1397,7 +1398,7 @@ def _family_vendored(family: str, *directories: Path | None) -> bool:
     for directory in directories:
         if directory is None:
             continue
-        for face in lucid_fonts.vendored(directory):
+        for face in proofcut_fonts.vendored(directory):
             if needle in face.stem.replace(" ", "").replace("-", "").lower():
                 return True
     return False
@@ -1429,7 +1430,7 @@ def pack_apply(
     A family that does not draw refuses the whole call, unless
     `allow_fallback` — which uses the declared CSS stack's own fallback
     instead and **records that it did** (`font_fallback_used`), never
-    silently. A family that does draw but is in neither lucid's own vendored
+    silently. A family that does draw but is in neither proofcut's own vendored
     set nor a font directory shipped beside the pack file gets
     `font_provenance: "unvendored"` on the record permanently — not refused,
     because the render on *this* box is genuinely correct today, but the risk
@@ -1437,7 +1438,7 @@ def pack_apply(
 
     `install_fonts` vendors a pack's own font directory (a `fonts/` folder
     beside the pack JSON, if it ships one) the same idempotent,
-    content-hashed way `lucid fonts --install` vendors lucid's own —
+    content-hashed way `proofcut fonts --install` vendors proofcut's own —
     `fonts.install(source=...)`. Off by default, like that flag: it writes
     into `$HOME`, a side effect worth asking for rather than one a report
     performs on the way past.
@@ -1460,8 +1461,8 @@ def pack_apply(
     def probe(family: str) -> dict[str, Any]:
         if family not in probed:
             try:
-                probed[family] = lucid_fonts.probe(family)
-            except lucid_fonts.FontError as exc:
+                probed[family] = proofcut_fonts.probe(family)
+            except proofcut_fonts.FontError as exc:
                 probed[family] = {"font": family, "drew": None, "error": str(exc)}
         return probed[family]
 
@@ -1486,7 +1487,7 @@ def pack_apply(
                     )
                 fallback_used[role] = stack
             elif result.get("drew") is True and not _family_vendored(
-                family, lucid_fonts.VENDORED_DIR, pack_fonts_dir
+                family, proofcut_fonts.VENDORED_DIR, pack_fonts_dir
             ):
                 provenance[role] = "unvendored"
         if fallback_used:
@@ -1497,7 +1498,7 @@ def pack_apply(
 
     installed = None
     if install_fonts and pack_fonts_dir is not None:
-        installed = lucid_fonts.install(source=pack_fonts_dir)
+        installed = proofcut_fonts.install(source=pack_fonts_dir)
 
     write = not plan
     if write:
@@ -1791,7 +1792,7 @@ def card_new(
     Refused if the card already exists, unless `overwrite`. A card is
     referenced by cues, and silently replacing the asset under one is the
     kind of edit nobody can see happen. **Either file is enough to exist** —
-    a card made outside lucid has a PNG and no SVG, and a guard that looked
+    a card made outside proofcut has a PNG and no SVG, and a guard that looked
     only at the source would overwrite the raster a cue resolves to without
     ever tripping.
 
@@ -2145,7 +2146,7 @@ def cue_add(
     if any(c["clip_id"] == clip_id and c["word_index"] == word_index for c in cues):
         raise tx.TranscriptError(
             f"{clip_id!r} already has a cue at word {word_index} — remove it "
-            "with cue_rm first (CLI: `lucid cue rm`) if you meant to replace it"
+            "with cue_rm first (CLI: `proofcut cue rm`) if you meant to replace it"
         )
     cues.append(cue)
     cues.sort(key=lambda c: (c["clip_id"], c["word_index"]))
@@ -2274,7 +2275,7 @@ def cue_reresolve(
     was placed with: re-running `Transcript.resolve()` against the transcript
     now attached says where that same wording landed, without hand
     re-indexing a whole cue table — the goodsometimes v3->v4 workflow
-    (`assemble_longlegs.py --plan`/`--apply`), now inside lucid.
+    (`assemble_longlegs.py --plan`/`--apply`), now inside proofcut.
 
     `apply=False` (default): report only, nothing is written —
     `reframe_detect`'s and `unspoken_detect`'s own posture, because a phrase
@@ -2481,7 +2482,7 @@ def clip_rm(path: Path | str, clip_id: str) -> dict[str, Any]:
     if blockers:
         raise ProjectError(
             f"clip_rm refuses {clip_id!r}: " + "; ".join(blockers) + ". Clear every "
-            "reference first, or `lucid undo` back to before it was imported."
+            "reference first, or `proofcut undo` back to before it was imported."
         )
 
     manifest["clips"] = [c for c in manifest["clips"] if c["clip_id"] != clip_id]
@@ -2591,7 +2592,7 @@ def broll_brief(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
     writes its answers back through `cue_add`, where `plan_picture` checks
     them like any other cue.
 
-    **lucid does not pick, and this is a measurement rather than a
+    **proofcut does not pick, and this is a measurement rather than a
     preference.** Against 25 human choices on the Scream footage: the
     `describe` index agreed 2 times, the clips' own filenames 3, an explicit
     film-name match 4. A synopsis catalogue narrowed nine candidates to a
@@ -2599,7 +2600,7 @@ def broll_brief(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
     read by a model that knows the films picked right 13. Every mechanism that
     scores text against text plateaus in single digits because the connection
     is not lexical — the sentence that earns the Scream VI reveal shares no
-    word with any description of it. So the useful thing lucid can build is
+    word with any description of it. So the useful thing proofcut can build is
     the brief, not the ranker. HISTORY.md § Choosing the b-roll.
 
     What is in here is what was measured to matter, and one thing that was
@@ -2693,7 +2694,7 @@ def broll_brief(path: Path | str, *, fps: float | None = None) -> dict[str, Any]
         result["note"] = (
             "no cues yet, so there are no positions to choose for — a cue is where the "
             "picture changes, and deciding where those go is a separate call (cue_add, "
-            "CLI: `lucid cue add`). The catalogue below is what they can point at."
+            "CLI: `proofcut cue add`). The catalogue below is what they can point at."
         )
     return result
 
@@ -2799,7 +2800,7 @@ def build_shots(
     if not cues:
         raise tl.TimelineError(
             "this project has no cues yet — add one with cue_add "
-            "(CLI: `lucid cue add`) before projecting shots"
+            "(CLI: `proofcut cue add`) before projecting shots"
         )
 
     transcripts: dict[str, tx.Transcript] = {}
@@ -2919,7 +2920,7 @@ def seed_timeline(
 ) -> dict[str, Any]:
     """Lay a clip down as the timeline, optionally silence-cut on the way in.
 
-    Silence detection is auto-editor's, not lucid's — shell out rather than
+    Silence detection is auto-editor's, not proofcut's — shell out rather than
     reimplement (PLAN.md scope rule).
     """
     project = Project.open(path)
@@ -3414,7 +3415,7 @@ def finish_report(
         raise ProjectError(
             f"{project.root} has no timeline yet — finish_report reports on a "
             "finished cut, and there is nothing to finish. Seed it first "
-            "(`lucid seed` / seed_timeline)."
+            "(`proofcut seed` / seed_timeline)."
         )
     tail = proj_status["tail"]
     duration_section = {
@@ -3934,7 +3935,7 @@ def _seams(edit: tl.Edit, clip_id: str, placements: list[dict[str, Any]]) -> lis
 def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
     """The whole edit in one payload: segments, seams, and every word's fate.
 
-    The read model behind `lucid web` (HISTORY.md § The preview/timeline web UI). It exists as an op
+    The read model behind `proofcut web` (HISTORY.md § The preview/timeline web UI). It exists as an op
     rather than inside the server because a view that computed word survival
     itself would be a second implementation of the overlap test, and the front
     ends are meant to hold no logic of their own — the same rule that keeps
@@ -4258,7 +4259,7 @@ def _cached_waveform(cache_path: Path, stat: Any) -> dict[str, Any] | None:
 # binds MCP tools to have a CLI subcommand, not the reverse, and 19,000 floats
 # is a picture, not something an agent should reason over — `loud_gaps` and
 # `unaccounted_sound` already answer the numeric questions about this same
-# envelope. CLI only: `lucid waveform`.
+# envelope. CLI only: `proofcut waveform`.
 def waveform(path: Path | str, clip_id: str | None = None) -> dict[str, Any]:
     """RMS per 20ms frame for the timeline's waveform lane, normalised to bytes.
 
@@ -4744,7 +4745,7 @@ def _sheet_frame(
     # directory rather than into `cache/`. `/tmp` is safe here precisely
     # because melt is not involved — ffmpeg and magick are host binaries, and
     # it is melt's flatpak alone that cannot see it (CLAUDE.md).
-    with tempfile.TemporaryDirectory(prefix="lucid-sheet-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-sheet-") as tmp:
         full = Path(tmp) / "full.png"
         # The luma is measured on the frame ffmpeg is writing here, at the
         # source's own resolution and depth — not on the downscaled tile,
@@ -4816,7 +4817,7 @@ def shot_sheet(
     watches; an agent has no window and cannot watch an MP4.
 
     **Every other sheet here returns paths, and a path is not an image.** The
-    agent panel runs `claude` with `--tools ''`, so lucid's MCP tools are the
+    agent panel runs `claude` with `--tools ''`, so proofcut's MCP tools are the
     entire surface it has and it cannot Read a file — which means
     `contact_sheet`'s frame list and `reframe_sheet`'s montage are both
     invisible to the one caller that most needs them. What makes this one
@@ -5019,7 +5020,7 @@ def _footage_marks(
         if not described:
             raise ProjectError(
                 f"clip {clip['clip_id']!r} has no descriptions to sheet — run "
-                f"`lucid describe {clip['clip_id']}` first, or ask for "
+                f"`proofcut describe {clip['clip_id']}` first, or ask for "
                 "--mode interval, which needs nothing"
             )
         described.sort(key=lambda d: d["src_start"])
@@ -5082,7 +5083,7 @@ def footage_sheet(
     PLAN.md § The footage sheet. `shot_sheet` sheets the **timeline**, which
     is addressed through the cue table and so exists only once there is an
     edit. This sheets a **source clip**, and the question it answers belongs
-    to the people lucid's transcript machinery cannot help at all: a GoPro
+    to the people proofcut's transcript machinery cannot help at all: a GoPro
     dump, event coverage, gameplay — no dialogue, nothing for a word index to
     address. `describe` already indexes what is visible and `describe-ls`
     searches that text, so they can *find* a moment; what neither can do is
@@ -5450,7 +5451,7 @@ def cut_by_transcript(
     through_pause: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
-    """Cut or keep word ranges — the operation lucid exists for.
+    """Cut or keep word ranges — the operation proofcut exists for.
 
     Ranges are inclusive word indices into the clip's transcript, resolved to
     source time and applied to the accumulated timeline. `pad` widens each cut
@@ -6388,14 +6389,14 @@ def undo(path: Path | str) -> dict[str, Any]:
         report["segments"] = None
     if restored.manifest is None:
         report["note"] = (
-            "this snapshot was written before lucid saved manifests, so only "
+            "this snapshot was written before proofcut saved manifests, so only "
             "the timeline came back — the cue table, framing, music bed and "
             "caption style are untouched"
         )
     if report["timeline_removed"]:
         report["note"] = (
             "the state before this snapshot had no timeline, so `project.otio` "
-            "was removed — run `lucid seed <clip_id>` to lay one down again"
+            "was removed — run `proofcut seed <clip_id>` to lay one down again"
         )
     return report
 
@@ -6410,7 +6411,7 @@ def _neighbours(
 
     `energy.believable` only ever trims a span's *end*, so a gap's `start` is
     a trimmed end and its `end` is an untrimmed next-word start. Both sides
-    already went through the same `round(x, 3)` lucid applies everywhere, so
+    already went through the same `round(x, 3)` proofcut applies everywhere, so
     this is an exact match, not a fuzzy one.
     """
     for i in range(len(parsed) - 1):
@@ -6753,7 +6754,7 @@ def _check_preset_canvas(project: Project, preset: str | None) -> None:
             f"{width}x{height} ({_aspect(width, height)}) — a preset names the encode, and "
             "the shape a project renders at is `canvas`'s job rather than an export flag's, "
             "so honouring this one would mean an export argument reshaping the project. "
-            f"Set the shape first (`lucid canvas {suggest}`), which "
+            f"Set the shape first (`proofcut canvas {suggest}`), which "
             "routes through the MLT writer, crops to fill rather than pillarboxing, and "
             "reports what each clip loses; then export again. A vertical canvas that is not "
             f"{want[0]}:{want[1]} is a legitimate export — use 'youtube' or 'web' with it."
@@ -8947,7 +8948,7 @@ def reframe_coverage(
 # -- continuity checking --------------------------------------------------
 #
 # Ports goodsometimes' `shot_check.py` (rewind/replay) and its v5 scan (short
-# shots, film-internal-cut stubs) into lucid, over `_picture_plan`'s
+# shots, film-internal-cut stubs) into proofcut, over `_picture_plan`'s
 # *resolved* `src_start` rather than `build_shots`' raw `src_pin` — the gap
 # the standalone script had (`shot_check.py:82-84`'s own comment, wrong for
 # any unpinned video cue: `src_pin` is `None` for one, `src_start` never is).
@@ -9246,7 +9247,7 @@ def continuity_check(
     """Rewinds, replays, short shots, and film-internal-cut stubs.
 
     Ports goodsometimes' `shot_check.py` (rewind/replay) and its v5 scan
-    (short shots, stubs) into lucid, correcting the one gap the standalone
+    (short shots, stubs) into proofcut, correcting the one gap the standalone
     script had: it read `build_shots`' raw `src_pin`, `None` for every
     *unpinned* cue, so it only ever checked pinned shots. This reads
     `_picture_plan`'s resolved `src_start` instead — the cursor-carried
@@ -9264,7 +9265,7 @@ def continuity_check(
 
     **Replay is reported, never refused** — a deliberate narrative rhyme and
     a mistake look identical from the cue table alone (goodsometimes' own
-    design, and lucid's own `attribute_speakers`/`reframe_detect` precedent:
+    design, and proofcut's own `attribute_speakers`/`reframe_detect` precedent:
     a judgement call is surfaced, never silently decided).
 
     `stubs=True` by default and costs a `media.scene_cuts` decode per
@@ -9389,7 +9390,7 @@ def continuity_accept(path: Path | str, clip_id: str, word_index: int, kind: str
     if match is None:
         raise ProjectError(
             f"no {kind!r} finding at {clip_id!r} word {word_index} to accept — run "
-            "continuity_check (CLI: `lucid continuity-check`) to see current findings"
+            "continuity_check (CLI: `proofcut continuity-check`) to see current findings"
         )
 
     manifest = project.read_manifest()
@@ -9530,7 +9531,7 @@ def _stored_tail(project: Project) -> dict[str, Any] | None:
     """The project's tail, resolved to its three fields, or None for no tail.
 
     Validated on every read, not only on write — a manifest edited by hand or
-    carried over from a future lucid gets a message naming the shape rather
+    carried over from a future proofcut gets a message naming the shape rather
     than a `KeyError` three calls later inside `_build_mlt`.
     """
     stored = project.read_manifest().get(TAIL_KEY)
@@ -9731,9 +9732,9 @@ def tail(
 #: A cold open, played before the `Edit`'s own first frame — `tail`'s sibling
 #: at the other end of the film, and the fix for `goodsometimes`'
 #: `cold_open()`: ffmpeg-concatenated onto the *already-rendered* body,
-#: entirely outside lucid, invisible to `status`, `verify`, `check_frames`,
+#: entirely outside proofcut, invisible to `status`, `verify`, `check_frames`,
 #: and to `shot_check.py --prepend`'s hand-rolled offset, which existed only
-#: because `lucid shots` could not see the prepend at all. Additive and
+#: because `proofcut shots` could not see the prepend at all. Additive and
 #: optional — absent means exactly what every older manifest means, nothing
 #: plays before the `Edit`'s own frame 0 — so this is not a `SCHEMA_VERSION`
 #: bump, the `CANVAS_KEY`/`CAPTION_STYLE_KEY`/`TAIL_KEY` precedent.
@@ -9754,7 +9755,7 @@ def _stored_head(project: Project) -> dict[str, Any] | None:
 
     Validated on every read, not only on write — `_stored_tail`'s own
     discipline: a manifest edited by hand or carried over from a future
-    lucid gets a message naming the shape rather than a `KeyError` three
+    proofcut gets a message naming the shape rather than a `KeyError` three
     calls later inside `_build_mlt`.
     """
     stored = project.read_manifest().get(HEAD_KEY)
@@ -9837,7 +9838,7 @@ def head(
     with nothing to hold; either alone after that updates just that field.
     `src_start` defaults to `0.0` on a first set — unlike `tail`'s `asset`,
     this is not project-private data with no sane default, so there is no
-    `LUCID_TTS_VOICE`-style refusal for omitting it. `seconds` is the head's
+    `PROOFCUT_TTS_VOICE`-style refusal for omitting it. `seconds` is the head's
     own *whole* length — `tail`'s "seconds is not the hold before a fade"
     rule, restated: the fades are spent inside it, never added on top.
 
@@ -10465,7 +10466,7 @@ def _stored_music(project: Project) -> dict[str, Any] | None:
     """The project's music cue, resolved to its fields, or None for no bed.
 
     Validated on every read, `_stored_tail`'s discipline: a manifest edited
-    by hand or carried over from a future lucid gets a message naming the
+    by hand or carried over from a future proofcut gets a message naming the
     shape rather than a `KeyError` inside `_build_mlt`.
     """
     stored = project.read_manifest().get(MUSIC_KEY)
@@ -10762,7 +10763,7 @@ def _music_plan(
             f"the music bed starts at {stored['clip_id']!r} word "
             f"{stored['word_index_start']} ({start_echo['text']!r}), which a cut "
             "removed from the timeline — move the start word or restore the "
-            "material (music, or CLI `lucid music`)"
+            "material (music, or CLI `proofcut music`)"
         )
     start_seconds = span[0]
 
@@ -10815,7 +10816,7 @@ def _music_plan(
             f"the music fades ({stored['fade_in']:g}s + {stored['fade_out']:g}s) "
             f"do not fit inside the bed's audible {music_frames / rate:.3f}s — "
             "shorten the fades, or move the bed's boundary words to lengthen "
-            "it (music, or CLI `lucid music`)"
+            "it (music, or CLI `proofcut music`)"
         )
 
     return {
@@ -10848,7 +10849,7 @@ def _music_plan(
 # fix for the Longlegs retro's own complaint: today the gap, the pin and the
 # mix are three independently hand-maintained pieces (goodsometimes
 # `assemble_longlegs.py`/`music_bed.py`/`verify_longlegs.py`), and the
-# failure mode is exactly that they drift apart with nothing lucid can see.
+# failure mode is exactly that they drift apart with nothing proofcut can see.
 #
 # `HOLDS_KEY` ties them: an address into the VO transcript (`clip_id`,
 # `gap_word_index` — unique, `cue_add`'s own duplicate refusal), the picture
@@ -10877,7 +10878,7 @@ HOLD_GATE_RAMP = 0.7
 def _stored_holds(project: Project) -> list[dict[str, Any]]:
     """Every stored hold, validated — `_stored_tail`'s discipline, for a list
     rather than a dict: a manifest edited by hand or carried over from a
-    future lucid gets a message naming the shape, not a `KeyError` three
+    future proofcut gets a message naming the shape, not a `KeyError` three
     calls later inside `_build_mlt`."""
     stored = project.read_manifest().get(HOLDS_KEY, [])
     if not isinstance(stored, list):
@@ -10973,7 +10974,7 @@ def _hold_plan(
 
     if not project.transcript_path(asset).exists():
         raise ProjectError(
-            f"hold asset {asset!r} has no transcript — `lucid transcribe {asset}` "
+            f"hold asset {asset!r} has no transcript — `proofcut transcribe {asset}` "
             "first, so the hold knows which of its own words must survive clean"
         )
     asset_transcript = _transcript(project, asset)
@@ -11301,7 +11302,7 @@ def hold_add(
     too — this call owns exactly one cue, at its stored address, and moving
     it would mean writing a second cue and leaving the old one's `src_start`
     stale rather than re-addressing it. There is no clean way to resize or
-    re-address a hold once it is spliced — only `lucid undo` (snapshot
+    re-address a hold once it is spliced — only `proofcut undo` (snapshot
     rollback) or `hold_rm` (which strands the gap as an ordinary
     manufactured silence, not a true removal) — `vo_extend`'s own one-way
     nature, inherited rather than introduced.
@@ -11377,21 +11378,21 @@ def hold_add(
                 f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
                 "cue_word_index cannot change without re-splicing, which this "
                 "call cannot do safely. `hold_rm` then `hold_add` again, or "
-                "`lucid undo`"
+                "`proofcut undo`"
             )
         if resolved_first is not None and int(resolved_first) != existing["word_index_first"]:
             raise ProjectError(
                 f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
                 "word_index_first cannot change without re-splicing, which this "
                 "call cannot do safely. `hold_rm` then `hold_add` again, or "
-                "`lucid undo`"
+                "`proofcut undo`"
             )
         if resolved_last is not None and int(resolved_last) != existing["word_index_last"]:
             raise ProjectError(
                 f"hold at {clip_id!r} word {resolved_gap} is already spliced — "
                 "word_index_last cannot change without re-splicing, which this "
                 "call cannot do safely. `hold_rm` then `hold_add` again, or "
-                "`lucid undo`"
+                "`proofcut undo`"
             )
         for field, value in (
             ("head_margin", head_margin),
@@ -11501,7 +11502,7 @@ def hold_rm(path: Path | str, clip_id: str, gap_word_index: int) -> dict[str, An
 
     **The gap does not close.** `vo_extend`'s own irreversibility, inherited
     rather than introduced: there is no clean "un-splice" in this codebase,
-    only `lucid undo` (snapshot rollback). What this removes is the *meaning*
+    only `proofcut undo` (snapshot rollback). What this removes is the *meaning*
     of the gap — after this call it reverts to being an ordinary manufactured
     silence, which is a perfectly coherent, pre-existing state, not a broken
     one.
@@ -11567,8 +11568,8 @@ def hold_ls(path: Path | str) -> dict[str, Any]:
     the disagreement (the cue's stored `src_start` against what `_hold_plan`
     would compute fresh right now) rather than silently trusting either, the
     retro's own "two lists drift apart in one edit, and the failure is
-    inaudible" failure mode, now possible *inside* lucid instead of between
-    lucid and a hand-typed table.
+    inaudible" failure mode, now possible *inside* proofcut instead of between
+    proofcut and a hand-typed table.
     """
     project = Project.open(path)
     edit = _load_edit(project)
@@ -11757,10 +11758,10 @@ def _resolved_hold_spans(
     documented to use, so the two are interchangeable to every caller
     downstream.
 
-    **Always `ducked=False`.** A lucid hold always splices a real silence
+    **Always `ducked=False`.** A proofcut hold always splices a real silence
     into the VO first (`_hold_plan`), so its own audio *replaces* the VO
     across the gap rather than playing under it — goodsometimes' `@UNDER`
-    concept (a cue that ducks rather than pauses) has no lucid-native
+    concept (a cue that ducks rather than pauses) has no proofcut-native
     equivalent to inherit, and every stored hold's edges are genuine seams.
 
     A hold that cannot currently resolve is reported in a second list
@@ -12205,7 +12206,7 @@ def _export_mlt(
         return _render_mlt(project, edit, output, fps=fps, preset=preset, consumer_args=consumer_args)
     if export_format not in MLT_EXPORT_FORMATS:
         raise ProjectError(
-            f"this timeline has more than one source, so lucid writes it itself, "
+            f"this timeline has more than one source, so proofcut writes it itself, "
             f"and what it writes is MLT — {export_format!r} would have to go "
             "through auto-editor, whose exporter refuses a second source (exit 2). "
             f"Ask for one of {sorted(MLT_EXPORT_FORMATS)}."
@@ -12317,7 +12318,7 @@ def _render_single(
         written = autoeditor.run_timeline(payload, output, export=export_format, **extra_args)
         return written, {}
 
-    work = Path(tempfile.mkdtemp(prefix="lucid-render-"))
+    work = Path(tempfile.mkdtemp(prefix="proofcut-render-"))
     staged = work / (Path(output).name or "render.mp4")
     written = autoeditor.run_timeline(payload, staged, export=export_format, **extra_args)
 
@@ -12401,7 +12402,7 @@ def export(
     irrelevant.
 
     **A multi-source project takes a different road entirely** (steps 4 and 5
-    of the layered timeline): lucid generates the MLT itself, through `mlt`,
+    of the layered timeline): proofcut generates the MLT itself, through `mlt`,
     and renders it with `melt`, because auto-editor refuses to export more than
     one `src` (exit 2) and degrades the render to 720x576 with exit 0. The
     choice is made from the project, not from a flag — a cue table or a second
@@ -12576,7 +12577,7 @@ def _transcripts_for(project: Project, clip_id: str | None) -> dict[str, tx.Tran
     if not found:
         raise tx.TranscriptError(
             "no clip in this project has a transcript — attach one with "
-            "`lucid attach-transcript <clip_id> <whisper.json>` first"
+            "`proofcut attach-transcript <clip_id> <whisper.json>` first"
         )
     return found
 
@@ -12666,7 +12667,7 @@ def _spoken_transcripts(
     text at that index disagree, the transcript has been replaced under the
     mark, and the two failures are not symmetric: a word wrongly left on
     screen is visible to anyone watching, while a real word silently dropped
-    is invisible in every check lucid has. So a mismatch is reported as
+    is invisible in every check proofcut has. So a mismatch is reported as
     `unspoken_stale` and the word stays.
     """
     marked = _stored_unspoken(project)
@@ -12913,7 +12914,7 @@ def unspoken_add(
     if any(m["clip_id"] == clip_id and int(m["word_index"]) == word_index for m in marks):
         raise tx.TranscriptError(
             f"word {word_index} of {clip_id!r} is already marked unspoken — "
-            "remove it with unspoken_rm first (CLI: `lucid unspoken rm`)"
+            "remove it with unspoken_rm first (CLI: `proofcut unspoken rm`)"
         )
     mark: dict[str, Any] = {
         "clip_id": clip_id,
@@ -13065,7 +13066,7 @@ def unspoken_detect(
     `apply=False` is the default, the same way round as `reframe_detect` and
     for the same reason: this proposes a change to what a caption *says*, the
     evidence is a whisper run, and a wrongly applied mark deletes a real word
-    from every check lucid has. Read the echoes, then apply.
+    from every check proofcut has. Read the echoes, then apply.
 
     `transcript_path` takes an existing transcription of the render — the
     cached one `verify` leaves behind is the obvious candidate, and it is
@@ -13361,7 +13362,7 @@ def add_captions(
             ass_cues,
             style=style.ass,
             resolution=_caption_canvas(project),
-            title=project.read_manifest().get("name", "lucid"),
+            title=project.read_manifest().get("name", "proofcut"),
         ),
         encoding="utf-8",
     )
@@ -13552,10 +13553,10 @@ def film_check(
     Answers PLAN.md § Open questions, *How does a lucid project know it is
     the film* — the question the Scream project's stale VO left open.
     `~/lucid-scream-v2` sat at the silence-cut stage of an edit whose retake
-    pass had already been done outside lucid: 73 segments, 410.963s, against
+    pass had already been done outside proofcut: 73 segments, 410.963s, against
     the shipped film's 63 segments, 336.269s. The render matched the
     timeline, `verify` had nothing to report, all 38 shots planned — **every
-    check lucid had agreed with itself the whole time**, because none of them
+    check proofcut had agreed with itself the whole time**, because none of them
     compares a project to anything outside it. `check_frames` is the closest
     relative and is not this: it asks whether an export it is *about* to make
     (or one already made) matches *this* project's own arithmetic, framewise.
@@ -14074,7 +14075,7 @@ def verify(
 ) -> dict[str, Any]:
     """Transcribe a finished render and diff it against what the timeline says.
 
-    lucid already knows the words the timeline should play — every clip's
+    proofcut already knows the words the timeline should play — every clip's
     transcript mapped through the accumulated edit, exactly as captions are
     placed. This transcribes the render itself and compares the two word
     sequences.
@@ -14082,7 +14083,7 @@ def verify(
     It is the only check that catches a retake the transcript never contained:
     whisper collapses an immediate repeat, so a phrase said twice can appear
     once in the source transcript and be cut once, leaving the second take in
-    the render with nothing in lucid's index pointing at it (HISTORY.md § 2). The
+    the render with nothing in proofcut's index pointing at it (HISTORY.md § 2). The
     render's own transcript has it twice; the timeline expects it once; the diff
     says so.
 
@@ -14242,7 +14243,7 @@ def verify(
         pass
 
     # Likewise never fatal. The envelope is a second opinion on a diff that
-    # already stands on its own, and a render lucid cannot decode should not
+    # already stands on its own, and a render proofcut cannot decode should not
     # cost the caller the transcription it just paid minutes for.
     try:
         result["loud_gaps"] = energy.unaccounted_sound(
@@ -14342,7 +14343,7 @@ def finish_check(
     """Check a **delivered** file against this project's own timeline —
     `verify_longlegs.py`, generalized into a first-class op rather than one
     project's script. `final` is whatever an external mix pass produced (a
-    cold open and/or holds concatenated onto one of lucid's own renders,
+    cold open and/or holds concatenated onto one of proofcut's own renders,
     entirely outside `export`), not a render this project made itself —
     `verify`/`check_frames`/`check_black`/`film_check` are the checks for
     that.
@@ -14375,7 +14376,7 @@ def finish_check(
        target LUFS to fault against.
     3. **Blackdetect**, called directly (`picture.blackdetect`, never
        `ops.check_black`) — `check_black`'s own tail-frame reasoning is
-       calibrated to an un-prepended lucid render and does not transfer once
+       calibrated to an un-prepended proofcut render and does not transfer once
        `final` has a cold open glued onto the front. A run is a fault unless
        it overlaps `[0, prepend_seconds)` or a declared hold's own span.
     4. **Per-hold transcription + seam.** Each hold's own span, transcribed
@@ -14401,10 +14402,10 @@ def finish_check(
        stays in `missing`, a real fault — **getting this direction backwards
        silently turns every real defect into "recovered"**.
     7. **Self-repeats.** `verify.find_adjacent_repeats` over the same
-       filtered heard sequence — lucid's existing tool, applied to a
+       filtered heard sequence — proofcut's existing tool, applied to a
        render's own transcript for the first time.
     8. **Aggregate**, and `finishlog.append` — the artifact-keyed log
-       `lucid review serve`'s WARN badge joins against by sha256.
+       `proofcut review serve`'s WARN badge joins against by sha256.
     """
     project = Project.open(path)
     final_path = Path(final).expanduser()
@@ -14936,7 +14937,7 @@ def reel(
 
     The times are the seconds *an export plays at* — what a human reports
     after a watch — and they are the span to **keep**, which is the only place
-    in lucid that reads that way round. Everything else here cuts; a reel is
+    in proofcut that reads that way round. Everything else here cuts; a reel is
     named by what survives, so the head and the tail are what get removed,
     through `cut_by_time` and therefore through the same `Edit.remove` path
     every other cut takes. Nothing new decides anything about the timeline.
@@ -15219,7 +15220,7 @@ def reel(
     return report
 
 
-# `lucid review` — PLAN.md § The completion queue, item 6. Every version of
+# `proofcut review` — PLAN.md § The completion queue, item 6. Every version of
 # the Scream video moved on a served page rebuilt ad hoc at least four times
 # (`~/lucid-approvals/`, `~/lucid-watch/`, `~/lucid-review/`,
 # `~/lucid-flash-review/`), each its own throwaway server and its own
@@ -15256,7 +15257,7 @@ def _review_resolve_path(project: Project, source: Path | str) -> Path:
     Most op file arguments are left free for the caller's own filesystem
     (`server._confine`'s docstring: only the project *selector* is normally
     confined). A review item is different in kind — it is later streamed by
-    `lucid review serve` to whatever device holds the review URL, over the
+    `proofcut review serve` to whatever device holds the review URL, over the
     network, so `review add leak /etc/passwd` must not become a way to read
     the box rather than the project. Both sides resolved, the same way
     `_confine` refuses a symlink out.
@@ -15293,7 +15294,7 @@ def review_add(
 
     Never copies `source` — a render already lives in `renders/`, a sheet in
     `project.sheet_dir` (`reframe_sheet`'s own precedent) — this just points
-    `name` at it, so `lucid review serve` has something to stream and a
+    `name` at it, so `proofcut review serve` has something to stream and a
     verdict has something to attach to.
 
     `kind` is one of `"render"`, `"sheet"`, `"ab"`, `"control"`. **A
@@ -15386,8 +15387,8 @@ def review_verdict(
 def review_list(path: Path | str) -> dict[str, Any]:
     """Every item registered for this project's review round, and its verdict.
 
-    Read straight off the manifest — `lucid review list` and the page
-    `lucid review serve` draws both call this, never the file directly.
+    Read straight off the manifest — `proofcut review list` and the page
+    `proofcut review serve` draws both call this, never the file directly.
     """
     project = Project.open(path)
     stored = _stored_review(project)

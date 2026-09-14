@@ -153,7 +153,7 @@ function setBusy(next) {
 
 // Every name below is one of server.py's @mcp.tool() functions, which is
 // also the whole set an agent turn can ever call — the allowlist is
-// `mcp__lucid__*` and nothing else (PLAN.md § The agent panel, and why it
+// `mcp__proofcut__*` and nothing else (PLAN.md § The agent panel, and why it
 // does not become a fourth implementation).
 const TOOL_LABELS = {
   ping: "Checking connection",
@@ -431,20 +431,20 @@ function handleResult(data) {
 }
 
 // The pane's whole premise is that the agent reaches the project through
-// lucid's MCP server, so a server that failed to start is the one condition
+// proofcut's MCP server, so a server that failed to start is the one condition
 // under which nothing it says can be trusted — and it is otherwise invisible:
 // `claude` carries on with an empty tool set and answers the prompt in prose.
 // The harness states the outcome in its own `init` event, so this draws that
 // rather than deriving anything (this file's contract: the pane displays).
 function reportMcpServers(servers) {
   if (!Array.isArray(servers)) return;
-  const lucid = servers.find((s) => s && s.name === "lucid");
-  if (lucid && lucid.status === "connected") return;
-  const said = lucid ? lucid.status : "not started";
+  const proofcut = servers.find((s) => s && s.name === "proofcut");
+  if (proofcut && proofcut.status === "connected") return;
+  const said = proofcut ? proofcut.status : "not started";
   append(
     entry(
       "agent-entry--system bad",
-      `lucid's MCP server is ${said} — this agent has no lucid tools, so anything it ` +
+      `proofcut's MCP server is ${said} — this agent has no proofcut tools, so anything it ` +
         "says about the project is guesswork. Nothing it does can reach the timeline.",
     ),
   );
@@ -799,7 +799,7 @@ export function init(passedCtx) {
     "p",
     "pane-placeholder",
     "Ask the agent to edit this project. It reaches the timeline only " +
-      "through lucid's own MCP tools, and nothing else.",
+      "through proofcut's own MCP tools, and nothing else.",
   );
   placeholder.title = "PLAN.md § The agent panel, and why it does not become a fourth implementation";
   append(placeholder);

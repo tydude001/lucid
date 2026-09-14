@@ -4,14 +4,14 @@
 **Cache artifact only. No manifest key. No schema bump.** `renderlog.py`'s
 own shape, cloned rather than reused, because it answers about a different
 artifact: a render this project's own `export` produced (`renderlog`)
-against a *delivered* file lucid did not produce, that an external mix pass
+against a *delivered* file proofcut did not produce, that an external mix pass
 built out of one of this project's renders (`finishlog`). Neither watches
 the other, and `webui._revision()` must never stat this file either — a
 finish_check run is derived telemetry about an artifact outside the edit,
 not a project mutation.
 
 `append` is the only writer; `last`/`all_runs`/`for_sha256` are the only
-readers. `for_sha256` is the join key `lucid review serve` needs: every
+readers. `for_sha256` is the join key `proofcut review serve` needs: every
 registered review item already carries its own `sha256` (`ops.review_add`),
 so joining on that rather than on a filename is what lets a delivered file
 be re-registered under a new name, or the same bytes registered twice, and

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hand an agent a brief and watch it edit a video end to end — NEXT.md § 1.
 
-Everything lucid has measured so far has been a *piece*: a tool, a sheet, a
+Everything proofcut has measured so far has been a *piece*: a tool, a sheet, a
 check. The product's central claim — that an agent can cut a video through
 word-addressed tools and pictures in tool results — has never been measured as
 a whole. This is the instrument that measures it, and it is a script rather
@@ -10,10 +10,10 @@ and its result is evidence, not a pass/fail gate.
 
 It runs the same client the agent panel runs, with the same confinement:
 `claude -p` against a generated one-server MCP config, `--tools ""` so the
-built-in set is gone and lucid's tools are the agent's *only* reach (CLAUDE.md
+built-in set is gone and proofcut's tools are the agent's *only* reach (CLAUDE.md
 — the allow/disallow flags do not gate built-ins, `--tools ""` does), and the
 command in that config is this interpreter with `-m proofcut.cli`, never the name
-`lucid`, which is absent from PATH for every launch that skips an activated
+`proofcut`, which is absent from PATH for every launch that skips an activated
 venv. Those three facts are imported from `webui.py` rather than restated, so
 the trial cannot silently measure a different client than the one that ships.
 
@@ -40,7 +40,7 @@ footage reads its media from `--source` instead of generating it, and
 everything else is unchanged: the same client, the same confinement, the same
 `score()`. It demands `--brief-file`, because the built-in brief names three
 demo files and a fluffed take that a real folder does not have, and it refuses
-a directory that is itself a lucid project — the trial's agent must never be
+a directory that is itself a proofcut project — the trial's agent must never be
 pointed at real authored state, only at real *material*. Point it at a copy.
 
 **What the agent is given is a goal, never the steps.** A brief listing the
@@ -49,7 +49,7 @@ brief below names the material and what a finished cut looks like, and nothing
 else. `--brief-file` swaps in another one for a run on a copy of a real
 project.
 
-The project starts at `lucid init` and nothing else: no import, no transcript,
+The project starts at `proofcut init` and nothing else: no import, no transcript,
 no seeded timeline. "Import to export" is the loop being measured, and a
 pre-seeded project quietly measures the back half of it.
 
@@ -81,9 +81,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import make_demo
 
-from proofcut import media as lucid_media
+from proofcut import media as proofcut_media
 from proofcut import ops, webui
-from proofcut.project import MANIFEST_NAME, TIMELINE_NAME
+from proofcut.project import LEGACY_MANIFEST_NAME, MANIFEST_NAME, TIMELINE_NAME
 
 
 class TrialError(RuntimeError):
@@ -96,9 +96,9 @@ class TrialError(RuntimeError):
 #: substitutions — absolute paths, because the agent has no shell to resolve a
 #: relative one with and no Read tool to look around with.
 DEMO_BRIEF = """\
-You are editing a short video, and lucid's tools are the only thing you have —
+You are editing a short video, and proofcut's tools are the only thing you have —
 there is no shell, no file browser, and no way to read a file except through a
-lucid tool.
+proofcut tool.
 
 The raw material is three files in {media}:
 
@@ -221,7 +221,7 @@ def check_source(source: Path) -> list[Path]:
     """Refuse a `--source` that is not a folder of usable material.
 
     Three refusals, and the middle one is the point. An empty or missing
-    directory is an obvious typo. A directory that is itself a **lucid
+    directory is an obvious typo. A directory that is itself a **proofcut
     project** is not: it is the plausible mistake — the trial is described as
     running "on a copy of a real project", and the nearest reading of that is
     to hand it the project. That run would spend an agent and a render before
@@ -233,24 +233,25 @@ def check_source(source: Path) -> list[Path]:
     """
     if not source.is_dir():
         raise TrialError(f"--source is not a directory: {source}")
-    # The two names come from `project.py` rather than being retyped: the
+    # The names come from `project.py` rather than being retyped (the legacy
+    # `lucid.json` too — a pre-rename project is still authored state): the
     # first draft of this guard looked for `manifest.json` and would have
-    # waved every real lucid project straight through, since the manifest is
-    # `lucid.json` and `*.manifest.json` is the snapshot suffix.
-    if any((source / name).exists() for name in (MANIFEST_NAME, TIMELINE_NAME)):
+    # waved every real proofcut project straight through, since the manifest is
+    # `proofcut.json` and `*.manifest.json` is the snapshot suffix.
+    if any((source / name).exists() for name in (MANIFEST_NAME, LEGACY_MANIFEST_NAME, TIMELINE_NAME)):
         raise TrialError(
-            f"--source names a lucid project, not a media folder: {source}. This "
-            "harness starts at `lucid init` and imports from a source directory — "
+            f"--source names a proofcut project, not a media folder: {source}. This "
+            "harness starts at `proofcut init` and imports from a source directory — "
             "point it at the footage (a copy), never at authored state."
         )
     found = sorted(
         child for child in source.iterdir()
-        if child.is_file() and child.suffix.lower() in lucid_media.SOURCE_MEDIA_EXTENSIONS
+        if child.is_file() and child.suffix.lower() in proofcut_media.SOURCE_MEDIA_EXTENSIONS
     )
     if not found:
         raise TrialError(
             f"no media in --source {source} "
-            f"(looked for {sorted(lucid_media.SOURCE_MEDIA_EXTENSIONS)})"
+            f"(looked for {sorted(proofcut_media.SOURCE_MEDIA_EXTENSIONS)})"
         )
     return found
 
@@ -262,7 +263,7 @@ def prepare(work: Path, *, fresh: bool, source: Path | None = None) -> tuple[Pat
     previous agent's work — the one way this instrument can lie about itself.
     The media is left alone when it is already there: it is deterministic and
     slow-ish to build, and nothing the agent does can modify it (import links
-    media in place, and lucid never writes to a source).
+    media in place, and proofcut never writes to a source).
 
     `source` is real footage, and then nothing is generated at all: the media
     directory is somebody else's, this function neither writes into it nor
@@ -298,13 +299,13 @@ def _mcp_config(project: Path, dest: Path) -> Path:
     """The generated one-server config, written where the run keeps its record.
 
     Shaped exactly like `webui.AgentSession._mcp_config`'s — this interpreter
-    and `-m proofcut.cli`, never the name `lucid` — but written into the run
+    and `-m proofcut.cli`, never the name `proofcut` — but written into the run
     directory rather than `$TMPDIR`, so a run's own config is part of its
     evidence instead of being swept.
     """
     config = {
         "mcpServers": {
-            "lucid": {
+            "proofcut": {
                 "command": sys.executable,
                 "args": ["-m", "proofcut.cli", "-C", str(project), "mcp"],
             }
@@ -332,7 +333,7 @@ def run_agent(
 
     `start_new_session=True` cuts both ways, and both halves are load-bearing.
     `claude` spawns the MCP server as a child, so a timeout that kills only the
-    parent leaves a lucid MCP process holding the trial project open — the new
+    parent leaves a proofcut MCP process holding the trial project open — the new
     session is what makes `killpg` reach all of it. The cost is that this
     subprocess no longer dies with *its* parent either: kill the harness and
     the agent goes on editing, which is what `hold_lock` exists for. Measured,
@@ -736,7 +737,7 @@ def score(
             )
         except Exception as exc:  # noqa: BLE001
             # Unsettled, never failed. An op that *refused* has not disagreed
-            # with the render — `lucid doctor`'s own rule, and it was measured
+            # with the render — `proofcut doctor`'s own rule, and it was measured
             # here on the first real run: a second job holding the GPU made
             # whisper OOM and `verify` came back a red FAIL beside an agent
             # whose own two verify passes had read 34/34 at similarity 1.0.
@@ -850,7 +851,7 @@ def run_control(project: Path, media: Path, output: Path, run_dir: Path) -> dict
 
     A first run of a new check gives candidates, not findings (the repo's
     standing rule), and the failure mode this guards against is the instrument:
-    a check that fails on the agent because it is wrong about lucid reads
+    a check that fails on the agent because it is wrong about proofcut reads
     exactly like a check that fails because the agent is. So the walkthrough
     `docs/DEMO.md` prints is run here, through the same CLI a person types,
     plus the caption burn the brief asks for and DEMO.md leaves to its
@@ -861,11 +862,11 @@ def run_control(project: Path, media: Path, output: Path, run_dir: Path) -> dict
     breaks the first time the transcript moves under it, which is the same
     trap `cue_reresolve` exists for.
     """
-    lucid = [sys.executable, "-m", "proofcut.cli", "-C", str(project)]
+    proofcut = [sys.executable, "-m", "proofcut.cli", "-C", str(project)]
     log: list[dict[str, Any]] = []
 
     def step(*argv: str) -> str:
-        done = subprocess.run([*lucid, *argv], capture_output=True, text=True, check=False)
+        done = subprocess.run([*proofcut, *argv], capture_output=True, text=True, check=False)
         log.append({
             "argv": list(argv),
             "returncode": done.returncode,

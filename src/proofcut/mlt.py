@@ -12,7 +12,7 @@ hand melt a document. That somebody is now this module.
 **Generated, never mutated.** The rule "lucid never writes MLT" is narrowed
 rather than dropped (PLAN.md § What this does to "lucid never writes MLT"):
 every document here is built from scratch out of the `Edit` plus the cue
-table, so there is still no in-place MLT surgery anywhere in lucid, and the
+table, so there is still no in-place MLT surgery anywhere in proofcut, and the
 document is disposable — rebuild it, don't patch it.
 
 Generating means owning MLT's two sharp edges, both of which produce a wrong
@@ -663,7 +663,7 @@ def _profile(rate: float, resolution: tuple[int, int]) -> ET.Element:
     return ET.Element(
         "profile",
         {
-            "description": "lucid",
+            "description": "proofcut",
             "width": str(width),
             "height": str(height),
             "progressive": "1",
@@ -906,11 +906,11 @@ def document(
     rate: float,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
     reframe: dict[str, Reframe] | None = None,
-    name: str = "lucid",
+    name: str = "proofcut",
 ) -> ET.Element:
     """Build the whole MLT document, and check it against its own frame total.
 
-    `audio` is the `Edit` — lucid's single subtractive track, whatever media
+    `audio` is the `Edit` — proofcut's single subtractive track, whatever media
     it holds; `picture` is the cue table's lane over the top of it. The names
     are the roles they play in the finished video, not a claim about streams:
     an edit whose own clips carry video gets that track composited too, rather
@@ -941,7 +941,7 @@ def document(
     a pillarbox into a filled one. It is applied per *node* rather than per
     resource, and never to a still: a card is authored at the canvas and
     re-authored when the canvas moves
-    (`card_reauthor`), so cropping one would be lucid deciding to lose a
+    (`card_reauthor`), so cropping one would be proofcut deciding to lose a
     corner of a title it drew itself.
 
     A reframe carrying **split panes** grows the document by a track per lane
@@ -1241,7 +1241,7 @@ def document(
 
     # A deterministic uuid: the same project rebuilt twice should produce the
     # same document, so a diff of two exports shows what actually changed.
-    sequence_uuid = f"{{{uuid.uuid5(uuid.NAMESPACE_URL, f'lucid:{name}')}}}"
+    sequence_uuid = f"{{{uuid.uuid5(uuid.NAMESPACE_URL, f'proofcut:{name}')}}}"
     sequence = ET.SubElement(
         root, "tractor", {"id": sequence_uuid, "in": "0", "out": str(total_frames - 1)}
     )
@@ -1666,7 +1666,7 @@ def read_ranges(root: ET.Element) -> tuple[list[ImportedRange], float]:
         if other != first:
             raise MLTError(
                 f"playlists {first_id!r} and {other_id!r} carry different cuts "
-                f"({len(first)} ranges against {len(other)}) — lucid's timeline is one "
+                f"({len(first)} ranges against {len(other)}) — proofcut's timeline is one "
                 "track with A/V linked, so a multi-track edit has no shape to import "
                 "into and is refused rather than half-read"
             )

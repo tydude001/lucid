@@ -228,13 +228,13 @@ function buildClipRow(clip) {
   // thing is the ASSET — clip.clip_id, the footage — never the addressing
   // clip a shot/cue happens to be read through (CLAUDE.md: "a shot's
   // addressing clip is not its footage"). timeline.js's V2 drop target reads
-  // this back off `application/x-lucid-asset` and resolves the drop point to
+  // this back off `application/x-proofcut-asset` and resolves the drop point to
   // a word on the loaded transcript clip separately — this file only names
   // what was dragged, never where it lands.
   row.draggable = true;
   row.addEventListener("dragstart", (event) => {
     const payload = { kind: "clip", id: clip.clip_id };
-    event.dataTransfer.setData("application/x-lucid-asset", JSON.stringify(payload));
+    event.dataTransfer.setData("application/x-proofcut-asset", JSON.stringify(payload));
     event.dataTransfer.setData("text/plain", payload.id);
     event.dataTransfer.effectAllowed = "copy";
   });
@@ -342,7 +342,7 @@ function buildCardRow(card) {
   row.draggable = true;
   row.addEventListener("dragstart", (event) => {
     const payload = { kind: "card", id: `card:${card.name}` };
-    event.dataTransfer.setData("application/x-lucid-asset", JSON.stringify(payload));
+    event.dataTransfer.setData("application/x-proofcut-asset", JSON.stringify(payload));
     event.dataTransfer.setData("text/plain", payload.id);
     event.dataTransfer.effectAllowed = "copy";
   });
@@ -419,7 +419,7 @@ function buildAttachForm(clip) {
   form.addEventListener("click", (event) => event.stopPropagation());
   const input = document.createElement("input");
   input.type = "text";
-  input.placeholder = "/path/on/the/lucid/host/transcript.json";
+  input.placeholder = "/path/on/the/proofcut/host/transcript.json";
   input.setAttribute("aria-label", `transcript path for ${clip.clip_id}`);
   input.autocomplete = "off";
   form.append(input);

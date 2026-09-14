@@ -23,7 +23,7 @@ separate calls minutes apart — so those two ops call `amend`, which carries
 the earlier stages of the same render forward onto a new line rather than
 starting a second run that would hide the first. Until 2026-09-04 neither
 wrote anything at all, and `finish_report` answered `captions.burned` with
-`"unknown"` for two of lucid's three clients on films whose captions were
+`"unknown"` for two of proofcut's three clients on films whose captions were
 demonstrably burned in (TRIAL.md § 2).
 """
 

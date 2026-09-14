@@ -1721,8 +1721,8 @@ def test_agent_prompt_with_a_model_passes_it_through_to_the_spawned_argv(
 ) -> None:
     """`model` is a free string, never validated against a fixed list — the
     same `ops.py` reasoning as the canvas/framing overrides: `claude`'s own
-    accepted model names change out from under any list lucid would keep, so
-    a wrong one is `claude`'s own refusal to report, not lucid's to guess at.
+    accepted model names change out from under any list proofcut would keep, so
+    a wrong one is `claude`'s own refusal to report, not proofcut's to guess at.
     """
     argv_file = tmp_path / "argv.txt"
     stub = _write_agent_stub(tmp_path / "agent-stub", argv_file, {"type": "result", "subtype": "success"})
@@ -1794,7 +1794,7 @@ def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
 
     argv = argv_file.read_text(encoding="utf-8").splitlines()
     assert "--strict-mcp-config" in argv
-    assert "mcp__lucid__*" in argv
+    assert "mcp__proofcut__*" in argv
     assert "--permission-mode" in argv
     assert argv[argv.index("--permission-mode") + 1] == "manual"
     for tool in ("Bash", "Write", "Edit", "WebFetch", "WebSearch"):
@@ -1804,7 +1804,7 @@ def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
     # PLAN.md § The agent panel, in mechanism.
     assert "--verbose" in argv
     # --tools '': the allow/disallow lists alone do not gate built-in tools
-    # absent from both — this is what actually confines the agent to lucid's
+    # absent from both — this is what actually confines the agent to proofcut's
     # MCP tools and nothing else. Same PLAN.md section.
     assert "--tools" in argv
     assert argv[argv.index("--tools") + 1] == ""
@@ -1813,11 +1813,11 @@ def test_agent_prompt_spawns_with_the_allowlist_and_streams_the_canned_event(
 def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
     server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`"command": "lucid"` is a PATH lookup performed by `claude`, and PATH is
+    """`"command": "proofcut"` is a PATH lookup performed by `claude`, and PATH is
     not this process's.
 
-    Every launch that skips an activated venv — `.venv/bin/lucid web`, a
-    desktop entry, whatever `lucid open` is wired to — leaves the name
+    Every launch that skips an activated venv — `.venv/bin/proofcut web`, a
+    desktop entry, whatever `proofcut open` is wired to — leaves the name
     unresolvable, and the failure is silent in the worst way: measured on this
     box, `claude`'s own `system`/`init` event came back
     `mcp_servers: [{"name": "lucid", "status": "failed"}]` with `tools: []`,
@@ -1838,7 +1838,7 @@ def test_the_agents_mcp_config_spawns_this_interpreter_not_a_path_lookup(
     argv = argv_file.read_text(encoding="utf-8").splitlines()
 
     config = json.loads(Path(argv[argv.index("--mcp-config") + 1]).read_text(encoding="utf-8"))
-    entry = config["mcpServers"]["lucid"]
+    entry = config["mcpServers"]["proofcut"]
     command = Path(entry["command"])
     assert command.is_absolute(), f"{entry['command']!r} is a PATH lookup, not a resolved binary"
     assert command.exists(), f"{command} does not exist"
@@ -1898,7 +1898,7 @@ def test_a_failed_agent_spawn_is_a_json_error_not_a_reset(
     server: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A binary that cannot spawn at all (`claude` missing from PATH, a dead
-    LUCID_AGENT_BIN) puts nothing on `/api/events` — so the composer's only
+    PROOFCUT_AGENT_BIN) puts nothing on `/api/events` — so the composer's only
     way to hear about it is this request failing as JSON rather than the
     connection resetting on an uncaught server-side traceback.
     """
@@ -3219,7 +3219,7 @@ def picker_server(tmp_path: Path) -> Iterator[str]:
 
 def _write_manifest(directory: Path, text: str) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "lucid.json").write_text(text, encoding="utf-8")
+    (directory / "proofcut.json").write_text(text, encoding="utf-8")
 
 
 def test_scan_finds_a_project_and_skips_a_non_project_directory(
@@ -3251,6 +3251,47 @@ def test_an_old_schema_project_is_listed_as_needing_migration_not_skipped_or_ope
     entry = {entry["path"]: entry for entry in payload["projects"]}[str(old)]
     assert entry["status"] == "needs_migration"
     assert entry["schema_version"] == 2
+
+
+def test_a_pre_rename_project_is_listed_as_needing_migration_not_skipped_or_opened(
+    project: Path, picker_server: str
+) -> None:
+    """A directory holding only `lucid.json` (docs/plans/RENAME.md, decision 1)
+    — at the *current* schema, so the schema check alone would call it fine
+    and a scan that looked only for `proofcut.json` would not list it at all."""
+    old = project.parent / "pre-rename"
+    ops.init(old)
+    (old / "proofcut.json").rename(old / "lucid.json")
+    before = (old / "lucid.json").read_bytes()
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entry = {entry["path"]: entry for entry in payload["projects"]}[str(old)]
+    assert entry["status"] == "needs_migration"
+    assert entry["manifest"] == "lucid.json"
+    assert entry["schema_version"] == 4
+    # Listed, never renamed as a side effect of being looked at.
+    assert (old / "lucid.json").read_bytes() == before
+    assert not (old / "proofcut.json").exists()
+
+    status, payload = _post(f"{picker_server}/api/open", {"path": str(old)})
+    assert status == 400
+    assert "proofcut migrate" in payload["error"]
+    assert not (old / "proofcut.json").exists()
+
+
+def test_a_directory_holding_both_manifests_is_listed_unreadable(
+    project: Path, picker_server: str
+) -> None:
+    both = project.parent / "both-manifests"
+    ops.init(both)
+    (both / "lucid.json").write_bytes((both / "proofcut.json").read_bytes())
+
+    status, payload = _json(f"{picker_server}/api/projects")
+    assert status == 200
+    entry = {entry["path"]: entry for entry in payload["projects"]}[str(both)]
+    assert entry["status"] == "unreadable"
+    assert "both" in entry["error"]
 
 
 def test_an_unreadable_manifest_is_listed_not_skipped(
@@ -3301,7 +3342,7 @@ def test_a_project_with_a_corrupt_manifest_record_is_still_listed_as_an_error(
     (`_stored_tail`'s own validation, read even before a timeline exists)."""
     broken = project.parent / "broken-tail"
     ops.init(broken)
-    manifest_path = broken / "lucid.json"
+    manifest_path = broken / "proofcut.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["tail"] = {"asset": "card:not-a-real-asset"}  # missing required 'seconds'
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -3311,7 +3352,7 @@ def test_a_project_with_a_corrupt_manifest_record_is_still_listed_as_an_error(
     entry = {entry["path"]: entry for entry in payload["projects"]}[str(broken)]
     assert entry["status"] == "error"
     assert entry["error"]
-    assert entry["seeded"] is False  # never got as far as `lucid seed`
+    assert entry["seeded"] is False  # never got as far as `proofcut seed`
 
 
 def test_scan_does_not_follow_a_symlink_outside_root(
@@ -3416,7 +3457,7 @@ def test_create_makes_a_project_under_the_root_and_open_binds_it(
     assert status == 200
     assert payload["created"] is True
     assert Path(payload["path"]) == (tmp_path / "fresh").resolve()
-    assert (tmp_path / "fresh" / "lucid.json").is_file()
+    assert (tmp_path / "fresh" / "proofcut.json").is_file()
 
     # Creating does not open — there is exactly one place that binds.
     status, payload = _post(f"{picker_server}/api/open", {"path": payload["path"]})
@@ -3454,7 +3495,7 @@ def test_create_refuses_a_symlink_before_writing_anything(
     status, payload = _post(f"{picker_server}/api/create", {"name": "linked"})
     assert status == 403
     assert "symlink" in payload["error"]
-    assert not (outside / "lucid.json").exists()
+    assert not (outside / "proofcut.json").exists()
 
 
 def test_create_refuses_an_existing_project(picker_server: str, project: Path) -> None:
@@ -3626,7 +3667,7 @@ def test_open_refuses_an_old_schema_project_rather_than_migrating_it(
     assert status == 400
     assert "schema_version" in payload["error"]
     # Never migrated as a side effect of merely attempting to open it.
-    assert json.loads((old / "lucid.json").read_text())["schema_version"] == 2
+    assert json.loads((old / "proofcut.json").read_text())["schema_version"] == 2
 
 
 def test_open_requires_loopback_and_json_like_every_other_mutation(
@@ -4535,8 +4576,8 @@ def test_reframe_detect_missing_face_detector_reports_as_an_error_event_and_free
     handler — no error event, `_finish()` never runs, the slot latches busy
     forever. Pinned here rather than trusted from the source read."""
     message = (
-        "no interpreter with a face detector. Looked at $LUCID_FACE (unset), "
-        "then a sibling venv. Set LUCID_FACE to the python in a venv that has "
+        "no interpreter with a face detector. Looked at $PROOFCUT_FACE (unset), "
+        "then a sibling venv. Set PROOFCUT_FACE to the python in a venv that has "
         "insightface and onnxruntime."
     )
 
@@ -4657,7 +4698,7 @@ def test_output_streams_the_last_render_with_range(project: Path, server: str) -
 def test_output_refuses_a_log_line_naming_a_file_outside_the_project(
     project: Path, server: str
 ) -> None:
-    """lucid writes this log itself, which is exactly the argument for not
+    """proofcut writes this log itself, which is exactly the argument for not
     trusting it: one hand-edited line should not turn a loopback server into
     a file server for the whole disk.
     """
@@ -4803,7 +4844,7 @@ def test_finish_framing_is_opt_in_and_zero_is_not_none(server: str) -> None:
 #: values — no real node is named here, and nothing in `remote_policy` or
 #: `tailscale_identity` reads these as anything but opaque host strings.
 _TAILNET_HOST = "100.101.102.103"
-_TAILNET_NAME = "lucid-box.tailnet-example.ts.net"
+_TAILNET_NAME = "proofcut-box.tailnet-example.ts.net"
 
 
 @pytest.fixture
@@ -5034,7 +5075,7 @@ def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_pat
         {
             "BackendState": "Running",
             "TailscaleIPs": [_TAILNET_HOST, "fd7a:115c:a1e0::1"],
-            "Self": {"HostName": "lucid-box", "DNSName": _TAILNET_NAME + "."},
+            "Self": {"HostName": "proofcut-box", "DNSName": _TAILNET_NAME + "."},
         }
     )
     fake = write_stub(tmp_path / "tailscale", f"print({payload!r})\n")
@@ -5046,7 +5087,7 @@ def test_tailscale_identity_reads_the_bind_address_and_every_client_name(tmp_pat
     # The root dot `tailscale status` reports is stripped here as well as in
     # `remote_policy`: a browser never sends it, and a name that only matches
     # with it would refuse every real client.
-    assert set(names) >= {_TAILNET_HOST, "fd7a:115c:a1e0::1", _TAILNET_NAME, "lucid-box"}
+    assert set(names) >= {_TAILNET_HOST, "fd7a:115c:a1e0::1", _TAILNET_NAME, "proofcut-box"}
 
 
 def test_the_cookie_is_not_stamped_onto_a_later_request_on_the_same_connection(

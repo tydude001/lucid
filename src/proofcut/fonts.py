@@ -28,7 +28,7 @@ disagree, and why a probe has to compare against the machine's own substitute
 rather than against any particular wrong answer: there are at least two
 distinct flavours of wrong here and they do not look like each other.
 
-No lucid imports on purpose. `captions` calls into this module for one thing,
+No proofcut imports on purpose. `captions` calls into this module for one thing,
 `libass_fontsdir`, which writes only into the burn's own temporary directory —
 installing a face is a write into `$HOME` and stays an explicit op, so a burn
 can never quietly move a render by installing something first.
@@ -58,7 +58,7 @@ STATIC_DIR = VENDORED_DIR / "static"
 #: what "substituted" looks like *on this machine, today*, so the comparison
 #: needs no golden image and cannot rot when a font is installed or removed.
 #: Deliberately not a plausible typo of a real family.
-IMPOSSIBLE_FAMILY = "lucid No Such Face 0000"
+IMPOSSIBLE_FAMILY = "proofcut No Such Face 0000"
 
 
 class FontError(RuntimeError):
@@ -100,7 +100,7 @@ def user_font_dir() -> Path:
 
 
 def vendored(source: Path | str | None = None) -> list[Path]:
-    """Every face shipped at `source` (lucid's own package dir, by default).
+    """Every face shipped at `source` (proofcut's own package dir, by default).
 
     `source` is additive: a channel preset pack (`pack.py`) may carry its own
     font directory alongside its JSON, and this is how `ops.pack_apply` asks
@@ -115,7 +115,7 @@ def vendored(source: Path | str | None = None) -> list[Path]:
 
 
 def install(*, source: Path | str | None = None, dest: Path | str | None = None) -> dict[str, Any]:
-    """Put the faces at `source` (lucid's own, by default) where fontconfig looks.
+    """Put the faces at `source` (proofcut's own, by default) where fontconfig looks.
 
     Idempotent, and compares by *content*, not by name or mtime: a box that
     already has the face — this one does, byte-identical, from the NAS copy
@@ -131,7 +131,7 @@ def install(*, source: Path | str | None = None, dest: Path | str | None = None)
 
     `source` is additive for the same reason `vendored` takes it: a pack's
     own font directory gets the identical content-hash-idempotent,
-    fc-cache-refreshing treatment lucid's own vendored set gets, through this
+    fc-cache-refreshing treatment proofcut's own vendored set gets, through this
     one function rather than a parallel installer.
     """
     target = Path(dest).expanduser() if dest is not None else user_font_dir()
@@ -386,7 +386,7 @@ def _probe_ass(family: str, *, size: int, width: int, height: int) -> str:
     return "\n".join(
         [
             "[Script Info]",
-            "Title: lucid font probe",
+            "Title: proofcut font probe",
             "ScriptType: v4.00+",
             f"PlayResX: {width}",
             f"PlayResY: {height}",
@@ -415,7 +415,7 @@ def _probe_ass(family: str, *, size: int, width: int, height: int) -> str:
 def _run_tool(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """`subprocess.run`, with a missing binary refused as a `FontError`.
 
-    A probe's callers catch `FontError` and report it — `lucid doctor` among
+    A probe's callers catch `FontError` and report it — `proofcut doctor` among
     them, whose whole job is the machine that lacks ImageMagick. A bare
     `FileNotFoundError` went straight past that and crashed doctor on exactly
     the box it exists to diagnose.
@@ -536,7 +536,7 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
 
     That second burn is the whole design. The obvious probe compares against a
     stored reference image, which rots the moment a face is updated and cannot
-    be shipped for a family lucid does not vendor. Calibrating against the
+    be shipped for a family proofcut does not vendor. Calibrating against the
     machine's own substitute costs one extra frame and answers the question
     for any family, on any box, with no stored state.
 
@@ -549,7 +549,7 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
     repo has measured libass disagreeing with it, so the two are reported
     side by side and neither is folded into the other.
     """
-    with tempfile.TemporaryDirectory(prefix="lucid-font-probe-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-font-probe-") as tmp:
         root = Path(tmp)
         named, control = root / "named.png", root / "control.png"
         chose = _burn_probe(family, named, size=size, width=width, height=height)
@@ -582,7 +582,7 @@ def probe(family: str, *, size: int = 72, width: int = 1280, height: int = 200) 
         report["warning"] = (
             f"{family!r} renders identically to a family that cannot exist, so libass "
             "is substituting — captions will draw in a face nobody chose, and ffmpeg "
-            "will exit 0. `lucid fonts --install` puts the vendored face where "
+            "will exit 0. `proofcut fonts --install` puts the vendored face where "
             f"{native_font_system() or 'fontconfig'} looks."
         )
     return report

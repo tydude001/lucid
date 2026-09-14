@@ -1,10 +1,10 @@
-"""Probing the six external binaries lucid depends on, and naming their traps.
+"""Probing the six external binaries proofcut depends on, and naming their traps.
 
 Every dependency here has a documented way of failing *silently* — that is the
 whole reason this module exists. `melt` prints `Failed to load` and exits 0.
 PyPI's auto-editor is a stale 29.x whose multi-source render degrades to
 720x576 and exits 0. libass substitutes a font nobody chose and ffmpeg exits 0.
-The repo's CLAUDE.md records each of them; a newcomer has none of that, so `lucid doctor`
+The repo's CLAUDE.md records each of them; a newcomer has none of that, so `proofcut doctor`
 probes each one and — when a probe fails — prints the named trap and the fix
 rather than a bare ✗.
 
@@ -20,7 +20,7 @@ is what makes doctor something to run first rather than something to be talked
 into. Nothing loads a model, decodes a frame, or writes into the project — and
 `report()` needs no project at all.
 
-No lucid state is touched, and the only lucid imports are the resolver modules
+No proofcut state is touched, and the only proofcut imports are the resolver modules
 whose answers are being reported, so doctor says exactly what the real ops
 would resolve rather than a second opinion about it.
 """
@@ -56,10 +56,10 @@ MIN_AUTO_EDITOR = 31
 PROBE_TIMEOUT = 60.0
 
 #: auto-editor's paid-key gate, stated the way CLAUDE.md states it: a
-#: condition lucid already designs around, not a warning to hand the user.
+#: condition proofcut already designs around, not a warning to hand the user.
 AUTO_EDITOR_GATE = (
     "31.x gates multi-*source* timelines behind a paid key — the render "
-    "degrades to 720x576 and still exits 0. lucid designs around it: "
+    "degrades to 720x576 and still exits 0. proofcut designs around it: "
     "single-source goes through auto-editor, and anything layered (b-roll, "
     "cards, music) is written as MLT and rendered through melt, which has no "
     "source-count gate. Nothing here needs the key."
@@ -101,13 +101,13 @@ def _entry(name: str, what: str, **fields: Any) -> dict[str, Any]:
 # -- required ------------------------------------------------------------
 
 
-#: The encoder every lucid render asks for — `picture.RENDER_ARGS`, the export
+#: The encoder every proofcut render asks for — `picture.RENDER_ARGS`, the export
 #: presets, the preview proxy and `scripts/make_demo.py`. Fedora's default
 #: `ffmpeg-free` lacks it, and doctor called that ffmpeg ✓ while the demo's
 #: first command died on it. HISTORY.md § A stranger's install, on a clean Fedora.
 H264_ENCODER = "libx264"
 
-#: The filters lucid and its demo draw text with, each naming the library an
+#: The filters proofcut and its demo draw text with, each naming the library an
 #: ffmpeg has to be built against to have it. `drawtext` (freetype) labels the
 #: demo's own footage, so without it DEMO.md stops at its first command; `ass`
 #: (libass) is every caption burn and the caption-font probe. Homebrew's plain
@@ -118,7 +118,7 @@ TEXT_FILTERS = {"drawtext": "freetype", "ass": "libass"}
 
 
 def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
-    """ffmpeg or ffprobe, both of which lucid calls by bare name on PATH."""
+    """ffmpeg or ffprobe, both of which proofcut calls by bare name on PATH."""
     found = shutil.which(binary)
     if not found:
         return _entry(
@@ -128,7 +128,7 @@ def _ffmpeg_entry(binary: str, what: str) -> dict[str, Any]:
             why=f"{binary} is not on PATH",
             fix=(
                 "install ffmpeg (it ships both binaries). Every media operation "
-                "in lucid goes through them, so nothing works without this one."
+                "in proofcut goes through them, so nothing works without this one."
             ),
         )
     out, err, _ = _run([found, "-version"])
@@ -212,7 +212,7 @@ def _whisper_entry() -> dict[str, Any]:
     PATH whose venv has lost torch, which resolves fine and dies minutes into
     a transcription. `--help` imports the package and costs about a second.
     """
-    looked_for = f"$LUCID_WHISPER ({os.environ.get('LUCID_WHISPER') or 'unset'}), then PATH"
+    looked_for = f"$PROOFCUT_WHISPER ({os.environ.get('PROOFCUT_WHISPER') or 'unset'}), then PATH"
     try:
         binary = asr.whisper_binary()
     except asr.ASRError as exc:
@@ -224,8 +224,8 @@ def _whisper_entry() -> dict[str, Any]:
             fix=(
                 "install openai-whisper (`uv tool install openai-whisper`, or "
                 "into any venv) and put its `whisper` on PATH, or point "
-                "LUCID_WHISPER at the binary. lucid never imports it — it is a "
-                "subprocess, so it does not have to live in lucid's own venv. "
+                "PROOFCUT_WHISPER at the binary. proofcut never imports it — it is a "
+                "subprocess, so it does not have to live in proofcut's own venv. "
                 "With no NVIDIA GPU, add `--torch-backend cpu`: the default pulls "
                 "CUDA torch, 5.5 GB against 1.9 GB, for a card that is not there."
             ),
@@ -245,14 +245,14 @@ def _whisper_entry() -> dict[str, Any]:
             ),
             fix=(
                 "that venv has lost a dependency (usually torch). Reinstall "
-                "openai-whisper into it, or point LUCID_WHISPER at a venv that works."
+                "openai-whisper into it, or point PROOFCUT_WHISPER at a venv that works."
             ),
         )
     note = None
     if "--word_timestamps" not in text:
         note = (
             "this build does not advertise --word_timestamps, which is the "
-            "only thing lucid asks whisper for — every cut is addressed by "
+            "only thing proofcut asks whisper for — every cut is addressed by "
             "word index. Check that it is openai-whisper and not a lookalike."
         )
     return _entry(
@@ -268,14 +268,14 @@ def _whisper_entry() -> dict[str, Any]:
 def _auto_editor_entry() -> dict[str, Any]:
     """auto-editor, checked for presence *and* for a major of at least 31."""
     looked_for = (
-        f"$LUCID_AUTO_EDITOR ({os.environ.get('LUCID_AUTO_EDITOR') or 'unset'}), "
+        f"$PROOFCUT_AUTO_EDITOR ({os.environ.get('PROOFCUT_AUTO_EDITOR') or 'unset'}), "
         "then PATH, then ~/.local/bin/auto-editor"
     )
     stale_fix = (
         f"install the {autoeditor.release_asset()} binary from the GitHub release. "
         "`pip install auto-editor` gets 29.3.1 — a stale fork of the old "
         "Python program under the same name, which does not speak the v3 "
-        "timeline lucid writes."
+        "timeline proofcut writes."
     )
     try:
         binary = autoeditor.binary()
@@ -307,7 +307,7 @@ def _auto_editor_entry() -> dict[str, Any]:
             found=binary,
             version=version,
             why=(
-                f"this is {version}, and lucid needs {MIN_AUTO_EDITOR} or newer. "
+                f"this is {version}, and proofcut needs {MIN_AUTO_EDITOR} or newer. "
                 f"{version} is almost certainly PyPI's build."
             ),
             fix=stale_fix,
@@ -337,7 +337,7 @@ def _melt_entry() -> dict[str, Any]:
     """
     where, install = picture.melt_search()
     looked_for = (
-        f"$LUCID_MELT ({os.environ.get('LUCID_MELT') or 'unset'}), "
+        f"$PROOFCUT_MELT ({os.environ.get('PROOFCUT_MELT') or 'unset'}), "
         f"then PATH ({', '.join(picture.MELT_NAMES)}), then {where}"
     )
     fix = (
@@ -381,9 +381,9 @@ def _melt_entry() -> dict[str, Any]:
 
 def _magick_entry() -> dict[str, Any]:
     """ImageMagick 7, plus the RSVG coder cards are rasterised through."""
-    looked_for = f"$LUCID_MAGICK ({os.environ.get('LUCID_MAGICK') or 'unset'}), then PATH"
+    looked_for = f"$PROOFCUT_MAGICK ({os.environ.get('PROOFCUT_MAGICK') or 'unset'}), then PATH"
     fix = (
-        "install ImageMagick 7 (`magick`), or set LUCID_MAGICK to a command "
+        "install ImageMagick 7 (`magick`), or set PROOFCUT_MAGICK to a command "
         "that runs it. IM6's `convert` is deliberately not searched: it is a "
         "different SVG renderer with different defaults. Without magick, title "
         "and end cards cannot be drawn; everything else works."
@@ -413,7 +413,7 @@ def _magick_entry() -> dict[str, Any]:
         note = (
             "this build has no RSVG coder (`magick -list format | grep RSVG`), "
             "so card SVGs will rasterise through a different renderer than the "
-            "one lucid's templates were measured on."
+            "one proofcut's templates were measured on."
         )
     return _entry(
         "magick",
@@ -432,7 +432,7 @@ def _magick_entry() -> dict[str, Any]:
 def _optional(name: str, feature: str, report: dict[str, Any], **fields: Any) -> dict[str, Any]:
     """An optional capability. Missing is `unavailable`, never a failure.
 
-    Everything lucid promises works without these, so a doctor run on a box
+    Everything proofcut promises works without these, so a doctor run on a box
     with none of them is still a clean bill of health — `ok` on the report as
     a whole reads only the required section.
     """
@@ -445,17 +445,17 @@ def _optional(name: str, feature: str, report: dict[str, Any], **fields: Any) ->
 def _vlm_entry() -> dict[str, Any]:
     report = describe.available()
     row = _optional(
-        "LUCID_VLM",
+        "PROOFCUT_VLM",
         "describe — searching b-roll by what is on screen",
         report,
-        looked_for=f"$LUCID_VLM ({os.environ.get('LUCID_VLM') or 'unset'})",
+        looked_for=f"$PROOFCUT_VLM ({os.environ.get('PROOFCUT_VLM') or 'unset'})",
         found=report.get("python"),
     )
     if not row["ok"]:
         row["fix"] = (
-            "point LUCID_VLM at a python in a venv with torch, transformers, "
+            "point PROOFCUT_VLM at a python in a venv with torch, transformers, "
             "bitsandbytes and Pillow, on a machine with a CUDA GPU; the model "
-            f"({describe.MODEL}) downloads on first use. `lucid describe --plan` "
+            f"({describe.MODEL}) downloads on first use. `proofcut describe --plan` "
             "reports the same answer without paying for a model load."
         )
     return row
@@ -464,16 +464,16 @@ def _vlm_entry() -> dict[str, Any]:
 def _face_entry() -> dict[str, Any]:
     report = faces.available()
     row = _optional(
-        "LUCID_FACE",
+        "PROOFCUT_FACE",
         "reframe-detect — face-aware crop proposals when the canvas moves",
         report,
-        looked_for=f"$LUCID_FACE ({os.environ.get('LUCID_FACE') or 'unset'})",
+        looked_for=f"$PROOFCUT_FACE ({os.environ.get('PROOFCUT_FACE') or 'unset'})",
         found=report.get("python"),
     )
     if not row["ok"]:
         row["fix"] = (
-            "point LUCID_FACE at a python in a venv with insightface, "
-            "onnxruntime and opencv-python. Framing still works by hand (`lucid reframe`); only "
+            "point PROOFCUT_FACE at a python in a venv with insightface, "
+            "onnxruntime and opencv-python. Framing still works by hand (`proofcut reframe`); only "
             "the proposals need this."
         )
     return row
@@ -488,11 +488,11 @@ def _tts_entry() -> dict[str, Any]:
     default on purpose, so unset is an expected refusal rather than an error.
     """
     looked_for = (
-        f"$LUCID_TTS ({os.environ.get('LUCID_TTS') or 'unset'}), "
-        f"$LUCID_TTS_MODEL ({os.environ.get('LUCID_TTS_MODEL') or 'unset'})"
+        f"$PROOFCUT_TTS ({os.environ.get('PROOFCUT_TTS') or 'unset'}), "
+        f"$PROOFCUT_TTS_MODEL ({os.environ.get('PROOFCUT_TTS_MODEL') or 'unset'})"
     )
     row = _entry(
-        "LUCID_TTS",
+        "PROOFCUT_TTS",
         "vo-synth — synthesising a line in the project's own voice",
         looked_for=looked_for,
     )
@@ -502,9 +502,9 @@ def _tts_entry() -> dict[str, Any]:
     except tts.TTSError as exc:
         row["why"] = str(exc)
         row["fix"] = (
-            "point LUCID_TTS at a python with qwen-tts and a CUDA torch, and "
-            "LUCID_TTS_MODEL at a local Qwen3-TTS snapshot. Everything else in "
-            "lucid works without them."
+            "point PROOFCUT_TTS at a python with qwen-tts and a CUDA torch, and "
+            "PROOFCUT_TTS_MODEL at a local Qwen3-TTS snapshot. Everything else in "
+            "proofcut works without them."
         )
         return row
     if refusal := tts.platform_refusal():
@@ -512,11 +512,11 @@ def _tts_entry() -> dict[str, Any]:
         row["fix"] = (
             "vo-synth has only ever run on a CUDA GPU, so run it on a Linux or "
             f"Windows box with one — or set {tts.DEVICE_ENV}=mps and measure it. "
-            "Everything else in lucid works without it."
+            "Everything else in proofcut works without it."
         )
         return row
 
-    voice = os.environ.get("LUCID_TTS_VOICE")
+    voice = os.environ.get("PROOFCUT_TTS_VOICE")
     if not voice:
         row["why"] = (
             "no voice is configured. There is no default voice on purpose — a "
@@ -524,14 +524,14 @@ def _tts_entry() -> dict[str, Any]:
             "not a broken install."
         )
         row["fix"] = (
-            "set LUCID_TTS_VOICE to a directory holding ref.wav (≈10–20 s of "
+            "set PROOFCUT_TTS_VOICE to a directory holding ref.wav (≈10–20 s of "
             "one speaker, no music) and ref.txt (its words), or pass "
             "`--voice <dir>` per call."
         )
         return row
     missing = [n for n in ("ref.wav", "ref.txt") if not (Path(voice).expanduser() / n).is_file()]
     if missing:
-        row["why"] = f"the directory $LUCID_TTS_VOICE names is missing {', '.join(missing)}"
+        row["why"] = f"the directory $PROOFCUT_TTS_VOICE names is missing {', '.join(missing)}"
         row["fix"] = (
             "a voice is a directory holding ref.wav (≈10–20 s of one speaker, "
             "no music) and ref.txt (its words). Both are needed: the reference "
@@ -610,11 +610,11 @@ def _display() -> dict[str, Any]:
                 "still exit 0."
             )
             report["fix"] = (
-                "run renders under a virtual X display: `xvfb-run -a lucid …` "
+                "run renders under a virtual X display: `xvfb-run -a proofcut …` "
                 "(`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`). Some MLT "
                 "builds want X11 whatever QT_QPA_PLATFORM says; Ubuntu 24.04's MLT "
                 "7.22 and Fedora 44's MLT 7.40 are two. "
-                "`lucid export --render` refuses rather than rendering without it."
+                "`proofcut export --render` refuses rather than rendering without it."
             )
             return report
     if report["ok"]:
@@ -633,7 +633,7 @@ def _display() -> dict[str, Any]:
     report["fix"] = (
         "run this where a desktop session exists, or set "
         "QT_QPA_PLATFORM=offscreen, which is the route for any unattended "
-        "render. `lucid export --render` refuses rather than rendering a film "
+        "render. `proofcut export --render` refuses rather than rendering a film "
         "with its picture missing."
     )
     return report
@@ -694,7 +694,7 @@ def _caption_font() -> dict[str, Any]:
         f"{family!r} could not be shown to draw — the probe rendered nothing at all"
     )
     report["fix"] = (
-        f"`lucid fonts --install` copies the vendored face where "
+        f"`proofcut fonts --install` copies the vendored face where "
         f"{native or 'fontconfig'} looks. Until then captions burn in a face "
         "nobody chose and ffmpeg exits 0 about it."
     )
@@ -704,8 +704,8 @@ def _caption_font() -> dict[str, Any]:
 def _agent() -> dict[str, Any]:
     """The agent panel's `claude`, run for its version rather than found.
 
-    Its own section, like the display: it is not a capability of lucid's
-    engine but of one client — `lucid web`'s agent pane spawns `claude -p`
+    Its own section, like the display: it is not a capability of proofcut's
+    engine but of one client — `proofcut web`'s agent pane spawns `claude -p`
     and nothing else does — so absent is `–`, never a failure, and `ok` on
     the report does not read it. The binary is resolved by `webui._agent_bin`
     itself rather than restated, so this answers what the pane will spawn.
@@ -719,7 +719,7 @@ def _agent() -> dict[str, Any]:
     fix = (
         "install Claude Code (https://docs.claude.com/en/docs/claude-code) and "
         f"log in, or set {webui.AGENT_BIN_ENV} to its binary. Everything else — "
-        "the CLI, `lucid mcp` for any MCP client, and the rest of the workspace "
+        "the CLI, `proofcut mcp` for any MCP client, and the rest of the workspace "
         "— works without it."
     )
     if not found:
@@ -743,6 +743,57 @@ def _agent() -> dict[str, Any]:
     return {"ok": True, "found": found, "version": version, "why": None, "fix": None}
 
 
+# -- the old name's variables --------------------------------------------
+
+#: The prefix every variable carried before the rename, and the one it carries
+#: now. docs/plans/RENAME.md decision 3: no resolver reads the old name — a
+#: resolver that reads both is two facts — so this section is the only place
+#: in proofcut that looks at a `LUCID_*` variable at all, and it only names it.
+LEGACY_ENV_PREFIX = "LUCID_"
+ENV_PREFIX = "PROOFCUT_"
+
+
+def _legacy_env() -> dict[str, Any]:
+    """Every `LUCID_*` variable still set, each beside the name that replaced it.
+
+    Without this a stranger's `60-lucid.conf` silently loses face detection at
+    exit 0 — the resolver finds `PROOFCUT_FACE` unset and reports the
+    capability absent, which is true and says nothing about why. Its own
+    section, like the agent panel's: a stale variable is a note, never a ✗,
+    and `ok` on the report does not read it. An empty `stale` is the all-clear.
+
+    **Names only, never values.** `LUCID_TTS_VOICE` is somebody's recorded
+    speech (the voice rule `_tts_entry` holds to), and every other value is a
+    path on this machine; the name is the whole answer a rename needs.
+    """
+    renames = {
+        name: ENV_PREFIX + name[len(LEGACY_ENV_PREFIX) :]
+        for name in sorted(os.environ)
+        if name.startswith(LEGACY_ENV_PREFIX)
+    }
+    stale = [
+        {"name": old, "rename_to": new, "rename_to_set": bool(os.environ.get(new))}
+        for old, new in renames.items()
+    ]
+    if not stale:
+        return {"ok": True, "stale": [], "note": None, "fix": None}
+    return {
+        "ok": False,
+        "stale": stale,
+        "note": (
+            "proofcut was named lucid until 0.23.0 and reads only PROOFCUT_* "
+            "variables, so each of these is ignored — whatever it configured "
+            "reads as unset in the rows above."
+        ),
+        "fix": (
+            "rename each variable where it is set (a shell profile, or a file "
+            "under ~/.config/environment.d/ on a systemd desktop) to the name "
+            "beside it, then start a new session. One marked `already set` is "
+            "a leftover and can simply be removed."
+        ),
+    }
+
+
 # -- the report ----------------------------------------------------------
 
 
@@ -752,7 +803,7 @@ def report() -> dict[str, Any]:
     Report-only: nothing is installed, nothing is written, and no project is
     opened or needed. `ok` reads the **required** section alone — an optional
     capability that is absent is a feature that is unavailable, not a broken
-    install, and everything lucid promises works without all four of them.
+    install, and everything proofcut promises works without all four of them.
     """
     from proofcut import __version__
 
@@ -769,13 +820,14 @@ def report() -> dict[str, Any]:
     # no card (HISTORY.md § A stranger's install, on a clean Ubuntu).
     optional = [_magick_entry(), _vlm_entry(), _face_entry(), _tts_entry()]
     return {
-        "lucid": __version__,
+        "proofcut": __version__,
         "ok": all(entry["ok"] for entry in required),
         "required": required,
         "optional": optional,
         "display": _display(),
         "caption_font": _caption_font(),
         "agent": _agent(),
+        "legacy_env": _legacy_env(),
     }
 
 
@@ -810,8 +862,8 @@ def _render_entry(entry: dict[str, Any], *, optional: bool) -> list[str]:
     head = f"  {mark} {entry['name']}"
     if entry["version"]:
         head += f" {entry['version']}"
-    # `found` is shown even for a row that is not ok: "LUCID_TTS is here but
-    # has no voice" and "LUCID_TTS is not here at all" are different answers,
+    # `found` is shown even for a row that is not ok: "PROOFCUT_TTS is here but
+    # has no voice" and "PROOFCUT_TTS is not here at all" are different answers,
     # and the path is what tells them apart at a glance.
     if entry["found"]:
         head += f" — {entry['found']}"
@@ -829,7 +881,7 @@ def _render_entry(entry: dict[str, Any], *, optional: bool) -> list[str]:
 
 def render(payload: dict[str, Any]) -> str:
     """`report()` as something to read — the CLI's own rendering of the dict."""
-    lines = [f"lucid {payload['lucid']}", ""]
+    lines = [f"proofcut {payload['proofcut']}", ""]
 
     lines.append("Required")
     for entry in payload["required"]:
@@ -877,13 +929,28 @@ def render(payload: dict[str, Any]) -> str:
     # a payload built by hand (the CLI's own tests build two) predates it.
     agent = payload.get("agent")
     if agent is not None:
-        lines += ["", "Agent panel (`lucid web`'s agent pane — optional)"]
+        lines += ["", "Agent panel (`proofcut web`'s agent pane — optional)"]
         if agent["ok"]:
             lines.append(f"  {_TICK} {agent['version']} — {agent['found']}")
         else:
             lines.append(f"  {_DASH} claude" + (f" — {agent['found']}" if agent["found"] else ""))
             lines += _wrap(agent["why"], indent="      ")
             lines += _wrap(f"fix: {agent['fix']}", indent="      ")
+
+    # `.get`, the agent section's reason: hand-built payloads predate it.
+    legacy = payload.get("legacy_env")
+    if legacy is not None:
+        lines += ["", f"Old-name variables ({LEGACY_ENV_PREFIX}* — never read)"]
+        if not legacy["stale"]:
+            lines.append(f"  {_TICK} none set")
+        else:
+            for var in legacy["stale"]:
+                lines.append(
+                    f"  {_DASH} {var['name']} — now {var['rename_to']}"
+                    + (" (already set)" if var["rename_to_set"] else "")
+                )
+            lines += _wrap(f"note: {legacy['note']}", indent="      ")
+            lines += _wrap(f"fix: {legacy['fix']}", indent="      ")
 
     failures = [e["name"] for e in payload["required"] if not e["ok"]]
     lines.append("")

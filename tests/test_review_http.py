@@ -1,4 +1,4 @@
-"""`lucid review serve`, exercised over a real socket.
+"""`proofcut review serve`, exercised over a real socket.
 
 The same discipline `test_webui_http.py` applies to the edit UI: a handler
 function called directly proves nothing about routing, Range, or whether the

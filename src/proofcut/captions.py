@@ -821,7 +821,7 @@ def to_ass(
     *,
     style: Preset,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
-    title: str = "lucid",
+    title: str = "proofcut",
 ) -> str:
     """Render cues as an ASS subtitle file."""
     width, height = resolution
@@ -842,7 +842,7 @@ def to_ass(
             "MarginL, MarginR, MarginV, Encoding"
         ),
         (
-            f"Style: lucid,{style.font},{style.size},{style.primary},{style.secondary},"
+            f"Style: proofcut,{style.font},{style.size},{style.primary},{style.secondary},"
             f"{style.outline_colour},{style.back},{style.bold},0,0,0,100,100,0,0,"
             f"{style.border_style},{style.outline:g},{style.shadow:g},{style.alignment},"
             f"{round(width * 0.08)},{round(width * 0.08)},{style.margin_v},1"
@@ -852,7 +852,7 @@ def to_ass(
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     lines.extend(
-        f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},lucid,,0,0,0,,"
+        f"Dialogue: 0,{_ass_time(cue.start)},{_ass_time(cue.end)},proofcut,,0,0,0,,"
         f"{_dialogue_text(cue, style)}"
         for cue in cues
     )
@@ -878,8 +878,8 @@ def burn(video: Path | str, subtitles: Path | str, output: Path | str) -> Path:
     destination = Path(output).expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="lucid-ass-") as tmp:
-        staged = Path(tmp) / "lucid.ass"
+    with tempfile.TemporaryDirectory(prefix="proofcut-ass-") as tmp:
+        staged = Path(tmp) / "proofcut.ass"
         staged.write_text(Path(subtitles).read_text(encoding="utf-8"), encoding="utf-8")
         cmd = [
             FFMPEG,
@@ -887,7 +887,7 @@ def burn(video: Path | str, subtitles: Path | str, output: Path | str) -> Path:
             "-i",
             str(source),
             "-vf",
-            f"ass=lucid.ass{fonts.libass_fontsdir(Path(tmp))}",
+            f"ass=proofcut.ass{fonts.libass_fontsdir(Path(tmp))}",
             "-c:a",
             "copy",
             str(destination.resolve()),

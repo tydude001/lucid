@@ -453,7 +453,7 @@ def test_an_unattributed_transcript_saves_without_the_key(tmp_path) -> None:
 
 
 def test_speaker_survives_a_save_and_load(tmp_path) -> None:
-    """lucid's own dump is re-read by `parse_whisper`, so the key must ride it."""
+    """proofcut's own dump is re-read by `parse_whisper`, so the key must ride it."""
     attributed = _parse({"words": [{"word": "mine", "start": 0.0, "end": 0.4, "speaker": "A"}]})
     dest = tmp_path / "vo.json"
     tx.save(attributed, dest)

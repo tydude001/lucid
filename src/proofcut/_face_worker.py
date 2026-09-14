@@ -1,8 +1,8 @@
 """The detector side of `faces`, run under a *different* interpreter.
 
-**This module is never imported by lucid.** It is executed by the Python that
+**This module is never imported by proofcut.** It is executed by the Python that
 `faces.face_python()` resolves — a venv with insightface and onnxruntime in it —
-which is the whole reason it is a separate file. lucid's own venv stays free of
+which is the whole reason it is a separate file. proofcut's own venv stays free of
 both, exactly as `asr.py` keeps whisper behind a binary and `_vlm_worker.py`
 keeps torch behind an interpreter. It lives inside the package only so it ships
 with it.
@@ -29,7 +29,7 @@ def _frame(media: str, ts: float):
     """Pull one BGR frame from `media` at `ts`, through the ffmpeg binary.
 
     PNG down the pipe and `cv2.imdecode` back, rather than rawvideo reshaped to
-    a size passed in the job: the size would be lucid's manifest talking about
+    a size passed in the job: the size would be proofcut's manifest talking about
     the file, and a reshape against a stale width is not an error — it is a
     sheared frame that detects plausible faces in the wrong places. Here the
     decoder tells us the geometry and there is nothing to disagree with.

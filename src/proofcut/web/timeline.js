@@ -614,7 +614,7 @@ function buildLaneRow(kind, segments, pxPerSec, duration, state, withFilmstrip) 
     // A1 are the same `state.segments` shown twice and a trim on either
     // resolves to the same `cut_by_time` span. docs/plans/STUDIO.md says "V1 block
     // edges", and taking that literally put the gesture out of reach of
-    // exactly the projects lucid exists for: V1 is built only when the
+    // exactly the projects proofcut exists for: V1 is built only when the
     // displayed clip `has_video` (see render()), so a VO-driven essay — the
     // shipped film included — has no V1 lane at all, and drag-trim was
     // unreachable on it. Measured in a browser against a real project, where
@@ -2303,10 +2303,10 @@ export function init(passedCtx) {
     // Item G's drop-target half — HTML5 drag-and-drop, an entirely separate
     // event family from the mousedown triple above, so this is not a second
     // mousedown listener. assets.js (builder 3) is the drag SOURCE, setting
-    // `application/x-lucid-asset` to `{kind:"clip"|"card", id}` — the
+    // `application/x-proofcut-asset` to `{kind:"clip"|"card", id}` — the
     // FOOTAGE being dragged, never an addressing clip_id.
     lanes.addEventListener("dragover", (event) => {
-      if (!event.dataTransfer || !event.dataTransfer.types.includes("application/x-lucid-asset")) return;
+      if (!event.dataTransfer || !event.dataTransfer.types.includes("application/x-proofcut-asset")) return;
       event.preventDefault();
       if (!lastState) return;
       drawDropGhost(snap(laneTimeFromEvent(event)));
@@ -2318,7 +2318,7 @@ export function init(passedCtx) {
       event.preventDefault();
       clearDropGhost();
       if (!event.dataTransfer || !lastState || !lastState.words) return;
-      const raw = event.dataTransfer.getData("application/x-lucid-asset");
+      const raw = event.dataTransfer.getData("application/x-proofcut-asset");
       if (!raw) return;
       let asset;
       try {
@@ -2436,7 +2436,7 @@ export function init(passedCtx) {
   // and holds whatever ink it was drawn with — so a theme flip has to redraw
   // it or it keeps the previous theme's. theme.js raises this for both the
   // toggle and an OS preference change.
-  window.addEventListener("lucid:theme", () => {
+  window.addEventListener("proofcut:theme", () => {
     if (lastState) render();
   });
 

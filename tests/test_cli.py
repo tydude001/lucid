@@ -9,7 +9,7 @@ which checks the CLI-specific plumbing for `cut --through-pause`
 (argparse's `store_true` reaching `ops.cut_by_transcript` under the right
 keyword) — the underlying behaviour it enables is already covered end-to-end
 over the wire in test_server_stdio.py; this only guards the one hop that
-file cannot reach, since it never spawns `lucid cut` itself.
+file cannot reach, since it never spawns `proofcut cut` itself.
 """
 
 from __future__ import annotations
@@ -56,12 +56,12 @@ def test_time_span_rejects_garbage() -> None:
 #
 # `init` is the one subcommand whose directory is an argument rather than a
 # lookup, so it is the one place `-C` and a positional can disagree. It used
-# to read only the positional, which made `lucid -C myproj init` create a
+# to read only the positional, which made `proofcut -C myproj init` create a
 # project in the *current* directory and report success.
 
 
 def _project_exists(root: Path) -> bool:
-    return (root / "lucid.json").is_file()
+    return (root / "proofcut.json").is_file()
 
 
 def test_init_honours_the_global_project_flag(tmp_path: Path) -> None:
@@ -184,7 +184,7 @@ def test_card_reauthor_takes_no_name_and_means_every_card(
 # -- `cut --through-pause` -------------------------------------------------
 #
 # The behaviour `through_pause` enables is proven end-to-end over the wire in
-# test_server_stdio.py; what only a real `lucid cut` invocation can prove is
+# test_server_stdio.py; what only a real `proofcut cut` invocation can prove is
 # that the flag's plumbing through argparse actually reaches `ops` under the
 # right keyword.
 
@@ -264,7 +264,7 @@ def test_transcript_checks_clip_id_is_optional(
 ) -> None:
     """The one hop the stdio suite cannot reach: argparse's `nargs="?"`
     reaching `ops.transcript_checks` as None, which is what makes
-    `lucid transcript-checks` with no argument mean "every clip with a
+    `proofcut transcript-checks` with no argument mean "every clip with a
     transcript" rather than a missing-argument error.
     """
     project = tmp_path / "proj"
@@ -408,7 +408,7 @@ def test_locate_phrase_is_a_fourth_mutually_exclusive_mode(
 # -- `restore` --------------------------------------------------------------
 #
 # The op itself is proven end-to-end over the wire in test_server_stdio.py;
-# what only a real `lucid restore` invocation can prove is that argparse's
+# what only a real `proofcut restore` invocation can prove is that argparse's
 # word-range/`--pad`/`--plan` plumbing actually reaches `ops.restore` under
 # the right keywords.
 
@@ -581,7 +581,7 @@ def test_info_stands_descriptions_down_to_a_count(
     assert out["descriptions"] == {
         "count": 2,
         "clips": {"clipa": 2},
-        "read": "lucid describe-ls (or `lucid info --raw` for the stored entries)",
+        "read": "proofcut describe-ls (or `proofcut info --raw` for the stored entries)",
     }
     # Everything else is still the manifest, verbatim.
     assert out["clips"][0]["clip_id"] == "clipa"
@@ -590,7 +590,7 @@ def test_info_stands_descriptions_down_to_a_count(
 def test_info_raw_still_prints_the_stored_entries(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Nothing else in lucid can show you what is actually on disk."""
+    """Nothing else in proofcut can show you what is actually on disk."""
     assert main(["-C", str(_described_project(tmp_path)), "info", "--raw"]) == 0
     out = json.loads(capsys.readouterr().out)
 
@@ -704,7 +704,7 @@ def test_head_flags_parse_and_reach_ops(
     assert main(["-C", str(project), "head", "--reset"]) == 0
     reset_result = json.loads(capsys.readouterr().out)
     assert reset_result["head"] is None
-    assert "head" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    assert "head" not in json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
 
 
 def test_tail_flags_parse_and_reach_ops(
@@ -743,7 +743,7 @@ def test_tail_flags_parse_and_reach_ops(
     assert main(["-C", str(project), "tail", "--reset"]) == 0
     reset_result = json.loads(capsys.readouterr().out)
     assert reset_result["tail"] is None
-    assert "tail" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    assert "tail" not in json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
 
 
 @needs_ffprobe
@@ -778,14 +778,14 @@ def test_film_check_flags_parse_and_reach_ops(
     planned = json.loads(capsys.readouterr().out)
     assert planned["reference_source"] == "argument"
     assert planned["agrees"] is True
-    assert "reference" not in json.loads((project / "lucid.json").read_text(encoding="utf-8")), (
+    assert "reference" not in json.loads((project / "proofcut.json").read_text(encoding="utf-8")), (
         "--plan must not write"
     )
 
     assert main(["-C", str(project), "film-check", str(reference)]) == 0
     written = json.loads(capsys.readouterr().out)
     assert written["reference"] == str(reference)
-    manifest = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    manifest = json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
     assert manifest["reference"] == str(reference)
 
     # No argument now reuses what was just declared.
@@ -797,7 +797,7 @@ def test_film_check_flags_parse_and_reach_ops(
     assert main(["-C", str(project), "film-check", "--reset"]) == 0
     reset_result = json.loads(capsys.readouterr().out)
     assert reset_result["reference"] is None
-    assert "reference" not in json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    assert "reference" not in json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
 
 
 def test_finish_check_flags_parse_and_reach_ops(
@@ -889,7 +889,7 @@ def test_finish_check_with_no_hold_flags_passes_none_through(
 def test_hold_rm_cli_reaches_ops(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`lucid hold rm <clip> <idx>` parses into `ops.hold_rm`'s own three
+    """`proofcut hold rm <clip> <idx>` parses into `ops.hold_rm`'s own three
     positionals, and the CLI's `_emit` prints exactly what it returns —
     `test_finish_check_flags_parse_and_reach_ops`'s own wiring-only
     discipline, the real op covered at the ops and stdio layers."""
@@ -920,7 +920,7 @@ def test_hold_rm_cli_reaches_ops(
 def test_hold_check_cli_reaches_ops(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`lucid hold check <render>` parses into `ops.hold_check`'s own two
+    """`proofcut hold check <render>` parses into `ops.hold_check`'s own two
     positionals — the real transcription/seam machinery is covered at the
     ops and stdio layers; this only guards the CLI's own parsing and
     dispatch."""
@@ -953,7 +953,7 @@ def test_fonts_without_a_project_reports_the_default(
     """`-C` defaults to "." for every subcommand, so without this the font
     report would refuse from any directory that is not a project — and a font
     is not project state. `project_given` is what separates "asked about this
-    project's caption style" from "asked about lucid's default"."""
+    project's caption style" from "asked about proofcut's default"."""
     assert main(["fonts"]) == 0
     result = json.loads(capsys.readouterr().out)
 
@@ -1052,7 +1052,7 @@ def test_reframe_interp_flag_parses_and_reaches_ops(
     assert main(["-C", str(project), "reframe", "cold-open", "--rect", "600,0,459,816", "--at", "8.0"]) == 0
     stepped = json.loads(capsys.readouterr().out)
     assert stepped["clips"][0]["windows"][2]["interp"] is False
-    stored = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    stored = json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
     at_eight = [r for r in stored["reframe"] if r.get("src_start") == 8.0]
     assert at_eight and "interp" not in at_eight[0], (
         "absent means steps, which is what every window written before this meant"
@@ -1149,7 +1149,7 @@ def _write_clip(project: Path, clip_id: str = "c1", **fields: object) -> None:
     disk" only after `clip_id`/`at`/`interval` have already been parsed and
     the clip has already been found, which is what is under test here).
     """
-    manifest = json.loads((project / "lucid.json").read_text(encoding="utf-8"))
+    manifest = json.loads((project / "proofcut.json").read_text(encoding="utf-8"))
     clip = {
         "clip_id": clip_id,
         "source": "/nonexistent/media.mp4",
@@ -1161,7 +1161,7 @@ def _write_clip(project: Path, clip_id: str = "c1", **fields: object) -> None:
         **fields,
     }
     manifest.setdefault("clips", []).append(clip)
-    (project / "lucid.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (project / "proofcut.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 def test_role_reads_with_no_role_and_sets_and_resets_one(

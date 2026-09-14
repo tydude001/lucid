@@ -1,6 +1,6 @@
 ---
 name: verify-live
-description: Drive lucid's web UI in a real headless browser over CDP — clicks with dwell and hit-testing, drags, viewport overflow probes, console capture, canvas readback. Use whenever a UI change has to be verified the way docs/plans/STUDIO.md requires, rather than through DOM stubs or the HTTP tests.
+description: Drive proofcut's web UI in a real headless browser over CDP — clicks with dwell and hit-testing, drags, viewport overflow probes, console capture, canvas readback. Use whenever a UI change has to be verified the way docs/plans/STUDIO.md requires, rather than through DOM stubs or the HTTP tests.
 ---
 
 # verify-live
@@ -18,7 +18,7 @@ in more than one session. Node 24's global `WebSocket`, no dependencies.
 
 ```sh
 # 1. serve a project (a COPY of anything real — check it first with film-check)
-uv run lucid -C /path/to/proj web --port 8793
+uv run proofcut -C /path/to/proj web --port 8793
 
 # 2. a browser to drive, left running between calls
 ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell \
@@ -58,7 +58,7 @@ What it encodes, and what to keep true if you change it:
 - **The theme is seeded before the page loads, never toggled after it.**
   `theme.js` is the one classic script in `<head>` and applies `data-theme`
   before paint, so a toggle afterwards is a repaint the two canvases only
-  follow via its `lucid:theme` event. Seeding means `localStorage`, which
+  follow via its `proofcut:theme` event. Seeding means `localStorage`, which
   needs the origin, so it is goto, set, goto — `seed_dark`, which then
   asserts on `data-theme` rather than trusting the write.
 - **Confirm the seed took, and then confirm the set agrees.** `#theme`

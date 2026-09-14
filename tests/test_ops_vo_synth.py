@@ -288,8 +288,8 @@ def test_a_plan_over_a_cached_line_ranks_without_reading_back(project: Project, 
 
 
 def test_no_synthesiser_is_a_refusal_naming_what_was_looked_for(project: Project, voice: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tts, "available", lambda voice=None: {"available": False, "why": "no interpreter with a voice synthesiser. Looked at $LUCID_TTS"})
-    with pytest.raises(tts.TTSError, match="LUCID_TTS"):
+    monkeypatch.setattr(tts, "available", lambda voice=None: {"available": False, "why": "no interpreter with a voice synthesiser. Looked at $PROOFCUT_TTS"})
+    with pytest.raises(tts.TTSError, match="PROOFCUT_TTS"):
         ops.vo_synth(project.root, "x", voice=str(voice))
 
 
@@ -372,11 +372,11 @@ def test_a_splice_after_cut_material_is_refused_before_anything_is_rendered(proj
 
 def test_there_is_no_default_voice(project: Project, monkeypatch: pytest.MonkeyPatch) -> None:
     """A voice is a person, not tooling: with neither `voice=` nor
-    `LUCID_TTS_VOICE` the op refuses by name rather than reaching for a path
+    `PROOFCUT_TTS_VOICE` the op refuses by name rather than reaching for a path
     baked into the package — so a public checkout has no pointer to anyone's
     reference clip."""
-    monkeypatch.delenv("LUCID_TTS_VOICE", raising=False)
-    with pytest.raises(tts.TTSError, match="no voice.*LUCID_TTS_VOICE.*no default voice"):
+    monkeypatch.delenv("PROOFCUT_TTS_VOICE", raising=False)
+    with pytest.raises(tts.TTSError, match="no voice.*PROOFCUT_TTS_VOICE.*no default voice"):
         ops.vo_synth(project.root, "x")
     assert tts.available()["available"] is False
     assert "no voice" in tts.available()["why"]

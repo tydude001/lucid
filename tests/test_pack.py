@@ -8,7 +8,7 @@ JSON file. Everything that touches a project (`pack_apply`'s font probing,
 renderer and is marked accordingly, the same `needs_magick`/`needs_ffmpeg`
 split `test_fonts.py` and `test_ops_card_reauthor.py` already use.
 
-MCP registration/reachability is covered here too, against a real `lucid mcp`
+MCP registration/reachability is covered here too, against a real `proofcut mcp`
 process — `test_server_stdio.py` has an uncommitted diff of its own in this
 working tree as this session starts (`git status` on this repo shows it, and
 `src/proofcut/cli.py`/`ops.py`/`server.py` alongside it), so its `EXPECTED_TOOLS`
@@ -323,7 +323,7 @@ def test_reformatting_the_pack_file_does_not_change_its_hash(tmp_path: Path) -> 
 
 
 def test_vendored_and_install_take_a_source_directory(tmp_path: Path) -> None:
-    """A pack's own font directory gets the identical treatment lucid's own
+    """A pack's own font directory gets the identical treatment proofcut's own
     vendored set gets, through the same functions rather than a second
     installer — `vendored(source=...)` sees only that directory, and
     `install(source=...)` copies from it, unrelated to `VENDORED_DIR`."""
@@ -334,7 +334,7 @@ def test_vendored_and_install_take_a_source_directory(tmp_path: Path) -> None:
 
     found = fonts.vendored(pack_fonts)
     assert [p.name for p in found] == ["FakeFace-Bold.ttf"]
-    # Lucid's own vendored set is unaffected — `source` narrows, it does not replace.
+    # proofcut's own vendored set is unaffected — `source` narrows, it does not replace.
     assert any("Outfit" in p.name for p in fonts.vendored())
 
     dest = tmp_path / "installed"
@@ -354,7 +354,7 @@ def test_vendored_and_install_take_a_source_directory(tmp_path: Path) -> None:
 def test_pack_apply_snapshots_every_variant_and_activates_one(project: Project) -> None:
     data = _pack_dict()
     data["variants"]["default"]["fonts"]["title_font"] = (
-        "'lucid No Such Face 0000', serif"  # never draws, forces allow_fallback below
+        "'proofcut No Such Face 0000', serif"  # never draws, forces allow_fallback below
     )
     data["variants"]["october"] = {"palette": {"ink": "#111111"}}
     path = _write_pack(project.root.parent, data)
@@ -370,7 +370,7 @@ def test_pack_apply_snapshots_every_variant_and_activates_one(project: Project) 
     assert set(stored["variants"]) == {"default", "october"}
     assert "hash" in stored["variants"]["default"]
     assert stored["variants"]["default"]["font_fallback_used"] == {
-        "title_font": "'lucid No Such Face 0000', serif"
+        "title_font": "'proofcut No Such Face 0000', serif"
     }
 
 
@@ -379,7 +379,7 @@ def test_pack_apply_refuses_a_font_that_does_not_draw_without_allow_fallback(
     project: Project,
 ) -> None:
     data = _pack_dict()
-    data["variants"]["default"]["fonts"]["title_font"] = "'lucid No Such Face 0000', serif"
+    data["variants"]["default"]["fonts"]["title_font"] = "'proofcut No Such Face 0000', serif"
     path = _write_pack(project.root.parent, data)
 
     with pytest.raises(ProjectError, match="does not draw"):
@@ -392,7 +392,7 @@ def test_pack_apply_refuses_a_font_that_does_not_draw_without_allow_fallback(
 def test_pack_apply_records_unvendored_provenance_for_a_real_but_unshipped_face(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A family that genuinely draws on this box but ships in neither lucid's
+    """A family that genuinely draws on this box but ships in neither proofcut's
     own vendored set nor the pack's own — recorded, never refused, because
     the render is correct today. `fonts.probe` is stubbed rather than relying
     on a specific non-vendored face being installed on whatever box runs this
@@ -404,7 +404,7 @@ def test_pack_apply_records_unvendored_provenance_for_a_real_but_unshipped_face(
     def _stub_probe(family: str, **kwargs: Any) -> dict[str, Any]:
         return {"font": family, "drew": True, "rmse_against_substitute": 999.0}
 
-    monkeypatch.setattr(ops_module.lucid_fonts, "probe", _stub_probe)
+    monkeypatch.setattr(ops_module.proofcut_fonts, "probe", _stub_probe)
 
     data = _pack_dict()
     data["variants"]["default"]["fonts"]["title_font"] = "'Definitely Not Vendored Face', serif"
@@ -415,7 +415,7 @@ def test_pack_apply_records_unvendored_provenance_for_a_real_but_unshipped_face(
     assert stored["font_provenance"] == {"title_font": "unvendored"}
 
 
-def test_pack_apply_does_not_flag_a_family_lucid_actually_vendors(
+def test_pack_apply_does_not_flag_a_family_proofcut_actually_vendors(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from proofcut import ops as ops_module
@@ -423,7 +423,7 @@ def test_pack_apply_does_not_flag_a_family_lucid_actually_vendors(
     def _stub_probe(family: str, **kwargs: Any) -> dict[str, Any]:
         return {"font": family, "drew": True, "rmse_against_substitute": 999.0}
 
-    monkeypatch.setattr(ops_module.lucid_fonts, "probe", _stub_probe)
+    monkeypatch.setattr(ops_module.proofcut_fonts, "probe", _stub_probe)
 
     data = _pack_dict()
     data["variants"]["default"]["fonts"]["title_font"] = "'Outfit', sans-serif"
@@ -895,7 +895,7 @@ def test_an_older_manifest_with_no_pack_key_still_opens(tmp_path: Path) -> None:
 #
 # Its own file, per this session's scope note above: test_server_stdio.py's
 # EXPECTED_TOOLS is an exact-equality set this session did not touch, so this
-# proves the six new tools independently, over a real `lucid mcp` subprocess.
+# proves the six new tools independently, over a real `proofcut mcp` subprocess.
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "proofcut.cli", "mcp"])
 NEW_PACK_TOOLS = {

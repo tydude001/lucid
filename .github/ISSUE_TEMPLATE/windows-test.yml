@@ -1,12 +1,12 @@
 name: Windows test report
-description: You ran scripts/windows_trial.ps1 on a Windows PC. Thank you — this is the report lucid most needs.
+description: You ran scripts/windows_trial.ps1 on a Windows PC. Thank you — this is the report proofcut most needs.
 title: "Windows test: "
 labels: [windows-test]
 body:
   - type: markdown
     attributes:
       value: |
-        lucid has never been run on a Windows PC by anyone, so a report that stopped at step one is
+        proofcut has never been run on a Windows PC by anyone, so a report that stopped at step one is
         as useful as one that ran every step. The script is `scripts/windows_trial.ps1`; README.md
         § Help wanted says how to run it, and `-Uninstall` removes what it added.
 
@@ -35,7 +35,7 @@ body:
     id: report
     attributes:
       label: The report
-      description: Drag lucid-windows-report.zip from your Desktop into this box.
+      description: Drag proofcut-windows-report.zip from your Desktop into this box.
     validations:
       required: true
   - type: dropdown

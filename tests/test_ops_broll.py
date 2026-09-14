@@ -1,4 +1,4 @@
-"""`synopsis` and `broll_brief` — the half of b-roll choice lucid can do.
+"""`synopsis` and `broll_brief` — the half of b-roll choice proofcut can do.
 
 The finding these two exist to encode is a negative one: no arrangement of
 text-against-text scoring picks b-roll, because the sentence that earns a clip

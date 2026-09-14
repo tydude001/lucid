@@ -2,7 +2,7 @@
 """Record the closed loop as a video: an agent editing in the workspace, unattended.
 
 docs/plans/LAUNCH.md § Step 1 asks for a screen recording of the agent pane
-driving a brief from `lucid init` to a verified render. TRIAL.md already ran
+driving a brief from `proofcut init` to a verified render. TRIAL.md already ran
 that loop twice through `scripts/agent_trial.py` and scored it 9 of 9; what
 the launch lacks is a *watchable* run, so this is the same loop driven through
 the workspace's own agent pane — `POST /api/agent`, the route a person's Send
@@ -28,7 +28,7 @@ Three things it holds to:
 
 - **The project is the trial's, prepared by the trial's own `prepare`**, on the
   generated demo footage — the same `vo.wav` with its fluffed take and the two
-  colour-block b-roll clips whose every second names itself. Footage lucid
+  colour-block b-roll clips whose every second names itself. Footage proofcut
   owns, so the recording can be public (LAUNCH.md § Step 1's footage rule).
 - **The brief is `agent_trial.DEMO_BRIEF`, formatted the same way**, so the
   run on screen is the run TRIAL.md measured. The only difference from the
@@ -149,7 +149,7 @@ def assemble(frames: list[dict[str, Any]], base: Path, out: Path, *, stop_at: fl
     Each frame holds until the next one's timestamp; the last holds for a
     second, or until `stop_at` when the recording's end is known. `fps=` then
     resamples to a constant rate, which every editor and every platform in
-    LAUNCH.md wants and lucid's own import expects.
+    LAUNCH.md wants and proofcut's own import expects.
     """
     if not frames:
         raise RecordError("no frames were recorded")
@@ -398,7 +398,7 @@ def record(work: Path, model: str | None, port: int, cdp_port: int, keep: bool, 
             output.unlink()
         # The brief is the trial's, with every path spelled `~/…`: the pane
         # shows the brief verbatim, and a recording meant to be public should
-        # not print a username in its first ten seconds. lucid expands `~` on
+        # not print a username in its first ten seconds. proofcut expands `~` on
         # media sources, output paths and (as of this script) the confined
         # `path`, so the agent can pass them exactly as written.
         template = brief_file.read_text(encoding="utf-8") if brief_file else agent_trial.DEMO_BRIEF

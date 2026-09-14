@@ -2,7 +2,7 @@
 plus `speech_overlap`'s energy-only clip side — TRIAL.md § The queue, items
 1 and 3.
 
-No real whisper: `LUCID_WHISPER` points `asr` at a stand-in that writes one
+No real whisper: `PROOFCUT_WHISPER` points `asr` at a stand-in that writes one
 fixed word per window, window-relative, so the absolute stamps coming back
 are the thing under test. Real ffmpeg for the decode.
 """
@@ -73,7 +73,7 @@ def _fake_whisper(path: Path, *, empty: bool = False) -> Path:
 
 @pytest.fixture
 def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Project:
-    monkeypatch.setenv("LUCID_WHISPER", str(_fake_whisper(tmp_path)))
+    monkeypatch.setenv("PROOFCUT_WHISPER", str(_fake_whisper(tmp_path)))
     audio = _wav(tmp_path / "clip.wav", duration=30.0, tones=[(12.0, 14.0)])
     project = Project.create(tmp_path / "proj")
     manifest = project.read_manifest()
@@ -90,7 +90,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Project:
 def test_a_span_lays_its_windows_from_start_and_stamps_words_in_the_file_s_clock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LUCID_WHISPER", str(_fake_whisper(tmp_path)))
+    monkeypatch.setenv("PROOFCUT_WHISPER", str(_fake_whisper(tmp_path)))
     audio = _wav(tmp_path / "a.wav", duration=30.0)
     out = asr.transcribe_windowed(audio, start=10.0, end=20.0, window=5.0, overlap=0.0)
     assert out["windows"] == 2 and (out["start"], out["end"]) == (10.0, 20.0)
@@ -101,7 +101,7 @@ def test_a_span_lays_its_windows_from_start_and_stamps_words_in_the_file_s_clock
 
 @needs_ffmpeg
 def test_a_span_past_the_audio_is_refused_not_clamped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LUCID_WHISPER", str(_fake_whisper(tmp_path)))
+    monkeypatch.setenv("PROOFCUT_WHISPER", str(_fake_whisper(tmp_path)))
     audio = _wav(tmp_path / "a.wav", duration=5.0)
     with pytest.raises(asr.ASRError, match="5.000s long"):
         asr.transcribe_windowed(audio, start=1.0, end=9.0)
@@ -115,7 +115,7 @@ def test_a_span_past_the_audio_is_refused_not_clamped(tmp_path: Path, monkeypatc
 def test_silence_raises_by_default_and_is_an_answer_with_allow_silence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("LUCID_WHISPER", str(_fake_whisper(tmp_path, empty=True)))
+    monkeypatch.setenv("PROOFCUT_WHISPER", str(_fake_whisper(tmp_path, empty=True)))
     audio = _wav(tmp_path / "a.wav", duration=5.0)
     with pytest.raises(asr.ASRError, match="heard no speech"):
         asr.transcribe_windowed(audio)
@@ -125,7 +125,7 @@ def test_silence_raises_by_default_and_is_an_answer_with_allow_silence(
 
 @needs_ffmpeg
 def test_the_default_pass_is_byte_identical_to_a_full_span(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LUCID_WHISPER", str(_fake_whisper(tmp_path)))
+    monkeypatch.setenv("PROOFCUT_WHISPER", str(_fake_whisper(tmp_path)))
     audio = _wav(tmp_path / "a.wav", duration=12.0)
     whole = asr.transcribe_windowed(audio)
     spanned = asr.transcribe_windowed(audio, start=0.0, end=12.0)

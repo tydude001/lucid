@@ -156,8 +156,8 @@ def test_an_inherited_display_is_left_alone_but_still_kept_whole(
 
 
 def test_melt_command_prefers_an_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LUCID_MELT is a command, not a path — the flatpak form is four words."""
-    monkeypatch.setenv("LUCID_MELT", "flatpak run --command=melt org.kde.kdenlive")
+    """PROOFCUT_MELT is a command, not a path — the flatpak form is four words."""
+    monkeypatch.setenv("PROOFCUT_MELT", "flatpak run --command=melt org.kde.kdenlive")
 
     assert picture.melt_command() == [
         "flatpak",
@@ -316,7 +316,7 @@ class _FakeMelt:
 @pytest.fixture
 def melt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _FakeMelt:
     fake = _FakeMelt()
-    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("PROOFCUT_MELT", "melt")
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setattr(picture, "RENDER_SCRATCH", tmp_path / "scratch")
     monkeypatch.setattr(picture.subprocess, "run", fake)
@@ -439,7 +439,7 @@ def test_a_native_qt_platform_neither_asks_for_a_uid_nor_refuses(
 ) -> None:
     """Qt draws through cocoa on macOS and its `windows` plugin on Windows, so
     the Linux display dance does not apply there — and Windows has no
-    `os.getuid` at all, which made every render and `lucid doctor` raise
+    `os.getuid` at all, which made every render and `proofcut doctor` raise
     `AttributeError` before anything ran (docs/plans/PORTABILITY.md step 1).
     Removing `getuid` is what proves the path never reaches for it."""
     monkeypatch.setattr(sys, "platform", platform)
@@ -501,7 +501,7 @@ def _staged(root: Path, name: str, *, age_days: float) -> Path:
 def test_sweep_scratch_drops_only_what_is_old(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / "lucid-render"
+    root = tmp_path / "proofcut-render"
     monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
     old = _staged(root, "timeline-abcd1234", age_days=30)
     recent = _staged(root, "render-0zx9_qq1", age_days=1)
@@ -521,7 +521,7 @@ def test_sweep_scratch_never_touches_a_named_directory(
     `kf-manual` and `kf-mini` are real directories a person put in the scratch
     root by hand (CLAUDE.md § The keyframed move). Age alone would take them.
     """
-    root = tmp_path / "lucid-render"
+    root = tmp_path / "proofcut-render"
     monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
     kept = [
         _staged(root, "kf-manual", age_days=400),
@@ -544,7 +544,7 @@ def test_sweep_scratch_is_quiet_with_no_scratch_root(
 def test_scratch_sweeps_as_it_makes_one(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / "lucid-render"
+    root = tmp_path / "proofcut-render"
     monkeypatch.setattr(picture, "RENDER_SCRATCH", root)
     root.mkdir()
     old = _staged(root, "timeline-abcd1234", age_days=30)
@@ -559,7 +559,7 @@ def test_sweep_scratch_does_not_follow_a_symlink(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """`Path.is_dir()` follows symlinks — the same trap the `--root` picker had."""
-    root = tmp_path / "lucid-render"
+    root = tmp_path / "proofcut-render"
     root.mkdir()
     outside = _staged(tmp_path / "elsewhere", "real", age_days=400)
     link = root / "timeline-abcd1234"

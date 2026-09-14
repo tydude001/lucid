@@ -9,7 +9,7 @@ transcribing it, not by reading the timeline" stance CLAUDE.md states for
 - **`loudness`** — integrated LUFS and true peak, via ffmpeg's `ebur128`
   filter at 4x oversampling (`aresample=192000,ebur128=peak=true,
   aresample=48000` — `verify_longlegs.py`'s own command, ported). This is
-  lucid's *report* half of loudness measurement, parsed by `parse_ebur128`;
+  proofcut's *report* half of loudness measurement, parsed by `parse_ebur128`;
   it is deliberately not `energy.integrated_loudness`, which is the *formula*
   half — a single scalar off a `loudnorm` analysis pass, for `ops._vo_loudness`
   and `ops._hold_gain_db` to do arithmetic with. Two mechanisms, not one
@@ -17,7 +17,7 @@ transcribing it, not by reading the timeline" stance CLAUDE.md states for
   *and* true peak together.
 - **`hold_seams`** — the level right at a named instant against the quiet
   floor just after it, `verify_longlegs.py`'s `rms_profile` ported: decoded
-  once at 48 kHz with stdlib `array` (no numpy in lucid, CLAUDE.md), because a
+  once at 48 kHz with stdlib `array` (no numpy in proofcut, CLAUDE.md), because a
   hold's seam is judged by ear-shaped windows — the loudest 50 ms in the last
   0.15 s before the cut against the quiet floor 0.05-0.40 s after it — not by
   an average that would blur a clean cut and a mid-word one into the same
@@ -70,7 +70,7 @@ CLIFF_DROP_DB = 12.0
 CLIFF_FLOOR_DB = -35.0
 
 #: 16-bit full scale, `energy.py`'s own constant, restated here rather than
-#: imported — this module reads no other lucid module, on purpose: it is the
+#: imported — this module reads no other proofcut module, on purpose: it is the
 #: shared floor two features (04, 02) build on, and importing sideways from
 #: `energy.py` would tie this module's own stability to that one's.
 FULL_SCALE = 32768.0
@@ -227,7 +227,7 @@ def hold_seams(
     floor while the pre-cut level itself was above `CLIFF_FLOOR_DB` — a cut
     that was already quiet has nowhere to cliff from). Reported, never
     raised — this is a listening check on a render that already exists, the
-    same stance every other audio check in lucid takes (`verify`,
+    same stance every other audio check in proofcut takes (`verify`,
     `film_check`).
     """
     samples = _decode(media, rate=rate)

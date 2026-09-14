@@ -9,7 +9,7 @@ back **named rather than quietly centre-cropped**, that applying goes through
 
 The scene scan shells ffmpeg for real, on a clip generated here with one hard
 cut in the middle of it, because the boundary half of this is ffmpeg's answer
-and a fixtured one would be lucid's. The *detector* is stubbed: insightface
+and a fixtured one would be proofcut's. The *detector* is stubbed: insightface
 lives in another interpreter (`faces.py`), and what the boxes mean is measured
 in the control rather than asserted here.
 """
@@ -312,13 +312,13 @@ def test_nothing_is_scanned_when_no_detector_is_installed(
     monkeypatch.setattr(
         faces,
         "available",
-        lambda: {"available": False, "python": None, "model": "x", "why": "no interpreter, looked at $LUCID_FACE"},
+        lambda: {"available": False, "python": None, "model": "x", "why": "no interpreter, looked at $PROOFCUT_FACE"},
     )
     monkeypatch.setattr(
         faces, "detect", lambda jobs: pytest.fail("the detector should not have been reached")
     )
 
-    with pytest.raises(faces.FaceError, match="LUCID_FACE"):
+    with pytest.raises(faces.FaceError, match="PROOFCUT_FACE"):
         ops.reframe_detect(project.root)
 
 

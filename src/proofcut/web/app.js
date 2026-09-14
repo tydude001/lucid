@@ -685,7 +685,7 @@ load(null).then(restoreSession);
 // Started last, after the panes exist and the first load is underway: the
 // server sends the current revision immediately on connect, which is itself
 // a 'project-changed' record — one event path covers an agent edit, the
-// page's own edit, and a `lucid cut` run in a terminal beside it (PLAN.md §
+// page's own edit, and a `proofcut cut` run in a terminal beside it (PLAN.md §
 // View invalidation is uniform).
 connectEvents((name, data) => {
   emit(name, data);

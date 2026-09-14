@@ -161,10 +161,10 @@ def test_add_captions_takes_its_look_from_the_project(project: Project, tmp_path
     result = ops.add_captions(project.root, tmp_path / "out.ass")
 
     text = (tmp_path / "out.ass").read_text()
-    assert "Style: lucid,Outfit,72," in text
+    assert "Style: proofcut,Outfit,72," in text
     # Alignment is the 18th field after the style's Name — see to_ass's Format
     # line. 8 is top-centre on the numpad, which is what "top" resolves to.
-    fields = text.split("Style: lucid,")[1].split("\n")[0].split(",")
+    fields = text.split("Style: proofcut,")[1].split("\n")[0].split(",")
     assert fields[17] == "8", "top-centre"
     assert fields[14] == "3", "the boxed preset's opaque box survived the overrides"
     assert result["preset"] == "boxed"
@@ -179,7 +179,7 @@ def test_a_restyle_survives_a_later_cut(project: Project, tmp_path: Path) -> Non
     ops.add_captions(project.root, tmp_path / "after.ass")
 
     text = (tmp_path / "after.ass").read_text()
-    assert "Style: lucid,Outfit,72," in text
+    assert "Style: proofcut,Outfit,72," in text
     assert "\\k" in text, "karaoke survived the cut too"
 
 

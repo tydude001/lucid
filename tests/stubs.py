@@ -1,7 +1,7 @@
 """A fake executable that runs on every OS the suite does.
 
 Tests stand in for `whisper`, `claude` and `tailscale` with a small script
-lucid spawns exactly as it would spawn the real binary. A shebang script is
+proofcut spawns exactly as it would spawn the real binary. A shebang script is
 that on Linux and macOS and nothing at all on Windows: CreateProcess runs a PE
 image, or a batch file by its extension, and a script with a `#!` line is
 neither — `[WinError 193] %1 is not a valid Win32 application`, the first

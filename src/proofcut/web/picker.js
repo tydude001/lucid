@@ -55,7 +55,9 @@ function badgeClass(status, entry) {
 
 function badgeText(entry) {
   if (unseeded(entry)) return "no timeline yet";
-  if (entry.status === "needs_migration") return `schema v${entry.schema_version ?? "?"}`;
+  if (entry.status === "needs_migration") {
+    return entry.manifest === "lucid.json" ? "lucid.json" : `schema v${entry.schema_version ?? "?"}`;
+  }
   if (entry.status === "unreadable") return "unreadable";
   if (entry.status === "error") return "error";
   return "ready";
@@ -111,7 +113,7 @@ function card(entry) {
     main.append(meta);
   } else if (entry.status === "needs_migration") {
     const meta = el("div", "picker-meta");
-    meta.textContent = `needs \`lucid migrate -C ${entry.path}\` before it can open`;
+    meta.textContent = `needs \`proofcut migrate -C ${entry.path}\` before it can open`;
     main.append(meta);
   } else {
     // Still the op's own message. Red is reserved for the cases this page
@@ -148,7 +150,7 @@ function card(entry) {
     });
     row.append(button);
   } else if (unseeded(entry)) {
-    // A project that exists and has no timeline — `lucid init` or
+    // A project that exists and has no timeline — `proofcut init` or
     // `POST /api/create` with no seed behind it. It is not broken: it is
     // half-made, and the first-run flow is exactly what finishes it. Read
     // off the scan's own `seeded` field rather than by matching a sentence.
@@ -157,14 +159,14 @@ function card(entry) {
     button.addEventListener("click", () => resumeSetup(entry, button));
     row.append(button);
   } else if (entry.status === "needs_migration") {
-    // `lucid migrate` stays terminal-only and user-triggered — this calls
+    // `proofcut migrate` stays terminal-only and user-triggered — this calls
     // no API route (CLAUDE.md: never migrate on open, and on this box never
     // migrate the user's data without asking). Copying the command is the
     // entire action.
     const button = el("button", "", "Copy command");
     button.type = "button";
     button.addEventListener("click", () => {
-      copyToClipboard(`lucid migrate -C ${entry.path}`, "copied — run it in a terminal");
+      copyToClipboard(`proofcut migrate -C ${entry.path}`, "copied — run it in a terminal");
     });
     row.append(button);
   }
@@ -357,7 +359,7 @@ const BUILD = {
     const card = stepCard(
       "Add footage",
       "A path on this machine — a voiceover, or the clip you are cutting. " +
-        "lucid links it where it lies rather than copying it.",
+        "proofcut links it where it lies rather than copying it.",
     );
     const row = el("div", "setup-row");
     const input = el("input", "setup-input");
@@ -406,7 +408,7 @@ const BUILD = {
     const card = stepCard(
       "Transcribe it",
       "whisper reads the words and their timings. This is what makes the edit " +
-        "addressable — every cut lucid makes names a word. Minutes on real footage.",
+        "addressable — every cut proofcut makes names a word. Minutes on real footage.",
     );
     const row = el("div", "setup-row");
     const go = el("button", "primary", "Transcribe");
@@ -441,7 +443,7 @@ const BUILD = {
     // Skipping is real: a timeline can be seeded and cut by time without a
     // transcript. It is offered because whisper is the one dependency most
     // likely to be missing on a first run, and a flow that dead-ends there
-    // teaches that lucid does not work.
+    // teaches that proofcut does not work.
     skip.addEventListener("click", () => advance("transcribe", "skipped"));
 
     row.append(go, skip);

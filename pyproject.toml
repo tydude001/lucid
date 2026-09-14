@@ -5,7 +5,7 @@ description = "Source-available, local-first AI video editor — an MCP server o
 readme = "README.md"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 # The code is PolyForm Shield 1.0.0 (LICENSE): use it for anything except a
-# product that competes with lucid. It is source-available, not open source,
+# product that competes with proofcut. It is source-available, not open source,
 # and SPDX lists no identifier for it — only the Noncommercial and
 # Small-Business PolyForm texts — so the expression is a LicenseRef, which is
 # what PEP 639 provides for exactly this. HISTORY.md § The licence, chosen.

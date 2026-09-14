@@ -1,11 +1,11 @@
 """Running whisper as a subprocess.
 
 Whisper is a binary here, not a library. Importing `whisper` into this process
-would pull torch and a GPU context into every `lucid` invocation — including
-`lucid status`, which needs neither — so ASR stays behind `subprocess`, the
+would pull torch and a GPU context into every `proofcut` invocation — including
+`proofcut status`, which needs neither — so ASR stays behind `subprocess`, the
 same shape as ffmpeg and auto-editor.
 
-It is openai-whisper, found through `LUCID_WHISPER` and then PATH. Until
+It is openai-whisper, found through `PROOFCUT_WHISPER` and then PATH. Until
 2026-09-10 the order ended in a hardcoded path into a sibling project's venv,
 which is where this machine's install lives; that path now rides PATH instead,
 so the order means the same thing on every machine.
@@ -14,7 +14,7 @@ Failures are frequently opaque: when another job holds the GPU, whisper exits
 non-zero with the real reason buried several frames up a CUDA traceback. So the
 tail of stderr is carried into the exception rather than dropped.
 
-This module has no lucid dependencies on purpose — `verify` and the
+This module has no proofcut dependencies on purpose — `verify` and the
 `transcribe` tool both call it.
 """
 
@@ -72,8 +72,8 @@ class ASRError(Exception):
 
 
 def whisper_binary() -> Path:
-    """Locate the whisper binary: `LUCID_WHISPER`, then PATH."""
-    override = os.environ.get("LUCID_WHISPER")
+    """Locate the whisper binary: `PROOFCUT_WHISPER`, then PATH."""
+    override = os.environ.get("PROOFCUT_WHISPER")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
 
@@ -82,10 +82,10 @@ def whisper_binary() -> Path:
         return Path(found)
 
     raise ASRError(
-        "whisper not found. Looked at $LUCID_WHISPER "
+        "whisper not found. Looked at $PROOFCUT_WHISPER "
         f"({override or 'unset'}), then PATH. Install openai-whisper "
         "(`uv tool install openai-whisper`, or any venv) and put its `whisper` "
-        "on PATH, or set LUCID_WHISPER to the binary."
+        "on PATH, or set PROOFCUT_WHISPER to the binary."
     )
 
 
@@ -99,7 +99,7 @@ def transcribe(
 
     The output lands in a temporary directory and is read back rather than
     written beside the media: callers decide where a transcript belongs, and
-    dropping a `.json` next to someone's render is not lucid's call.
+    dropping a `.json` next to someone's render is not proofcut's call.
 
     Deliberately no timeout. A five-minute render legitimately takes minutes on
     this box, and killing a nearly-finished transcription is worse than waiting.
@@ -117,7 +117,7 @@ def transcribe(
         raise ASRError(f"no media to transcribe: {source}")
 
     binary = whisper_binary()
-    with tempfile.TemporaryDirectory(prefix="lucid-asr-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-asr-") as tmp:
         cmd = [
             str(binary),
             str(source),
@@ -383,7 +383,7 @@ def transcribe_windowed(
         raise ASRError(f"no media to transcribe: {source}")
 
     binary = whisper_binary()
-    with tempfile.TemporaryDirectory(prefix="lucid-asr-windowed-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-asr-windowed-") as tmp:
         scratch = Path(tmp)
         mono = scratch / "mono.wav"
         duration = _to_mono_wav(source, mono)

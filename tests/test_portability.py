@@ -68,7 +68,7 @@ def test_melt_is_found_in_an_editor_bundle_off_path(
     """Shotcut and Kdenlive ship melt inside the app on both OSes and put
     neither on PATH, so PATH-then-flatpak found nothing on a Mac."""
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.delenv("LUCID_MELT", raising=False)
+    monkeypatch.delenv("PROOFCUT_MELT", raising=False)
     monkeypatch.setattr(picture.shutil, "which", lambda name: None)
     assert any(p.as_posix().endswith(bundle) for p in picture.melt_bundles())
 
@@ -85,7 +85,7 @@ def test_melt_not_found_off_linux_names_the_editors_not_the_flatpak(
 ) -> None:
     """Doctor told a Mac to `flatpak install` — a package manager it has not got."""
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.delenv("LUCID_MELT", raising=False)
+    monkeypatch.delenv("PROOFCUT_MELT", raising=False)
     monkeypatch.setattr(picture.shutil, "which", lambda name: None)
     monkeypatch.setattr(picture, "melt_bundles", list)
 
@@ -124,7 +124,7 @@ def test_fedoras_mlt_is_found_ahead_of_its_freeze_melt(monkeypatch: pytest.Monke
     `melt` searched first rendered through freeze. HISTORY.md § A stranger's
     install, on a clean Fedora."""
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.delenv("LUCID_MELT", raising=False)
+    monkeypatch.delenv("PROOFCUT_MELT", raising=False)
     fedora = {"melt": "/usr/bin/melt", "melt-7": "/usr/bin/melt-7", "mlt-melt": "/usr/bin/mlt-melt"}
     monkeypatch.setattr(picture.shutil, "which", fedora.get)
     monkeypatch.setattr(picture, "melt_version", lambda path: "7.40.0")  # the paths are not on this box
@@ -148,7 +148,7 @@ _REAL_MELT = "print('melt 7.41.0')\nprint('Copyright (C) 2002-2026 Meltytech, LL
 
 def _melt_on_path(monkeypatch: pytest.MonkeyPatch, *dirs: Path) -> None:
     """PATH is exactly `dirs`, no bundle and no flatpak, and nothing cached."""
-    monkeypatch.delenv("LUCID_MELT", raising=False)
+    monkeypatch.delenv("PROOFCUT_MELT", raising=False)
     monkeypatch.setenv("PATH", os.pathsep.join(str(d) for d in dirs))
     monkeypatch.setattr(picture, "melt_bundles", list)
     monkeypatch.setattr(picture, "_MELT_VERDICTS", {}, raising=False)
@@ -225,9 +225,9 @@ def test_a_melt_verdict_is_cached_until_the_binary_changes(
     assert runs.read_text() == "xx"
 
 
-def test_lucid_melt_is_taken_at_its_word_and_never_probed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_proofcut_melt_is_taken_at_its_word_and_never_probed(monkeypatch: pytest.MonkeyPatch) -> None:
     """It may be a wrapper — the flatpak form is four words and no binary."""
-    monkeypatch.setenv("LUCID_MELT", "flatpak run --command=melt org.kde.kdenlive")
+    monkeypatch.setenv("PROOFCUT_MELT", "flatpak run --command=melt org.kde.kdenlive")
     monkeypatch.setattr(picture, "melt_version", lambda path: pytest.fail(f"probed {path}"), raising=False)
     assert picture.melt_command()[0] == "flatpak"
 
@@ -259,7 +259,7 @@ def test_doctor_reads_melts_version_off_the_one_banner(monkeypatch: pytest.Monke
     assert picture.MELT_BANNER.match("Windows Installer XML Toolset MSI/MSM Decompiler") is None
 
 
-# -- LUCID_MELT and LUCID_MAGICK naming a Windows path ------------------------
+# -- PROOFCUT_MELT and PROOFCUT_MAGICK naming a Windows path ------------------------
 
 
 @pytest.mark.parametrize(
@@ -273,7 +273,7 @@ def test_doctor_reads_melts_version_off_the_one_banner(monkeypatch: pytest.Monke
         ("flatpak run --command=melt org.kde.kdenlive", ["flatpak", "run", "--command=melt", "org.kde.kdenlive"]),
     ],
 )
-@pytest.mark.parametrize(("variable", "resolve"), [("LUCID_MELT", "melt"), ("LUCID_MAGICK", "magick")])
+@pytest.mark.parametrize(("variable", "resolve"), [("PROOFCUT_MELT", "melt"), ("PROOFCUT_MAGICK", "magick")])
 def test_a_windows_override_keeps_its_backslashes(
     monkeypatch: pytest.MonkeyPatch, value: str, argv: list[str], variable: str, resolve: str
 ) -> None:
@@ -286,7 +286,7 @@ def test_a_windows_override_keeps_its_backslashes(
     assert command == argv
 
 
-@pytest.mark.parametrize("variable", ["LUCID_MELT", "LUCID_MAGICK"])
+@pytest.mark.parametrize("variable", ["PROOFCUT_MELT", "PROOFCUT_MAGICK"])
 def test_a_windows_override_naming_a_file_with_a_space_is_one_word(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable: str
 ) -> None:
@@ -298,7 +298,7 @@ def test_a_windows_override_naming_a_file_with_a_space_is_one_word(
     binary.touch()
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv(variable, str(binary))
-    command = picture.melt_command() if variable == "LUCID_MELT" else graphics.magick_command()
+    command = picture.melt_command() if variable == "PROOFCUT_MELT" else graphics.magick_command()
     assert command == [str(binary)]
 
 
@@ -322,7 +322,7 @@ def test_the_uncapped_render_note_says_why_for_the_platform(
     """The memory cap is a systemd scope. "Not available here" on a Mac reads
     as something to install; it is something that does not exist there."""
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("PROOFCUT_MELT", "melt")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     # Named, so standing in for Linux on a Windows runner never reaches for
     # `os.getuid` to build `/run/user/<uid>` — Windows has none.
@@ -359,7 +359,7 @@ def test_the_memory_cap_needs_a_user_bus_not_just_systemd_run(
     started, and was reported as "melt rendered nothing". On PATH is not the
     same as usable. HISTORY.md § A stranger's install, on a clean Ubuntu."""
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("PROOFCUT_MELT", "melt")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     monkeypatch.setattr(picture, "qt_draws", lambda env: True)
@@ -419,7 +419,7 @@ def test_the_not_found_message_names_this_machines_download(
     monkeypatch.setattr(autoeditor.platform, "machine", lambda: machine)
     assert autoeditor.release_asset() == asset
 
-    monkeypatch.delenv("LUCID_AUTO_EDITOR", raising=False)
+    monkeypatch.delenv("PROOFCUT_AUTO_EDITOR", raising=False)
     monkeypatch.setattr(autoeditor.shutil, "which", lambda name: None)
     monkeypatch.setenv("HOME", str(tmp_path))  # no ~/.local/bin/auto-editor
     with pytest.raises(autoeditor.AutoEditorError, match=asset.replace(".", r"\.")):
@@ -446,7 +446,7 @@ def test_tailscale_is_found_where_the_app_installs_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, tail: str
 ) -> None:
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.delenv(webui.LUCID_TAILSCALE_ENV, raising=False)
+    monkeypatch.delenv(webui.PROOFCUT_TAILSCALE_ENV, raising=False)
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
     assert any(p.as_posix().endswith(tail) for p in webui._tailscale_installs())
 
@@ -459,14 +459,14 @@ def test_tailscale_is_found_where_the_app_installs_it(
 def test_tailscale_still_refuses_when_nothing_is_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     """`--tailscale` refuses rather than falling back to loopback — unchanged."""
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.delenv(webui.LUCID_TAILSCALE_ENV, raising=False)
+    monkeypatch.delenv(webui.PROOFCUT_TAILSCALE_ENV, raising=False)
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
     monkeypatch.setattr(webui, "_tailscale_installs", lambda: [Path("/nowhere/Tailscale")])
     with pytest.raises(webui.ProjectError, match=re.escape(str(Path("/nowhere/Tailscale")))):
         webui.tailscale_identity()
 
 
-# -- `lucid open`'s browser --------------------------------------------------
+# -- `proofcut open`'s browser --------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -487,7 +487,7 @@ def test_a_chromium_is_found_in_its_install_location(
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
     assert any(str(p).replace("\\", "/").endswith(tail) for p in webui._app_browser_installs())
 
-    monkeypatch.delenv(webui.LUCID_BROWSER_ENV, raising=False)
+    monkeypatch.delenv(webui.PROOFCUT_BROWSER_ENV, raising=False)
     monkeypatch.setattr(webui.shutil, "which", lambda name: None)
     installed = tmp_path / "browser"
     installed.touch()
@@ -525,7 +525,7 @@ def test_with_no_chromium_the_url_opens_in_a_normal_tab(
 
 def test_linux_with_no_xdg_open_still_opens_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     """`webbrowser` on a Linux box with no `xdg-open` can answer with w3m or
-    lynx, which would seize the terminal `lucid open` is serving from."""
+    lynx, which would seize the terminal `proofcut open` is serving from."""
     opened = _no_app_browser(monkeypatch, "linux")
     webui._launch_app("http://127.0.0.1:1/")
     assert opened == []
@@ -786,7 +786,7 @@ def test_the_caption_burn_names_the_font_directory_only_on_windows(
     monkeypatch.setattr(captions.subprocess, "run", fake_run)
     captions.burn(video, subs, tmp_path / "out.mp4")
 
-    assert seen["filter"] == f"ass=lucid.ass{option}"
+    assert seen["filter"] == f"ass=proofcut.ass{option}"
     assert seen["staged"] == (["Outfit-Bold.ttf", "Outfit-Regular.ttf"] if option else [])
 
 
@@ -840,7 +840,7 @@ def test_doctors_caption_font_does_not_ask_fontconfig_off_linux(
 
     text = doctor.render(
         {
-            "lucid": "0.0.0",
+            "proofcut": "0.0.0",
             "ok": True,
             "required": [],
             "optional": [],
@@ -874,7 +874,7 @@ def _synth_ready(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     (voice / "ref.txt").write_text("the words", encoding="utf-8")
     monkeypatch.setattr(tts, "tts_python", lambda: Path(sys.executable))
     monkeypatch.setattr(tts, "model_dir", lambda: tmp_path / "model")
-    monkeypatch.setenv("LUCID_TTS_VOICE", str(voice))
+    monkeypatch.setenv("PROOFCUT_TTS_VOICE", str(voice))
     monkeypatch.delenv(tts.DEVICE_ENV, raising=False)
     return voice
 
@@ -977,8 +977,8 @@ def test_linux_on_cuda_still_describes_and_says_so_in_the_job(
 
 
 def test_the_vision_worker_itself_refuses_before_importing_torch(tmp_path: Path) -> None:
-    """Run the real worker the way lucid does — a subprocess, never an import.
-    lucid's own venv has no torch, so a worker that reached for it first would
+    """Run the real worker the way proofcut does — a subprocess, never an import.
+    proofcut's own venv has no torch, so a worker that reached for it first would
     die on `ModuleNotFoundError`; the refusal has to come before that."""
     job = tmp_path / "job.json"
     job.write_text(json.dumps({"model": "m", "device": "mps", "windows": []}), encoding="utf-8")
@@ -1004,7 +1004,7 @@ def test_a_manifest_written_on_linux_still_writes_a_timeline_under_windows_paths
 ) -> None:
     """On Windows `/footage/a.mp4` has no drive, so it is not absolute and
     `Path.as_uri()` raised — on every op that writes `project.otio`, over a URL
-    nothing in lucid reads back. 470 of the first Windows run's 527 failures."""
+    nothing in proofcut reads back. 470 of the first Windows run's 527 failures."""
     monkeypatch.setattr(timeline, "Path", PureWindowsPath)
     clip = {"clip_id": "a", "duration": 2.0, "has_video": True}
     edit = timeline.Edit([timeline.Segment("a", 0.0, 1.0)])
@@ -1067,11 +1067,11 @@ def test_the_probe_names_what_libass_drew_by_file_never_by_path() -> None:
     DirectWrite log has been read yet, so this pins the parse, not the OS."""
     stderr = (
         "[Parsed_ass_0 @ 0x55] Using font provider fontconfig\n"
-        "[Parsed_ass_0 @ 0x7f] fontselect: (lucid No Such Face 0000, 400, 0) -> "
+        "[Parsed_ass_0 @ 0x7f] fontselect: (proofcut No Such Face 0000, 400, 0) -> "
         "/usr/share/fonts/google-noto-vf/NotoSansArabic[wght].ttf, 0, NotoSansArabic-Regular\n"
         "[Parsed_ass_0 @ 0x7f] Glyph 0x48 not found, selecting one more font for "
-        "(lucid No Such Face 0000, 400, 0)\n"
-        "[Parsed_ass_0 @ 0x7f] fontselect: (lucid No Such Face 0000, 400, 0) -> "
+        "(proofcut No Such Face 0000, 400, 0)\n"
+        "[Parsed_ass_0 @ 0x7f] fontselect: (proofcut No Such Face 0000, 400, 0) -> "
         "/usr/share/fonts/google-noto/NotoSans-Regular.ttf, 0, NotoSans-Regular\n"
     )
     chose = fonts._libass_choices(stderr)
@@ -1110,7 +1110,7 @@ def test_doctors_font_cross_says_what_drew_instead(monkeypatch: pytest.MonkeyPat
     font = doctor._caption_font()
     text = doctor.render(
         {
-            "lucid": "0.0.0",
+            "proofcut": "0.0.0",
             "ok": False,
             "required": [],
             "optional": [],
@@ -1130,7 +1130,7 @@ def test_a_headless_qt_that_draws_nothing_refuses_the_render(
     judged by what it draws, not by the variable. HISTORY.md § A stranger's
     install, on a clean Ubuntu."""
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setenv("LUCID_MELT", "melt")
+    monkeypatch.setenv("PROOFCUT_MELT", "melt")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setattr(picture, "display_env", lambda: {"QT_QPA_PLATFORM": "offscreen"})
     monkeypatch.setattr(picture, "qt_draws", lambda env: False)

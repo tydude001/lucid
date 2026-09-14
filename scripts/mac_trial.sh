@@ -1,5 +1,5 @@
 #!/bin/bash
-# lucid on a Mac, in one file — docs/plans/LAUNCH.md § Step 2.
+# proofcut on a Mac, in one file — docs/plans/LAUNCH.md § Step 2.
 #
 # One file, two ways to get it onto a Mac:
 #
@@ -9,14 +9,14 @@
 #   bash scripts/mac_trial.sh --pack OUT.sh    on the dev box: copy this script to OUT.sh and
 #                                              append the repo at HEAD, for a tester with no repo
 #                                              access (the private-repo route, and the friend kit)
-#   bash lucid-mac-test.sh                     on the Mac: unpack, then the same run
+#   bash proofcut-mac-test.sh                  on the Mac: unpack, then the same run
 #   bash <either> --uninstall                  on the Mac: remove what the test added, and only that
 #
 # The report is written to be attached to a public issue: the Mac's home folder is replaced by
 # `~` in every text file in it, and the rest is footage the demo generated.
 #
-# The Mac half runs DEMO.md's commands as written, into ~/lucid-mac-trial/demo instead of
-# ~/lucid-demo, and stops at the first one that fails, since that is the finding.
+# The Mac half runs DEMO.md's commands as written, into ~/proofcut-mac-trial/demo instead of
+# ~/proofcut-demo, and stops at the first one that fails, since that is the finding.
 #
 # What it installs, and why each is the light option:
 #   - Homebrew formulae uv, ffmpeg-full, espeak-ng, auto-editor. Not `mlt`, which pulls 135
@@ -25,7 +25,7 @@
 #     subtitles filter for a caption burn — the first mac-demo run, 2026-09-13. ffmpeg-full is
 #     keg-only, so it goes first on PATH below; auto-editor still pulls the plain one in.
 #   - melt comes from the Shotcut app instead, which bundles one and which picture.melt_bundles()
-#     already finds, and which lucid doctor's own fix names. Its modules are unmeasured
+#     already finds, and which proofcut doctor's own fix names. Its modules are unmeasured
 #     (PORTABILITY.md step 4), so the two frames in the report are the check, not melt's exit code.
 #   - whisper from `uv tool`, since Homebrew's openai-whisper pulls llvm and pytorch as formulae.
 #   - no ImageMagick: only cards need it and the demo draws none; doctor reports it unavailable.
@@ -46,21 +46,21 @@ if [ "${1:-}" = "--pack" ]; then
     rev="$(git -C "$repo" rev-parse --short HEAD)"
     sed "s/^PACKED_REV=.*/PACKED_REV=$rev/" "$0" > "$out"
     echo "__PAYLOAD__" >> "$out"
-    git -C "$repo" archive --format=tar.gz --prefix=lucid/ HEAD | base64 -w 76 >> "$out"
-    echo "packed lucid $rev -> $out ($(du -h "$out" | cut -f1))"
+    git -C "$repo" archive --format=tar.gz --prefix=proofcut/ HEAD | base64 -w 76 >> "$out"
+    echo "packed proofcut $rev -> $out ($(du -h "$out" | cut -f1))"
     exit 0
 fi
 
 PACKED_REV=unpacked
-ISSUE_URL="https://github.com/tydude001/lucid/issues/new?template=mac-test.yml"
-# The LUCID_TRIAL_* overrides exist for a dry run off the Mac, and REPORT for the CI job
+ISSUE_URL="https://github.com/tydude001/proofcut/issues/new?template=mac-test.yml"
+# The PROOFCUT_TRIAL_* overrides exist for a dry run off the Mac, and REPORT for the CI job
 # (.github/workflows/mac-demo.yml), which uploads the report rather than leaving it on a Desktop.
-W="${LUCID_TRIAL_DIR:-$HOME/lucid-mac-trial}"
+W="${PROOFCUT_TRIAL_DIR:-$HOME/proofcut-mac-trial}"
 DEMO="$W/demo"
-REPORT="${LUCID_TRIAL_REPORT:-$HOME/Desktop/lucid-mac-report.zip}"
+REPORT="${PROOFCUT_TRIAL_REPORT:-$HOME/Desktop/proofcut-mac-report.zip}"
 MANIFEST="$W/installed.txt"   # what this test added; survives a re-run, read by --uninstall
-BREW_PATHS="${LUCID_TRIAL_BREW:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
-APPS="${LUCID_TRIAL_APPS:-/Applications}"
+BREW_PATHS="${PROOFCUT_TRIAL_BREW:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
+APPS="${PROOFCUT_TRIAL_APPS:-/Applications}"
 UVPY="${UV_PYTHON_INSTALL_DIR:-$HOME/.local/share/uv/python}"
 WHISPER_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/whisper"
 FORMULAE="uv ffmpeg-full espeak-ng auto-editor"
@@ -88,7 +88,7 @@ ask() {  # ask "question" -> 0 on y
 # ---- --uninstall --------------------------------------------------------------------------
 if [ "${1:-}" = "--uninstall" ]; then
     if [ ! -f "$MANIFEST" ]; then
-        echo "No record of a lucid test on this Mac ($MANIFEST is missing), so nothing to remove."
+        echo "No record of a proofcut test on this Mac ($MANIFEST is missing), so nothing to remove."
         exit 0
     fi
     find_brew
@@ -98,7 +98,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     brew_itself=$(grep -c '^homebrew-itself$' "$MANIFEST")
 
     echo
-    echo "  This removes what the lucid test added to this Mac, and nothing else:"
+    echo "  This removes what the proofcut test added to this Mac, and nothing else:"
     [ -n "$(entries cask)" ] && echo "    - the Shotcut app"
     [ -n "$(entries uv-tool)" ] && echo "    - whisper (speech-to-text)"
     [ -n "$(entries whisper-model)" ] && echo "    - the speech model it downloaded"
@@ -106,7 +106,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     [ -n "$(entries uv-python)" ] && echo "    - the Python versions uv downloaded for the test"
     [ -n "$formulae" ] && echo "    - $(echo "$formulae" | wc -w | tr -d ' ') Homebrew packages: $formulae"
     [ "$brew_itself" -gt 0 ] && echo "    - Homebrew itself (you will be asked separately)"
-    echo "    - the lucid-mac-trial folder"
+    echo "    - the proofcut-mac-trial folder"
     echo
     ask "  Go ahead?" || exit 0
 
@@ -164,23 +164,23 @@ if [ "${1:-}" = "--uninstall" ]; then
 
     rm -rf "$W"
     echo
-    echo "  Done. The report on your Desktop (lucid-mac-report.zip) is yours to delete once sent."
-    grep -q '^__PAYLOAD__$' "$0" || echo "  The lucid folder you cloned is yours too: delete it when you are finished with it."
+    echo "  Done. The report on your Desktop (proofcut-mac-report.zip) is yours to delete once sent."
+    grep -q '^__PAYLOAD__$' "$0" || echo "  The proofcut folder you cloned is yours too: delete it when you are finished with it."
     [ "$brew_itself" -gt 0 ] && echo "  Apple's Command Line Tools, which Homebrew set up, stay installed; other apps use them."
     exit 0
 fi
 
 # ---- the test -----------------------------------------------------------------------------
-# Packed, lucid is unpacked into $W; otherwise this script must be sitting in a lucid checkout,
+# Packed, proofcut is unpacked into $W; otherwise this script must be sitting in a proofcut checkout,
 # and the run uses that checkout as it is.
 if grep -q '^__PAYLOAD__$' "$0"; then
-    REPO="$W/lucid"
+    REPO="$W/proofcut"
     SEND_TO="send it to whoever gave you this file"
 else
     REPO="$(cd "$(dirname "$0")/.." && pwd)"
-    if [ ! -f "$REPO/scripts/make_demo.py" ] || ! grep -q '^name = "lucid"' "$REPO/pyproject.toml" 2>/dev/null; then
-        echo "This copy is not inside a lucid checkout and has no lucid packed into it." >&2
-        echo "Clone the repo and run it from there:  git clone https://github.com/tydude001/lucid" >&2
+    if [ ! -f "$REPO/scripts/make_demo.py" ] || ! grep -q '^name = "proofcut"' "$REPO/pyproject.toml" 2>/dev/null; then
+        echo "This copy is not inside a proofcut checkout and has no proofcut packed into it." >&2
+        echo "Clone the repo and run it from there:  git clone https://github.com/tydude001/proofcut" >&2
         exit 1
     fi
     PACKED_REV="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "no-git")"
@@ -193,12 +193,12 @@ fi
 
 cat <<'EOF'
 
-  lucid — Mac test
-  ----------------
+  proofcut — Mac test
+  -------------------
   This will:
-    1. install the tools lucid needs (Homebrew packages, the Shotcut app, whisper)
-    2. make a short test video and let lucid edit it
-    3. put lucid-mac-report.zip on your Desktop, with your home folder's name taken out
+    1. install the tools proofcut needs (Homebrew packages, the Shotcut app, whisper)
+    2. make a short test video and let proofcut edit it
+    3. put proofcut-mac-report.zip on your Desktop, with your home folder's name taken out
 
   It takes 15–30 minutes, mostly downloading. You can leave it running.
   To remove everything it added afterwards, run this same file with --uninstall.
@@ -211,14 +211,14 @@ fi
 printf "  Press Enter to start, or Ctrl-C to stop. "
 read -r _
 
-if [ -f "$W/.lucid-mac-trial" ]; then
-    [ -f "$MANIFEST" ] && cp "$MANIFEST" "$HOME/.lucid-mac-trial-installed"
+if [ -f "$W/.proofcut-mac-trial" ]; then
+    [ -f "$MANIFEST" ] && cp "$MANIFEST" "$HOME/.proofcut-mac-trial-installed"
     rm -rf "$W"
 fi
 mkdir -p "$W"
-touch "$W/.lucid-mac-trial"
-if [ -f "$HOME/.lucid-mac-trial-installed" ]; then
-    mv "$HOME/.lucid-mac-trial-installed" "$MANIFEST"
+touch "$W/.proofcut-mac-trial"
+if [ -f "$HOME/.proofcut-mac-trial-installed" ]; then
+    mv "$HOME/.proofcut-mac-trial-installed" "$MANIFEST"
 fi
 touch "$MANIFEST"
 LOG="$W/report.txt"
@@ -273,7 +273,7 @@ finish() {
 
     echo
     echo "════ summary"
-    echo "lucid $PACKED_REV · macOS $(sw_vers -productVersion) · $(uname -m)"
+    echo "proofcut $PACKED_REV · macOS $(sw_vers -productVersion) · $(uname -m)"
     for s in ${STEPS[@]+"${STEPS[@]}"}; do echo "  $s"; done
     if [ -n "$fail" ]; then
         echo "STOPPED AT: $fail"
@@ -289,7 +289,7 @@ finish() {
     rm -rf "$W/report" "$REPORT"
     mkdir -p "$W/report"
     sed "s#$HOME#~#g" "$LOG" > "$W/report/report.txt"
-    for f in demo/proj/lucid.json demo/proj/project.otio; do
+    for f in demo/proj/proofcut.json demo/proj/project.otio; do
         [ -e "$W/$f" ] && sed "s#$HOME#~#g" "$W/$f" > "$W/report/$(basename "$f")"
     done
     for f in frame-3s.png frame-10s.png demo/demo.mp4; do
@@ -297,7 +297,7 @@ finish() {
     done
     (cd "$W/report" && zip -q "$REPORT" ./*)
     echo
-    echo "  Done. The report is on your Desktop:  lucid-mac-report.zip"
+    echo "  Done. The report is on your Desktop:  proofcut-mac-report.zip"
     echo "  Please $SEND_TO"
     echo "  To remove everything the test installed:      bash $0 --uninstall"
     echo
@@ -307,15 +307,15 @@ finish() {
 # Ctrl-C mid-install still records what had landed, so --uninstall can find it.
 trap 'echo; echo "!! stopped by Ctrl-C"; fail="stopped by Ctrl-C"; finish; exit 130' INT
 
-echo "lucid Mac test · lucid $PACKED_REV · $(date '+%Y-%m-%d %H:%M %Z')"
+echo "proofcut Mac test · proofcut $PACKED_REV · $(date '+%Y-%m-%d %H:%M %Z')"
 echo "macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)) · $(uname -m) · $(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
 echo "memory $(( $(sysctl -n hw.memsize) / 1073741824 )) GB · free disk $(df -h "$HOME" | awk 'NR==2 {print $4}')"
 
-if [ "$REPO" = "$W/lucid" ]; then
+if [ "$REPO" = "$W/proofcut" ]; then
     line=$(awk '/^__PAYLOAD__$/ {print NR + 1; exit}' "$0")
-    if ! step "unpack lucid" sh -c "tail -n +$line '$0' | base64 --decode | tar -xz -C '$W'"; then finish; exit 1; fi
+    if ! step "unpack proofcut" sh -c "tail -n +$line '$0' | base64 --decode | tar -xz -C '$W'"; then finish; exit 1; fi
 else
-    echo "lucid checkout: $(echo "$REPO" | sed "s#$HOME#~#")"
+    echo "proofcut checkout: $(echo "$REPO" | sed "s#$HOME#~#")"
 fi
 
 # Homebrew. Its installer asks for the Mac's password and may install Apple's command line tools.
@@ -346,7 +346,7 @@ if [ -d "$APPS/Shotcut.app" ]; then
 else
     if ! step "install Shotcut (for its melt renderer)" brew install --cask shotcut; then finish; exit 1; fi
     record "cask shotcut"
-    # lucid runs melt from inside the app, never the app itself, so macOS's first-launch prompt has
+    # proofcut runs melt from inside the app, never the app itself, so macOS's first-launch prompt has
     # nowhere to appear. Homebrew has already checked the download against its checksum.
     xattr -dr com.apple.quarantine "$APPS/Shotcut.app" 2>/dev/null
 fi
@@ -371,12 +371,12 @@ echo "ffmpeg: $(command -v ffmpeg)"
 
 cd "$REPO" || { fail="enter repo"; finish; exit 1; }
 if ! step "uv sync" uv sync; then finish; exit 1; fi
-step "lucid doctor (informational)" uv run lucid doctor || fail=""   # the demo below is the verdict
+step "proofcut doctor (informational)" uv run proofcut doctor || fail=""   # the demo below is the verdict
 
-L() { uv run lucid -C "$DEMO/proj" "$@"; }
+L() { uv run proofcut -C "$DEMO/proj" "$@"; }
 
 step "DEMO 1 make the footage" uv run python scripts/make_demo.py "$DEMO" &&
-step "DEMO 2 init" uv run lucid init "$DEMO/proj" &&
+step "DEMO 2 init" uv run proofcut init "$DEMO/proj" &&
 step "DEMO 2 import vo" L import "$DEMO/vo.wav" --clip-id vo &&
 step "DEMO 2 import blue" L import "$DEMO/broll-blue.mp4" --clip-id blue &&
 step "DEMO 2 import rust" L import "$DEMO/broll-rust.mp4" --clip-id rust &&
@@ -403,10 +403,10 @@ finish
 trap - INT   # from here Ctrl-C only closes the editor window; the report is already written
 
 if [ -z "$fail" ]; then
-    printf "  Want to see lucid's editor window with the result? Type y and Enter (Ctrl-C closes it): "
+    printf "  Want to see proofcut's editor window with the result? Type y and Enter (Ctrl-C closes it): "
     read -r ans
     if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
-        uv run lucid -C "$DEMO/proj" open
+        uv run proofcut -C "$DEMO/proj" open
     fi
 fi
 exit 0

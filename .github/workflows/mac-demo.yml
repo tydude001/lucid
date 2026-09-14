@@ -45,16 +45,16 @@ jobs:
       # nothing and declines.
       - name: the Mac test kit
         env:
-          LUCID_TRIAL_REPORT: ${{ runner.temp }}/lucid-mac-report.zip
+          PROOFCUT_TRIAL_REPORT: ${{ runner.temp }}/proofcut-mac-report.zip
         run: bash scripts/mac_trial.sh < /dev/null
       - name: judge the run
         if: always()
-        run: uv run python scripts/trial_check.py ~/lucid-mac-trial
+        run: uv run python scripts/trial_check.py ~/proofcut-mac-trial
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: lucid-mac-report
+          name: proofcut-mac-report
           path: |
-            ${{ runner.temp }}/lucid-mac-report.zip
-            ~/lucid-mac-trial/report.txt
+            ${{ runner.temp }}/proofcut-mac-report.zip
+            ~/proofcut-mac-trial/report.txt
           if-no-files-found: warn

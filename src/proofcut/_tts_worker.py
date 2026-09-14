@@ -1,9 +1,9 @@
 """The synthesiser side of `tts`, run under a *different* interpreter.
 
-**This module is never imported by lucid.** It is executed by the Python that
+**This module is never imported by proofcut.** It is executed by the Python that
 `tts.tts_python()` resolves — a venv with `qwen_tts` and a CUDA torch — which is
 the whole reason it is a separate file, exactly as `_vlm_worker.py` and
-`_face_worker.py` keep torch and onnxruntime out of lucid's own venv.
+`_face_worker.py` keep torch and onnxruntime out of proofcut's own venv.
 
 It reads one JSON job from `argv[1]` and writes one JSON result to `argv[2]`;
 a file rather than stdout because transformers and qwen_tts both print to

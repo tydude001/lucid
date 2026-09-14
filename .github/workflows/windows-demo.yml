@@ -49,7 +49,7 @@ jobs:
       - name: the Windows test kit
         shell: pwsh
         env:
-          LUCID_TRIAL_REPORT: ${{ runner.temp }}\lucid-windows-report.zip
+          PROOFCUT_TRIAL_REPORT: ${{ runner.temp }}\proofcut-windows-report.zip
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows_trial.ps1 -Unattended
       # The runner's own Python, since the check is stdlib-only and the kit may
       # have stopped before uv arrived; the kit's ffmpeg, since the check reads
@@ -63,7 +63,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
         run: |
-          $trial = Join-Path $env:LOCALAPPDATA 'lucid-windows-trial'
+          $trial = Join-Path $env:LOCALAPPDATA 'proofcut-windows-trial'
           Copy-Item -LiteralPath (Join-Path $trial 'report.txt') -Destination $env:RUNNER_TEMP -ErrorAction SilentlyContinue
           $ffmpeg = Get-ChildItem -LiteralPath (Join-Path $trial 'tools\ffmpeg') -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($ffmpeg) { $env:PATH = "$($ffmpeg.DirectoryName);$env:PATH" }
@@ -72,8 +72,8 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: lucid-windows-report
+          name: proofcut-windows-report
           path: |
-            ${{ runner.temp }}\lucid-windows-report.zip
+            ${{ runner.temp }}\proofcut-windows-report.zip
             ${{ runner.temp }}\report.txt
           if-no-files-found: warn

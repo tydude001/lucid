@@ -32,7 +32,7 @@ needs_tools = pytest.mark.skipif(
 )
 needs_face = pytest.mark.skipif(
     not faces.available()["available"],
-    reason="`extremes` probes with the real face detector (LUCID_FACE)",
+    reason="`extremes` probes with the real face detector (PROOFCUT_FACE)",
 )
 
 VO = {
@@ -521,9 +521,9 @@ def test_extremes_refuses_before_decoding_when_there_is_no_detector(
     monkeypatch.setattr(
         faces,
         "available",
-        lambda: {"available": False, "python": None, "model": None, "why": "no LUCID_FACE here"},
+        lambda: {"available": False, "python": None, "model": None, "why": "no PROOFCUT_FACE here"},
     )
-    with pytest.raises(faces.FaceError, match="no LUCID_FACE here"):
+    with pytest.raises(faces.FaceError, match="no PROOFCUT_FACE here"):
         ops.reframe_sheet(project.root, extremes=True)
 
 

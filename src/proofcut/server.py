@@ -1,7 +1,7 @@
-"""The `lucid mcp` server — MCP tools over stdio, or over HTTP.
+"""The `proofcut mcp` server — MCP tools over stdio, or over HTTP.
 
 Every tool here is a thin wrapper over `proofcut.ops`, and every one has a
-matching `lucid` CLI subcommand (CLAUDE.md). Tool bodies stay trivial on
+matching `proofcut` CLI subcommand (CLAUDE.md). Tool bodies stay trivial on
 purpose: logic that lives here is logic the CLI cannot reach and the stdio
 tests cannot isolate.
 
@@ -9,7 +9,7 @@ Note the SDK is v2 — `MCPServer` from `mcp.server`. There is no `FastMCP` and
 no `mcp.server.fastmcp` module, whatever your priors say.
 
 stdio is the default transport and every existing client spawns the server
-that way; HTTP is opt-in (`lucid mcp --transport http`, docs/plans/DAYDREAM.md § MCP
+that way; HTTP is opt-in (`proofcut mcp --transport http`, docs/plans/DAYDREAM.md § MCP
 over HTTP) for the day something needs to drive an already-running project
 from outside. Its guard mirrors `webui.py`'s discipline exactly — see
 `_LoopbackGuard` and `_serve_http` below — because an HTTP MCP server carries
@@ -37,10 +37,10 @@ from proofcut import __version__, asr, energy, ops, webui
 from proofcut.project import ProjectError
 
 mcp: MCPServer = MCPServer(
-    name="lucid",
+    name="proofcut",
     version=__version__,
     instructions=(
-        "lucid edits video locally. All state lives in a project directory on "
+        "proofcut edits video locally. All state lives in a project directory on "
         "disk; nothing is uploaded.\n\n"
         "The usual order is: init -> import_media -> attach_transcript -> "
         "seed_timeline -> cut_by_transcript (repeatedly) -> export.\n\n"
@@ -58,17 +58,17 @@ mcp: MCPServer = MCPServer(
 
 
 #: The project this server is bound to, or None when it is unbound. Set once
-#: by `serve(root=...)`, which `lucid mcp` calls with its `-C` directory — and
+#: by `serve(root=...)`, which `proofcut mcp` calls with its `-C` directory — and
 #: only when `-C` was actually typed, because a globally-configured
-#: `lucid mcp` has no project and must keep reaching any of them.
+#: `proofcut mcp` has no project and must keep reaching any of them.
 _BOUND_ROOT: Path | None = None
 
-#: Bind address and port `lucid mcp --transport http` uses when neither flag
+#: Bind address and port `proofcut mcp --transport http` uses when neither flag
 #: is given. Loopback, matching `webui.DEFAULT_HOST` (127.0.0.1): an HTTP MCP
 #: server carries the same edit-mutating tools stdio does, so it gets
 #: `webui.py`'s discipline (CLAUDE.md) rather than a looser default of its
 #: own. The port is one past `webui.DEFAULT_PORT` for the same reason that
-#: one isn't 8000/8080 — don't collide with `lucid web` running on the same
+#: one isn't 8000/8080 — don't collide with `proofcut web` running on the same
 #: project, or with whatever else a dev box already has up.
 DEFAULT_HTTP_HOST = webui.DEFAULT_HOST
 DEFAULT_HTTP_PORT = webui.DEFAULT_PORT + 1
@@ -84,7 +84,7 @@ DEFAULT_HTTP_PORT = webui.DEFAULT_PORT + 1
 #: whatever address they actually dialed, never `0.0.0.0`/`::`. See
 #: `_build_http_server`.
 #: One copy, in `webui.py` beside `_LOOPBACK_NAMES` — the same refusal is
-#: made by `webui.remote_policy` for `lucid web --allow-remote`, and two
+#: made by `webui.remote_policy` for `proofcut web --allow-remote`, and two
 #: lists of what counts as a wildcard bind is one list that goes stale.
 _WILDCARD_HOSTS = webui._WILDCARD_HOSTS
 
@@ -204,14 +204,14 @@ def _confine(path: str | None) -> str | None:
     if resolved != root and root not in resolved.parents:
         raise ProjectError(
             f"this server is bound to {root} and {path!r} resolves outside it "
-            f"({resolved}). It was started as `lucid -C {root} mcp`, so every "
+            f"({resolved}). It was started as `proofcut -C {root} mcp`, so every "
             "tool addresses that project; pass a path at or under it."
         )
     return str(resolved)
 
 
 #: What each tool does to the project, as the MCP spec's hints. Nothing in
-#: lucid reads these; a client does (deciding what needs a prompt), and so do
+#: proofcut reads these; a client does (deciding what needs a prompt), and so do
 #: the directories that grade a server's tools (Glama's "what does it do to the
 #: world"). **The table is the whole contract, and `_tool()` refuses a tool
 #: missing from it**, so a new tool cannot register unclassified.
@@ -234,7 +234,7 @@ def _confine(path: str | None) -> str | None:
 #:   is told.
 #: - EDIT replaces or removes, and a repeat is not a no-op (`cut_by_time`
 #:   moves under its own cut; `undo` rolls back one more; a synth re-rolls).
-#: - Every tool is closed-world: lucid runs local binaries over local files
+#: - Every tool is closed-world: proofcut runs local binaries over local files
 #:   and calls no service.
 _READ = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 _ADD = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -308,7 +308,7 @@ def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
 
     `projectless=True` is `fonts`/`pack_show`'s escape from the default-to-
     bound-project rule below: their own docstrings document `path=None` as
-    "no project, lucid's default" rather than "which project", so an omitted
+    "no project, proofcut's default" rather than "which project", so an omitted
     `path` there stays `None` — not confined, not defaulted — in every bind
     state, exactly as it always has.
     """
@@ -347,13 +347,13 @@ def _tool(*selectors: str, projectless: bool = False) -> Callable[[F], F]:
 
 @_tool()
 def ping() -> dict[str, str]:
-    """Check that the lucid MCP server is alive, and report its version."""
-    return {"status": "ok", "server": "lucid", "version": __version__}
+    """Check that the proofcut MCP server is alive, and report its version."""
+    return {"status": "ok", "server": "proofcut", "version": __version__}
 
 
 @_tool()
 def doctor() -> dict[str, Any]:
-    """Probe every external binary lucid depends on, and name each one's trap.
+    """Probe every external binary proofcut depends on, and name each one's trap.
 
     Takes no project — it answers the question asked before there is one.
     Report-only: nothing is installed and nothing is written. `ok` reads the
@@ -371,9 +371,9 @@ def doctor() -> dict[str, Any]:
 @_tool()
 def init(path: str | None = None,
     *, name: str | None = None) -> dict[str, Any]:
-    """Create a lucid project directory at `path`.
+    """Create a proofcut project directory at `path`.
 
-    Writes `lucid.json` and the empty `assets/`, `cache/`, `media/` and
+    Writes `proofcut.json` and the empty `assets/`, `cache/`, `media/` and
     `renders/` directories, and nothing else — no media, no timeline. Refuses
     a directory that already holds a project rather than resetting it, so it
     is safe to call when unsure. Next is `import_media`, then a transcript,
@@ -387,11 +387,13 @@ def migrate_project(path: str | None = None,
     *, plan: bool = False) -> dict[str, Any]:
     """Bring an older project manifest forward to the current schema version.
 
-    Every other tool refuses a project written by an older lucid rather than
+    Every other tool refuses a project written by an older proofcut rather than
     guessing at a layout it does not recognise; this is what clears that. It
     is forward-only, and it copies the manifest into `cache/history/` before
     writing. `plan=True` reports the version and the steps without writing,
-    which is how to ask what a project is before deciding to change it.
+    which is how to ask what a project is before deciding to change it. A
+    project whose manifest is still `lucid.json` (written before the rename)
+    is renamed to `proofcut.json` first, reported as the first step.
     """
     return ops.migrate(path, plan=plan)
 
@@ -485,7 +487,7 @@ def clip_rm(path: str | None = None, *, clip_id: str) -> dict[str, Any]:
     Refused, naming every reason, if the clip is on the timeline, cued,
     held, the music bed's own clip, marked unspoken, transcribed or
     described — clear those first (`cue_rm`/`hold_rm`/`unspoken_rm`/`music
-    reset=True`, or `lucid undo`) or use `undo` back to before the import
+    reset=True`, or `proofcut undo`) or use `undo` back to before the import
     instead. The media on disk is never touched either way.
     """
     return ops.clip_rm(path, clip_id)
@@ -752,7 +754,7 @@ def describe_ls(
 
 @_tool()
 def card_templates() -> dict[str, Any]:
-    """The card templates lucid ships, and the slots each one takes.
+    """The card templates proofcut ships, and the slots each one takes.
 
     Read this before card_new: each slot says what it is for, whether it is
     required, and what it defaults to. The palette and font stacks are slots
@@ -772,7 +774,7 @@ def fonts(path: str | None = None, install: bool = False) -> dict[str, Any]:
     face drew is to measure a render.
 
     `path` is optional: with a project, this checks the font that project's
-    caption style would burn; without one, lucid's default. `install` copies
+    caption style would burn; without one, proofcut's default. `install` copies
     the vendored face where this OS's font system looks (fontconfig, CoreText
     or DirectWrite) and is off by default, because it writes into the home
     directory.
@@ -876,7 +878,7 @@ def card_safe_zones(path: str | None = None,
     **Report only** — nothing here blocks a render, and there is no default
     floor: `SCENE_THRESHOLD`'s own history is that a threshold gets pinned by
     looking at real output, not picked cold, and this check has had exactly
-    one look so far. `platform` is one of lucid's own zones (`tiktok-organic`,
+    one look so far. `platform` is one of proofcut's own zones (`tiktok-organic`,
     `tiktok-ads`, `reels`, `shorts`, `worst-case`) or one an applied pack's
     active variant declares — `pack_show` lists both.
 
@@ -910,7 +912,7 @@ def pack_apply(
     For every font role, `fonts.probe` asks whether the declared family
     actually draws *on this machine* — a family that does not refuses the whole
     call unless `allow_fallback` (then its declared CSS fallback is used and
-    recorded, never silent); one that draws but is vendored nowhere lucid
+    recorded, never silent); one that draws but is vendored nowhere proofcut
     knows about is recorded `font_provenance: "unvendored"` rather than
     refused, since the render here is genuinely correct today. `install_fonts`
     vendors the pack's own `fonts/` directory if it ships one — off by
@@ -1207,7 +1209,7 @@ def unspoken_detect(
     the render says "the" near here answers yes off the real one beside it.
 
     `apply=False` by default, like `reframe_detect`: this changes what a
-    caption says, and a wrong mark deletes a real word from every check lucid
+    caption says, and a wrong mark deletes a real word from every check proofcut
     has. Read the echoes first.
 
     `transcript_path` takes an existing transcription of the render, which is
@@ -1335,7 +1337,7 @@ def cut_by_time(
 
     Each span is [start, end) in the seconds the current export plays at
     (what timeline_status/verify describe), not source time and not word
-    indices. lucid converts each span to the source interval(s) it plays —
+    indices. proofcut converts each span to the source interval(s) it plays —
     the inverse of the mapping captions and playback use — and cuts those
     through the same Edit.remove path cut_by_transcript uses. The render
     timestamp is never stored: the conversion happens once, here, at call
@@ -1489,7 +1491,7 @@ def timeline_view(path: str | None = None,
     with a suspect duration carry the same flag attach_transcript reported.
 
     This is locate asked once for the whole clip instead of once per range,
-    and it is what the `lucid web` view draws. Read-only.
+    and it is what the `proofcut web` view draws. Read-only.
 
     `shots` is the picture lane the cue table projects — null when there are no
     cues, and null with a `shots_error` message when the plan refuses (a cue
@@ -1598,7 +1600,7 @@ def export(
     pass straight through.
 
     A **multi-source** timeline — one with a cue table, or with two clips on
-    it — is written by lucid itself as MLT ("kdenlive" or "mlt") and rendered
+    it — is written by proofcut itself as MLT ("kdenlive" or "mlt") and rendered
     by melt, because auto-editor refuses to export a second source and renders
     it at 720x576 while exiting 0. The reply says which writer ran
     ("auto-editor", "mlt" or "melt"), and a melt render reports the resolution
@@ -1606,7 +1608,7 @@ def export(
 
     `fps` sets the NLE timeline's frame rate; it defaults to the picture's rate,
     or 30 for an audio-only project. It sets the render's frame rate too on the
-    multi-source path, where lucid owns the profile; it is ignored when
+    multi-source path, where proofcut owns the profile; it is ignored when
     auto-editor renders a single-source timeline.
 
     `preset` is one of "youtube", "web", "tiktok-reels", or "custom" (which
@@ -2027,7 +2029,7 @@ def vo_synth(
     The backend is zero-shot Qwen3-TTS with a ≈19 s reference clip (`tts.py`
     — measured in local-llm's voice-clone note to beat every fine-tune on the
     model's own speaker-encoder likeness). `voice` is a directory holding
-    `ref.wav` + `ref.txt`; unset, `$LUCID_TTS_VOICE`. There is no built-in voice.
+    `ref.wav` + `ref.txt`; unset, `$PROOFCUT_TTS_VOICE`. There is no built-in voice.
 
     Seeds `seed .. seed+candidates-1` render in one process; each comes back
     with `sim` (cosine of its speaker embedding against the reference — a real
@@ -2118,7 +2120,7 @@ def hold_add(
     `fade_out`) are re-settable on an already-spliced hold by calling again
     with the same address and no change to `word_index_first`/
     `word_index_last` — those two are one-way once spliced (`hold_rm` then
-    `hold_add` again, or `lucid undo`, are the only ways to resize one).
+    `hold_add` again, or `proofcut undo`, are the only ways to resize one).
 
     `plan=True` resolves and reports without writing anything.
     """
@@ -2150,7 +2152,7 @@ def hold_rm(path: str | None = None,
     """Drop a hold's record and its owned cue — the spliced silence stays.
 
     `vo_extend`'s own irreversibility, inherited: there is no clean
-    "un-splice", only `lucid undo`. After this the gap reverts to being an
+    "un-splice", only `proofcut undo`. After this the gap reverts to being an
     ordinary manufactured silence, a coherent pre-existing state rather than
     a broken one.
     """
@@ -2206,9 +2208,9 @@ def finish_check(
 ) -> dict[str, Any]:
     """Check a **delivered** file against this project's timeline —
     `verify`/`check_frames`/`check_black`/`film_check` for a file an
-    external mix pass produced, not one of lucid's own renders.
+    external mix pass produced, not one of proofcut's own renders.
 
-    `final` carries a cold open and/or holds concatenated on outside lucid,
+    `final` carries a cold open and/or holds concatenated on outside proofcut,
     so every position this reports is in `final`'s own absolute seconds.
     `prepend_seconds` defaults to this project's stored head length; `holds`
     defaults to its stored holds, resolved live and offset the same way —
@@ -2226,7 +2228,7 @@ def finish_check(
     at a window stitch (`boundary_misses`, recovered — a run that still
     cannot be found stays in `missing`, a real fault); and a self-repeat
     scan over the same filtered transcript. `faults`/`ok` aggregate all of
-    it, and every run is logged (`finishlog`) so `lucid review serve` can
+    it, and every run is logged (`finishlog`) so `proofcut review serve` can
     show a WARN badge keyed to the file's own sha256.
     """
     return ops.finish_check(
@@ -2741,7 +2743,7 @@ def thumbnail(
     `at` snaps to a multiple of `interval` before anything is extracted, and
     the frame is cached under `cache/thumbs/` keyed by the clip's media size
     and mtime — a repeated ask for a nearby instant is a cache hit. The
-    result is a path, not the image bytes; `lucid web` serves those over
+    result is a path, not the image bytes; `proofcut web` serves those over
     `/api/thumb/<clip_id>?at=`. It never enters the manifest, so nothing
     that renders can reach it (the same wall the preview proxy has).
     """
@@ -2821,7 +2823,7 @@ def broll_brief(path: str | None = None,
     over it, how long it is held, and what is currently there. `card: true`
     positions are shown for rhythm and are not choices.
 
-    This is the half lucid can do. Choosing is the other half, and it belongs
+    This is the half proofcut can do. Choosing is the other half, and it belongs
     to you: read the brief, decide which clip goes under which sentence, and
     write the answers back with `cue_add`, where the picture plan checks each
     one. Ranking the catalogue by text similarity was measured and does not
@@ -2914,7 +2916,7 @@ def check_frames(path: str | None = None,
     Read `agrees` first, then `delta` — how many frames the target has that the
     timeline does not. A non-zero delta on an NLE project means the render will
     not be the length the edit is, and `notes` says so when the cause is one
-    lucid already knows about. `agrees` is null, not false, for an audio-only
+    proofcut already knows about. `agrees` is null, not false, for an audio-only
     render: it has no frames, so nothing was checked.
 
     `fps` must match the rate the export ran at or the two sides are counting on
@@ -2988,7 +2990,7 @@ def import_edit(
 
     Refused by name rather than half-read: a `<blank>` in the playlist (real
     runtime an `Edit` has nowhere to put), and two playlists carrying
-    different cuts (a multi-track picture edit, which lucid's one linked A/V
+    different cuts (a multi-track picture edit, which proofcut's one linked A/V
     track has no shape for).
     """
     return ops.import_edit(path, document, clip_id=clip_id, plan=plan)
@@ -3180,7 +3182,7 @@ def review_add(
     kind: str,
     baseline: str | None = None,
 ) -> dict[str, Any]:
-    """Register a rendered file, sheet or A/B member for `lucid review serve`.
+    """Register a rendered file, sheet or A/B member for `proofcut review serve`.
 
     Never copies `source` — a render already lives in `renders/`, a sheet in
     `reframe_sheet`'s own directory — this just points `name` at it, so a
@@ -3233,7 +3235,7 @@ def serve(
     surface as a refusal on every call, blaming the argument the client sent
     instead of the directory the server was started with. Existence is all
     that is checked: `init` under a bound root is legitimate, so requiring
-    the root to already be a lucid project would refuse a real workflow.
+    the root to already be a proofcut project would refuse a real workflow.
 
     `transport` is `"stdio"` (the default — every existing client spawns the
     server this way, so changing the default would break them silently) or
@@ -3310,7 +3312,7 @@ def _serve_http(
     bound_port = sock.getsockname()[1]
     # Flushed: this is the one line a client needs to find the server, and a
     # piped stdout would otherwise hold it in the buffer (mirrors webui.serve).
-    print(f"lucid mcp: http://{host}:{bound_port}/mcp", flush=True)
+    print(f"proofcut mcp: http://{host}:{bound_port}/mcp", flush=True)
     print("Ctrl-C to stop.", flush=True)
     try:
         server.run(sockets=[sock])

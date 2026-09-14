@@ -1,6 +1,6 @@
 """End-to-end checks against the real server process.
 
-This spawns `lucid mcp` as a subprocess and speaks MCP over its stdio, rather
+This spawns `proofcut mcp` as a subprocess and speaks MCP over its stdio, rather
 than calling the tool functions directly — the wiring between the CLI, the
 transport, and the tool registry is exactly what a unit test would miss
 (CLAUDE.md).
@@ -401,7 +401,7 @@ def test_server_serves_ping_over_stdio() -> None:
 
     payload = anyio.run(_with_server, body)
     assert payload["status"] == "ok"
-    assert payload["server"] == "lucid"
+    assert payload["server"] == "proofcut"
 
 
 @needs_ffprobe
@@ -612,7 +612,7 @@ def test_every_mcp_tool_has_a_cli_subcommand() -> None:
         "the tool -> command map has drifted from the registered tool list"
     )
     for tool, command in TOOL_TO_COMMAND.items():
-        assert command in _COMMANDS, f"MCP tool {tool!r} has no `lucid {command}` subcommand"
+        assert command in _COMMANDS, f"MCP tool {tool!r} has no `proofcut {command}` subcommand"
 
     # And the other way, so a CLI command cannot quietly lack a tool.
     unmapped = set(_COMMANDS) - set(TOOL_TO_COMMAND.values()) - CLI_ONLY
@@ -1697,9 +1697,9 @@ def test_transcript_checks_does_not_write_to_the_project(tmp_path: Path) -> None
             clip_id=clip["clip_id"],
             transcript_path=str(transcript),
         )
-        before = (project / "lucid.json").read_text()
+        before = (project / "proofcut.json").read_text()
         await client.call("transcript_checks", path=str(project))
-        return before, (project / "lucid.json").read_text()
+        return before, (project / "proofcut.json").read_text()
 
     before, after = anyio.run(_with_server, body)
     assert before == after
@@ -2218,7 +2218,7 @@ def test_cut_by_time_on_an_untranscribed_clip_still_cuts(tmp_path: Path) -> None
 
 
 def _fake_whisper(path: Path) -> Path:
-    """A whisper stand-in for `LUCID_WHISPER`: writes a fixed transcript.
+    """A whisper stand-in for `PROOFCUT_WHISPER`: writes a fixed transcript.
 
     Real whisper's CLI shape, minus the GPU — `asr.transcribe` only cares that
     the binary accepts these flags and drops `<stem>.json` in `--output_dir`.
@@ -2250,7 +2250,7 @@ def _fake_whisper(path: Path) -> Path:
 def test_transcribe_runs_whisper_and_attaches_the_result(tmp_path: Path) -> None:
     """transcribe wires asr.transcribe -> parse_whisper -> the transcript cache.
 
-    No real GPU here — LUCID_WHISPER points the server subprocess at a stand-in
+    No real GPU here — PROOFCUT_WHISPER points the server subprocess at a stand-in
     that writes a fixed transcript, so this checks the wiring, not whisper.
     """
     audio = tmp_path / "vo.wav"
@@ -2259,7 +2259,7 @@ def test_transcribe_runs_whisper_and_attaches_the_result(tmp_path: Path) -> None
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "proofcut.cli", "mcp"],
-        env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
+        env={"PROOFCUT_WHISPER": str(_fake_whisper(tmp_path))},
     )
 
     async def body(session: ClientSession) -> dict[str, Any]:
@@ -2339,7 +2339,7 @@ def test_transcribe_drops_a_runaway_tail_and_says_how_many(tmp_path: Path) -> No
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "proofcut.cli", "mcp"],
-        env={"LUCID_WHISPER": str(_fake_whisper_runaway(tmp_path))},
+        env={"PROOFCUT_WHISPER": str(_fake_whisper_runaway(tmp_path))},
     )
 
     async def body(session: ClientSession) -> dict[str, Any]:
@@ -2449,7 +2449,7 @@ def test_finish_check_reachable_over_stdio_and_recovers_a_boundary_miss(
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "proofcut.cli", "mcp"],
-        env={"LUCID_WHISPER": str(_fake_whisper_finish_check(tmp_path))},
+        env={"PROOFCUT_WHISPER": str(_fake_whisper_finish_check(tmp_path))},
     )
 
     async def body(session: ClientSession) -> dict[str, Any]:
@@ -2608,7 +2608,7 @@ def test_a_stored_style_reaches_the_ass_file_and_survives_a_cut(
     assert out["read_back"]["stored"] == out["styled"]["stored"]
     assert out["read_back"]["written"] is False, "reading is not a mutation"
 
-    assert "Style: lucid,Outfit,80," in text
+    assert "Style: proofcut,Outfit,80," in text
     assert "\\k" in text, "karaoke survived the cut that followed the restyle"
     # SecondaryColour is the *unspoken* colour — the swap this layer exists for.
     assert out["view"]["style"]["ass"]["text"] == "&H0000D4FF"
@@ -3189,7 +3189,7 @@ def test_reframe_coverage_over_the_wire(tmp_path: Path, sources: tuple[Path, Pat
 
     Real footage with a real cut in it: this is the one framing tool whose
     answer is ffmpeg's rather than arithmetic, so a fixtured clip would be
-    testing lucid against itself. The window is stored at the head and the cut
+    testing proofcut against itself. The window is stored at the head and the cut
     is six seconds in, which is the film's `cold-open` shape in miniature —
     there, one rect covered four camera setups and the manifest, `status` and
     `reframe_sheet` were all clean over it.
@@ -4163,7 +4163,7 @@ def test_rendering_keeps_the_millisecond_timebase(
 # -- the picture half: frame counts --------------------------------------
 
 def _melt_available() -> bool:
-    """Ask lucid's own resolver, so the guard skips exactly when the check would."""
+    """Ask proofcut's own resolver, so the guard skips exactly when the check would."""
     try:
         picture.melt_command()
     except picture.PictureError:
@@ -4493,7 +4493,7 @@ def test_a_stale_render_is_caught_by_its_frame_count(tmp_path: Path) -> None:
 
     Rendering and then cutting again is the easy way to ship the previous
     edit — the file on disk still opens, still plays, and is simply the wrong
-    one. Its length is the tell, and nothing else in lucid was looking at it.
+    one. Its length is the tell, and nothing else in proofcut was looking at it.
     """
     source = tmp_path / "pic.mp4"
     _make_video(source)
@@ -4780,7 +4780,7 @@ def test_film_check_catches_a_project_seeded_from_a_stale_cut(tmp_path: Path) ->
     this: it would have agreed with itself just as cleanly on the stale cut,
     because it never looks outside the project. `undo` stands in here for
     what actually happened to the Scream project: a retake pass done outside
-    lucid never landing in it, so the film's own export is short and correct
+    proofcut never landing in it, so the film's own export is short and correct
     while the project's own timeline is still the longer, stale one.
     """
     source = tmp_path / "pic.mp4"
@@ -4837,7 +4837,7 @@ def test_film_check_remembers_a_declared_reference(tmp_path: Path) -> None:
         await client.call("export", path=str(project), output=str(render), export_format=None)
         declared = await client.call("film_check", path=str(project), reference=str(render))
         reread = await client.call("film_check", path=str(project))
-        manifest = (project / "lucid.json").read_text()
+        manifest = (project / "proofcut.json").read_text()
         return declared, reread, manifest
 
     declared, reread, manifest = anyio.run(_with_server, body)
@@ -4865,7 +4865,7 @@ def test_film_check_plan_does_not_write_the_reference(
         planned = await client.call(
             "film_check", path=str(project), reference=str(audio), plan=True
         )
-        manifest = (project / "lucid.json").read_text()
+        manifest = (project / "proofcut.json").read_text()
         return planned, manifest
 
     planned, manifest = anyio.run(_with_server, body)
@@ -4887,7 +4887,7 @@ def test_film_check_reset_drops_the_declared_reference(
         await _seeded(Client(session), project, audio, transcript)
         await client.call("film_check", path=str(project), reference=str(audio))
         after_reset = await client.call("film_check", path=str(project), reset=True)
-        manifest = (project / "lucid.json").read_text()
+        manifest = (project / "proofcut.json").read_text()
         return after_reset, manifest
 
     after_reset, manifest = anyio.run(_with_server, body)
@@ -4906,7 +4906,7 @@ def visible_tmp() -> Iterator[Path]:
     `tmp_path` would silently stop testing melt and start testing the
     empty-output guard instead.
     """
-    root = Path(tempfile.mkdtemp(prefix="lucid-melt-", dir=Path.home()))
+    root = Path(tempfile.mkdtemp(prefix="proofcut-melt-", dir=Path.home()))
     try:
         yield root
     finally:
@@ -4924,7 +4924,7 @@ def test_melt_is_asked_what_it_would_render_before_anything_is_rendered(
     On this box the answer is the timeline's count plus one — auto-editor's
     kdenlive export declares the tractors' frame-inclusive `out` as a frame
     count, so melt renders a trailing black frame (picture.KNOWN_TAIL_FRAME).
-    That is upstream's bug, not lucid's, so this pins the *reporting* rather
+    That is upstream's bug, not proofcut's, so this pins the *reporting* rather
     than the +1: a delta of 0 here would mean auto-editor had fixed it, and the
     thing that must stay true either way is that the note travels with the
     delta it explains.
@@ -6673,7 +6673,7 @@ def test_cut_by_transcript_through_pause_has_no_effect_under_the_marker_threshol
 # -- the layered timeline over the wire ----------------------------------
 #
 # `export` grew a second writer (PLAN.md § The layered timeline, step 4): a
-# project with a cue table is written as MLT by lucid itself, because
+# project with a cue table is written as MLT by proofcut itself, because
 # auto-editor refuses a second source on export and renders one at 720x576
 # while exiting 0. Which writer ran is a property of the project, never of an
 # argument, so these go through the real tool calls that build that project.
@@ -6910,7 +6910,7 @@ def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
     assert rendered["rendered"]["has_video"] and rendered["rendered"]["has_audio"]
     assert Path(rendered["output"]).is_file()
     # And the picture-side check agrees with it, with no tail frame to explain:
-    # that defect is auto-editor's kdenlive export, and this document is lucid's.
+    # that defect is auto-editor's kdenlive export, and this document is proofcut's.
     assert frames["delta"] == 0
     assert frames["agrees"] is True
 
@@ -6920,7 +6920,7 @@ def test_rendering_a_cued_project_goes_through_melt_and_is_measured(
 # The trap named in CLAUDE.md: `mlt.document`'s validation only checks the
 # music lane's *total* frame count against the timeline total, never its
 # internal alignment against the edit track — so a bed placed `head_frames`
-# too early passes every check lucid has and is wrong only to a listener.
+# too early passes every check proofcut has and is wrong only to a listener.
 # Two distinct tones, Goertzel-read from two windows of the actual render,
 # the same readback discipline CLAUDE.md documents for the co-hosted
 # recording's `audio_index` trap.
@@ -7035,7 +7035,7 @@ def test_a_head_delays_the_music_beds_own_lead_silence(visible_tmp: Path) -> Non
     into the render, not frame 0. Measured against a real render because
     `mlt.document` only checks the music lane's *total* frame count, never
     its alignment against the edit track — a bed placed `head_frames` too
-    early passes every check lucid has and is wrong only to a listener.
+    early passes every check proofcut has and is wrong only to a listener.
     """
     project = visible_tmp / "proj"
     vo = visible_tmp / "vo.wav"
@@ -7504,10 +7504,10 @@ def test_export_resolution_is_a_documented_noop_on_an_audio_only_project(
 
 # -- the bound server ---------------------------------------------------------
 #
-# `lucid -C <project> mcp` binds the server to one project. The web UI's agent
+# `proofcut -C <project> mcp` binds the server to one project. The web UI's agent
 # panel spawns exactly this (`webui.py`'s generated MCP config), and it is the
 # half of that panel's confinement that `--strict-mcp-config` and `--tools ""`
-# do not cover: those keep the agent inside lucid's ops, this keeps it inside
+# do not cover: those keep the agent inside proofcut's ops, this keeps it inside
 # *this project's*. Every check below goes over the wire for the usual reason
 # — the binding lives in the CLI-to-server wiring, which is exactly what a
 # direct call to a tool function cannot see.
@@ -7586,7 +7586,7 @@ def test_an_unbound_server_refuses_an_omitted_path(tmp_path: Path) -> None:
     reason="fonts' render check needs ImageMagick and ffmpeg with libass",
 )
 def test_a_bound_server_still_lets_fonts_go_without_a_project(tmp_path: Path) -> None:
-    """`fonts`/`pack_show` document `path=None` as "no project, lucid's
+    """`fonts`/`pack_show` document `path=None` as "no project, proofcut's
     default" rather than "which project" — a meaning the default-to-bound
     rule above must not overwrite just because a project happens to be
     bound. `projectless=True` is what keeps their omitted `path` as `None`
@@ -7621,7 +7621,7 @@ def test_a_bound_server_resolves_a_relative_path_against_its_project(tmp_path: P
     """A bound server means "this project", not "wherever the client stands".
 
     The proof is that this succeeds at all: the test process runs from the
-    repo, which is not a lucid project, so a "." resolved against the cwd
+    repo, which is not a proofcut project, so a "." resolved against the cwd
     could only fail.
     """
     project, _ = _two_projects(tmp_path)
@@ -7708,7 +7708,7 @@ def test_a_bound_server_takes_a_reel_destination_inside_its_project(
     result = anyio.run(_with_server, body, _bound(project))
 
     assert result["reel"] == str(project / "reels" / "teaser")
-    assert (project / "reels" / "teaser" / "lucid.json").is_file()
+    assert (project / "reels" / "teaser" / "proofcut.json").is_file()
 
 
 @needs_ffprobe
@@ -7770,7 +7770,7 @@ def test_reel_plan_creates_nothing_over_the_wire(
 
 
 def test_an_unbound_server_still_reaches_any_project(tmp_path: Path) -> None:
-    """`lucid mcp` with no `-C` is the general-client case and is unconfined.
+    """`proofcut mcp` with no `-C` is the general-client case and is unconfined.
 
     `main()` defaults `-C` to ".", so this is what would break if the binding
     were applied whenever the default was present rather than when the flag
@@ -7992,7 +7992,7 @@ def test_unspoken_mark_drops_a_word_from_captions_and_from_verify(
 def test_unspoken_detect_proposes_a_seam_word_and_writes_nothing(tmp_path: Path) -> None:
     """Proposes, like `reframe_detect`, and for a sharper reason.
 
-    A wrong mark deletes a real word from every check lucid has, so `apply` is
+    A wrong mark deletes a real word from every check proofcut has, so `apply` is
     off by default and the echoes are what gets read first.
     """
     audio, transcript = _seam_sources(tmp_path)
@@ -8122,7 +8122,7 @@ def test_a_stale_mark_is_reported_and_never_applied(
     index disagree the word stays on screen and the mark is reported, because
     the two failures are not symmetric: a word wrongly drawn is visible to
     anyone watching, and a real word silently dropped is invisible to every
-    check lucid has.
+    check proofcut has.
     """
     audio, transcript = sources
     project = tmp_path / "proj"
@@ -8747,7 +8747,7 @@ def test_hold_check_over_the_wire(tmp_path: Path) -> None:
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "proofcut.cli", "mcp"],
-        env={"LUCID_WHISPER": str(_fake_whisper(tmp_path))},
+        env={"PROOFCUT_WHISPER": str(_fake_whisper(tmp_path))},
     )
 
     async def body(session: ClientSession) -> dict[str, Any]:

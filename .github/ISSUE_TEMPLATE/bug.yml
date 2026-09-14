@@ -1,11 +1,11 @@
 name: Bug
-description: lucid ran, and did the wrong thing.
+description: proofcut ran, and did the wrong thing.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        If `lucid doctor` shows a ✗, the "Install trouble" form is the quicker route.
+        If `proofcut doctor` shows a ✗, the "Install trouble" form is the quicker route.
         Please don't attach footage you don't own, or anything you'd mind being public.
   - type: textarea
     id: ran
@@ -21,7 +21,7 @@ body:
       label: What happened, and what you expected
       description: |
         For a render, say what is wrong in the file itself (a missing cut, silence, a
-        frame, a caption) — several of lucid's tools exit 0 on a bad render.
+        frame, a caption) — several of proofcut's tools exit 0 on a bad render.
     validations:
       required: true
   - type: dropdown
@@ -31,19 +31,19 @@ body:
       options:
         - CLI
         - MCP (Claude Code, the plugin, or another agent)
-        - Web workspace (lucid web / lucid open)
+        - Web workspace (proofcut web / proofcut open)
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Output of `uv run lucid --version`
-      placeholder: lucid 0.22.0
+      label: Output of `uv run proofcut --version`
+      placeholder: proofcut 0.22.0
     validations:
       required: true
   - type: textarea
     id: doctor
     attributes:
-      label: Output of `uv run lucid doctor`
+      label: Output of `uv run proofcut doctor`
       description: Optional, but it answers most follow-up questions. Edit out your username if you like.
       render: text

@@ -3,9 +3,9 @@
 The design and the six measurements behind every constant here are PLAN.md
 § B-roll by description. The short version:
 
-**The model is a subprocess, resolved the way whisper is.** `LUCID_VLM` names
+**The model is a subprocess, resolved the way whisper is.** `PROOFCUT_VLM` names
 a Python interpreter that can load Qwen2.5-VL; failing that, a refusal naming
-what it needs. lucid never imports torch — `lucid status` should not pay for a GPU context, and the
+what it needs. proofcut never imports torch — `proofcut status` should not pay for a GPU context, and the
 same argument that put whisper behind a binary puts the VLM behind an
 interpreter (`asr.py`'s docstring).
 
@@ -34,7 +34,7 @@ Two residual error classes are known, measured, and not bugs:
   like a complete one. `truncated` is computed per entry rather than assumed
   away by a generous limit.
 
-This module has no lucid dependencies on purpose, the same as `asr`.
+This module has no proofcut dependencies on purpose, the same as `asr`.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ FRAME_SIZE = "420x360"
 #: headroom over that, and `truncated` still checks rather than trusting it.
 MAX_NEW_TOKENS = 220
 
-#: lucid's own prompt. It asks for the concrete nouns
+#: proofcut's own prompt. It asks for the concrete nouns
 #: a later search has to match on — a description that says "a person does
 #: something" indexes nothing.
 PROMPT = (
@@ -95,11 +95,11 @@ class DescribeError(Exception):
 #: otherwise. The knob exists for whoever measures another device; today the
 #: worker refuses anything but CUDA, because its 4-bit load is bitsandbytes
 #: and bitsandbytes has no other backend (docs/plans/PORTABILITY.md step 3).
-DEVICE_ENV = "LUCID_VLM_DEVICE"
+DEVICE_ENV = "PROOFCUT_VLM_DEVICE"
 
 
 def device() -> str:
-    """`$LUCID_VLM_DEVICE`, else `cuda`."""
+    """`$PROOFCUT_VLM_DEVICE`, else `cuda`."""
     return os.environ.get(DEVICE_ENV) or "cuda"
 
 
@@ -128,18 +128,18 @@ def platform_refusal() -> str | None:
 def vlm_python() -> Path:
     """Locate an interpreter that can load the vision model.
 
-    `LUCID_VLM`, and nothing after it. There is no PATH step, unlike
+    `PROOFCUT_VLM`, and nothing after it. There is no PATH step, unlike
     `asr.whisper_binary`: `python` is always on PATH and is almost
     never the one with torch in it, so searching it would resolve to an
     interpreter that fails several minutes later with an ImportError instead
     of refusing now.
     """
-    override = os.environ.get("LUCID_VLM")
+    override = os.environ.get("PROOFCUT_VLM")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
     raise DescribeError(
-        f"no interpreter with a vision model. $LUCID_VLM is {override or 'unset'}"
-        f"{'' if not override else ', and nothing is there'}. Set LUCID_VLM to "
+        f"no interpreter with a vision model. $PROOFCUT_VLM is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set PROOFCUT_VLM to "
         "the python in a venv that has torch, transformers, bitsandbytes and "
         "Pillow, on a machine with a CUDA GPU."
     )
@@ -222,7 +222,7 @@ def describe_windows(
         raise DescribeError(refusal)
     python = vlm_python()
 
-    with tempfile.TemporaryDirectory(prefix="lucid-vlm-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-vlm-") as tmp:
         job_path = Path(tmp) / "job.json"
         out_path = Path(tmp) / "out.json"
         job_path.write_text(
@@ -288,9 +288,9 @@ def available() -> dict[str, Any]:
         report["why"] = refusal
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
-        report["why"] = f"lucid's own worker script is missing: {_WORKER}"
+        report["why"] = f"proofcut's own worker script is missing: {_WORKER}"
         return report
-    # What the interpreter above runs — lucid's own worker since it stopped
+    # What the interpreter above runs — proofcut's own worker since it stopped
     # importing a sibling repo's tagger, which is what this key used to name.
     report["tagger"] = str(_WORKER)
     report["available"] = True

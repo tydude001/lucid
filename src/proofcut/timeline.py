@@ -623,7 +623,7 @@ def _file_url(source: str) -> str:
 
     A manifest written on Linux carries `/home/…` sources, and on Windows a
     rooted path with no drive is not absolute, so `Path.as_uri()` raises — on
-    every op that writes the timeline, over a field nothing in lucid consumes.
+    every op that writes the timeline, over a field nothing in proofcut consumes.
     Such a path gets the URL Linux wrote for it. A genuinely relative source
     still refuses, on every OS, as it always has.
     """
@@ -633,12 +633,25 @@ def _file_url(source: str) -> str:
     return PurePosixPath(source).as_uri()
 
 
+#: The key `to_otio` stamps into every clip's and the timeline's metadata.
+#: Written under this name only (docs/plans/RENAME.md, decision 2).
+METADATA_KEY = "proofcut"
+
+#: The key every `project.otio` carried before the rename to proofcut — and
+#: that every snapshot in `cache/history/N.otio` taken before it still
+#: carries, forever: history is never rewritten, and `Project.restore` puts a
+#: snapshot back whole. So it is **read permanently**, through
+#: `proofcut_metadata` alone, and a reader that asked for `METADATA_KEY`
+#: directly would break the undo of every pre-rename edit. Never written.
+LEGACY_METADATA_KEY = "lucid"
+
+
 def to_otio(
     edit: Edit,
     clips: dict[str, dict[str, Any]],
     *,
     rate: float,
-    name: str = "lucid",
+    name: str = "proofcut",
 ) -> otio.schema.Timeline:
     """Serialise an `Edit` to OTIO, resolving clip_ids against the manifest."""
     timeline = otio.schema.Timeline(name=name)
@@ -666,11 +679,74 @@ def to_otio(
                 _rational(seg.start, rate), _rational(seg.duration, rate)
             ),
         )
-        clip.metadata["lucid"] = {"clip_id": seg.clip_id}
+        clip.metadata[METADATA_KEY] = {"clip_id": seg.clip_id}
         track.append(clip)
 
-    timeline.metadata["lucid"] = {"rate": rate}
+    timeline.metadata[METADATA_KEY] = {"rate": rate}
     return timeline
+
+
+def proofcut_metadata(item: Any) -> dict[str, Any]:
+    """The proofcut metadata on an OTIO object, under either key — the one reader.
+
+    `METADATA_KEY` first, then `LEGACY_METADATA_KEY`; an empty dict when
+    neither is there, which `from_otio` turns into "not written by proofcut".
+    Every reader of the stamp goes through here, so the fallback is stated
+    once rather than at each call site that happens to remember it.
+    """
+    for key in (METADATA_KEY, LEGACY_METADATA_KEY):
+        value = item.metadata.get(key)
+        if value:
+            return dict(value)
+    return {}
+
+
+def rename_legacy_metadata(timeline: otio.schema.Timeline) -> int:
+    """Move every `LEGACY_METADATA_KEY` stamp to `METADATA_KEY`, in place.
+
+    Touches exactly the two places `to_otio` writes — the timeline and each
+    clip — and returns how many it moved. Where both keys are present the
+    new one is kept, since it is what every reader already prefers, and the
+    old one is dropped. `Project.migrate`'s filename step is the caller; it
+    runs this over the live `project.otio` and never over `cache/history/`.
+    """
+    moved = 0
+    items: list[Any] = [timeline]
+    for track in timeline.tracks:
+        items.extend(item for item in track if isinstance(item, otio.schema.Clip))
+    for item in items:
+        if LEGACY_METADATA_KEY not in item.metadata:
+            continue
+        # Assigned before the delete, never popped: the old value is a view
+        # onto OTIO's C++ dictionary (nested ones too), and removing the key
+        # destroys what it points at. Assignment is what copies it.
+        if METADATA_KEY not in item.metadata:
+            item.metadata[METADATA_KEY] = item.metadata[LEGACY_METADATA_KEY]
+        del item.metadata[LEGACY_METADATA_KEY]
+        moved += 1
+    return moved
+
+
+def count_legacy_metadata(path: Path | str) -> int:
+    """How many `LEGACY_METADATA_KEY` stamps `rename_legacy_metadata` would move."""
+    return rename_legacy_metadata(otio.adapters.read_from_file(str(path)))
+
+
+def rewrite_legacy_metadata(path: Path | str) -> int:
+    """Rewrite an `.otio` file's legacy stamps to `METADATA_KEY`, atomically.
+
+    Written beside the file and moved over it, so a crash leaves either the
+    old document or the new one and never half of each. A file with nothing
+    to move is left byte-for-byte alone.
+    """
+    path = Path(path)
+    timeline = otio.adapters.read_from_file(str(path))
+    moved = rename_legacy_metadata(timeline)
+    if moved:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(otio.adapters.write_to_string(timeline, "otio_json"), encoding="utf-8")
+        tmp.replace(path)
+    return moved
 
 
 def from_otio(timeline: otio.schema.Timeline) -> Edit:
@@ -680,12 +756,12 @@ def from_otio(timeline: otio.schema.Timeline) -> Edit:
         for item in track:
             if not isinstance(item, otio.schema.Clip):
                 continue
-            meta = dict(item.metadata.get("lucid") or {})
+            meta = proofcut_metadata(item)
             clip_id = meta.get("clip_id")
             if clip_id is None:
                 raise TimelineError(
-                    f"clip {item.name!r} has no lucid metadata — "
-                    "this timeline was not written by lucid"
+                    f"clip {item.name!r} has no proofcut metadata — "
+                    "this timeline was not written by proofcut"
                 )
             source_range = item.source_range
             start = source_range.start_time.to_seconds()

@@ -90,7 +90,7 @@ def test_a_template_error_leaves_no_record_of_a_card_that_does_not_exist(
 
 @needs_magick
 def test_card_new_refuses_a_name_that_exists_as_a_png_alone(project: Project) -> None:
-    """The Scream project's own case: twelve cards drawn outside lucid, PNG and
+    """The Scream project's own case: twelve cards drawn outside proofcut, PNG and
     no SVG. A guard that looked at the source alone would overwrite the raster
     a cue resolves to without ever tripping."""
     project.cards_dir.mkdir(parents=True, exist_ok=True)

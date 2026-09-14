@@ -1055,7 +1055,7 @@ export function update(state) {
             `words here to address. It is footage a cue can point at rather than part of ` +
             `the edit's own track — the timeline below is what actually plays.`
           : `${state.clip_id} has no transcript, so there are no words to address. ` +
-            `Run \`lucid transcribe ${state.clip_id}\` or attach a whisper JSON.`,
+            `Run \`proofcut transcribe ${state.clip_id}\` or attach a whisper JSON.`,
       ),
     );
     sel = null;

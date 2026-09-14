@@ -28,7 +28,7 @@ needs_fontconfig = pytest.mark.skipif(
 )
 
 #: A face nobody has. Long and specific so it cannot collide with a real one.
-ABSENT_FACE = "Lucid Test Face That Is Not Installed"
+ABSENT_FACE = "Proofcut Test Face That Is Not Installed"
 
 
 def _installed_face() -> str:
@@ -678,7 +678,7 @@ def test_card_render_names_the_cards_that_do_have_a_source(project: Project) -> 
 # -- templates -------------------------------------------------------------
 
 
-#: Every file lucid ships, as `(template, variant)` — a variant is the same
+#: Every file proofcut ships, as `(template, variant)` — a variant is the same
 #: manifest entry drawn a second way, so every guard over the base runs over
 #: it too. A portrait file measured against landscape declarations overruns
 #: its box at `magick` exit 0, which is the failure the guards exist for.
@@ -700,7 +700,7 @@ def _required(name: str) -> dict[str, object]:
 
 @pytest.mark.parametrize(("name", "variant"), DRAWINGS)
 def test_every_shipped_template_agrees_with_its_manifest(name: str, variant: str | None) -> None:
-    """The drift guard, run against each SVG lucid actually ships.
+    """The drift guard, run against each SVG proofcut actually ships.
 
     `template_slots` raises when the placeholders in the file and the slots in
     the manifest disagree either way. A template with a placeholder nothing
@@ -756,7 +756,7 @@ def test_a_slot_landing_in_an_attribute_cannot_close_it() -> None:
     graphics.declared_fonts(filled)
 
 
-def test_lucid_generated_markup_is_not_escaped() -> None:
+def test_proofcut_generated_markup_is_not_escaped() -> None:
     """Derived slots are the only unescaped insertion, and they must render."""
     filled = graphics.fill_template("receipt", {**_required("receipt"), "rating": 3}, flow=False)
     assert filled.count("<polygon") == 3
@@ -1417,7 +1417,7 @@ def test_a_marked_line_slot_draws_its_run_in_the_runs_ink() -> None:
 
     A wordmark whose asterisk is the accent cannot be expressed by a slot
     that has one fill, and hard-coding the asterisk into the template would
-    put a brand inside lucid. The vocabulary the note already has is the
+    put a brand inside proofcut. The vocabulary the note already has is the
     answer; unmarked text states nothing so it keeps inheriting the
     element's own ink.
     """
@@ -1478,7 +1478,7 @@ def test_the_wordmark_is_drawn_in_title_type(name: str) -> None:
 #
 # HISTORY.md § The end card and § The bumper the teaser never had settled
 # both cards on a watch, outside any project; these two templates are the
-# concrete half — the same shapes, drawable by lucid rather than by a
+# concrete half — the same shapes, drawable by proofcut rather than by a
 # one-off script. Neither bakes goodsometimes' own words into the file: a
 # `mark` slot ships empty everywhere else in this module and is held to that
 # here too, and the vocabulary that colours its asterisk is the caller's.
@@ -1506,7 +1506,7 @@ def test_the_end_card_and_the_bumper_ship_their_brand_slots_empty(name: str) -> 
 def test_the_end_cards_mark_and_footnote_fit_both_canvases(canvas: tuple[int, int]) -> None:
     """The lockup this ports (HISTORY.md § The end card) is a wordmark with
     its own footnote underneath, both centred — filled here with the shape
-    a real caller would use, `[em]` asterisk included, never lucid's own."""
+    a real caller would use, `[em]` asterisk included, never proofcut's own."""
     filled = graphics.fill_template(
         "endcard",
         {"mark": "Good[em]*[/em]", "footnote": "[em]*[/em] Sometimes"},
@@ -1550,7 +1550,7 @@ def test_the_bumper_fits_mark_only_and_the_full_two_line_register(
 
 def test_the_bumpers_rule_is_fixed_markup_not_gated_on_either_line() -> None:
     """`make_bumper.py` draws the rule in both of its registers, unconditionally
-    — so it is lucid markup the template always emits, not a slot a project can
+    — so it is proofcut markup the template always emits, not a slot a project can
     turn off. A mark-only fill still draws it."""
     mark_only = graphics.fill_template("bumper", {"mark": "Good[em]*[/em]"}, flow=False)
     full = graphics.fill_template(
@@ -1624,7 +1624,7 @@ def test_the_same_phrase_still_refuses_the_bumpers_mark_box() -> None:
 def test_the_chapter_ships_no_project_words_and_its_rule_is_fixed_markup() -> None:
     """`bumper`'s two rules, held here too: every slot a project fills is the
     project's own text (only `title` is required, and nothing defaults to a
-    word), and the amber rule is lucid markup a fill cannot turn off."""
+    word), and the amber rule is proofcut markup a fill cannot turn off."""
     slots = graphics.template_slots("chapter")
     assert slots["title"]["required"]
     for slot in ("kicker", "footnote"):

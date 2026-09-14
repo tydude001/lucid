@@ -1,11 +1,11 @@
-"""`lucid review serve` — the review round as a feature, not a throwaway script.
+"""`proofcut review serve` — the review round as a feature, not a throwaway script.
 
 Every version of the Scream video moved on a served page, and that serving
 was hand-rebuilt at least four times (`~/lucid-approvals/`, `~/lucid-watch/`,
 `~/lucid-review/`, `~/lucid-flash-review/`), each its own throwaway HTTP
 server and its own `decisions.json` living beside the project rather than in
 it (PLAN.md § The completion queue, item 6). This is that serving, once:
-`lucid review add` registers named renders/sheets/A-B members
+`proofcut review add` registers named renders/sheets/A-B members
 (`ops.review_add`), this streams them with Range support so a phone can
 scrub, and a plain HTML form posts a verdict straight into the manifest
 (`ops.review_verdict`) — no JS, no build step, the `webui.py` stance.
@@ -106,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
     project_root: Path
     token: str
     verbose: bool = False
-    server_version = "lucid-review"
+    server_version = "proofcut-review"
     sys_version = ""
     #: Keep-alive, so scrubbing a video does not reopen a connection per range.
     protocol_version = "HTTP/1.1"
@@ -403,13 +403,13 @@ def _render_page(
             continue
         sections.append(_item_section(item, token, project, verdicts))
 
-    body = "\n".join(sections) if sections else "<p>Nothing registered yet — `lucid review add`.</p>"
+    body = "\n".join(sections) if sections else "<p>Nothing registered yet — `proofcut review add`.</p>"
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>lucid review</title>
+<title>proofcut review</title>
 <style>
   /* `viewport-fit=cover` above and these `env()`s are one fix: each is a no-op
      without the other. This page is opened on a phone by design, and an iPhone
@@ -427,7 +427,7 @@ def _render_page(
 </style>
 </head>
 <body>
-<h1>lucid review</h1>
+<h1>proofcut review</h1>
 {body}
 </body>
 </html>"""
@@ -472,7 +472,7 @@ def serve(
     url = f"http://{host}:{bound}/?t={server.token}"  # type: ignore[attr-defined]
     # Flushed, the `webui.serve` reason: this is the one line to copy to a
     # phone, and a piped stdout would otherwise hold it in the buffer.
-    print(f"lucid review: {url}  (project: {Project.open(path).root})", flush=True)
+    print(f"proofcut review: {url}  (project: {Project.open(path).root})", flush=True)
     print("Ctrl-C to stop.", flush=True)
 
     try:

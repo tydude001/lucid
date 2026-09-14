@@ -1,7 +1,7 @@
-"""lucid — a source-available, local-first AI video editor.
+"""proofcut — a source-available, local-first AI video editor.
 
-The public surface is the MCP server (``lucid mcp``) and the equivalent CLI
-(``lucid <subcommand>``). Everything operates on a *project directory*; see
+The public surface is the MCP server (``proofcut mcp``) and the equivalent CLI
+(``proofcut <subcommand>``). Everything operates on a *project directory*; see
 :mod:`proofcut.project` for its layout.
 """
 

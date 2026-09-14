@@ -1,6 +1,6 @@
 """The energy envelope — the one arbiter a transcript cannot outvote.
 
-Every other check lucid runs believes a transcript about where the words are.
+Every other check proofcut runs believes a transcript about where the words are.
 That belief has a documented ceiling: whisper collapses an immediate retake and
 hands the *following* word a duration long enough to swallow it, so a whole
 second reading of a sentence can sit inside what the transcript calls one word
@@ -25,7 +25,7 @@ Two things worth knowing before reading a result:
   never as a verdict.
 
 Stdlib only, on purpose: `audioop` went in 3.13 and numpy is not a dependency
-lucid carries for one RMS loop.
+proofcut carries for one RMS loop.
 """
 
 from __future__ import annotations
@@ -397,7 +397,7 @@ def integrated_loudness(
 
     `music_bed.py:loudness()`'s own mechanism, ported: a single
     `loudnorm=print_format=json` analysis pass, parsed for `input_i`. This is
-    the plain-scalar half of lucid's two loudness measurements — the one a
+    the plain-scalar half of proofcut's two loudness measurements — the one a
     gain formula wants (`ops._vo_loudness`, `ops._hold_gain_db`) — and it is
     deliberately not `finish.loudness`, which measures via the `ebur128`
     filter for a fuller report (integrated *and* true peak) rather than a

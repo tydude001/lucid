@@ -8,5 +8,5 @@ __pycache__/
 # uv
 .venv/
 
-# lucid project directories created while testing
+# proofcut project directories created while testing
 /scratch/

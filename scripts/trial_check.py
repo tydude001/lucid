@@ -23,8 +23,8 @@ retake still in it. This reads what the run printed and what it rendered:
   apart in RGB, and a frame of the wrong clip, or of black, measured 112–116
   from the right one; this box's frames came back within 3.
 
-    python scripts/trial_check.py ~/lucid-mac-trial
-    python scripts/trial_check.py %LOCALAPPDATA%\\lucid-windows-trial
+    python scripts/trial_check.py ~/proofcut-mac-trial
+    python scripts/trial_check.py %LOCALAPPDATA%\\proofcut-windows-trial
 
 Exit 1 on any failure. What it cannot say is anything a person would notice
 and a number would not — that is what the tester's issue form is for.
@@ -121,7 +121,7 @@ def check(trial: Path) -> list[tuple[bool, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("trial", type=Path, help="the kit's working folder (~/lucid-mac-trial, %%LOCALAPPDATA%%\\lucid-windows-trial)")
+    parser.add_argument("trial", type=Path, help="the kit's working folder (~/proofcut-mac-trial, %%LOCALAPPDATA%%\\proofcut-windows-trial)")
     args = parser.parse_args()
     results = check(args.trial.expanduser())
     for ok, line in results:

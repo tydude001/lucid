@@ -9,7 +9,7 @@
          home-screen shortcut opens standalone, where the status bar and the
          dynamic island sit over the page and #bar was behind them. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>lucid</title>
+    <title>proofcut</title>
     <!-- A real asset, not the `data:,` placeholder this used to be: that
          avoided the /favicon.ico 404 but tripped `default-src 'self'` instead
          — CSP counts a data: URI as a foreign image — so every load logged a
@@ -23,7 +23,7 @@
   </head>
   <body>
     <header id="bar">
-      <span class="brand serif-accent">lucid</span>
+      <span class="brand serif-accent">proofcut</span>
       <span class="sep">/</span>
       <span id="project" class="name">…</span>
       <!-- Wrapped so app.css can draw its own caret: a bare `<select>` in the
@@ -312,7 +312,7 @@
         <!-- Studio's "footage in is still not a window operation" item —
              assets.js owns every control and status line here; this file
              only owns the static shell (app.css § Assets pane). `source`
-             is a path on the machine RUNNING LUCID (the server, reachable
+             is a path on the machine RUNNING PROOFCUT (the server, reachable
              to the NAS), never a browser file picker. -->
         <section id="rail-assets" class="rail-panel" role="tabpanel" aria-labelledby="rail-tab-assets">
           <!-- Closed by default, and that is a measurement rather than a
@@ -333,16 +333,16 @@
           </button>
           <form id="import-form" class="import-form" aria-label="add footage" hidden>
             <div class="import-form-row">
-              <label for="import-source">Add footage — path on the lucid host</label>
+              <label for="import-source">Add footage — path on the proofcut host</label>
               <input
                 id="import-source"
                 type="text"
                 name="source"
-                placeholder="/path/on/the/machine/running/lucid/clip.mp4"
+                placeholder="/path/on/the/machine/running/proofcut/clip.mp4"
                 autocomplete="off"
                 required
               />
-              <span class="hint">Not a file from this browser or phone — a path the lucid server itself can read (e.g. on the NAS).</span>
+              <span class="hint">Not a file from this browser or phone — a path the proofcut server itself can read (e.g. on the NAS).</span>
             </div>
             <div class="import-form-row">
               <label for="import-clip-id">Clip id (optional)</label>

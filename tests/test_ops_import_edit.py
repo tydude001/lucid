@@ -246,7 +246,7 @@ def test_a_real_auto_editor_export_round_trips_to_its_own_v3_numbers(tmp_path: P
     """**The only fixture that can disagree with the reader.** Every
     hand-written document above agrees with `read_ranges` by construction; a
     real `--export kdenlive` is written by something that has never seen this
-    code. auto-editor emits the same cut in two formats, and lucid already
+    code. auto-editor emits the same cut in two formats, and proofcut already
     trusts `autoeditor.from_v3` — so the v3 export is the reference the
     kdenlive import is scored against, and the two agreeing frame-for-frame is
     what says the inclusive `out` was read right.
@@ -323,7 +323,7 @@ def test_the_document_is_checked_against_its_own_declared_length(tmp_path: Path)
 @needs_ffmpeg
 def test_a_document_that_contradicts_itself_says_which_claim_disagrees(tmp_path: Path) -> None:
     """Named rather than raised: a disagreement is a fact about the file, and
-    which of the two numbers is right is not lucid's to decide."""
+    which of the two numbers is right is not proofcut's to decide."""
     root, source, _ = _project(tmp_path)
     document = tmp_path / "wrong.kdenlive"
     document.write_text(

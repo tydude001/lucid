@@ -310,7 +310,7 @@ function onDetectEvent(data) {
     detectBusy = false;
     setButtonBusy(btn, null, "Detect gaps");
     // Rendered inline, in this row, never as a toast and never left as a
-    // silent spinner — this is exactly the LUCID_FACE-absence case the
+    // silent spinner — this is exactly the PROOFCUT_FACE-absence case the
     // backend report names: with FaceError now EXPECTED, this branch is
     // what actually fires instead of the job hanging forever.
     setDetectError(data.error || "reframe detect failed");

@@ -7,7 +7,7 @@ accumulated on top. That is what makes ranges stay addressable across an
 editing session — see PLAN.md, "addressable ranges over an accumulating edit".
 
 The consequence worth stating: word indices do *not* renumber after a cut, and
-`lucid` will happily report that a word range is no longer present in the
+`proofcut` will happily report that a word range is no longer present in the
 timeline rather than silently shifting what it points at.
 """
 
@@ -181,7 +181,7 @@ class Transcript:
         or explains exactly why it can't. Ported from goodsometimes
         `scripts/assemble_longlegs.py`'s `resolve()`, which ran this
         contraction-aware/fuzzy-fallback match by hand against a real
-        re-record (v3 -> v4) before this existed inside lucid.
+        re-record (v3 -> v4) before this existed inside proofcut.
 
         Matching is contraction-aware and punctuation-insensitive
         (`_phrase_tokens`, deliberately separate from `find()`'s `_normalise`
@@ -399,7 +399,7 @@ def find_overlaps(words: Sequence[Word]) -> list[dict[str, Any]]:
     consecutive words can overlap by exactly one step through rounding alone.
     Those surface as a one-pair seam whose `worst` *is* that step — legible to
     whoever reads the result, which is who decides. A threshold would instead
-    be lucid silently discarding a real seam it happened to mis-size, and the
+    be proofcut silently discarding a real seam it happened to mis-size, and the
     words a seam invents are drawn on screen.
     """
     seams: list[dict[str, Any]] = []
@@ -426,9 +426,9 @@ def find_repeats(
     """Find back-to-back duplicated phrases: the shape a retake makes.
 
     Ported from goodsometimes `scripts/vo_windows.py`'s `find_repeats`, which
-    lives outside lucid and is what a human ran by hand to catch the Scream
+    lives outside proofcut and is what a human ran by hand to catch the Scream
     VO's retake pass — 72s of exactly this shape sat uncut in the timeline
-    while every check lucid had agreed with itself (HISTORY.md § The VO the
+    while every check proofcut had agreed with itself (HISTORY.md § The VO the
     project was holding). `min_words`/`max_words`/`max_gap` are its defaults,
     unchanged: a run of 3-25 words that repeats itself verbatim within 3.0s
     of its own end.
@@ -504,7 +504,7 @@ def _speaker(entry: dict[str, Any]) -> str | None:
     """The speaker label on one raw word entry, or None.
 
     Read through `.get` like every other optional key, and normalised to a
-    non-empty string: an attributed transcript is lucid's own output going
+    non-empty string: an attributed transcript is proofcut's own output going
     back out and in again, but a hand-written one can carry an integer or a
     padded label, and a `speaker` that is sometimes `1` and sometimes `"1"`
     would compare unequal to itself across a round trip.
@@ -566,7 +566,7 @@ def parse_whisper(payload: dict[str, Any], *, clip_id: str, origin: str | None =
 
 
 def load(path: Path | str, *, clip_id: str) -> Transcript:
-    """Read a transcript JSON from disk, in either whisper or lucid form."""
+    """Read a transcript JSON from disk, in either whisper or proofcut form."""
     src = Path(path).expanduser()
     try:
         payload = json.loads(src.read_text(encoding="utf-8"))

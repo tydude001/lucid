@@ -1,7 +1,7 @@
 """The picture half of checking a render, starting with the frame count.
 
 `verify` re-transcribes a render and diffs word order; it covers the audio and
-says so. This covers the picture, and the frame count ranks first of its three checks: exact agreement between lucid's
+says so. This covers the picture, and the frame count ranks first of its three checks: exact agreement between proofcut's
 computed total and what `melt` says it will render is what made 68 cut
 positions on the Scream essay trustworthy **before** anything was rendered
 (HISTORY.md § 3). `blackdetect` (a black-run scan) and spot frames (sampled
@@ -9,7 +9,7 @@ PNGs with luma stats) are its siblings, reading a finished render directly
 rather than a document melt would produce.
 
 The check earns its place because the two numbers are arrived at differently.
-lucid's total comes from quantising every segment edge onto the export's frame
+proofcut's total comes from quantising every segment edge onto the export's frame
 grid (`autoeditor.frame_layout`). melt's comes from an MLT document auto-editor
 wrote, in which the timeline's length is declared in several places at once and
 **melt renders to the longest of them** — the failure goodsometimes
@@ -118,7 +118,7 @@ def melt_bundles() -> list[Path]:
     """Where a desktop editor ships its own `melt` on this OS, searched after PATH.
 
     Shotcut and Kdenlive both bundle one on macOS and Windows, and neither
-    puts it on PATH. **Whether these bundles carry every module lucid's
+    puts it on PATH. **Whether these bundles carry every module proofcut's
     documents use (`qtblend`, `qimage`, `affine`, `avformat`) is unmeasured**
     — docs/plans/PORTABILITY.md step 4's first question — and a missing module
     renders *something* at exit 0, so finding one here is not a claim that it
@@ -149,7 +149,7 @@ def melt_search() -> tuple[str, str]:
             f"the Shotcut and Kdenlive installs ({where})",
             (
                 "Install Shotcut (shotcut.org) or Kdenlive (kdenlive.org) — both "
-                "ship melt inside the application — or set LUCID_MELT to a melt command."
+                "ship melt inside the application — or set PROOFCUT_MELT to a melt command."
             ),
         )
     return (
@@ -165,7 +165,7 @@ def melt_search() -> tuple[str, str]:
             "Debian/Ubuntu, `dnf install mlt` on Fedora — Fedora's own `melt` "
             "package is an unrelated compression tool), or Kdenlive's flatpak, "
             "which ships melt inside it and is found on its own (`flatpak install "
-            "org.kde.kdenlive`) — or set LUCID_MELT to a melt command."
+            "org.kde.kdenlive`) — or set PROOFCUT_MELT to a melt command."
         ),
     )
 
@@ -220,7 +220,7 @@ _MELT_VERDICTS: dict[tuple[str, int], str | None] = {}
 
 
 def command_override(value: str) -> list[str]:
-    """A `LUCID_MELT`/`LUCID_MAGICK` value as an argv prefix.
+    """A `PROOFCUT_MELT`/`PROOFCUT_MAGICK` value as an argv prefix.
 
     Both are commands, not paths — the flatpak form is four words — so they are
     split. POSIX `shlex.split` eats backslashes, which turned
@@ -283,11 +283,11 @@ def melt_command() -> list[str]:
     Returns a list rather than a path because the flatpak form is four words
     and there is no binary to point at. Every PATH and bundle candidate must
     print melt's banner (`melt_version`) or it is skipped, and a refusal after
-    skipping one names it. `LUCID_MELT` is taken at its word — it may be a
+    skipping one names it. `PROOFCUT_MELT` is taken at its word — it may be a
     wrapper — and so is the flatpak, whose `flatpak info` already names MLT's
     host application.
     """
-    override = os.environ.get("LUCID_MELT")
+    override = os.environ.get("PROOFCUT_MELT")
     if override:
         return command_override(override)
     impostors: list[str] = []
@@ -313,7 +313,7 @@ def melt_command() -> list[str]:
         else ""
     )
     raise PictureError(
-        f"melt not found. Looked at $LUCID_MELT, then PATH ({', '.join(MELT_NAMES)}), then {where}. "
+        f"melt not found. Looked at $PROOFCUT_MELT, then PATH ({', '.join(MELT_NAMES)}), then {where}. "
         f"{skipped}{install} Without it the timeline's own frame total is still reported; "
         "only the comparison against melt needs melt."
     )
@@ -323,7 +323,7 @@ def melt_command() -> list[str]:
 #: server: `cocoa` on macOS, `windows` on Windows. There is no socket to find
 #: and nothing for the render gate to check, and `/run/user/<uid>` is not a
 #: path either OS has — Windows has no `os.getuid` at all, so applying the
-#: Linux dance there raised before any render or `lucid doctor` ran. Every
+#: Linux dance there raised before any render or `proofcut doctor` ran. Every
 #: other platform Qt runs on reaches a display through X11 or Wayland, which is
 #: what `display_env` is for. **That Qt draws a `qimage` producer under either
 #: is unmeasured** — docs/plans/PORTABILITY.md step 4 is where it gets settled.
@@ -350,7 +350,7 @@ def display_env() -> dict[str, str]:
 
     **`WAYLAND_DISPLAY` alone is not a display**: it is a socket *name*, and Qt
     resolves it under `XDG_RUNTIME_DIR`. Both have to travel together, which
-    they do not when lucid is launched from a scrubbed environment — the MCP
+    they do not when proofcut is launched from a scrubbed environment — the MCP
     stdio transport passes a handful of variables (HOME, PATH, USER, …) and
     `XDG_RUNTIME_DIR` is not among them. Measured 2026-08-08: naming the socket
     without the directory gives `Failed to create wl_display`, Qt then finds no
@@ -401,7 +401,7 @@ def qt_is_headless(env: dict[str, str] | None = None) -> bool:
 #: edge — with melt exiting 0 either way.
 _QT_PROBE = """<?xml version="1.0" encoding="utf-8"?>
 <mlt>
-  <profile description="lucid-qt-probe" width="64" height="36" progressive="1"
+  <profile description="proofcut-qt-probe" width="64" height="36" progressive="1"
     sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="16"
     display_aspect_den="9" frame_rate_num="25" frame_rate_den="1" colorspace="709"/>
   <producer id="red" in="0" out="0">
@@ -586,7 +586,7 @@ def _invisible_to_flatpak(path: Path, command: list[str]) -> bool:
 #: `$HOME` because the flatpak's `/tmp` is not the host's, and staged at all
 #: because a render that dies halfway leaves a file behind — at the
 #: destination it would be a half-muxed file that looks finished.
-RENDER_SCRATCH = Path.home() / "lucid-render"
+RENDER_SCRATCH = Path.home() / "proofcut-render"
 
 #: **The consumer gets the codec and nothing else.** Restating the project
 #: profile on it is what unbounded memory growth correlated with: 2167 MB peak
@@ -804,7 +804,7 @@ def render(
             "it: a one-frame probe came back with its `qtblend` filter dropped. A "
             "render here would lose every card, crop and composite and still exit "
             "0. Some MLT builds want a real X display (Ubuntu 24.04's MLT 7.22 "
-            "does), so run the render under a virtual one: `xvfb-run -a lucid …` "
+            "does), so run the render under a virtual one: `xvfb-run -a proofcut …` "
             "(`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`)."
         )
 

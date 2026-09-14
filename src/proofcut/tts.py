@@ -25,20 +25,20 @@ turned into a hard `max_new_tokens` cap and a candidate at the cap is reported
 as `capped` rather than trusted.
 
 **The model is a subprocess, resolved the way whisper, the VLM and the face
-detector are.** `LUCID_TTS` names a Python interpreter with `qwen_tts` and a
-CUDA torch in it, and nothing after it. lucid's own venv stays free of torch
-(`asr.py`'s argument). `LUCID_TTS_MODEL` names the model directory the same
+detector are.** `PROOFCUT_TTS` names a Python interpreter with `qwen_tts` and a
+CUDA torch in it, and nothing after it. proofcut's own venv stays free of torch
+(`asr.py`'s argument). `PROOFCUT_TTS_MODEL` names the model directory the same
 way. Both used to fall back to the voice-clone spike under `~/lucid-work`,
 which is one machine's layout, and a clean Ubuntu's doctor printed that path
-back to a stranger. This box sets both in `~/.config/environment.d/60-lucid.conf`.
+back to a stranger. This box sets both in `~/.config/environment.d/60-proofcut.conf`.
 
 **The voice is configuration, never a default in this file.** A voice is one
 person's identity, so unlike the interpreter and the stock model there is no
-fallback for it at all: `vo_synth` takes `voice=` or reads `LUCID_TTS_VOICE`,
+fallback for it at all: `vo_synth` takes `voice=` or reads `PROOFCUT_TTS_VOICE`,
 and with neither it refuses by name. A checkout of this repo holds no
 reference clip and no path to one.
 
-This module has no lucid dependencies on purpose, the same as `asr`,
+This module has no proofcut dependencies on purpose, the same as `asr`,
 `describe` and `faces`.
 """
 
@@ -71,11 +71,11 @@ class TTSError(Exception):
 #: **neither has ever been run**: Qwen3-TTS has only been measured on CUDA
 #: here, so a Mac is reported unavailable until someone sets this and listens
 #: to the result (docs/plans/PORTABILITY.md step 3).
-DEVICE_ENV = "LUCID_TTS_DEVICE"
+DEVICE_ENV = "PROOFCUT_TTS_DEVICE"
 
 
 def device() -> str:
-    """`$LUCID_TTS_DEVICE`, else `cuda`."""
+    """`$PROOFCUT_TTS_DEVICE`, else `cuda`."""
     return os.environ.get(DEVICE_ENV) or "cuda"
 
 
@@ -91,33 +91,33 @@ def platform_refusal() -> str | None:
 
 
 def tts_python() -> Path:
-    """Locate an interpreter that can run the synthesiser — `LUCID_TTS`, and nothing after it.
+    """Locate an interpreter that can run the synthesiser — `PROOFCUT_TTS`, and nothing after it.
 
     No PATH step, for `describe.vlm_python`'s reason: `python` is always on PATH
     and is almost never the one with a CUDA torch in it.
     """
-    override = os.environ.get("LUCID_TTS")
+    override = os.environ.get("PROOFCUT_TTS")
     if override and Path(override).expanduser().exists():
         return Path(override).expanduser()
     raise TTSError(
-        f"no interpreter with a voice synthesiser. $LUCID_TTS is {override or 'unset'}"
-        f"{'' if not override else ', and nothing is there'}. Set LUCID_TTS to the "
+        f"no interpreter with a voice synthesiser. $PROOFCUT_TTS is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set PROOFCUT_TTS to the "
         "python in a venv that has qwen-tts and a CUDA torch."
     )
 
 
 def model_dir() -> Path:
-    """The stock Qwen3-TTS model directory — `LUCID_TTS_MODEL`, and nothing after it.
+    """The stock Qwen3-TTS model directory — `PROOFCUT_TTS_MODEL`, and nothing after it.
 
     Nothing here downloads it: a synth that silently reaches for 3.7 GB on first
     call fails in a way nobody attributes to synthesis (`faces.MODEL`'s rule).
     """
-    override = os.environ.get("LUCID_TTS_MODEL")
+    override = os.environ.get("PROOFCUT_TTS_MODEL")
     if override and Path(override).expanduser().is_dir():
         return Path(override).expanduser()
     raise TTSError(
-        f"no Qwen3-TTS model directory. $LUCID_TTS_MODEL is {override or 'unset'}"
-        f"{'' if not override else ', and nothing is there'}. Set LUCID_TTS_MODEL "
+        f"no Qwen3-TTS model directory. $PROOFCUT_TTS_MODEL is {override or 'unset'}"
+        f"{'' if not override else ', and nothing is there'}. Set PROOFCUT_TTS_MODEL "
         "to a local snapshot of Qwen/Qwen3-TTS-12Hz-1.7B-Base."
     )
 
@@ -125,7 +125,7 @@ def model_dir() -> Path:
 def voice_dir(voice: str | Path | None = None) -> Path:
     """Resolve a voice — a directory holding `ref.wav` and `ref.txt`.
 
-    An explicit `voice` wins; then `LUCID_TTS_VOICE`; there is deliberately no
+    An explicit `voice` wins; then `PROOFCUT_TTS_VOICE`; there is deliberately no
     third step (this module's docstring — a voice is a person, not tooling).
     A directory missing either file is refused here, by name, rather than
     discovered as a worker traceback: the transcript is what makes the
@@ -136,14 +136,14 @@ def voice_dir(voice: str | Path | None = None) -> Path:
         candidate = Path(voice).expanduser()
         source = "voice argument"
     else:
-        override = os.environ.get("LUCID_TTS_VOICE")
+        override = os.environ.get("PROOFCUT_TTS_VOICE")
         if not override:
             raise TTSError(
-                "no voice: pass voice=<dir> (CLI --voice) or set LUCID_TTS_VOICE to a directory "
+                "no voice: pass voice=<dir> (CLI --voice) or set PROOFCUT_TTS_VOICE to a directory "
                 "holding ref.wav (≈10–20 s of one speaker, no music) and ref.txt (its words). "
                 "There is no default voice on purpose."
             )
-        candidate, source = Path(override).expanduser(), "$LUCID_TTS_VOICE"
+        candidate, source = Path(override).expanduser(), "$PROOFCUT_TTS_VOICE"
     missing = [name for name in ("ref.wav", "ref.txt") if not (candidate / name).is_file()]
     if missing:
         raise TTSError(
@@ -156,7 +156,7 @@ def voice_dir(voice: str | Path | None = None) -> Path:
 def available(voice: str | Path | None = None) -> dict[str, Any]:
     """Whether this box can synthesise, and what is missing if it cannot — a report, never a raise.
 
-    `voice` is checked too (the argument, else `LUCID_TTS_VOICE`), because a
+    `voice` is checked too (the argument, else `PROOFCUT_TTS_VOICE`), because a
     box with the model and no voice cannot synthesise either.
 
     Each of the three is resolved on its own, so one missing does not hide
@@ -183,7 +183,7 @@ def available(voice: str | Path | None = None) -> dict[str, Any]:
         report["why"] = refusal
         return report
     if not _WORKER.exists():  # pragma: no cover — only a broken install
-        report["why"] = f"lucid's own worker script is missing: {_WORKER}"
+        report["why"] = f"proofcut's own worker script is missing: {_WORKER}"
         return report
     report["available"] = True
     return report
@@ -223,7 +223,7 @@ def synth(
     python = tts_python()
     model = model_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="lucid-tts-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-tts-") as tmp:
         job_path = Path(tmp) / "job.json"
         out_path = Path(tmp) / "out.json"
         job_path.write_text(

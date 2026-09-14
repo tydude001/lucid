@@ -1,7 +1,7 @@
 """`media.playability` against real encodes, because the verdict is about bytes.
 
 Every case here is a file ffmpeg and melt read without complaint and a browser
-does not, which is the whole reason the function exists: "lucid can edit this"
+does not, which is the whole reason the function exists: "proofcut can edit this"
 and "the preview pane can show this" are different questions, and only the
 second one has an answer that changes with the container and the pixel format.
 

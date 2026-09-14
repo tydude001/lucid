@@ -235,7 +235,7 @@ async function main() {
         // `url` is the whole value of this branch: a failed request logs
         // "Failed to load resource: ... 400" and names no route, and
         // guessing which one from a plausible-looking endpoint has already
-        // cost a wrong diagnosis here (lucid HISTORY.md § The two console
+        // cost a wrong diagnosis here (proofcut HISTORY.md § The two console
         // 400s). CDP hands it over; only dropping it made it a mystery.
         if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error')
           lines.push({ type: 'log', text: m.params.entry.text, url: m.params.entry.url });

@@ -4,7 +4,7 @@ auto-editor is a subprocess, not a library — it is Nim, and PyPI's `auto-edito
 is a stale 29.3.1 fork of the old Python one (CLAUDE.md). This module is the
 only place that knows that.
 
-The v3 timeline JSON is the whole reason lucid does not need its own renderer.
+The v3 timeline JSON is the whole reason proofcut does not need its own renderer.
 It is a flattened OTIO track under different field names, and auto-editor will
 both *render* it and *export it to an NLE project*:
 
@@ -12,7 +12,7 @@ both *render* it and *export it to an NLE project*:
     auto-editor cut.v3 --export kdenlive -o p.kdenlive   # a real MLT timeline
 
 Verified 2026-08-07 on this box, including for audio-only sources. That second
-line is what gets a lucid edit into Kdenlive, which is the only NLE on this
+line is what gets a proofcut edit into Kdenlive, which is the only NLE on this
 machine — so one mapping layer buys both exits.
 
 Both exits are free only while the timeline names **one** source file. 31.x
@@ -84,7 +84,7 @@ def binary() -> str:
     `shutil.which` finds `auto-editor.exe` on Windows by itself (PATHEXT), so
     the search is the same on every OS; only the name of the download differs.
     """
-    override = os.environ.get("LUCID_AUTO_EDITOR")
+    override = os.environ.get("PROOFCUT_AUTO_EDITOR")
     if override:
         return override
     found = shutil.which("auto-editor")
@@ -96,7 +96,7 @@ def binary() -> str:
     raise AutoEditorError(
         f"auto-editor not found. Install the {release_asset()} binary "
         "from the GitHub release (not PyPI — that build is stale and diverged), "
-        "or set LUCID_AUTO_EDITOR to its path."
+        "or set PROOFCUT_AUTO_EDITOR to its path."
     )
 
 
@@ -133,7 +133,7 @@ def template(media: Path | str) -> dict[str, Any]:
     audio analysis.
     """
     media = Path(media)
-    with tempfile.TemporaryDirectory(prefix="lucid-v3-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-v3-") as tmp:
         return _export_v3(media, Path(tmp) / "template", "none", [])
 
 
@@ -147,7 +147,7 @@ def silence_edit(
 ) -> Edit:
     """Ask auto-editor which parts of `media` are worth keeping.
 
-    This is the seed for a project's timeline: lucid does not reimplement
+    This is the seed for a project's timeline: proofcut does not reimplement
     silence detection, per the scope rule in PLAN.md. `edit_expr` passes
     auto-editor's own edit language straight through — it is richer than a
     threshold, e.g. `"(or audio:0.03 motion:0.06)"`.
@@ -155,7 +155,7 @@ def silence_edit(
     media = Path(media)
     expr = edit_expr or f"audio:threshold={threshold}"
     extra = ["--margin", margin] if margin else []
-    with tempfile.TemporaryDirectory(prefix="lucid-v3-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-v3-") as tmp:
         payload = _export_v3(media, Path(tmp) / "silence", expr, extra)
     return from_v3(payload, clip_id)
 
@@ -173,7 +173,7 @@ def from_v3(payload: dict[str, Any], clip_id: str) -> Edit:
     """Read a v3 timeline into an `Edit`, in source seconds.
 
     Only one track is read — the video track when there is one, else the audio
-    track. lucid's model treats A/V as linked (see timeline.py), and for a
+    track. proofcut's model treats A/V as linked (see timeline.py), and for a
     cut-and-concat timeline the two tracks carry identical intervals.
     """
     rate = _timebase(payload)
@@ -280,8 +280,8 @@ def run_timeline(
     output = Path(output).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="lucid-v3-") as tmp:
-        timeline_path = Path(tmp) / "lucid.v3"
+    with tempfile.TemporaryDirectory(prefix="proofcut-v3-") as tmp:
+        timeline_path = Path(tmp) / "proofcut.v3"
         timeline_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         args = [str(timeline_path)]
         if export:

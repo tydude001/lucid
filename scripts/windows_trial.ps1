@@ -1,26 +1,26 @@
-# lucid on Windows, in one file - docs/plans/PORTABILITY.md step 5b, scripts/mac_trial.sh's twin.
+# proofcut on Windows, in one file - docs/plans/PORTABILITY.md step 5b, scripts/mac_trial.sh's twin.
 #
-#   powershell -ExecutionPolicy Bypass -File lucid\scripts\windows_trial.ps1              run the test
-#   powershell -ExecutionPolicy Bypass -File lucid\scripts\windows_trial.ps1 -Uninstall   remove what it added
+#   powershell -ExecutionPolicy Bypass -File proofcut\scripts\windows_trial.ps1              run the test
+#   powershell -ExecutionPolicy Bypass -File proofcut\scripts\windows_trial.ps1 -Uninstall   remove what it added
 #
 # Run from a clone of the public repo. It installs the tools, runs docs/DEMO.md in that clone's
 # checkout, and zips a report for a GitHub issue, with the home folder replaced by `~` in every
 # text file in it. It runs DEMO.md's commands as written, into the test folder instead of
-# ~/lucid-demo, and stops at the first one that fails, since that is the finding.
+# ~/proofcut-demo, and stops at the first one that fails, since that is the finding.
 #
 # What it installs, and why this shape: everything is a portable download into ONE folder,
-# %LOCALAPPDATA%\lucid-windows-trial, never winget. winget is not on every Windows 10, is not
+# %LOCALAPPDATA%\proofcut-windows-trial, never winget. winget is not on every Windows 10, is not
 # guaranteed on GitHub's runner, and uninstalls per package; a folder needs no admin, runs the
 # same on the runner (.github/workflows/windows-demo.yml) and on a person's PC, and uninstalls by
 # deleting it. Each download is pinned by URL and SHA-256 below.
 #   - uv, the standalone zip. uv's own caches, Pythons and tools are pointed into the folder too.
-#   - ffmpeg, gyan.dev's essentials build: libx264, drawtext and libass, which lucid doctor's
+#   - ffmpeg, gyan.dev's essentials build: libx264, drawtext and libass, which proofcut doctor's
 #     ffmpeg row checks. It is the build Chocolatey's ffmpeg is (GitHub run 34779525442).
 #   - auto-editor, the release binary. PyPI's is a stale fork.
 #   - espeak-ng, only to build the demo voice: its MSI unpacked with `msiexec /a`, which installs
 #     nothing and needs no admin, and pointed at its data with ESPEAK_DATA_PATH.
-#   - melt from Shotcut's portable zip. Portable Shotcut is not where lucid looks for one, so
-#     LUCID_MELT names it. Its modules are unmeasured on Windows, so the two frames in the report
+#   - melt from Shotcut's portable zip. Portable Shotcut is not where proofcut looks for one, so
+#     PROOFCUT_MELT names it. Its modules are unmeasured on Windows, so the two frames in the report
 #     are the check, not melt's exit code.
 #   - whisper, by `uv tool install`, into the folder.
 #   - no ImageMagick: only cards need it and the demo draws none.
@@ -38,14 +38,14 @@ $ErrorActionPreference = 'Continue'   # a native command writing to stderr is no
 $ProgressPreference = 'SilentlyContinue'   # 5.1's download progress bar costs more than the download
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$ISSUE_URL = 'https://github.com/tydude001/lucid/issues/new?template=windows-test.yml'
-# The LUCID_TRIAL_* overrides exist for the CI job, which uploads the report rather than leaving it on a Desktop.
-$W = if ($env:LUCID_TRIAL_DIR) { $env:LUCID_TRIAL_DIR } else { Join-Path $env:LOCALAPPDATA 'lucid-windows-trial' }
-$MARKER = Join-Path $W '.lucid-windows-trial'
+$ISSUE_URL = 'https://github.com/tydude001/proofcut/issues/new?template=windows-test.yml'
+# The PROOFCUT_TRIAL_* overrides exist for the CI job, which uploads the report rather than leaving it on a Desktop.
+$W = if ($env:PROOFCUT_TRIAL_DIR) { $env:PROOFCUT_TRIAL_DIR } else { Join-Path $env:LOCALAPPDATA 'proofcut-windows-trial' }
+$MARKER = Join-Path $W '.proofcut-windows-trial'
 $MANIFEST = Join-Path $W 'installed.txt'
 $TOOLS = Join-Path $W 'tools'
 $DEMO = Join-Path $W 'demo'
-$REPORT = if ($env:LUCID_TRIAL_REPORT) { $env:LUCID_TRIAL_REPORT } else { Join-Path ([Environment]::GetFolderPath('Desktop')) 'lucid-windows-report.zip' }
+$REPORT = if ($env:PROOFCUT_TRIAL_REPORT) { $env:PROOFCUT_TRIAL_REPORT } else { Join-Path ([Environment]::GetFolderPath('Desktop')) 'proofcut-windows-report.zip' }
 $RULE = [string][char]0x2500 + [char]0x2500   # the step header mark scripts/trial_check.py looks for
 
 # name, url, sha256, what it is for
@@ -76,11 +76,11 @@ function Ask([string]$Question) {
 # ---- -Uninstall ---------------------------------------------------------------------------
 if ($Uninstall) {
     if (-not (Test-Path -LiteralPath $MARKER)) {
-        Write-Host "No record of a lucid test on this PC ($MARKER is missing), so nothing to remove."
+        Write-Host "No record of a proofcut test on this PC ($MARKER is missing), so nothing to remove."
         exit 0
     }
     Write-Host ''
-    Write-Host '  This removes what the lucid test added to this PC, and nothing else:'
+    Write-Host '  This removes what the proofcut test added to this PC, and nothing else:'
     if (Test-Path -LiteralPath $MANIFEST) {
         Get-Content -LiteralPath $MANIFEST | ForEach-Object { Write-Host "    - $_" }
     }
@@ -95,8 +95,8 @@ if ($Uninstall) {
         exit 1
     }
     Write-Host ''
-    Write-Host '  Done. The report on your Desktop (lucid-windows-report.zip) is yours to delete once sent.'
-    Write-Host "  The lucid folder you cloned is yours too: delete it when you are finished with it."
+    Write-Host '  Done. The report on your Desktop (proofcut-windows-report.zip) is yours to delete once sent.'
+    Write-Host "  The proofcut folder you cloned is yours too: delete it when you are finished with it."
     Write-Host "  Its .venv folder uses a Python that was in the removed folder, so run 'uv sync' again if you keep using it."
     exit 0
 }
@@ -106,9 +106,9 @@ $REPO = Split-Path -Parent $PSScriptRoot
 $pyproject = Join-Path $REPO 'pyproject.toml'
 if (-not (Test-Path -LiteralPath (Join-Path $REPO 'scripts\make_demo.py')) -or
     -not (Test-Path -LiteralPath $pyproject) -or
-    -not (Select-String -LiteralPath $pyproject -Pattern '^name = "lucid"' -Quiet)) {
-    Write-Host 'This copy is not inside a lucid checkout.'
-    Write-Host 'Clone the repo and run it from there:  git clone https://github.com/tydude001/lucid'
+    -not (Select-String -LiteralPath $pyproject -Pattern '^name = "proofcut"' -Quiet)) {
+    Write-Host 'This copy is not inside a proofcut checkout.'
+    Write-Host 'Clone the repo and run it from there:  git clone https://github.com/tydude001/proofcut'
     exit 1
 }
 if (($REPO + '\').StartsWith($W + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -123,14 +123,14 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 
 Write-Host @"
 
-  lucid - Windows test
-  --------------------
+  proofcut - Windows test
+  -----------------------
   This will:
-    1. download the tools lucid needs (uv, ffmpeg, auto-editor, espeak-ng, Shotcut, whisper)
+    1. download the tools proofcut needs (uv, ffmpeg, auto-editor, espeak-ng, Shotcut, whisper)
        into one folder: $W
        Nothing is installed system-wide, and it needs no administrator rights.
-    2. make a short test video and let lucid edit it
-    3. put lucid-windows-report.zip on your Desktop, with your home folder's name taken out
+    2. make a short test video and let proofcut edit it
+    3. put proofcut-windows-report.zip on your Desktop, with your home folder's name taken out
 
   It takes 15-30 minutes, mostly downloading (about 2 GB, most of it the speech model and
   whisper's PyTorch). You can leave it running.
@@ -147,7 +147,7 @@ if (Test-Path -LiteralPath $MARKER) {
     Remove-Item -LiteralPath $W -Recurse -Force
 }
 elseif (Test-Path -LiteralPath $W) {
-    Write-Host "$W exists and was not made by this test, so it is left alone. Move it, or set LUCID_TRIAL_DIR."
+    Write-Host "$W exists and was not made by this test, so it is left alone. Move it, or set PROOFCUT_TRIAL_DIR."
     exit 1
 }
 else {
@@ -159,7 +159,7 @@ foreach ($line in $kept) { Add-Content -LiteralPath $MANIFEST -Value $line -Enco
 
 $LOG = Join-Path $W 'report.txt'
 # UTF-8 without a byte-order mark, written through one handle: 5.1's Tee-Object and Out-File write
-# UTF-16, which the check cannot read, and lucid's own output carries non-ASCII.
+# UTF-16, which the check cannot read, and proofcut's own output carries non-ASCII.
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $script:logw = New-Object System.IO.StreamWriter($LOG, $true, $utf8)
 $script:logw.AutoFlush = $true
@@ -278,7 +278,7 @@ function Finish {
     if ($env:PROCESSOR_ARCHITEW6432) { $arch = "$env:PROCESSOR_ARCHITEW6432 (this shell: $arch)" }
     Say ''
     Say "$([char]0x2550)$([char]0x2550)$([char]0x2550)$([char]0x2550) summary"
-    Say "lucid $REV $([char]0x00B7) $($os.Caption) $($os.Version) $([char]0x00B7) $arch"
+    Say "proofcut $REV $([char]0x00B7) $($os.Caption) $($os.Version) $([char]0x00B7) $arch"
     foreach ($s in $script:STEPS) { Say "  $s" }
     if ($script:FAIL) { Say "STOPPED AT: $($script:FAIL)" } else { Say 'ALL STEPS RAN' }
     $script:logw.Close()
@@ -287,7 +287,7 @@ function Finish {
     if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Recurse -Force }
     if (Test-Path -LiteralPath $REPORT) { Remove-Item -LiteralPath $REPORT -Force }
     New-Item -ItemType Directory -Force -Path $out | Out-Null
-    foreach ($f in @($LOG, (Join-Path $DEMO 'proj\lucid.json'), (Join-Path $DEMO 'proj\project.otio'))) {
+    foreach ($f in @($LOG, (Join-Path $DEMO 'proj\proofcut.json'), (Join-Path $DEMO 'proj\project.otio'))) {
         if (Test-Path -LiteralPath $f) {
             $text = [IO.File]::ReadAllText($f, $utf8)
             [IO.File]::WriteAllText((Join-Path $out ([IO.Path]::GetFileName($f))), (Hide-Home $text), $utf8)
@@ -310,10 +310,10 @@ try {
     $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
     $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
     $drive = Get-PSDrive -Name ($W.Substring(0, 1)) -ErrorAction SilentlyContinue
-    Say "lucid Windows test $([char]0x00B7) lucid $REV $([char]0x00B7) $(Get-Date -Format 'yyyy-MM-dd HH:mm K')"
+    Say "proofcut Windows test $([char]0x00B7) proofcut $REV $([char]0x00B7) $(Get-Date -Format 'yyyy-MM-dd HH:mm K')"
     Say "$($winver.Caption) $($winver.Version) $([char]0x00B7) $env:PROCESSOR_ARCHITECTURE $([char]0x00B7) $($cpu.Name)"
     Say ("memory {0} GB $([char]0x00B7) free disk {1} GB $([char]0x00B7) PowerShell {2}" -f [int]($cs.TotalPhysicalMemory / 1GB), [int]($drive.Free / 1GB), $PSVersionTable.PSVersion)
-    Say "lucid checkout: $(Hide-Home $REPO)"
+    Say "proofcut checkout: $(Hide-Home $REPO)"
 
     # Everything uv and whisper would otherwise put under the user profile goes in the folder.
     $env:UV_CACHE_DIR = Join-Path $W 'uv\cache'
@@ -351,8 +351,8 @@ try {
     $env:PATH = (@($env:UV_TOOL_BIN_DIR, $bin, $ffmpegExe.DirectoryName, $espeakExe.DirectoryName) -join ';') + ';' + $env:PATH
     # espeak-ng finds its data through the registry an MSI install writes; an unpacked MSI wrote none.
     $env:ESPEAK_DATA_PATH = $espeakData.Parent.FullName
-    $env:LUCID_MELT = $meltExe.FullName
-    Say "melt: $(Hide-Home $env:LUCID_MELT)"
+    $env:PROOFCUT_MELT = $meltExe.FullName
+    Say "melt: $(Hide-Home $env:PROOFCUT_MELT)"
     Say "ESPEAK_DATA_PATH: $(Hide-Home $env:ESPEAK_DATA_PATH)"
     $uv = Join-Path $bin 'uv.exe'
 
@@ -362,17 +362,17 @@ try {
 
     Set-Location -LiteralPath $REPO
     if (-not (Step 'uv sync' $uv @('sync'))) { return }
-    Step 'lucid doctor (informational)' $uv @('run', 'lucid', 'doctor') | Out-Null
+    Step 'proofcut doctor (informational)' $uv @('run', 'proofcut', 'doctor') | Out-Null
     $script:FAIL = ''   # the demo below is the verdict
 
     $proj = Join-Path $DEMO 'proj'
-    $L = @('run', 'lucid', '-C', $proj)
+    $L = @('run', 'proofcut', '-C', $proj)
     # Each step's arguments are parenthesised: `,` binds tighter than `+`, so `'name', $L + @(...)`
     # is `('name', $L) + @(...)`, and the step ran `lucid -C proj` with its command dropped
     # (the first windows-demo run).
     $demoSteps = @(
         @('DEMO 1 make the footage', @('run', 'python', 'scripts\make_demo.py', $DEMO)),
-        @('DEMO 2 init', @('run', 'lucid', 'init', $proj)),
+        @('DEMO 2 init', @('run', 'proofcut', 'init', $proj)),
         @('DEMO 2 import vo', ($L + @('import', (Join-Path $DEMO 'vo.wav'), '--clip-id', 'vo'))),
         @('DEMO 2 import blue', ($L + @('import', (Join-Path $DEMO 'broll-blue.mp4'), '--clip-id', 'blue'))),
         @('DEMO 2 import rust', ($L + @('import', (Join-Path $DEMO 'broll-rust.mp4'), '--clip-id', 'rust'))),
@@ -408,8 +408,8 @@ finally {
 }
 
 if (-not $script:FAIL -and -not $Unattended) {
-    if (Ask "  Want to see lucid's editor window with the result?") {
-        & (Join-Path $TOOLS 'bin\uv.exe') run lucid -C (Join-Path $DEMO 'proj') open
+    if (Ask "  Want to see proofcut's editor window with the result?") {
+        & (Join-Path $TOOLS 'bin\uv.exe') run proofcut -C (Join-Path $DEMO 'proj') open
     }
 }
 exit 0

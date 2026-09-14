@@ -7,7 +7,7 @@ missing is a *generator* for the asset. This is its renderer.
 
 `magick` is shelled the way `asr` shells whisper and `picture` shells melt:
 an external renderer with a resolution order and no Python API worth binding.
-So this module has no lucid dependencies beyond `captions.font_match`, which
+So this module has no proofcut dependencies beyond `captions.font_match`, which
 it reuses rather than growing a second font check.
 
 Four things measured on this box, 2026-08-09, that the code below depends on:
@@ -103,13 +103,13 @@ def magick_command() -> list[str]:
     """The argv prefix that runs ImageMagick, however it is installed here.
 
     A list rather than a path for the same reason `picture.melt_command` is
-    one — `LUCID_MAGICK` may name a wrapper with arguments. IM6's `convert`
+    one — `PROOFCUT_MAGICK` may name a wrapper with arguments. IM6's `convert`
     is deliberately not searched: its SVG handling is a different renderer
     with different defaults, and silently rendering through one when the
     box's measurements were taken on the other is this repo's recurring
     failure shape.
     """
-    override = os.environ.get("LUCID_MAGICK")
+    override = os.environ.get("PROOFCUT_MAGICK")
     if override:
         return command_override(override)
     found = shutil.which("magick")
@@ -118,7 +118,7 @@ def magick_command() -> list[str]:
     raise GraphicsError(
         "magick not found. Card rendering needs ImageMagick 7 with its RSVG "
         "coder (`magick -list format | grep RSVG`), which is what rasterises "
-        "the SVG. Install ImageMagick, or set LUCID_MAGICK to a command that "
+        "the SVG. Install ImageMagick, or set PROOFCUT_MAGICK to a command that "
         "runs it."
     )
 
@@ -355,7 +355,7 @@ def font_report(svg: str) -> list[dict[str, Any]]:
 
     def match(family: str, weight: int | None) -> dict[str, Any]:
         # Cached for this document only. A process-lifetime cache would go
-        # stale against a font installed while lucid is running, and the
+        # stale against a font installed while proofcut is running, and the
         # thing this report exists to catch is a font that is not there.
         if (family, weight) not in cache:
             cache[(family, weight)] = font_match(family, weight=weight)
@@ -1160,7 +1160,7 @@ def line_markup(value: str, colours: dict[str, str]) -> str:
 
     The same `[em]`/`[dim]`/`[key]` vocabulary the flowing slots have, on the
     slots that are one line — which is what lets a wordmark carry the brand's
-    amber asterisk without the template hard-coding a brand into lucid.
+    amber asterisk without the template hard-coding a brand into proofcut.
 
     Two things differ from `_runs_markup`, and both are what make it additive
     rather than a restyle. **Unmarked text states nothing** and inherits the
@@ -1200,7 +1200,7 @@ def line_markup(value: str, colours: dict[str, str]) -> str:
 BODY_MARGIN = 140
 
 #: What each template asks for. `placed` slots appear in the SVG as
-#: `{{name}}`; the rest feed a `derived` entry, which is markup lucid
+#: `{{name}}`; the rest feed a `derived` entry, which is markup proofcut
 #: generates and the template positions. Descriptions are the tool surface an
 #: agent reads, so they say what the field *is*, not what type it has.
 #:
@@ -1685,7 +1685,7 @@ TEMPLATES: dict[str, dict[str, Any]] = {
 }
 
 #: Slots every template gets: the palette, the font stacks, and the geometry
-#: lucid computes from the canvas. Style slots are overridable; the geometry
+#: proofcut computes from the canvas. Style slots are overridable; the geometry
 #: ones are not, because they are the canvas the caller already chose.
 STYLE_SLOTS = {**PALETTE, **FONTS, **WEIGHTS}
 RESERVED_SLOTS = frozenset({"width", "height", "view_height", "mid_y", "note_y", "foot_y"})
@@ -1703,7 +1703,7 @@ VARIANTS: dict[str, Callable[[int, int], bool]] = {
     "portrait": lambda width, height: height > width,
 }
 
-#: The geometry lucid derives from the canvas rather than reading out of the
+#: The geometry proofcut derives from the canvas rather than reading out of the
 #: file, in template units. These are the landscape file's numbers, and they
 #: are per-variant because a portrait layout stacks differently — `foot_margin`
 #: especially, since `view_height - 110` puts the wordmark 62px from the bottom
@@ -1891,7 +1891,7 @@ def template_slots(name: str, variant: str | None = None) -> dict[str, dict[str,
 
 
 def templates() -> list[dict[str, Any]]:
-    """Every template lucid ships, with its slots.
+    """Every template proofcut ships, with its slots.
 
     Content and style are reported separately even though `fill_template`
     takes them in one dict. Both front ends sort their JSON, so a single map
@@ -2087,7 +2087,7 @@ def fill_template(
 ) -> str:
     """Fill `name`'s slots with `values`, returning the SVG to write.
 
-    Every user value is escaped; the only unescaped markup is what lucid
+    Every user value is escaped; the only unescaped markup is what proofcut
     generates itself for a `derived` slot. That split is the whole security
     story of a string-substitution template, and it is why a rating is parsed
     as a number here rather than pasted through as text.

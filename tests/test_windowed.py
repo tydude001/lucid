@@ -314,7 +314,7 @@ def test_the_default_overlap_gives_every_instant_two_readings() -> None:
 
 # -- the ingest path's guard ----------------------------------------------
 #
-# `_drop_stacked` above ran only in the windowed pass, so `lucid transcribe`
+# `_drop_stacked` above ran only in the windowed pass, so `proofcut transcribe`
 # had no hallucination guard at all. Wiring the same rule across was the
 # obvious fix and it is not sufficient: on the October scale spike's own
 # artifact it drops three of eight. `_drop_dense` is the rest, and its two

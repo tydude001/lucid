@@ -2,7 +2,7 @@
 
 Same discipline as `test_server_stdio.py` (a handler called directly proves
 nothing about routing) and `test_webui_http.py` (loopback alone does not
-guard a server that can rewrite the project): this spawns `lucid mcp
+guard a server that can rewrite the project): this spawns `proofcut mcp
 --transport http` as a real subprocess bound to a real ephemeral port and
 speaks real HTTP to it, including the plain-socket request that proves the
 Host-header guard fires before any MCP framing is even parsed.
@@ -38,9 +38,9 @@ _URL_RE = re.compile(r"(http://[^\s]+/mcp)")
 
 
 def _start_http(root: Path | None, *extra: str, timeout: float = 15.0) -> tuple[subprocess.Popen[str], str]:
-    """Spawn `lucid [-C root] mcp --transport http --port 0 [extra...]`.
+    """Spawn `proofcut [-C root] mcp --transport http --port 0 [extra...]`.
 
-    `--port 0` picks a free port the way `lucid web --port 0` does; the
+    `--port 0` picks a free port the way `proofcut web --port 0` does; the
     server prints the URL it actually bound (`server._serve_http`) as its
     first line, which is how the ephemeral port is discovered here.
     """
@@ -61,7 +61,7 @@ def _start_http(root: Path | None, *extra: str, timeout: float = 15.0) -> tuple[
         proc.kill()
         err = proc.stderr.read() if proc.stderr else ""
         raise RuntimeError(
-            f"lucid mcp --transport http did not start in {timeout}s: {err}"
+            f"proofcut mcp --transport http did not start in {timeout}s: {err}"
         ) from None
     match = _URL_RE.search(line)
     if not match:

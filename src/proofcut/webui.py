@@ -1,6 +1,6 @@
 """The preview/timeline web UI — a third client, never a third implementation.
 
-lucid's checks all answer a *machine's* question: `verify` diffs the render's
+proofcut's checks all answer a *machine's* question: `verify` diffs the render's
 words, `frames`/`black`/`spots` read counts and pixels. None of them let a
 person see an edit before committing to a render. This does — and because it
 plays the *source* through the edit rather than a render of it, seeing an edit
@@ -44,7 +44,7 @@ and so is the default: with no `--allow-remote`, nothing below changes at all.
 
 The token reaches the page's own JavaScript through a cookie rather than
 through a rewritten `fetch`: a request presenting `?t=` is handed
-`Set-Cookie: lucid_token=…; HttpOnly; SameSite=Strict`, so the fetches, media
+`Set-Cookie: proofcut_token=…; HttpOnly; SameSite=Strict`, so the fetches, media
 ranges and `EventSource` that `web/` already issues carry it with no line of
 `web/` changed — and `SameSite=Strict` means no other site can make the
 browser spend it, which is the CSRF half loopback+Host used to cover.
@@ -83,9 +83,11 @@ from proofcut.mlt import MLTError
 from proofcut.picture import PictureError
 from proofcut.project import (
     CACHE_DIR,
+    LEGACY_MANIFEST_NAME,
     MANIFEST_NAME,
     SCHEMA_VERSION,
     TIMELINE_NAME,
+    LegacyManifestError,
     Project,
     ProjectError,
 )
@@ -112,7 +114,7 @@ EXPECTED = (
     MLTError,
     # `reframe_detect`/`reframe_sheet(extremes=True)`'s refusal when no
     # interpreter has a face detector — without this here, a missing
-    # `LUCID_FACE` on this box turns into an unhandled exception inside
+    # `PROOFCUT_FACE` on this box turns into an unhandled exception inside
     # `ReframeDetectJob._run`'s `try/except EXPECTED`: no error event is
     # published, `_finish()` never runs, and the view spins forever waiting
     # on an SSE event that will never arrive (Studio Step 03 contract § A).
@@ -123,7 +125,7 @@ STATIC_DIR = Path(__file__).parent / "web"
 
 DEFAULT_HOST = "127.0.0.1"
 #: Deliberately not 8000/8080. Those collide with whatever else is being
-#: served on a dev box, and a collision here looks like lucid showing someone
+#: served on a dev box, and a collision here looks like proofcut showing someone
 #: else's page.
 DEFAULT_PORT = 8710
 
@@ -135,20 +137,20 @@ _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 #: Addresses that are a *bind* instruction and never a client's identity. A
 #: real client sends the address it dialed; only someone who read the startup
 #: banner sends `Host: 0.0.0.0`. `server.py` imports this rather than keeping
-#: a second copy — it makes the same refusal for `lucid mcp --transport http`.
+#: a second copy — it makes the same refusal for `proofcut mcp --transport http`.
 _WILDCARD_HOSTS = frozenset({"0.0.0.0", "::", ""})
 
 #: Where a request that presented `?t=` gets the token parked, so that the
 #: page's own JS — which knows nothing about a token — carries it on every
 #: subsequent fetch/range/SSE request. `HttpOnly` keeps it out of `document`,
 #: `SameSite=Strict` keeps any other origin from spending it.
-TOKEN_COOKIE = "lucid_token"
+TOKEN_COOKIE = "proofcut_token"
 
-#: Names an exact `tailscale` binary, for the same reason `LUCID_WHISPER`
+#: Names an exact `tailscale` binary, for the same reason `PROOFCUT_WHISPER`
 #: does: the one on PATH is not always the one meant, and a silent fallback
 #: to loopback would look like `--tailscale` working right up until a phone
 #: tried it.
-LUCID_TAILSCALE_ENV = "LUCID_TAILSCALE"
+PROOFCUT_TAILSCALE_ENV = "PROOFCUT_TAILSCALE"
 
 
 def _tailscale_installs() -> list[Path]:
@@ -166,8 +168,8 @@ def _tailscale_installs() -> list[Path]:
 
 
 def _find_tailscale() -> str | None:
-    """`$LUCID_TAILSCALE`, then PATH, then the OS's own install location."""
-    found = os.environ.get(LUCID_TAILSCALE_ENV) or shutil.which("tailscale")
+    """`$PROOFCUT_TAILSCALE`, then PATH, then the OS's own install location."""
+    found = os.environ.get(PROOFCUT_TAILSCALE_ENV) or shutil.which("tailscale")
     if found:
         return found
     return next((str(p) for p in _tailscale_installs() if p.is_file()), None)
@@ -265,7 +267,7 @@ def tailscale_identity(binary: str | None = None) -> tuple[str, list[str]]:
         where = "".join(f" or at {p}" for p in _tailscale_installs())
         raise ProjectError(
             f"--tailscale: no `tailscale` binary found on PATH{where}. Install it, or "
-            f"set {LUCID_TAILSCALE_ENV} to the one to use, or pass --host with "
+            f"set {PROOFCUT_TAILSCALE_ENV} to the one to use, or pass --host with "
             "--allow-remote --allow-remote-host yourself."
         )
     try:
@@ -326,12 +328,12 @@ _CHUNK = 256 * 1024
 
 #: How often the SSE handler checks whether the revision moved (PLAN.md §
 #: Tier 3 is the goal, lines 1794-1798). Simple beats exact: this one poll
-#: loop is what lets an agent edit, the page's own edit, and a `lucid cut` in
+#: loop is what lets an agent edit, the page's own edit, and a `proofcut cut` in
 #: a terminal all raise the same event instead of three code paths.
 _REVISION_POLL_SECONDS = 0.5
 
 #: `claude` by default; overridable so tests never spawn the real thing.
-AGENT_BIN_ENV = "LUCID_AGENT_BIN"
+AGENT_BIN_ENV = "PROOFCUT_AGENT_BIN"
 
 #: The agent's tool allowlist — the security boundary, not a convenience
 #: default (PLAN.md § The agent panel, in mechanism). `--permission-mode
@@ -347,9 +349,9 @@ AGENT_BIN_ENV = "LUCID_AGENT_BIN"
 #: matching disallow entry is simply never asked about. `--tools ""` is the
 #: actual boundary for the built-in set — it disables all of it, leaving only
 #: the MCP tools `--strict-mcp-config` exposes, which is what makes "the
-#: agent gets lucid's MCP tools and nothing else" true. `_AGENT_DISALLOWED_TOOLS`
+#: agent gets proofcut's MCP tools and nothing else" true. `_AGENT_DISALLOWED_TOOLS`
 #: stays as defense in depth, not because it does the job on its own.
-_AGENT_ALLOWED_TOOLS = "mcp__lucid__*"
+_AGENT_ALLOWED_TOOLS = "mcp__proofcut__*"
 _AGENT_DISALLOWED_TOOLS = ("Bash", "Write", "Edit", "WebFetch", "WebSearch")
 
 
@@ -442,7 +444,7 @@ def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
 #: (`~/lucid-teaser/proj`, an explicit `proj` subdirectory) — this covers
 #: both without wandering into an unrelated deep tree. A directory a scan
 #: finds a project in is never descended into further: its own `history/`
-#: backups are named `lucid-vN.json`, never `lucid.json` (`Project.migrate`),
+#: backups are named `proofcut-vN.json` or `lucid-vN.json`, never a manifest name (`Project.migrate`),
 #: so there is no false positive to worry about, but stopping there also
 #: keeps a big `--root` cheap to scan on every picker load.
 _SCAN_MAX_DEPTH = 3
@@ -454,9 +456,9 @@ _SCAN_SKIP_NAMES = frozenset({".git", ".venv", "venv", "node_modules", "__pycach
 
 
 def scan_projects(root: Path) -> list[dict[str, Any]]:
-    """Find lucid projects under `root` (docs/plans/DAYDREAM.md § Multi-project).
+    """Find proofcut projects under `root` (docs/plans/DAYDREAM.md § Multi-project).
 
-    A project is a directory holding `lucid.json` (`Project.MANIFEST_NAME`)
+    A project is a directory holding `proofcut.json` (`Project.MANIFEST_NAME`)
     directly — not a directory containing one somewhere inside it, which
     would also match every project's own `history/` backups' *parent*.
     Never opens a manifest at the wrong schema and never migrates one
@@ -469,15 +471,17 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
       the workspace's top bar uses.
     * `status: "needs_migration"` — a manifest at a schema `Project.open`
       refuses; `schema_version` names what was found. Listed, not skipped
-      and not opened — `lucid migrate -C <path>` is the way forward, and the
-      picker says so without taking it.
+      and not opened — `proofcut migrate -C <path>` is the way forward, and the
+      picker says so without taking it. A directory holding only a
+      pre-rename `lucid.json` is one of these too, with `manifest:
+      "lucid.json"` (docs/plans/RENAME.md, decision 1).
     * `status: "unreadable"` — any other `ProjectError` (bad JSON, a
       manifest that is not a JSON object, or a read that raced the
       directory listing) — `error` carries `Project.open`'s own message.
     * `status: "error"` — the manifest itself read fine at the current
       schema, but `ops.status` (the same cheap read the `ok` case uses)
-      raised one of `EXPECTED` — an un-seeded project (`lucid init` with no
-      `lucid seed` yet) is the ordinary way to hit this, not a corrupt
+      raised one of `EXPECTED` — an un-seeded project (`proofcut init` with no
+      `proofcut seed` yet) is the ordinary way to hit this, not a corrupt
       project. Listed with `error` carrying the message, same as
       `unreadable` — one bad project must never take the whole `/api/projects`
       listing down with it. `seeded` says which kind of `error` this is
@@ -485,7 +489,7 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
       `project.otio`, which is the ordinary un-seeded case and the one the
       picker can offer to finish.
 
-    A directory with no `lucid.json` at all is not a project and is not in
+    A directory with neither `proofcut.json` nor `lucid.json` is not a project and is not in
     the returned list — that is the "skip a non-project directory" case, and
     it produces no entry rather than a fifth kind of failure.
     """
@@ -508,7 +512,7 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
         for child in children:
             if child.name.startswith(".") or child.name in _SCAN_SKIP_NAMES:
                 continue
-            if (child / MANIFEST_NAME).is_file():
+            if (child / MANIFEST_NAME).is_file() or (child / LEGACY_MANIFEST_NAME).is_file():
                 found.append(_scan_one(child))
                 continue  # never descend into a project's own subdirectories
             walk(child, depth + 1)
@@ -519,7 +523,7 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
 
 
 def _scan_one(path: Path) -> dict[str, Any]:
-    """Classify one directory already known to hold `lucid.json`."""
+    """Classify one directory already known to hold `proofcut.json` or `lucid.json`."""
     entry: dict[str, Any] = {"path": str(path), "name": path.name}
     # Resume line (Studio Step 04 § D): a plain, best-effort file read that
     # rides this scan rather than adding a second one — no `Project.open`,
@@ -536,15 +540,29 @@ def _scan_one(path: Path) -> dict[str, Any]:
             pass  # no resume line for this project; the rest of the entry stands
     project = Project(path)
     try:
-        manifest = project.read_manifest()
+        # A pre-rename `lucid.json` alone is `needs_migration` — the filename
+        # step is a migration like any schema step, and skipping the directory
+        # would hide a real project from the picker. Both manifests at once is
+        # `Project.open`'s refusal, so it lands in `unreadable` with that
+        # message rather than in a fifth status.
+        try:
+            project.check_manifest_name()
+            legacy = False
+        except LegacyManifestError:
+            legacy = True
+        manifest = project.read_legacy_manifest() if legacy else project.read_manifest()
     except (ProjectError, OSError) as exc:
         entry["status"] = "unreadable"
         entry["error"] = str(exc)
         return entry
     found_version = manifest.get("schema_version")
-    if found_version != SCHEMA_VERSION:
+    if legacy or found_version != SCHEMA_VERSION:
         entry["status"] = "needs_migration"
         entry["schema_version"] = found_version
+        if legacy:
+            # Which file was found, as data: a v4 `lucid.json` needs the
+            # rename and nothing else, and `schema_version` alone reads current.
+            entry["manifest"] = LEGACY_MANIFEST_NAME
         return entry
     try:
         info = ops.status(path)
@@ -803,7 +821,7 @@ class AgentSession:
     """One `claude -p` subprocess per server, spawned lazily on first prompt.
 
     PLAN.md § The agent panel, in mechanism: `--strict-mcp-config` confines it
-    to a generated config holding *only* lucid's MCP server (never the user's
+    to a generated config holding *only* proofcut's MCP server (never the user's
     own Gmail/Drive/Calendar servers), the allowlist above is the sole path it
     has into the project, and `--permission-mode manual` fails anything
     outside that allowlist closed rather than prompting a TTY that isn't
@@ -833,17 +851,17 @@ class AgentSession:
     def _mcp_config(self) -> Path:
         """Write the generated one-server MCP config lazily, once.
 
-        `lucid -C <project> mcp` is the invocation that actually binds the
+        `proofcut -C <project> mcp` is the invocation that actually binds the
         server to this project — `-C` is a global flag that argparse only
-        accepts *before* the subcommand (`lucid mcp -C <project>` does not
+        accepts *before* the subcommand (`proofcut mcp -C <project>` does not
         parse), so it is spelled out here as `command`/`args` rather than as
         a single shell string.
 
-        **The command is this interpreter, never the name `lucid`.** A bare
+        **The command is this interpreter, never the name `proofcut`.** A bare
         name is a PATH lookup performed by `claude`, not by the process that
-        knows where lucid is, and it is absent from PATH for every launch
-        that does not go through an activated venv — `.venv/bin/lucid web`,
-        a desktop entry, anything `lucid open` is wired to. Measured on this
+        knows where proofcut is, and it is absent from PATH for every launch
+        that does not go through an activated venv — `.venv/bin/proofcut web`,
+        a desktop entry, anything `proofcut open` is wired to. Measured on this
         box: with `"command": "lucid"` the harness's own `system`/`init`
         event reports `mcp_servers: [{"name": "lucid", "status": "failed"}]`
         and **`tools: []`**, and the panel then answers the prompt in prose
@@ -857,13 +875,13 @@ class AgentSession:
         if self._mcp_config_path is None:
             config = {
                 "mcpServers": {
-                    "lucid": {
+                    "proofcut": {
                         "command": sys.executable,
                         "args": ["-m", "proofcut.cli", "-C", str(self.project_root), "mcp"],
                     }
                 }
             }
-            fd, name = tempfile.mkstemp(prefix="lucid-mcp-", suffix=".json")
+            fd, name = tempfile.mkstemp(prefix="proofcut-mcp-", suffix=".json")
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(config, fh)
             self._mcp_config_path = Path(name)
@@ -895,10 +913,10 @@ class AgentSession:
             # before this flag existed got — never validated against a fixed
             # list here, the same reasoning as `ops.py`'s framing/canvas
             # overrides: `claude`'s own accepted model names change out from
-            # under any list lucid would keep, so a wrong value surfaces as
+            # under any list proofcut would keep, so a wrong value surfaces as
             # `claude`'s own refusal (an exit with nothing on stdout, caught
             # by `_pump_stdout`'s silent-exit report below) rather than
-            # lucid's guess getting in the way of the one closer to the truth.
+            # proofcut's guess getting in the way of the one closer to the truth.
             argv += ["--model", self._model]
         proc = subprocess.Popen(
             argv,
@@ -1056,7 +1074,7 @@ class AgentSession:
 
         Nothing else reaps either one — the subprocess otherwise outlives the
         server it belonged to, and every session that prompted the agent
-        would leave one `lucid-mcp-*.json` behind in `$TMPDIR`.
+        would leave one `proofcut-mcp-*.json` behind in `$TMPDIR`.
 
         Also the mechanism `reset()` (item 4) reuses for a live mid-session
         "Start New Task": when a proc is actually killed here, the
@@ -1509,7 +1527,7 @@ class ProxyJob:
             try:
                 result = ops.proxy_transcode(str(self.project_root), clip_id, force=force)
             except EXPECTED as exc:
-                # Same rule as `RenderJob._report_error`: only lucid's own
+                # Same rule as `RenderJob._report_error`: only proofcut's own
                 # refusals are flattened into an event. Anything else is a bug
                 # and keeps its traceback.
                 self.bus.publish(
@@ -1596,7 +1614,7 @@ class ReframeDetectJob:
     request naming the key) — the one flag docs/plans/STUDIO.md is explicit about:
     "`apply` stays off — it proposes, the sheet judges."
 
-    This job always needs `LUCID_FACE` — `ops.reframe_detect` raises
+    This job always needs `PROOFCUT_FACE` — `ops.reframe_detect` raises
     `FaceError` unconditionally, before the scene scan, when no interpreter
     is available — which is why `FaceError` is in `EXPECTED` above: without
     it, a missing detector would propagate out of `_run`'s worker thread
@@ -1776,7 +1794,7 @@ class ImportJob:
                 )
                 return
             except (*EXPECTED, OSError) as exc:
-                # Same rule as `ProxyJob._run`: lucid's own refusals (an
+                # Same rule as `ProxyJob._run`: proofcut's own refusals (an
                 # already-registered clip_id, a source ffprobe cannot read)
                 # are flattened into an event. `OSError` joins them here
                 # specifically because `copy=True` routes through
@@ -1972,7 +1990,7 @@ class Handler(BaseHTTPRequestHandler):
     #: Per-request: set by `_refusal` when the token arrived as `?t=`, read
     #: by `_send`, which is what hands the cookie back.
     _issue_cookie: bool = False
-    server_version = "lucid"
+    server_version = "proofcut"
     sys_version = ""
     #: Keep-alive, so seeking a video does not reopen a connection per range.
     protocol_version = "HTTP/1.1"
@@ -2456,7 +2474,7 @@ class Handler(BaseHTTPRequestHandler):
         the render log and streams the file directly, the way
         `_send_reframe_tile` resolves through `cache/sheets`.
 
-        The confinement is not ceremony even though lucid writes the log
+        The confinement is not ceremony even though proofcut writes the log
         itself: a loopback server that streams whatever absolute path a JSON
         file happens to name is a file server, and one hand-edited line
         should not turn this into one. So the resolved path has to sit inside
@@ -2578,7 +2596,7 @@ class Handler(BaseHTTPRequestHandler):
             agent.send(prompt, model=model)
         except OSError as exc:
             # A spawn that never happened (`claude` not on PATH, a dead
-            # LUCID_AGENT_BIN) puts nothing on `/api/events` to clear the
+            # PROOFCUT_AGENT_BIN) puts nothing on `/api/events` to clear the
             # composer — so the failure has to come back on this request,
             # as JSON, not as a connection reset with a server-side traceback.
             self._fail(
@@ -2942,7 +2960,7 @@ class Handler(BaseHTTPRequestHandler):
         auto-editor's own refusals arrive as `seed` error events.
 
         `remove_silences` defaults to **true**, matching `ops.seed_timeline`
-        and `lucid seed` rather than picking a second default here — one
+        and `proofcut seed` rather than picking a second default here — one
         place spells it out or the two drift.
         """
         try:
@@ -3337,7 +3355,7 @@ def _attach_transcript(root: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     `path` is a server-side path the client types into the window, the same
     "reach what's on the NAS, not an upload" shape `/api/import`'s `source`
-    is — a transcript made outside lucid (the Scream VO's, transcribed
+    is — a transcript made outside proofcut (the Scream VO's, transcribed
     before lucid existed) lives on disk, not in the browser.
     """
     clip_id = _clip_arg(payload)
@@ -3634,7 +3652,7 @@ def serve(
     url = _client_url(host, bound, allow_remote_hosts, token)
     # Flushed: this is the one line the user needs, and a piped stdout would
     # otherwise hold it in the buffer until the server exits.
-    print(f"lucid web: {url}  (project: {Project.open(path).root})", flush=True)
+    print(f"proofcut web: {url}  (project: {Project.open(path).root})", flush=True)
     if token is not None:
         print(_TOKEN_NOTE, flush=True)
     print("Ctrl-C to stop.", flush=True)
@@ -3684,7 +3702,7 @@ def serve_root(
     bound = server.server_address[1]
     url = _client_url(host, bound, allow_remote_hosts, token)
     root_dir = server.RequestHandlerClass.root_dir  # type: ignore[attr-defined]
-    print(f"lucid web: {url}  (projects under: {root_dir})", flush=True)
+    print(f"proofcut web: {url}  (projects under: {root_dir})", flush=True)
     if token is not None:
         print(_TOKEN_NOTE, flush=True)
     print("Ctrl-C to stop.", flush=True)
@@ -3709,7 +3727,7 @@ def serve_root(
 #: Checked in order by `_resolve_app_browser`; a chromium-family browser is
 #: required because `--app=<url>` (a chromeless window, no tabs/toolbar) is
 #: a Chromium flag with no Firefox/Safari equivalent — the whole reason
-#: `lucid open` prefers one over the default browser. Verified live on this
+#: `proofcut open` prefers one over the default browser. Verified live on this
 #: box: nothing here is on PATH (only reachable through the flatpak tier
 #: below), but the tuple is what should be probed, portably.
 _APP_BROWSER_BINS = (
@@ -3728,7 +3746,7 @@ _APP_BROWSER_BINS = (
 
 #: Same chromium-family constraint, one flatpak app ID per vendor.
 #: `com.google.Chrome` is confirmed installed on this box (flathub, system)
-#: and is what actually fires `lucid open` here today, since nothing above
+#: and is what actually fires `proofcut open` here today, since nothing above
 #: is on PATH.
 _APP_BROWSER_FLATPAKS = (
     "com.google.Chrome",
@@ -3738,11 +3756,11 @@ _APP_BROWSER_FLATPAKS = (
     "com.vivaldi.Vivaldi",
 )
 
-#: Env var naming an exact browser command to launch `lucid open`'s window
+#: Env var naming an exact browser command to launch `proofcut open`'s window
 #: with. Checked first and taken literally — no existence check — because an
 #: operator who set it wrong would rather see the failure than have it
 #: silently ignored.
-LUCID_BROWSER_ENV = "LUCID_BROWSER"
+PROOFCUT_BROWSER_ENV = "PROOFCUT_BROWSER"
 
 
 def _app_browser_installs() -> list[Path]:
@@ -3782,7 +3800,7 @@ def _app_browser_installs() -> list[Path]:
 def _resolve_app_browser() -> list[str] | None:
     """The command to launch a chromeless `--app=<url>` window with, or None.
 
-    Checked in order, stopping at the first hit: `$LUCID_BROWSER` (taken
+    Checked in order, stopping at the first hit: `$PROOFCUT_BROWSER` (taken
     literally, unconditionally); a chromium-family binary on PATH
     (`_APP_BROWSER_BINS`); on macOS and Windows, a chromium-family browser in
     its install location (`_app_browser_installs`); a chromium-family flatpak,
@@ -3795,7 +3813,7 @@ def _resolve_app_browser() -> list[str] | None:
     window at all, so launching either as the user's app surface would be
     silently wrong (Studio Step 04 contract § A).
     """
-    override = os.environ.get(LUCID_BROWSER_ENV)
+    override = os.environ.get(PROOFCUT_BROWSER_ENV)
     if override:
         return [override]
 
@@ -3830,7 +3848,7 @@ def _launch_app(url: str) -> None:
     `xdg-open` is there (`open`, `os.startfile`).
 
     Best-effort only: a vanished binary, a permission error, or nothing
-    found at all must never crash `lucid open` — the URL was already
+    found at all must never crash `proofcut open` — the URL was already
     printed by the caller before this runs, which is what satisfies "print
     the URL either way."
     """
@@ -3873,14 +3891,14 @@ def _launch_app(url: str) -> None:
 
 
 def open_studio(path: Path | str | None = None, *, root: Path | str | None = None) -> None:
-    """`lucid open` — an ephemeral-port server plus a chromeless browser window.
+    """`proofcut open` — an ephemeral-port server plus a chromeless browser window.
 
     Studio Step 04 contract § A. Composes the existing `make_server`/
     `make_picker_server` rather than adding a mode to `serve`/`serve_root`,
     so neither function's signature or existing callers/tests are touched.
     Port is hardcoded `0` — always ephemeral, never configurable, per
     docs/plans/STUDIO.md's own wording; there is no `--host`/`--port` here the way
-    `lucid web` has them.
+    `proofcut web` has them.
 
     `-C` (`path`) opens straight into that project; `--root` opens Home.
     Mutual refusal between the two lives in `cli._cmd_open`, matching where
@@ -3891,12 +3909,12 @@ def open_studio(path: Path | str | None = None, *, root: Path | str | None = Non
         bound = server.server_address[1]
         url = f"http://{DEFAULT_HOST}:{bound}/"
         root_dir = server.RequestHandlerClass.root_dir  # type: ignore[attr-defined]
-        print(f"lucid open: {url}  (projects under: {root_dir})", flush=True)
+        print(f"proofcut open: {url}  (projects under: {root_dir})", flush=True)
     else:
         server = make_server(path if path is not None else ".", host=DEFAULT_HOST, port=0)
         bound = server.server_address[1]
         url = f"http://{DEFAULT_HOST}:{bound}/"
-        print(f"lucid open: {url}  (project: {Project.open(path if path is not None else '.').root})", flush=True)
+        print(f"proofcut open: {url}  (project: {Project.open(path if path is not None else '.').root})", flush=True)
     print("Ctrl-C to stop.", flush=True)
 
     # 0.3s, same delay `serve`'s own `open_browser` path already uses — the

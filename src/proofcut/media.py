@@ -1,6 +1,6 @@
 """Probing and registering source media.
 
-`ffprobe` is the only thing that reads media metadata here — lucid never
+`ffprobe` is the only thing that reads media metadata here — proofcut never
 guesses fps or duration from a filename or a container assumption.
 
 Imported media is *linked*, not copied, by default: `media/<clip_id><ext>` is a
@@ -355,7 +355,7 @@ def stream_inventory(path: Path | str) -> dict[str, Any]:
     the finished-file check `probe()`'s own chapter detection exists to make
     unnecessary at *import* time (`import_media` strips a chapter list before
     it ever reaches a project), so this function does not consult `probe()`
-    at all — a delivered file was built entirely outside lucid and the two
+    at all — a delivered file was built entirely outside proofcut and the two
     checks answer different questions about it. `clean` says nothing about
     whether the *total* duration agrees with the timeline; that comparison
     needs the project's own arithmetic and is `finish_check`'s to make, off
@@ -444,7 +444,7 @@ def scene_cuts(
     if not media.exists():
         raise MediaError(f"no such media file: {media}")
 
-    with tempfile.TemporaryDirectory(prefix="lucid-scene-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="proofcut-scene-") as tmp:
         # `metadata=print` to a *file*, not to stdout: bare `metadata=print`
         # writes nothing anywhere ffmpeg's own `-v error` leaves readable, which
         # reads exactly like a clip with no cuts in it.
@@ -493,7 +493,7 @@ def scene_cuts(
 # The preview pane is a <video> element, so "can this be edited" and "can this
 # be *watched in the window*" are different questions and only ffprobe can tell
 # them apart. Every set below is the intersection that holds for the browsers
-# `lucid web` is used from on this box (Chromium and Firefox on Linux), which
+# `proofcut web` is used from on this box (Chromium and Firefox on Linux), which
 # is narrower than the spec and narrower than Safari — an `hvc1`-tagged HEVC
 # plays on iOS and not here (wiki `home.md`).
 _PLAYABLE_VIDEO = frozenset({"h264", "vp8", "vp9", "av1", "theora"})
@@ -507,7 +507,7 @@ _PLAYABLE_CONTAINER = frozenset(
 
 #: What `discover()` looks for on disk. Deliberately wider than
 #: `_PLAYABLE_CONTAINER` above — that set is what a *browser* decodes, this
-#: one is what a camera or a movie rip hands lucid, and `.mkv`/`.avi`/`.aac`
+#: one is what a camera or a movie rip hands proofcut, and `.mkv`/`.avi`/`.aac`
 #: never play in the preview but import and edit exactly like anything else
 #: (CLAUDE.md's own `Source/sl-0428-elevator.mp4` chapter-list example is a
 #: movie rip). A filename filter, not a probe — `import_media` still refuses
@@ -734,7 +734,7 @@ def decode_stream_wav(
     exactly on an audio-only file, which is every fixture anyone writes first
     (PLAN.md § The co-hosted recording, *The render trap*).
 
-    This is the one place lucid reaches past the mixdown to an individual
+    This is the one place proofcut reaches past the mixdown to an individual
     mic, and it exists for `ops.attribute_speakers`. It writes a scratch file
     for something to measure and never enters the manifest, so nothing it
     produces can reach a render — `media_path()` gains no branch, exactly as
@@ -805,7 +805,7 @@ def import_media(
     the record describes the first stream, whisper is handed the container
     and ffmpeg picks, and MLT picks again at render — three independent
     places that would all quietly agree on mic A while mic B never reached
-    the film. `mix=True` sums the streams into one track lucid edits;
+    the film. `mix=True` sums the streams into one track proofcut edits;
     `audio_stream=k` keeps one of them. Either way the choice is made once,
     written to `cache/mixed/`, recorded as `mixed`/`mix`, and picked up by
     `media_path()` everywhere downstream — the `attenuated` precedent.
@@ -846,10 +846,10 @@ def import_media(
     # whose two mics were summed days ago.
     if info.audio_streams > 1 and not mix and audio_stream is None:
         raise MultiAudioError(
-            f"{source.name} holds {info.audio_streams} audio streams, and lucid edits one. "
+            f"{source.name} holds {info.audio_streams} audio streams, and proofcut edits one. "
             "Registering it as it stands would record only the first: whisper picks a stream "
             "of its own and so does MLT at render, so the other streams would be missing from "
-            "the film with every check clean. Sum them into the one track lucid edits with "
+            "the film with every check clean. Sum them into the one track proofcut edits with "
             "`--mix` (mix=True) — two mics of one performance — or keep one with "
             "`--audio-stream k` (audio_stream=k), numbered from 0. Either writes a derived "
             "copy and records which was taken.",

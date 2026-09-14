@@ -1,7 +1,7 @@
 """A channel preset pack: one external JSON file, loaded and snapshotted.
 
 PLAN.md § The completion queue, item 8. The design this module exists to
-correct: lucid had no loader at all for this. `captions.PRESETS` and
+correct: proofcut had no loader at all for this. `captions.PRESETS` and
 `graphics.TEMPLATES`/`PALETTE`/`FONTS` are closed literal dicts, and platform
 safe zones had no code anywhere — "what is left is the pack itself, which is
 goodsometimes' side" (PLAN.md) was false the moment it was written.
@@ -65,7 +65,7 @@ CAPTION_STYLE_FIELDS = frozenset(captions.STYLE_FIELDS)
 
 
 class PackError(RuntimeError):
-    """A pack file does not resolve to something lucid can apply."""
+    """A pack file does not resolve to something proofcut can apply."""
 
 
 def _require_dict(value: Any, where: str) -> dict[str, Any]:
@@ -78,7 +78,7 @@ def _validate_palette(palette: dict[str, Any], where: str) -> dict[str, str]:
     unknown = sorted(set(palette) - set(graphics.PALETTE))
     if unknown:
         raise PackError(
-            f"{where} names palette slot(s) lucid has no card slot for: {unknown} "
+            f"{where} names palette slot(s) proofcut has no card slot for: {unknown} "
             f"— known slots: {sorted(graphics.PALETTE)}"
         )
     out: dict[str, str] = {}
@@ -95,7 +95,7 @@ def _validate_fonts(fonts: dict[str, Any], where: str) -> dict[str, str]:
     unknown = sorted(set(fonts) - set(graphics.FONTS))
     if unknown:
         raise PackError(
-            f"{where} names font role(s) lucid has no card slot for: {unknown} "
+            f"{where} names font role(s) proofcut has no card slot for: {unknown} "
             f"— known roles: {sorted(graphics.FONTS)}"
         )
     out: dict[str, str] = {}
@@ -106,7 +106,7 @@ def _validate_fonts(fonts: dict[str, Any], where: str) -> dict[str, str]:
         if len(families) < 2 or families[-1].lower() not in graphics.GENERIC_FAMILIES:
             raise PackError(
                 f"{where}.fonts.{role} = {stack!r} has no fallback stack — it must "
-                "end in a CSS generic (serif, sans-serif, …) the way lucid's own "
+                "end in a CSS generic (serif, sans-serif, …) the way proofcut's own "
                 f"{graphics.FONTS['title_font']!r} does, or a face this machine lacks "
                 "renders pixel-identically to one it has and nothing says so"
             )
@@ -118,7 +118,7 @@ def _validate_weights(weights: dict[str, Any], where: str) -> dict[str, int]:
     unknown = sorted(set(weights) - set(graphics.WEIGHTS))
     if unknown:
         raise PackError(
-            f"{where} names weight role(s) lucid has no card slot for: {unknown} "
+            f"{where} names weight role(s) proofcut has no card slot for: {unknown} "
             f"— known roles: {sorted(graphics.WEIGHTS)}"
         )
     out: dict[str, int] = {}
@@ -269,8 +269,8 @@ def load_pack(pack_path: Path | str) -> dict[str, Any]:
     fmt = raw.get("format")
     if fmt != FORMAT_VERSION:
         raise PackError(
-            f"{source} declares format {fmt!r}, and this lucid understands "
-            f"only {FORMAT_VERSION} — a pack from a newer lucid needs a newer one to load it"
+            f"{source} declares format {fmt!r}, and this proofcut understands "
+            f"only {FORMAT_VERSION} — a pack from a newer proofcut needs a newer one to load it"
         )
 
     variants = _require_dict(raw.get("variants"), f"{source}.variants")

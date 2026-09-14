@@ -22,13 +22,19 @@ import json
 from pathlib import Path
 from typing import Any
 
+import opentimelineio as otio
 import pytest
 
 from proofcut import ops
 from proofcut import timeline as tl
 from proofcut import transcript as tx
 from proofcut.ops import REFRAME_KEY
-from proofcut.project import MANIFEST_SNAPSHOT_SUFFIX, Project, ProjectError
+from proofcut.project import (
+    LEGACY_MANIFEST_NAME,
+    MANIFEST_SNAPSHOT_SUFFIX,
+    Project,
+    ProjectError,
+)
 
 CLIP: dict[str, Any] = {
     "clip_id": "vo",
@@ -170,12 +176,12 @@ def test_two_instances_take_two_snapshots(project: Project) -> None:
 
 
 def test_a_legacy_timeline_only_snapshot_never_guesses_at_a_manifest(project: Project) -> None:
-    """A history written by a lucid that only saved timelines. It restores the
+    """A history written by a proofcut that only saved timelines. It restores the
     timeline alone and says so, rather than inventing a manifest for it."""
     cut = ops.cut_by_time(project.root, spans=[[1.0, 2.0]])
     assert cut["duration_after"] == pytest.approx(11.0)
-    # Rewind the stack to what an older lucid would have left: the `.otio`
-    # half alone. Seeded by hand, because no lucid writes this shape any more.
+    # Rewind the stack to what an older proofcut would have left: the `.otio`
+    # half alone. Seeded by hand, because no proofcut writes this shape any more.
     for path in project.history_dir.glob(f"*{MANIFEST_SNAPSHOT_SUFFIX}"):
         path.unlink()
     ops.cue_add(project.root, clip_id="vo", word_index=4, asset="card:title")
@@ -186,7 +192,7 @@ def test_a_legacy_timeline_only_snapshot_never_guesses_at_a_manifest(project: Pr
 
     assert report["manifest_restored"] is False
     assert report["timeline_restored"] is True
-    assert "before lucid saved manifests" in report["note"]
+    assert "before proofcut saved manifests" in report["note"]
     # Untouched, not guessed at — the cue is still there.
     assert len(ops.cue_ls(project.root)["cues"]) == 1
 
@@ -241,7 +247,7 @@ def test_undoing_an_import_leaves_the_media_on_disk(project: Project) -> None:
 
 
 def test_the_migration_backup_is_not_an_undo_step(tmp_path: Path) -> None:
-    """`lucid-v3.json` shares `cache/history/` with the numbered snapshots and
+    """`proofcut-v3.json` shares `cache/history/` with the numbered snapshots and
     must stay invisible: rolling the timeline back one edit must not roll the
     schema back with it."""
     project = Project.create(tmp_path / "old")
@@ -250,7 +256,7 @@ def test_the_migration_backup_is_not_an_undo_step(tmp_path: Path) -> None:
     Project.migrate(project.root)
 
     assert project.snapshots() == []
-    assert (project.history_dir / "lucid-v1.json").exists()
+    assert (project.history_dir / "proofcut-v1.json").exists()
 
 
 def test_a_snapshot_pair_is_numbered_together(project: Project) -> None:
@@ -264,3 +270,99 @@ def test_a_snapshot_pair_is_numbered_together(project: Project) -> None:
     assert [s.index for s in snapshots] == [0]
     assert snapshots[0].manifest is not None
     assert json.loads(snapshots[0].manifest.read_text(encoding="utf-8"))["clips"]
+
+
+# -- the rename (docs/plans/RENAME.md, decisions 1 and 2) -------------------
+
+
+def _rekey_live_timeline_as_pre_rename(project: Project) -> None:
+    """Re-key `project.otio` the way a lucid-era `to_otio` wrote it."""
+    timeline = otio.adapters.read_from_file(str(project.timeline_path))
+    stamped = [timeline, *(item for track in timeline.tracks for item in track)]
+    for item in stamped:
+        item.metadata["lucid"] = item.metadata["proofcut"]
+        del item.metadata["proofcut"]
+    tl.write(timeline, project.timeline_path)
+
+
+def _metadata_keys(path: Path) -> set[str]:
+    """Which stamp keys an `.otio` file carries, read off the file itself."""
+    timeline = otio.adapters.read_from_file(str(path))
+    stamped = [timeline, *(item for track in timeline.tracks for item in track)]
+    return {key for item in stamped for key in item.metadata if key in {"lucid", "proofcut"}}
+
+
+def test_a_snapshot_carrying_the_pre_rename_key_undoes(project: Project) -> None:
+    """The snapshots in `cache/history/` carry the old key forever and undo
+    puts one back whole — so the restored timeline must read, through the
+    real `ops.undo` path, not only through the reader helper."""
+    _rekey_live_timeline_as_pre_rename(project)
+    ops.cut_by_time(project.root, spans=[[1.0, 2.0]])  # snapshots the old-key timeline
+    assert ops.status(project.root)["timeline_duration"] == pytest.approx(11.0)
+    assert _metadata_keys(project.timeline_path) == {"proofcut"}  # the writer's key
+
+    report = ops.undo(project.root)
+
+    assert report["timeline_restored"] is True
+    # The file put back is the pre-rename one, byte for key — not re-keyed.
+    assert _metadata_keys(project.timeline_path) == {"lucid"}
+    assert ops.status(project.root)["timeline_duration"] == pytest.approx(12.0)
+    # And an edit on top of it reads it and writes the new key.
+    ops.cut_by_time(project.root, spans=[[3.0, 4.0]])
+    assert ops.status(project.root)["timeline_duration"] == pytest.approx(11.0)
+    assert _metadata_keys(project.timeline_path) == {"proofcut"}
+
+
+def _as_pre_rename_project(project: Project) -> dict[str, bytes]:
+    """A lucid-era project with history: an old-key snapshot in
+    `cache/history/`, an old-key live timeline, and `lucid.json`. Returns
+    the history's bytes so a test can prove migration never touched them."""
+    _rekey_live_timeline_as_pre_rename(project)
+    ops.cut_by_time(project.root, spans=[[1.0, 2.0]])
+    _rekey_live_timeline_as_pre_rename(project)
+    project.manifest_path.rename(project.root / LEGACY_MANIFEST_NAME)
+    return {p.name: p.read_bytes() for p in project.history_dir.iterdir()}
+
+
+def test_migrate_rewrites_the_live_timeline_keys_and_never_history(project: Project) -> None:
+    history = _as_pre_rename_project(project)
+    otio_snapshots = [name for name in history if name.endswith(".otio")]
+    assert otio_snapshots
+    assert all(_metadata_keys(project.history_dir / name) == {"lucid"} for name in otio_snapshots)
+
+    report = Project.migrate(project.root)
+
+    assert report["steps"] == ["lucid.json -> proofcut.json"]
+    assert report["timeline_keys"] == 3  # the timeline and both clips of the cut edit
+    # Clean on its face...
+    assert _metadata_keys(project.timeline_path) == {"proofcut"}
+    assert ops.status(project.root)["timeline_duration"] == pytest.approx(11.0)
+    # ...and history exactly as it was, plus only the manifest backup.
+    after = {p.name: p.read_bytes() for p in project.history_dir.iterdir()}
+    assert set(after) - set(history) == {Path(report["backup"]).name}
+    assert {name: after[name] for name in history} == history
+
+    # Undo past the migration still reads the old-key snapshot.
+    ops.undo(project.root)
+    assert ops.status(project.root)["timeline_duration"] == pytest.approx(12.0)
+    assert _metadata_keys(project.timeline_path) == {"lucid"}
+
+
+def test_migrate_plan_reports_the_filename_step_and_rewrites_no_keys(project: Project) -> None:
+    history = _as_pre_rename_project(project)
+    timeline_before = project.timeline_path.read_bytes()
+    legacy_before = (project.root / LEGACY_MANIFEST_NAME).read_bytes()
+
+    report = Project.migrate(project.root, plan=True)
+
+    assert report["plan"] is True
+    assert report["steps"] == ["lucid.json -> proofcut.json"]
+    assert report["timeline_keys"] == 3
+    assert report["migrated"] is False
+    assert project.timeline_path.read_bytes() == timeline_before
+    assert (project.root / LEGACY_MANIFEST_NAME).read_bytes() == legacy_before
+    assert not project.manifest_path.exists()
+    assert {p.name: p.read_bytes() for p in project.history_dir.iterdir()} == history
+    # Still refused by every op until it is run for real.
+    with pytest.raises(ProjectError, match="proofcut migrate"):
+        ops.status(project.root)

@@ -1,4 +1,4 @@
-/* lucid's workspace UI — app shell + design system.
+/* proofcut's workspace UI — app shell + design system.
  *
  * PLAN.md § Tier 3 is the goal — the Daydream-shaped workspace, § Layout.
  * The look is docs/plans/DAYDREAM.md § The design system, specified — warm paper, three
@@ -106,7 +106,7 @@
  *   .picture-note             why a shot is not showing, in words
  *   #caption-layer           CC over both — geometry only, because every
  *                          visible property comes off /api/captions so the
- *                          preview shows the render's look and not lucid's
+ *                          preview shows the render's look and not proofcut's
  *   #caption-line             the one displayed cue; .cw is a karaoke word
  *
  * Transcript pane (#transcript, filled by transcript.js):
@@ -1621,7 +1621,7 @@ textarea {
    which corner, how far in) comes off /api/captions as an inline style, and
    deliberately not from this file: these pixels stand in for pixels ffmpeg
    will burn, so a palette token leaking in here would make the preview a
-   picture of lucid's theme rather than of the render. The rules below only
+   picture of proofcut's theme rather than of the render. The rules below only
    say where the layer sits and that it never eats a click.
 
    It fills #frame and nothing sets its geometry any more. That is the point
@@ -2768,7 +2768,7 @@ textarea {
 /* -- the render's own transport ---------------------------------------------
  *
  * `<video controls>` draws the BROWSER's control bar, which is a different
- * design language sitting inside lucid's chrome: different type, different
+ * design language sitting inside proofcut's chrome: different type, different
  * icon set, different scrubber, and a light-on-dark look that does not
  * follow the theme toggle. This is the preview pane's transport idiom
  * instead — the same round play button, the same mono clock — so Finish
@@ -3853,7 +3853,7 @@ dialog#shortcuts-sheet::backdrop {
 
 /* -- picker page (docs/plans/DAYDREAM.md § Multi-project) ----------------------------
  * `picker.html` is a separate page, not a workspace pane — served instead
- * of `index.html` while `lucid web --root` has no project open yet
+ * of `index.html` while `proofcut web --root` has no project open yet
  * (webui.py's `Handler._route_picker`). `body.picker` overrides the
  * workspace shell's `body` grid above with a plain scrolling column, since
  * there is no timeline or transcript here; every colour below is still one

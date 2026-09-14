@@ -10,7 +10,7 @@ not be asked. This is the asking.
 
 The scene scan shells ffmpeg for real, on clips generated here with hard cuts
 in them, for `test_ops_reframe_detect.py`'s reason: the boundary half of this is
-ffmpeg's answer and a fixtured one would be lucid's. Nothing here stubs the face
+ffmpeg's answer and a fixtured one would be proofcut's. Nothing here stubs the face
 detector, because nothing here calls it — that is one of the claims.
 """
 
@@ -356,7 +356,7 @@ def test_it_answers_without_a_face_detector(
 ) -> None:
     """Scene cuts against stored geometry, and nothing else.
 
-    `reframe_detect` raises before it decodes anything when `LUCID_FACE` names
+    `reframe_detect` raises before it decodes anything when `PROOFCUT_FACE` names
     no usable interpreter — correctly, since it has nothing to propose from.
     The coverage question is not about proposing, so it has to be answerable on
     a box that cannot run the detector at all.

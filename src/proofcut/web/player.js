@@ -564,7 +564,7 @@ function followPane(target, paused) {
  * pixels are a claim about pixels ffmpeg will burn, so every visible property
  * arrives from the server already resolved (font, size, both colours, the
  * outline, the box, which corner, how far in) and nothing about the look is
- * decided in here or taken from lucid's own palette. Where the CSS token rule
+ * decided in here or taken from proofcut's own palette. Where the CSS token rule
  * elsewhere is about a canvas silently refusing `light-dark(…)`, the rule here
  * is stronger and different: a caption that borrowed the theme would be a
  * preview of the window instead of a preview of the render.
@@ -936,7 +936,7 @@ export function init(passedCtx) {
   $("play").addEventListener("click", () => toggle());
 
   // Drop the cached bar colour; the next frame re-reads it in the new theme.
-  window.addEventListener("lucid:theme", () => {
+  window.addEventListener("proofcut:theme", () => {
     barColour = null;
   });
 

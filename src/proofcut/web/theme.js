@@ -19,7 +19,7 @@
 (function () {
   "use strict";
 
-  var KEY = "lucid.theme";
+  var KEY = "proofcut.theme";
   var ORDER = ["auto", "light", "dark"];
   var FACE = {
     auto: { glyph: "◐", title: "theme: following the system — click for light" },
@@ -44,7 +44,7 @@
    * re-read their colour. Raised on an OS preference change too, because in
    * "auto" that is a theme change with no click behind it. */
   function announce(mode) {
-    window.dispatchEvent(new CustomEvent("lucid:theme", { detail: { mode: mode } }));
+    window.dispatchEvent(new CustomEvent("proofcut:theme", { detail: { mode: mode } }));
   }
 
   function apply(mode) {

@@ -6,8 +6,10 @@ hand-rolled and is exactly the part that has to be pinned down by tests.
 
 from __future__ import annotations
 
+import opentimelineio as otio
 import pytest
 
+from proofcut import timeline as tl
 from proofcut.timeline import EPSILON, Edit, Segment, TimelineError, from_otio, to_otio
 
 CLIPS = {
@@ -482,11 +484,87 @@ def test_otio_rejects_an_unregistered_clip() -> None:
 
 
 def test_from_otio_rejects_a_foreign_timeline() -> None:
-    """Without lucid metadata there is no clip_id, and guessing one is worse."""
+    """Without proofcut metadata there is no clip_id, and guessing one is worse."""
     timeline = to_otio(_edit((0.0, 1.0)), CLIPS, rate=1000)
-    del timeline.tracks[0][0].metadata["lucid"]
-    with pytest.raises(TimelineError, match="not written by lucid"):
+    del timeline.tracks[0][0].metadata["proofcut"]
+    with pytest.raises(TimelineError, match="not written by proofcut"):
         from_otio(timeline)
+
+
+# -- the metadata key across the rename (docs/plans/RENAME.md, decision 2) --
+
+
+def _stamped(timeline: otio.schema.Timeline) -> list[otio.core.SerializableObject]:
+    """Every object `to_otio` stamps: the timeline and each clip."""
+    return [timeline, *(item for item in timeline.tracks[0] if isinstance(item, otio.schema.Clip))]
+
+
+def _as_pre_rename(timeline: otio.schema.Timeline) -> otio.schema.Timeline:
+    """Re-key a timeline the way a lucid-era `to_otio` wrote it."""
+    for item in _stamped(timeline):
+        item.metadata["lucid"] = item.metadata["proofcut"]
+        del item.metadata["proofcut"]
+    return timeline
+
+
+def test_the_metadata_keys_are_pinned() -> None:
+    """Literals on purpose: the legacy key names what old files carry forever."""
+    assert tl.METADATA_KEY == "proofcut"
+    assert tl.LEGACY_METADATA_KEY == "lucid"
+
+
+def test_to_otio_writes_the_new_key_only() -> None:
+    timeline = to_otio(_edit((0.0, 1.0), (2.0, 3.0)), CLIPS, rate=1000)
+
+    for item in _stamped(timeline):
+        assert "proofcut" in item.metadata
+        assert "lucid" not in item.metadata
+
+
+def test_from_otio_reads_a_timeline_stamped_with_the_pre_rename_key() -> None:
+    """Every snapshot in `cache/history/` taken before the rename carries the
+    old key, and undo puts one back whole — so it reads, through a real
+    serialise/deserialise round trip rather than an in-memory object."""
+    written = _as_pre_rename(to_otio(_edit((0.0, 1.0), (2.0, 3.0)), CLIPS, rate=1000))
+    text = otio.adapters.write_to_string(written, "otio_json")
+    assert '"proofcut": {' not in text and '"lucid": {' in text
+
+    edit = from_otio(otio.adapters.read_from_string(text, "otio_json"))
+
+    assert _spans(edit) == [(0.0, 1.0), (2.0, 3.0)]
+    assert {s.clip_id for s in edit.segments} == {"vo"}
+
+
+def test_the_new_key_wins_when_both_are_present() -> None:
+    clip = otio.schema.Clip(name="c")
+    clip.metadata["lucid"] = {"clip_id": "old"}
+    clip.metadata["proofcut"] = {"clip_id": "new"}
+
+    assert tl.proofcut_metadata(clip) == {"clip_id": "new"}
+    assert tl.proofcut_metadata(otio.schema.Clip(name="bare")) == {}
+
+
+def test_rewrite_legacy_metadata_rekeys_a_file_and_leaves_a_clean_one_alone(tmp_path) -> None:
+    legacy = tmp_path / "legacy.otio"
+    tl.write(_as_pre_rename(to_otio(_edit((0.0, 1.0), (2.0, 3.0)), CLIPS, rate=1000)), legacy)
+
+    assert tl.count_legacy_metadata(legacy) == 3  # the timeline and two clips
+    assert '"lucid"' in legacy.read_text(encoding="utf-8")  # counting wrote nothing
+    assert tl.rewrite_legacy_metadata(legacy) == 3
+
+    reread = otio.adapters.read_from_file(str(legacy))
+    for item in _stamped(reread):
+        assert "lucid" not in item.metadata
+        assert "proofcut" in item.metadata
+    assert reread.metadata["proofcut"]["rate"] == 1000
+    assert _spans(tl.read(legacy)) == [(0.0, 1.0), (2.0, 3.0)]
+    assert [p.name for p in tmp_path.iterdir()] == ["legacy.otio"]
+
+    clean = tmp_path / "clean.otio"
+    tl.write(to_otio(_edit((0.0, 1.0)), CLIPS, rate=1000), clean)
+    before = clean.read_bytes()
+    assert tl.rewrite_legacy_metadata(clean) == 0
+    assert clean.read_bytes() == before
 
 
 # -- timeline_spans: the aggregate source -> timeline inverse --------------

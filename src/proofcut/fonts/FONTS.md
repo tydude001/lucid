@@ -1,6 +1,6 @@
 # The vendored caption face
 
-`src/lucid/web/FONTS.md` ships three typefaces for the *browser*. This
+`src/proofcut/web/FONTS.md` ships three typefaces for the *browser*. This
 directory ships one for the *renderers* — libass, and librsvg through
 `magick` — and the two deliveries have nothing in common but the word "font".
 A `woff2` beside `app.css` does not put a face where `fc-match`, libass or
@@ -20,7 +20,7 @@ Card templates use CSS fallback *stacks* ending in a generic
 (`graphics.py`'s `title_font`/`body_font`/`quote_font`), which is the
 SVG-native survival trick, so they degrade rather than vanish. Zilla Slab is
 the brand's other face and belongs to the channel preset pack
-(PLAN.md § The completion queue), not here — nothing lucid draws asks for it.
+(PLAN.md § The completion queue), not here — nothing proofcut draws asks for it.
 
 ## Provenance
 

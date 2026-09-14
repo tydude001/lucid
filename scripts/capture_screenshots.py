@@ -20,7 +20,7 @@ state each shot wants is `docs/DEMO.md`'s own walkthrough, replayed here as
 **The theme is seeded before the page loads, never toggled after it.**
 `theme.js` is the one classic script in `<head>` and applies `data-theme`
 before paint; a toggle afterwards is a repaint that the two canvases only
-follow via its `lucid:theme` event. Seeding means `localStorage`, which needs
+follow via its `proofcut:theme` event. Seeding means `localStorage`, which needs
 the origin, so it is goto, set, goto — and it happens **before the render**,
 because the render's SSE stream draws Edit's completion card and that does not
 survive a reload.
@@ -98,8 +98,8 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def lucid(root: Path | None, *args: str) -> str:
-    """Run a lucid subcommand through this interpreter, never a bare `lucid`.
+def proofcut(root: Path | None, *args: str) -> str:
+    """Run a proofcut subcommand through this interpreter, never a bare `proofcut`.
 
     A bare name is absent from PATH for every launch that skips an activated
     venv, which is the failure CLAUDE.md records against the generated MCP
@@ -111,7 +111,7 @@ def lucid(root: Path | None, *args: str) -> str:
     command += list(args)
     done = subprocess.run(command, capture_output=True, text=True, cwd=REPO, check=False)
     if done.returncode != 0:
-        raise CaptureError(f"lucid {' '.join(args)} failed:\n{done.stdout}{done.stderr}")
+        raise CaptureError(f"proofcut {' '.join(args)} failed:\n{done.stdout}{done.stderr}")
     return done.stdout
 
 
@@ -177,8 +177,8 @@ def build_project(work: Path, reuse: bool) -> Path:
         cwd=REPO,
     )
     for step in PROJECT_STEPS:
-        log(f"$ lucid {' '.join(step)}")
-        lucid(root, *step)
+        log(f"$ proofcut {' '.join(step)}")
+        proofcut(root, *step)
     return root
 
 
@@ -195,14 +195,14 @@ def serve(root: Path, port: int, env: dict[str, str]) -> subprocess.Popen:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise CaptureError(f"lucid web exited early:\n{process.stdout.read()}")
+            raise CaptureError(f"proofcut web exited early:\n{process.stdout.read()}")
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
                 log(f"serving {root} on :{port}")
                 return process
         except OSError:
             time.sleep(0.3)
-    raise CaptureError(f"lucid web never bound :{port}")
+    raise CaptureError(f"proofcut web never bound :{port}")
 
 
 def browse(cdp_port: int, size: str = "1400,900", *, mute: bool = False, scale: float = 1.0) -> subprocess.Popen:
@@ -251,7 +251,7 @@ def browse(cdp_port: int, size: str = "1400,900", *, mute: bool = False, scale: 
 def seed_dark(url: str) -> None:
     """goto, set, goto — `localStorage` needs the origin before it can be written."""
     cdp("goto", url)
-    evaluate('(() => localStorage.setItem("lucid.theme", "dark"))()')
+    evaluate('(() => localStorage.setItem("proofcut.theme", "dark"))()')
     cdp("goto", url)
     glyph = evaluate('(() => document.getElementById("theme").textContent.trim())()')
     theme = evaluate('(() => document.documentElement.dataset.theme || "auto")()')

@@ -116,7 +116,7 @@ function renderPresets(bundle) {
     card.append(el("div", "finish-preset-name", PRESET_LABELS[key] || key));
     if (!ok) {
       // docs/plans/STUDIO.md: a refusing preset shows its message AND the fix — the
-      // op's own refusal text already states the fix inline (`lucid canvas
+      // op's own refusal text already states the fix inline (`proofcut canvas
       // …`), so displaying it verbatim satisfies both halves at once.
       card.append(el("div", "finish-preset-message", message));
     }
@@ -206,7 +206,7 @@ function renderLastOutput() {
   box.append(line);
 }
 
-/** The render, with lucid's transport rather than the browser's.
+/** The render, with proofcut's transport rather than the browser's.
  *
  * `<video controls>` draws Chrome's own control bar — a different type
  * family, a different icon set, and a light-on-dark look that ignores the

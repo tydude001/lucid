@@ -1,4 +1,4 @@
-"""The `lucid` CLI.
+"""The `proofcut` CLI.
 
 Every MCP tool is also reachable here, so the same operations can be scripted
 or debugged without an agent in the loop. Both front ends call `proofcut.ops`;
@@ -142,11 +142,11 @@ def _parse_hold(value: str) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="lucid",
+        prog="proofcut",
         description="Local-first AI video editing: an MCP server over ffmpeg, whisper, and OTIO.",
     )
-    parser.add_argument("--version", action="version", version=f"lucid {__version__}")
-    # Global and git-style, before the subcommand: `lucid -C myproject cut ...`.
+    parser.add_argument("--version", action="version", version=f"proofcut {__version__}")
+    # Global and git-style, before the subcommand: `proofcut -C myproject cut ...`.
     # Defining it per-subparser instead would make the two positions clobber
     # each other on the shared dest.
     # `default=None`, resolved to "." in `main`, so `init` can tell an
@@ -164,17 +164,17 @@ def _build_parser() -> argparse.ArgumentParser:
     # `default=None` rather than `webui.DEFAULT_HOST`/`server.DEFAULT_HTTP_PORT`
     # directly: `proofcut.server` imports the MCP SDK and is only ever imported
     # lazily (inside `_cmd_mcp`), and resolving the real default here would
-    # force that import on every `lucid` invocation, not just `mcp`.
+    # force that import on every `proofcut` invocation, not just `mcp`.
     p_mcp.add_argument(
         "--host",
         default=None,
-        help="bind address for --transport http (default: loopback, like `lucid web`)",
+        help="bind address for --transport http (default: loopback, like `proofcut web`)",
     )
     p_mcp.add_argument(
         "--port",
         type=int,
         default=None,
-        help="port for --transport http (default: one past `lucid web`'s; 0 picks a free one)",
+        help="port for --transport http (default: one past `proofcut web`'s; 0 picks a free one)",
     )
     p_mcp.add_argument(
         "--allow-remote",
@@ -200,7 +200,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("ping", help="print the same payload the MCP ping tool returns")
 
     p_doctor = sub.add_parser(
-        "doctor", help="check every external dependency lucid needs, and say how to fix each"
+        "doctor", help="check every external dependency proofcut needs, and say how to fix each"
     )
     # The one subcommand that prints prose by default. Every other one emits
     # JSON because its caller is a script or an agent; doctor's caller is a
@@ -229,7 +229,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     p_migrate = sub.add_parser(
-        "migrate", help="bring an older project manifest forward to the current schema"
+        "migrate",
+        help="bring an older project manifest forward to the current schema "
+        "(and rename a pre-rename lucid.json to proofcut.json)",
     )
     p_migrate.add_argument(
         "--plan", action="store_true", help="report the steps and the version, writing nothing"
@@ -244,7 +246,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_import.add_argument(
         "--mix",
         action="store_true",
-        help="sum a multi-stream container's audio into the one track lucid edits",
+        help="sum a multi-stream container's audio into the one track proofcut edits",
     )
     p_import.add_argument(
         "--audio-stream",
@@ -420,13 +422,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_card = sub.add_parser("card", help="generate the card assets a picture cue points at")
     card_sub = p_card.add_subparsers(dest="card_command", required=True)
 
-    card_sub.add_parser("templates", help="the card templates lucid ships, and their slots")
+    card_sub.add_parser("templates", help="the card templates proofcut ships, and their slots")
 
     p_card_new = card_sub.add_parser(
         "new", help="fill a template's slots and land both the SVG and its PNG"
     )
     p_card_new.add_argument("name", help="the <name> in card:<name>, without an extension")
-    p_card_new.add_argument("--template", required=True, help="see `lucid card templates`")
+    p_card_new.add_argument("--template", required=True, help="see `proofcut card templates`")
     p_card_new.add_argument(
         "--set",
         action="append",
@@ -476,7 +478,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_card_safe_zones.add_argument(
         "--platform",
         required=True,
-        help="a zone in `lucid pack show`'s safe_zones, or one of lucid's own "
+        help="a zone in `proofcut pack show`'s safe_zones, or one of proofcut's own "
         "(tiktok-organic, tiktok-ads, reels, shorts, worst-case)",
     )
 
@@ -542,7 +544,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "word_index", type=int, nargs="?", help="inclusive word index (omit and use --phrase instead)"
     )
     p_cue_add.add_argument(
-        "asset", help="card:name, or a registered video clip_id — `lucid shots` resolves it"
+        "asset", help="card:name, or a registered video clip_id — `proofcut shots` resolves it"
     )
     p_cue_add.add_argument(
         "--phrase", help="resolve against clip_id's transcript instead of a word index"
@@ -557,7 +559,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--src-start",
         type=float,
         help="pin the in-point: seconds into the asset's own source time, as "
-        "`lucid describe ls` reports it. Omitted, the shot reads from wherever "
+        "`proofcut describe ls` reports it. Omitted, the shot reads from wherever "
         "the per-asset cursor is. In-point only — the out-point stays derived",
     )
 
@@ -976,7 +978,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_web.add_argument("--open", action="store_true", help="open a browser at it")
     # Off-machine access, opt-in and never inferred. `--allow-remote` mirrors
-    # `lucid mcp --transport http`'s flag exactly rather than inventing a
+    # `proofcut mcp --transport http`'s flag exactly rather than inventing a
     # second name for the same decision; the difference is that this server
     # can rewrite a project, so widening it also puts a token on every
     # request (webui.remote_policy, and the module docstring above it).
@@ -1022,7 +1024,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # subcommand runs (`main`'s own `args.project_given`).
     p_web.add_argument(
         "--root",
-        help="serve a picker over every lucid project found under this directory, "
+        help="serve a picker over every proofcut project found under this directory, "
         "instead of one project (default: none — serve -C's project, as always)",
     )
 
@@ -1035,7 +1037,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_open.add_argument(
         "--root",
-        help="open Home over every lucid project found under this directory, "
+        help="open Home over every proofcut project found under this directory, "
         "instead of one project (default: none — opens -C's project directly)",
     )
 
@@ -1271,7 +1273,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_vo_synth.add_argument("text", help="the words to say")
     p_vo_synth.add_argument(
-        "--voice", help="a directory holding ref.wav + ref.txt (default: $LUCID_TTS_VOICE; there is no built-in voice)"
+        "--voice", help="a directory holding ref.wav + ref.txt (default: $PROOFCUT_TTS_VOICE; there is no built-in voice)"
     )
     p_vo_synth.add_argument(
         "--candidates", type=int, default=ops.SYNTH_CANDIDATES, help="how many seeds to render and rank"
@@ -1694,7 +1696,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_finish_check = sub.add_parser(
         "finish-check",
-        help="check a delivered file (a mix pass outside lucid) against this project's timeline",
+        help="check a delivered file (a mix pass outside proofcut) against this project's timeline",
     )
     p_finish_check.add_argument("final", help="the delivered file to check")
     p_finish_check.add_argument(
@@ -1902,7 +1904,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser(
         "export",
         help="export or render the timeline (multi-source projects are written as MLT "
-        "by lucid and rendered by melt; everything else goes through auto-editor)",
+        "by proofcut and rendered by melt; everything else goes through auto-editor)",
     )
     p_export.add_argument("output", help="output path")
     p_export.add_argument(
@@ -1933,7 +1935,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="a named quality bundle (--render only; an NLE export has no bitrate). "
         "'custom' requires --resolution. 'tiktok-reels' checks that the project's "
         "canvas is 9:16 and refuses otherwise — it never sets the shape, because "
-        "that is `lucid canvas`'s job",
+        "that is `proofcut canvas`'s job",
     )
     p_export.add_argument(
         "--resolution",
@@ -1941,7 +1943,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="WIDTHxHEIGHT",
         help="single-source render only: letterboxes the existing frame to this "
         "size — does not crop or reframe it. Refused on a multi-source (melt) "
-        "project. To crop to fill instead, set the shape with `lucid canvas`",
+        "project. To crop to fill instead, set the shape with `proofcut canvas`",
     )
 
     return parser
@@ -1958,7 +1960,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     Every other subcommand *finds* a project through `-C`, so `-C` reading as
     "the project directory" is the habit the CLI teaches. `init` used to
     ignore it entirely and read only its positional, which meant
-    `lucid -C myproj init` created a project in the current directory and
+    `proofcut -C myproj init` created a project in the current directory and
     reported success — the wrong directory, silently. Both spellings now work
     and giving two different answers is an error rather than a coin flip.
     """
@@ -2496,7 +2498,7 @@ def _cmd_caption_style(args: argparse.Namespace) -> int:
 def _cmd_fonts(args: argparse.Namespace) -> int:
     # `project_given` rather than `project`, because `-C` is resolved to "."
     # for every other subcommand and a font is not project state: asked from a
-    # directory that happens not to be a project, this should report lucid's
+    # directory that happens not to be a project, this should report proofcut's
     # own default rather than refuse. Naming a project is how you ask the
     # narrower question, and typing `-C` is the only evidence of that intent.
     return _emit(ops.fonts(args.project if args.project_given else None, install=args.install))
@@ -2870,7 +2872,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Print the dependency report, and exit non-zero when something required is missing.
 
-    The exit code is the one thing here that is not report-only: `lucid
+    The exit code is the one thing here that is not report-only: `proofcut
     doctor` is what a setup script or a CI step would gate on, and a command
     that always exits 0 cannot be gated on. Optional capabilities never move
     it — they gate a feature, not the install.
@@ -2896,11 +2898,11 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
 
     # `-C` binds the server to one project, and is honoured only when it was
     # actually typed: `main()` defaults it to ".", so binding unconditionally
-    # would pin a globally-configured `lucid mcp` to whatever directory its
+    # would pin a globally-configured `proofcut mcp` to whatever directory its
     # client happened to launch from. Unbound is the general-client default;
     # bound is what the web UI's agent panel spawns (`webui.py`'s generated
     # MCP config), and what confines that agent to the project it was opened
-    # on rather than to lucid's ops in general.
+    # on rather than to proofcut's ops in general.
     serve(
         root=args.project if args.project_given else None,
         transport=args.transport,
@@ -2992,7 +2994,7 @@ _COMMANDS = {
     "mcp": _cmd_mcp,
 }
 
-#: Every failure lucid raises deliberately. Anything else is a bug and should
+#: Every failure proofcut raises deliberately. Anything else is a bug and should
 #: keep its traceback rather than be flattened into a one-line message.
 _EXPECTED = (
     ProjectError,
@@ -3029,7 +3031,7 @@ def _utf8_output() -> None:
     """Write UTF-8 to any standard stream whose own encoding cannot carry ✓.
 
     Windows encodes a *piped* stdout as the ANSI code page (cp1252), which has
-    no byte for ✓ or ✗, so `lucid doctor > out.txt` — and CI's doctor step, and
+    no byte for ✓ or ✗, so `proofcut doctor > out.txt` — and CI's doctor step, and
     the paste LAUNCH.md step 2 asks a tester for — died with
     `UnicodeEncodeError` before printing a line. Replacing the glyphs would
     lose the one thing a paste is read for; UTF-8 is what a CI log, a file and
@@ -3058,7 +3060,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _COMMANDS[args.command](args)
     except _EXPECTED as exc:
-        print(f"lucid: {exc}", file=sys.stderr)
+        print(f"proofcut: {exc}", file=sys.stderr)
         return 1
 
 

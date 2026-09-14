@@ -1,10 +1,10 @@
-"""The lucid project directory.
+"""The proofcut project directory.
 
 A project is a directory on disk. Nothing is uploaded, and every artifact is
 inspectable with ordinary tools::
 
     myproject/
-      lucid.json            manifest — schema version, clip registry, cue table,
+      proofcut.json         manifest — schema version, clip registry, cue table,
                             footage descriptions, card records, settings
       media/                imported source media (copies or symlinks)
       project.otio          the timeline; the source of truth tools mutate
@@ -43,7 +43,14 @@ from typing import Any
 #: card was made from, so an aspect swap can re-author it.
 SCHEMA_VERSION = 4
 
-MANIFEST_NAME = "lucid.json"
+MANIFEST_NAME = "proofcut.json"
+#: What the manifest was called before the rename (docs/plans/RENAME.md,
+#: decision 1). Never read as a project: `Project.open` refuses a directory
+#: holding it and names `proofcut migrate`, whose filename step renames it to
+#: `MANIFEST_NAME`. A project that read under both names would be one that got
+#: written under both, so there is no dual read — only this refusal and that
+#: one rename.
+LEGACY_MANIFEST_NAME = "lucid.json"
 TIMELINE_NAME = "project.otio"
 
 MEDIA_DIR = "media"
@@ -94,7 +101,7 @@ THUMBS_LOG = "cache/agent_thumbs.jsonl"
 RENDERS_LOG = "cache/renders.jsonl"
 #: One JSON line per `ops.finish_check` run against a delivered file —
 #: `RENDERS_LOG`'s own precedent, one lane over: derived telemetry about an
-#: artifact lucid did not produce (the external mix pass's own output), not
+#: artifact proofcut did not produce (the external mix pass's own output), not
 #: part of the edit. No manifest key names it and `_revision()` never stats
 #: it, so a finish_check run never counts as a project mutation.
 FINISH_CHECKS_LOG = "cache/finish_checks.jsonl"
@@ -115,12 +122,20 @@ _SUBDIRS = (
 
 
 class ProjectError(Exception):
-    """Raised when a path is not a usable lucid project."""
+    """Raised when a path is not a usable proofcut project."""
+
+
+class LegacyManifestError(ProjectError):
+    """Raised for a directory holding `LEGACY_MANIFEST_NAME` and no
+    `MANIFEST_NAME` — a project an older proofcut (named lucid) wrote, which
+    `proofcut migrate` renames. A subclass so every `except ProjectError`
+    handler still refuses it, and distinct so the picker's scan can list it as
+    `needs_migration` without matching a sentence."""
 
 
 class ProjectConflictError(ProjectError):
     """Raised when `write_manifest` finds the manifest changed since it was
-    last read by this `Project` instance — a second writer (another `lucid
+    last read by this `Project` instance — a second writer (another `proofcut
     web`, an agent panel, a CLI command run beside either) touched the
     project in between (TRIAL.md § Nothing in lucid notices two writers in
     one project). A `ProjectError` subclass so every existing `except
@@ -210,18 +225,18 @@ def _migration_steps(found: Any, manifest_path: Path) -> list[int]:
         return []
     if not _migratable(found):
         if isinstance(found, int) and not isinstance(found, bool) and found > SCHEMA_VERSION:
-            why = "it was written by a newer lucid, and migration is forward-only"
+            why = "it was written by a newer proofcut, and migration is forward-only"
         else:
             why = f"no migration step is registered for schema_version {found!r}"
         raise ProjectError(
             f"cannot migrate {manifest_path}: {why} "
-            f"(this lucid understands {SCHEMA_VERSION})"
+            f"(this proofcut understands {SCHEMA_VERSION})"
         )
     return list(range(found, SCHEMA_VERSION))
 
 
 #: The suffix a snapshot's manifest half carries. Two dots on purpose: the
-#: glob `*.manifest.json` cannot reach `lucid-v3.json`, which
+#: glob `*.manifest.json` cannot reach `proofcut-v3.json`, which
 #: `_backup_manifest` writes into the same directory and which must stay
 #: invisible to undo (rolling the timeline back one edit must not roll the
 #: schema back with it).
@@ -241,7 +256,7 @@ class Snapshot:
 
     Either half may be absent, and the two absences mean different things:
 
-    - **no `manifest`** — a snapshot written by a lucid that only saved
+    - **no `manifest`** — a snapshot written by a proofcut that only saved
       timelines. It restores the timeline alone and says so; it never guesses
       at a manifest it does not have.
     - **no `timeline`** — the project had no timeline when this was taken, so
@@ -283,7 +298,7 @@ class Project:
     #: A digest of the manifest's on-disk bytes as of this instance's last
     #: `read_manifest()`, or empty for "never read here yet". `write_manifest`
     #: compares the file's *current* bytes against this before writing: a
-    #: mismatch means another writer — a second `lucid web`, an agent panel,
+    #: mismatch means another writer — a second `proofcut web`, an agent panel,
     #: a CLI command run beside either — wrote the manifest after this
     #: instance last read it, and writing blind now would silently discard
     #: that write the way it always has (TRIAL.md § Nothing in lucid notices
@@ -303,6 +318,10 @@ class Project:
     @property
     def manifest_path(self) -> Path:
         return self.root / MANIFEST_NAME
+
+    @property
+    def legacy_manifest_path(self) -> Path:
+        return self.root / LEGACY_MANIFEST_NAME
 
     @property
     def timeline_path(self) -> Path:
@@ -433,7 +452,7 @@ class Project:
         Indices come off the filenames rather than a counter, so the two halves
         of one state find each other by number and a half-written pair is still
         a readable snapshot. Anything in `cache/history/` that is not numbered
-        is not a snapshot: `lucid-v3.json` (the pre-migration manifest backup)
+        is not a snapshot: `proofcut-v3.json` (the pre-migration manifest backup)
         lives here too and stays invisible to undo on purpose.
         """
         if not self.history_dir.exists():
@@ -500,7 +519,7 @@ class Project:
 
         What each half means when it is absent is `Snapshot`'s own docstring,
         and the two are not symmetrical. A snapshot with no manifest is an
-        older lucid's, and the manifest is left exactly as it stands rather
+        older proofcut's, and the manifest is left exactly as it stands rather
         than guessed at. A snapshot with no *timeline* is a state that had no
         timeline, so the timeline is **removed** — that is what undoing a
         `seed_timeline` means, and leaving the seeded edit in place would
@@ -548,7 +567,14 @@ class Project:
         """Create a project directory. Refuses to overwrite an existing one."""
         project = cls(Path(root).expanduser().resolve())
         if project.manifest_path.exists():
-            raise ProjectError(f"a lucid project already exists at {project.root}")
+            raise ProjectError(f"a proofcut project already exists at {project.root}")
+        if project.legacy_manifest_path.exists():
+            # Creating here would write `proofcut.json` beside the old
+            # manifest — the two-manifest directory `open` refuses.
+            raise ProjectError(
+                f"a project written before the rename already exists at {project.root} "
+                f"({LEGACY_MANIFEST_NAME}) — run `proofcut migrate` there instead"
+            )
 
         project.root.mkdir(parents=True, exist_ok=True)
         for sub in _SUBDIRS:
@@ -568,22 +594,26 @@ class Project:
 
     @classmethod
     def open(cls, root: Path | str) -> Project:
-        """Open an existing project, validating its manifest."""
+        """Open an existing project, validating its manifest.
+
+        A directory holding only `LEGACY_MANIFEST_NAME` is refused naming
+        `proofcut migrate`, never read under the old name and never renamed
+        here — the schema rule applied to the filename (`migrate`'s docstring).
+        """
         project = cls(Path(root).expanduser().resolve())
-        if not project.manifest_path.exists():
-            raise ProjectError(f"no lucid project at {project.root} (no {MANIFEST_NAME})")
+        project.check_manifest_name()
 
         manifest = project.read_manifest()
         found = manifest.get("schema_version")
         if found != SCHEMA_VERSION:
             way_out = (
-                "run `lucid migrate` to bring it forward"
+                "run `proofcut migrate` to bring it forward"
                 if _migratable(found)
                 else "there is no migration path from it"
             )
             raise ProjectError(
                 f"{project.manifest_path} has schema_version {found!r}, "
-                f"but this lucid understands {SCHEMA_VERSION} — {way_out}"
+                f"but this proofcut understands {SCHEMA_VERSION} — {way_out}"
             )
         return project
 
@@ -593,71 +623,191 @@ class Project:
 
         Deliberately *not* folded into `Project.open`. Opening is a read, and a
         read that rewrites the file it just validated would migrate a project
-        on `lucid info` — including one the reader only meant to look at, and
-        one an older lucid elsewhere can still open until the moment it is
+        on `proofcut info` — including one the reader only meant to look at, and
+        one an older proofcut elsewhere can still open until the moment it is
         touched. So `open` refuses and names this, and this does the writing.
 
         `plan=True` resolves the steps and writes nothing (CLAUDE.md), which is
         also the only way to ask "what version is this, and can it come
         forward?" without committing to the answer.
+
+        **A project written before the rename gets a filename step first** —
+        `lucid.json -> proofcut.json`, reported as the first entry of `steps`
+        (docs/plans/RENAME.md, decision 1). It is not a `_MIGRATIONS` entry and
+        bumps nothing: `SCHEMA_VERSION` says what the keys mean, not what the
+        file is called, so a v4 `lucid.json` takes this step alone. It also
+        rewrites the live `project.otio`'s metadata key (`timeline_keys` counts
+        them) so a migrated project is clean on its face; the snapshots in
+        `cache/history/` keep the old key and are read through
+        `timeline.proofcut_metadata` forever. `manifest` names the file found
+        (and, after a real run, the file now holding it).
         """
         project = cls(Path(root).expanduser().resolve())
-        if not project.manifest_path.exists():
-            raise ProjectError(f"no lucid project at {project.root} (no {MANIFEST_NAME})")
+        try:
+            project.check_manifest_name()
+            legacy = False
+        except LegacyManifestError:
+            legacy = True
 
-        manifest = project.read_manifest()
+        source = project.legacy_manifest_path if legacy else project.manifest_path
+        manifest = project._read_manifest_file(source)
         found = manifest.get("schema_version")
-        steps = _migration_steps(found, project.manifest_path)
+        # Resolved before anything is renamed, so a project with no path
+        # forward is refused with its files exactly as they were.
+        steps = _migration_steps(found, source)
+
+        legacy_keys = 0
+        if legacy and project.timeline_path.exists():
+            # Imported here: OTIO is heavy, and only the filename step needs it.
+            from proofcut import timeline as tl
+
+            try:
+                legacy_keys = tl.count_legacy_metadata(project.timeline_path)
+            except Exception as exc:  # OTIO's own errors share no base class worth naming
+                raise ProjectError(
+                    f"cannot migrate {project.root}: {project.timeline_path} could not be "
+                    f"read to rename its keys ({exc}); nothing was changed"
+                ) from exc
 
         report: dict[str, Any] = {
             "project": str(project.root),
+            "manifest": source.name,
             "schema_version": found,
             "target": SCHEMA_VERSION,
-            "steps": [f"{v} -> {v + 1}" for v in steps],
+            "steps": ([f"{LEGACY_MANIFEST_NAME} -> {MANIFEST_NAME}"] if legacy else [])
+            + [f"{v} -> {v + 1}" for v in steps],
+            "timeline_keys": legacy_keys,
             "migrated": False,
             "backup": None,
         }
         if plan:
             report["plan"] = True
             return report
-        if not steps:
+        if not report["steps"]:
             return report
 
-        report["backup"] = str(project._backup_manifest(found))
+        # One backup, of the file as it was found and under the name it had:
+        # the filename step and a version step both start from the same bytes,
+        # so a second copy would be the same file twice.
+        report["backup"] = str(project._backup_manifest(found, source))
+        if legacy:
+            project._rename_legacy_manifest(legacy_keys)
+            report["manifest"] = MANIFEST_NAME
         for version in steps:
             manifest = _MIGRATIONS[version](manifest)
             manifest["schema_version"] = version + 1
         # `_backup_manifest` is this write's history, and it is deliberately
         # not `snapshot()`'s: rolling the timeline back one edit must not roll
         # the schema back with it.
-        project.write_manifest(manifest, snapshot=False)
+        if steps:
+            project.write_manifest(manifest, snapshot=False)
         report["schema_version"] = SCHEMA_VERSION
         report["migrated"] = True
         return report
 
-    def _backup_manifest(self, version: Any) -> Path:
+    def check_manifest_name(self) -> None:
+        """Refuse a directory whose manifest is not exactly `MANIFEST_NAME`.
+
+        Three refusals, in the order they are checked: both manifests at once
+        (a plain `ProjectError` — `migrate` refuses it too), the old name alone
+        (`LegacyManifestError`, which `migrate` clears), and neither.
+
+        **Both is refused, never resolved by preferring one.** Nothing on disk
+        says which file is the project: `migrate` renames atomically and so
+        never leaves both behind, which means a second file was put there by
+        something else — a copy by hand, or an older lucid's `init`, which
+        looked only for `lucid.json` and would have written a fresh one into a
+        migrated project. Preferring `proofcut.json` would silently hide
+        whatever was written to the other, and preferring `lucid.json` would
+        undo a migration; either is a guess about which edits count.
+        """
+        has_current = self.manifest_path.exists()
+        has_legacy = self.legacy_manifest_path.exists()
+        if has_current and has_legacy:
+            raise ProjectError(
+                f"{self.root} holds both {MANIFEST_NAME} and {LEGACY_MANIFEST_NAME}, and "
+                "proofcut will not guess which is the project — move aside the one "
+                "that is not (a migrated project keeps only "
+                f"{MANIFEST_NAME}; the pre-rename file is backed up in {HISTORY_DIR}/)"
+            )
+        if has_legacy:
+            raise LegacyManifestError(
+                f"{self.root} is a project written before the rename: its manifest is "
+                f"{LEGACY_MANIFEST_NAME}, and this proofcut reads {MANIFEST_NAME} — "
+                "run `proofcut migrate` to rename it"
+            )
+        if not has_current:
+            raise ProjectError(f"no proofcut project at {self.root} (no {MANIFEST_NAME})")
+
+    def _rename_legacy_manifest(self, legacy_keys: int) -> None:
+        """`migrate`'s filename step: `lucid.json` -> `proofcut.json`, live timeline first.
+
+        Ordered so a crash anywhere leaves a project `migrate` can simply be
+        run on again. The live `project.otio`'s keys are rewritten first — an
+        atomic write, harmless if nothing follows, because every reader takes
+        either key — and the manifest is renamed last, by one `os.replace`, so
+        there is never a moment with both manifests or neither. The timeline
+        is not snapshotted and `cache/history/` is never touched: the old key
+        there is read permanently (`timeline.proofcut_metadata`).
+
+        **The stale-read stamp holds across the rename.** It is a digest of
+        bytes, not of a path, and a rename moves the bytes unchanged — so the
+        digest `_read_manifest_file` took of `lucid.json` is exactly the one
+        `write_manifest` then checks `proofcut.json` against for the version
+        steps. It is checked here as well, before the rename, so a second
+        writer landing on `lucid.json` after `migrate` read it is refused
+        rather than renamed into place under a manifest nobody re-read.
+        """
+        if legacy_keys:
+            from proofcut import timeline as tl
+
+            tl.rewrite_legacy_metadata(self.timeline_path)
+        expected = self._manifest_stamp.get("digest")
+        if expected is not None and _manifest_digest(self.legacy_manifest_path) != expected:
+            raise ProjectConflictError(
+                f"{self.legacy_manifest_path} changed on disk while `proofcut migrate` "
+                "was running — another writer touched this project. Run migrate again."
+            )
+        self.legacy_manifest_path.replace(self.manifest_path)
+
+    def _backup_manifest(self, version: Any, source: Path | None = None) -> Path:
         """Copy the manifest aside before a migration rewrites it.
 
         It sits beside the timeline snapshots because it is the same kind of
         thing: the state before a mutation. `snapshots()` globs `*.otio`, so a
         `.json` here is invisible to `undo` — which is right, since rolling the
         timeline back one edit must not roll the schema back with it.
+
+        Named after the file it copies, so a pre-rename manifest is backed up
+        as `lucid-vN.json` rather than `proofcut-vN.json`: the backup is a
+        record of that file as it was, name included, and it cannot collide
+        with a `proofcut-vN.json` a later schema migration writes.
         """
+        source = source or self.manifest_path
         self.history_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.history_dir / f"{Path(MANIFEST_NAME).stem}-v{version}.json"
-        shutil.copy2(self.manifest_path, dest)
+        dest = self.history_dir / f"{source.stem}-v{version}.json"
+        shutil.copy2(source, dest)
         return dest
 
     # -- manifest --------------------------------------------------------
 
     def read_manifest(self) -> dict[str, Any]:
-        raw = self.manifest_path.read_bytes()
+        return self._read_manifest_file(self.manifest_path)
+
+    def read_legacy_manifest(self) -> dict[str, Any]:
+        """Read `LEGACY_MANIFEST_NAME` without opening the project — for a
+        caller that reports what an unmigrated project is (the picker's scan,
+        `migrate --plan`) and must never treat it as one."""
+        return self._read_manifest_file(self.legacy_manifest_path)
+
+    def _read_manifest_file(self, path: Path) -> dict[str, Any]:
+        raw = path.read_bytes()
         try:
             manifest = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise ProjectError(f"{self.manifest_path} is not valid JSON: {exc}") from exc
+            raise ProjectError(f"{path} is not valid JSON: {exc}") from exc
         if not isinstance(manifest, dict):
-            raise ProjectError(f"{self.manifest_path} must contain a JSON object")
+            raise ProjectError(f"{path} must contain a JSON object")
         self._manifest_stamp["digest"] = hashlib.sha256(raw).hexdigest()
         return manifest
 
@@ -681,7 +831,7 @@ class Project:
         **Refuses rather than clobbering when the file moved under this
         instance.** If `read_manifest` was called here and the manifest's
         on-disk bytes have since changed, a second writer touched this project
-        in between — a second `lucid web`, an agent panel, a CLI command
+        in between — a second `proofcut web`, an agent panel, a CLI command
         beside either (TRIAL.md § Nothing in lucid notices two writers in one
         project) — and writing `manifest` now would silently discard theirs,
         atomically-but-wrongly. Skipped when nothing was ever read here
@@ -694,7 +844,7 @@ class Project:
             if current != expected:
                 raise ProjectConflictError(
                     f"{self.manifest_path} changed on disk since it was last read "
-                    "here — another writer (a second `lucid web`, agent panel, or "
+                    "here — another writer (a second `proofcut web`, agent panel, or "
                     "CLI command running beside this one) touched this project in "
                     "between. Re-read the project and re-apply this change; "
                     "writing now would silently discard theirs."

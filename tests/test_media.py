@@ -22,7 +22,7 @@ def test_media_path_resolves_to_media_when_no_attenuated_key_exists() -> None:
     """Pins the pre-attenuation behaviour: a clip with only `media` set must
     keep resolving exactly as it did before `attenuate_noises` existed.
     """
-    project = Project(root=Path("/tmp/lucid-test-project"))
+    project = Project(root=Path("/tmp/proofcut-test-project"))
     clip = {"clip_id": "c1", "source": "/orig/loud.wav", "media": "media/c1.wav"}
 
     assert media.media_path(project, clip) == project.root / "media/c1.wav"
@@ -32,7 +32,7 @@ def test_media_path_prefers_attenuated_over_media_when_both_are_set() -> None:
     """The attenuated-first selection `attenuate_noises` depends on for its
     "downstream ops pick this up for free" claim (ops.py's own docstring).
     """
-    project = Project(root=Path("/tmp/lucid-test-project"))
+    project = Project(root=Path("/tmp/proofcut-test-project"))
     clip = {
         "clip_id": "c1",
         "source": "/orig/loud.wav",
@@ -51,7 +51,7 @@ def test_media_path_prefers_mixed_over_media() -> None:
     here is what keeps a co-hosted recording whole. PLAN.md § The co-hosted
     recording.
     """
-    project = Project(root=Path("/tmp/lucid-test-project"))
+    project = Project(root=Path("/tmp/proofcut-test-project"))
     clip = {
         "clip_id": "c1",
         "source": "/orig/cohost.mkv",
@@ -64,7 +64,7 @@ def test_media_path_prefers_mixed_over_media() -> None:
 
 def test_media_path_prefers_attenuated_over_mixed() -> None:
     """Attenuation runs *on* the mixdown, so its output is the later word."""
-    project = Project(root=Path("/tmp/lucid-test-project"))
+    project = Project(root=Path("/tmp/proofcut-test-project"))
     clip = {
         "clip_id": "c1",
         "source": "/orig/cohost.mkv",
@@ -81,7 +81,7 @@ def test_original_media_path_keeps_the_mixdown() -> None:
     two-mic container is the mixdown — reading the container instead would
     attenuate mic A alone and hand `media_path()` back a one-mic file.
     """
-    project = Project(root=Path("/tmp/lucid-test-project"))
+    project = Project(root=Path("/tmp/proofcut-test-project"))
     clip = {
         "clip_id": "c1",
         "source": "/orig/cohost.mkv",

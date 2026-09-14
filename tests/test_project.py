@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from proofcut.project import (
+    LEGACY_MANIFEST_NAME,
     MANIFEST_NAME,
     SCHEMA_VERSION,
+    LegacyManifestError,
     Project,
     ProjectConflictError,
     ProjectError,
@@ -14,7 +16,7 @@ from proofcut.project import (
 
 
 def _v1_project(tmp_path: Path, name: str = "old") -> Project:
-    """A project directory as a pre-cue-table lucid left it: no `cues` key.
+    """A project directory as a pre-cue-table proofcut left it: no `cues` key.
 
     Written through `create` then rewound, rather than assembled by hand, so
     the fixture is the real layout minus exactly the thing v2 added.
@@ -54,7 +56,7 @@ def test_create_refuses_to_clobber_an_existing_project(tmp_path: Path) -> None:
 
 def test_open_rejects_a_directory_with_no_manifest(tmp_path: Path) -> None:
     (tmp_path / "empty").mkdir()
-    with pytest.raises(ProjectError, match="no lucid project"):
+    with pytest.raises(ProjectError, match="no proofcut project"):
         Project.open(tmp_path / "empty")
 
 
@@ -78,7 +80,7 @@ def test_open_refusal_names_migrate_when_there_is_a_path_forward(tmp_path: Path)
     """The refusal is a dead end unless it says what clears it."""
     project = _v1_project(tmp_path)
 
-    with pytest.raises(ProjectError, match="lucid migrate"):
+    with pytest.raises(ProjectError, match="proofcut migrate"):
         Project.open(project.root)
 
 
@@ -122,7 +124,7 @@ def test_migrate_copies_the_manifest_aside_before_writing(tmp_path: Path) -> Non
 
 
 def test_the_manifest_backup_is_invisible_to_undo(tmp_path: Path) -> None:
-    """`lucid-v3.json` lives in `cache/history/` beside the numbered snapshots
+    """`proofcut-v3.json` lives in `cache/history/` beside the numbered snapshots
     and must not become an undo step: rolling the timeline back one edit must
     not roll the schema back with it. Measured as a delta rather than against
     an empty stack, because a manifest write is itself a snapshot now — the
@@ -186,15 +188,182 @@ def test_migrate_refuses_a_non_integer_schema_version(tmp_path: Path) -> None:
 
 def test_migrate_rejects_a_directory_with_no_manifest(tmp_path: Path) -> None:
     (tmp_path / "empty").mkdir()
-    with pytest.raises(ProjectError, match="no lucid project"):
+    with pytest.raises(ProjectError, match="no proofcut project"):
         Project.migrate(tmp_path / "empty")
+
+
+# -- the pre-rename manifest (docs/plans/RENAME.md, decision 1) --------------
+
+
+def _pre_rename(project: Project) -> Project:
+    """The directory as a lucid-era install left it: the manifest under its
+    old name. Renamed from a real `create` rather than written by hand, so the
+    fixture differs from a current project by exactly the filename."""
+    project.manifest_path.rename(project.root / LEGACY_MANIFEST_NAME)
+    return project
+
+
+def test_the_legacy_manifest_name_is_the_pre_rename_one() -> None:
+    """Pinned as a literal: the whole point of the constant is that it names
+    the file an older install wrote, so it must never follow a rename."""
+    assert LEGACY_MANIFEST_NAME == "lucid.json"
+    assert MANIFEST_NAME == "proofcut.json"
+
+
+def test_open_refuses_a_pre_rename_project_naming_migrate(tmp_path: Path) -> None:
+    project = _pre_rename(Project.create(tmp_path / "old"))
+
+    with pytest.raises(LegacyManifestError, match="proofcut migrate") as refused:
+        Project.open(project.root)
+
+    # Not the "nothing here" refusal — there is a project here.
+    assert "no proofcut project" not in str(refused.value)
+    assert LEGACY_MANIFEST_NAME in str(refused.value)
+    # And `open` renamed nothing on its way to refusing.
+    assert (project.root / LEGACY_MANIFEST_NAME).exists()
+    assert not project.manifest_path.exists()
+
+
+def test_open_refuses_a_directory_holding_both_manifests(tmp_path: Path) -> None:
+    """Never silently prefer one: nothing on disk says which is the project."""
+    project = Project.create(tmp_path / "both")
+    (project.root / LEGACY_MANIFEST_NAME).write_bytes(project.manifest_path.read_bytes())
+
+    with pytest.raises(ProjectError, match="both") as refused:
+        Project.open(project.root)
+    assert not isinstance(refused.value, LegacyManifestError)
+
+    with pytest.raises(ProjectError, match="both"):
+        Project.migrate(project.root)
+    with pytest.raises(ProjectError, match="both"):
+        Project.migrate(project.root, plan=True)
+    # Both files exactly as they were.
+    assert (project.root / LEGACY_MANIFEST_NAME).exists()
+    assert project.manifest_path.exists()
+
+
+def test_create_refuses_a_directory_holding_a_pre_rename_manifest(tmp_path: Path) -> None:
+    """Creating there would write the two-manifest directory `open` refuses."""
+    project = _pre_rename(Project.create(tmp_path / "old"))
+
+    with pytest.raises(ProjectError, match="proofcut migrate"):
+        Project.create(project.root)
+    assert not project.manifest_path.exists()
+
+
+def test_migrate_renames_a_pre_rename_manifest_without_a_schema_step(tmp_path: Path) -> None:
+    project = _pre_rename(Project.create(tmp_path / "old"))
+    before = (project.root / LEGACY_MANIFEST_NAME).read_bytes()
+
+    report = Project.migrate(project.root)
+
+    # The filename step alone: not a `_MIGRATIONS` entry, and no bump.
+    assert SCHEMA_VERSION == 4
+    assert report["steps"] == ["lucid.json -> proofcut.json"]
+    assert report["schema_version"] == SCHEMA_VERSION
+    assert report["manifest"] == MANIFEST_NAME
+    assert report["migrated"] is True
+    assert not (project.root / LEGACY_MANIFEST_NAME).exists()
+    assert project.manifest_path.read_bytes() == before
+    Project.open(project.root)  # opens now
+
+    # Backed up under the name it had, invisible to undo, byte-identical.
+    backup = Path(report["backup"])
+    assert backup == project.history_dir / f"lucid-v{SCHEMA_VERSION}.json"
+    assert backup.read_bytes() == before
+    assert backup not in {s.manifest for s in project.snapshots()}
+
+    # And a second run is the ordinary no-op.
+    again = Project.migrate(project.root)
+    assert again["steps"] == []
+    assert again["migrated"] is False
+
+
+def test_migrate_plans_the_filename_step_without_writing(tmp_path: Path) -> None:
+    project = _pre_rename(Project.create(tmp_path / "old"))
+    before = (project.root / LEGACY_MANIFEST_NAME).read_bytes()
+    history_before = sorted(p.name for p in project.history_dir.iterdir())
+
+    report = Project.migrate(project.root, plan=True)
+
+    assert report["plan"] is True
+    assert report["steps"] == ["lucid.json -> proofcut.json"]
+    assert report["manifest"] == LEGACY_MANIFEST_NAME
+    assert report["migrated"] is False
+    assert report["backup"] is None
+    assert (project.root / LEGACY_MANIFEST_NAME).read_bytes() == before
+    assert not project.manifest_path.exists()
+    assert sorted(p.name for p in project.history_dir.iterdir()) == history_before
+
+
+def test_the_filename_step_runs_before_the_version_steps(tmp_path: Path) -> None:
+    """A pre-rename manifest at an old schema: renamed first, then stepped
+    forward — and the version write after the rename is `write_manifest`'s
+    stale-read check passing across it, since the stamp is a digest of the
+    bytes the rename moved unchanged."""
+    project = _pre_rename(_v1_project(tmp_path))
+
+    plan = Project.migrate(project.root, plan=True)
+    assert plan["steps"] == ["lucid.json -> proofcut.json", "1 -> 2", "2 -> 3", "3 -> 4"]
+
+    report = Project.migrate(project.root)
+
+    assert report["steps"] == plan["steps"]
+    assert report["migrated"] is True
+    manifest = Project.open(project.root).read_manifest()
+    assert manifest["schema_version"] == SCHEMA_VERSION
+    assert manifest["cards"] == []
+    assert not (project.root / LEGACY_MANIFEST_NAME).exists()
+    # One backup, of the file as found: old name, old version.
+    backup = Path(report["backup"])
+    assert backup.name == "lucid-v1.json"
+    assert json.loads(backup.read_text(encoding="utf-8"))["schema_version"] == 1
+    assert not (project.history_dir / "proofcut-v1.json").exists()
+
+
+def test_migrate_refuses_a_pre_rename_manifest_with_no_path_forward_before_renaming(
+    tmp_path: Path,
+) -> None:
+    project = Project.create(tmp_path / "old")
+    project.write_manifest({"schema_version": SCHEMA_VERSION + 1})
+    _pre_rename(project)
+
+    with pytest.raises(ProjectError, match="forward-only"):
+        Project.migrate(project.root)
+    assert (project.root / LEGACY_MANIFEST_NAME).exists()
+    assert not project.manifest_path.exists()
+
+
+def test_migrate_refuses_a_second_writer_on_the_legacy_manifest_mid_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stale-read stamp across the rename: a write landing on `lucid.json`
+    after `migrate` read it must be refused, not renamed into place under a
+    manifest nobody re-read."""
+    project = _pre_rename(_v1_project(tmp_path))
+    legacy_path = project.root / LEGACY_MANIFEST_NAME
+    real_backup = Project._backup_manifest
+
+    def backup_then_second_writer(self: Project, version: object, source: Path | None = None) -> Path:
+        dest = real_backup(self, version, source)
+        manifest = json.loads(legacy_path.read_text(encoding="utf-8"))
+        manifest["name"] = "written-by-second"
+        legacy_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return dest
+
+    monkeypatch.setattr(Project, "_backup_manifest", backup_then_second_writer)
+
+    with pytest.raises(ProjectConflictError, match="changed on disk"):
+        Project.migrate(project.root)
+    assert json.loads(legacy_path.read_text(encoding="utf-8"))["name"] == "written-by-second"
+    assert not project.manifest_path.exists()
 
 
 def test_write_manifest_leaves_no_temp_file_behind(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "demo")
     project.write_manifest({"schema_version": SCHEMA_VERSION, "name": "demo", "clips": []})
 
-    assert [p.name for p in project.root.glob("lucid.json*")] == [MANIFEST_NAME]
+    assert [p.name for p in project.root.glob("proofcut.json*")] == [MANIFEST_NAME]
 
 
 # -- two writers on one project (TRIAL.md § Nothing in lucid notices two ----
@@ -202,7 +371,7 @@ def test_write_manifest_leaves_no_temp_file_behind(tmp_path: Path) -> None:
 
 
 def test_write_manifest_refuses_a_write_the_file_has_moved_past(tmp_path: Path) -> None:
-    """Two `Project` instances on the same root — a second `lucid web`, an
+    """Two `Project` instances on the same root — a second `proofcut web`, an
     agent panel, a CLI command beside either. The second writer's write must
     not silently discard the first's, so the first (stale) instance's write
     is refused rather than clobbering."""

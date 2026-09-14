@@ -1,4 +1,4 @@
-"""The framing control — the fifteen hand numbers, in lucid's address space.
+"""The framing control — the fifteen hand numbers, in proofcut's address space.
 
 PLAN.md § Per-shot framing, step 5: *"then, and only then, the detector —
 judged on whether it beats the 15 hand numbers, which is the control that
@@ -36,7 +36,7 @@ fixture is checked in so the gate runs without insightface, an ONNX session or
 the footage; regenerating it needs all three (`~/lucid-framing-detect/`).
 
 **Sixteen, for fifteen shots.** Shot 9 is the one hand-eased move, and
-lucid's series is discrete by design (a window steps at a camera cut, it does
+proofcut's series is discrete by design (a window steps at a camera cut, it does
 not slide), so the ramp is carried as one step at its own midpoint. That is
 the one place the control is an approximation of what was approved, and it is
 named here rather than smoothed over.
@@ -97,7 +97,7 @@ def window_width(clip_id: str) -> int:
 
 
 def centre_x(clip_id: str) -> int:
-    """The dumb default — what lucid crops to with nothing stored."""
+    """The dumb default — what proofcut crops to with nothing stored."""
     w, _h = SOURCES[clip_id]
     return (w - window_width(clip_id)) // 2
 
@@ -335,7 +335,7 @@ def test_the_luma_centroid_is_worse_than_not_asking() -> None:
     assert got["overlap"] < bar["overlap"]
     assert got["displacement"] > bar["displacement"]
     # And it loses a subject too, so there is no column on which it is the
-    # better answer. Nothing in lucid picks a framing this way.
+    # better answer. Nothing in proofcut picks a framing this way.
     assert got["lost"] >= bar["lost"]
 
 
