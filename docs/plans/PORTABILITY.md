@@ -353,7 +353,10 @@ green, add a Windows paragraph beside the Mac one: a clone plus one
 line, what it installs, that `-Uninstall` reverses it, and a link to
 `.github/ISSUE_TEMPLATE/windows-test.yml`. That form is `mac-test.yml`'s
 twin, with Windows 10/11 and x64/ARM64 in place of the chip. Launch step 9's
-label-and-pin applies to a `windows-test` label too. Requirements' Windows
+label-and-pin applies to a `windows-test` label too — **issue #2, pinned
+2026-09-13**, the Mac issue's twin, from
+`~/lucid-work/launch-release/WINDOWS-ISSUE.md`; it says the kit's downloads
+are x64 builds, so an ARM64 PC runs them under emulation, untried. Requirements' Windows
 sentence says no person has run it until a person's report arrives (Step 6),
 windows-demo green or not.
 
