@@ -148,7 +148,7 @@ own line, which GitHub draws as a player and Gitea as a link. **Never add a
 poster linking to that URL**: GitHub turns every link to an upload into a
 player, image or not, so a linked poster drew a second player and no poster
 (the first sync, 2026-09-13). The upload is
-`~/lucid-work/launch-v4/readme/clip-readme-1080.mp4`, 9.2 MB, because
+`~/lucid-work/launch-v5/readme/proofcut-v0.23.0-clip-readme-1080.mp4` (v0.23.0), 9.2 MB, because
 GitHub's cap on a free plan is 10 MB.
 
 ## Step 2 — one stranger's run, on a Mac
@@ -391,7 +391,7 @@ thread. Draft:
 > an MCP server, so any agent that speaks MCP (Claude Code, Codex, your own)
 > can cut by transcript, hang b-roll off phrases, caption, render, and then
 > check the render against the edit. Here is one doing that unattended,
-> start to finish: [clip](https://github.com/user-attachments/assets/3c3517cd-1113-43f1-bdea-b5c11473ab10) / [the uncut runs](https://github.com/tydude001/proofcut/releases/tag/v0.22.0). Two things people will ask:
+> start to finish: [clip](https://github.com/user-attachments/assets/4153d180-3d7c-4c70-af5f-54d63d0a8bd5) / [the uncut runs](https://github.com/tydude001/proofcut/releases/tag/v0.23.0). Two things people will ask:
 >
 > *Licence.* PolyForm Shield — source-available; you can read, run, modify
 > and redistribute it, and the one thing reserved is shipping a competing

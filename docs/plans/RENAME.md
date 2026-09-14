@@ -411,6 +411,8 @@ data, ask first).
 
 ### Step 6 — Gitea, and the push
 
+Shipped — see HISTORY.md § The rename.
+
 Tyler's hand, in this order, because the mirror pushes to whatever URL it
 holds:
 
@@ -432,6 +434,8 @@ holds:
 
 ### Step 7 — GitHub's face
 
+Shipped — see HISTORY.md § The rename.
+
 - Description stays pyproject.toml's line (it does not carry the name).
   Topics unchanged. Social preview: upload the new `docs/img/edit-mode.png`.
   Check the public URL unfurls with it, logged out.
@@ -449,6 +453,8 @@ holds:
   Security tab still offers a report.
 
 ### Step 8 — the registry and the plugin
+
+Shipped — see HISTORY.md § The rename.
 
 Tyler's hand (the publish was refused as a public-surface action last
 time, correctly):

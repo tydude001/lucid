@@ -14043,3 +14043,68 @@ whose only media was a symlink to the VO on the NAS (still there).
 Last, the clone moved to `~/projects/proofcut` with its auto-memory
 directory beside it, and `.venv` was rebuilt there; the recording scripts in
 `~/lucid-work/launch-v5/` follow the new path.
+
+### The README, rewritten — 2026-09-14
+
+Tyler asked for a README that is easier to read, leads with what sets
+proofcut apart, and still works for a coding agent. It now opens with *Why
+proofcut* (render verification, word indices that never renumber, the MCP
+surface with CLI parity, one engine behind three clients, local-first, OTIO),
+turns § The idea's primitives table into § How it works, sets
+§ Requirements' two lists as tables, and replaces § Development with
+§ Working on proofcut, a path map that points at CLAUDE.md first. Every
+heading another document links to stayed: the v0.22.0 release notes link
+§ Help wanted: the first run on a Mac, so the two Help wanted sections were
+kept apart rather than merged. A reviewer checked every claim against the
+code and caught two: cards are flagged stale on a canvas change and redrawn
+by `card reauthor`, not redrawn by themselves; and the "calls no cloud
+service" line needed the one-time download of the optional VLM and TTS
+models beside it.
+
+### Steps 6–8 — the public surface, 2026-09-14
+
+In the order the plan set, every public action by Tyler's hand and each read
+back from the public side:
+
+- **GitHub** `gh repo rename proofcut`; `github.com/tydude001/lucid` answers
+  301 to the new address. **Gitea** renamed in the UI; `git ls-remote` on
+  the old URL warns "redirecting" and returns the new repo. **The push
+  mirror's address was left at `github.com/tydude001/lucid.git`**: Gitea's
+  push-mirror address is not editable, re-adding it needs a new PAT (the old
+  one is unrecoverable, wiki `git-server.md`), and GitHub forwards pushes to a
+  renamed repo's old address. The sync below went through it.
+- **The README clip** is a 9.2 MB two-pass encode of the approved 47 s clip
+  (1080p30, 1450 kb/s, the v0.22.0 upload's settings), because GitHub's cap
+  is 10 MB and the clip is 30 MB. Tyler uploaded it into the v0.23.0 draft;
+  the file GitHub serves logged out is byte-identical to the local one. Its
+  URL went into README.md and the notes, and the unpushed tag was re-cut at
+  the new tip.
+- **A scrub before the push** (`git grep` for home paths and LAN addresses)
+  found this box's home path in three RENAME.md lines and the Gitea address
+  in a fourth, none of them public yet; each was elided, and the tag re-cut
+  again, at `1db5036`.
+- **One push, one sync.** `main` and `v0.23.0` to Gitea, Synchronize Now;
+  GitHub's tip and tag object (`5db8139`) match Gitea's. The repo is public,
+  so the runs were unbilled. ci green on all four jobs (1,952 passed on
+  Linux, 1,949 on macOS, 2,071 on Windows, none failed); mac-demo and
+  windows-demo each reached a checked render, 289 of 289 frames, `verify`
+  0.971.
+- **The release** — both uncut runs uploaded (sizes match the local files),
+  the notes' platform lines rewritten to those runs, then published in place
+  with `--verify-tag --draft=false --latest`: latest is `v0.23.0`, the tag is
+  still `5db8139`, both asset links answer 200 logged out. `v0.22.0` is
+  untouched.
+- **Issues #1 and #2** retitled and rebodied to the proofcut commands; both
+  still pinned with their labels. **Social preview**: the new
+  `docs/img/edit-mode.png`, served logged out byte-identical as `og:image`.
+- **The registry.** `mcp-publisher publish` put `io.github.tydude001/proofcut`
+  0.23.0 up, active and latest. `status --status deleted --all-versions`
+  prompts for confirmation, and a `!` command has no stdin, so it ran as
+  `echo y | …`; the public API now lists `io.github.tydude001/lucid` 0.22.0
+  only with `include_deleted`, status `deleted`, message "renamed to
+  io.github.tydude001/proofcut".
+- **The plugin from the public repo**, in an isolated `CLAUDE_CONFIG_DIR`:
+  `plugin marketplace add tydude001/proofcut`, `plugin install
+  proofcut@proofcut`, and `claude mcp list` shows it connected.
+
+Glama is not checked yet; RENAME.md gives it a day.
