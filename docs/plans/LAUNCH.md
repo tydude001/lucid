@@ -23,7 +23,9 @@ pointer, and the wiki row updates.
 - **The order is the plan.** Each step is cheap on its own and worthless out
   of sequence: a Show HN before a stranger's run turns the launch thread into
   a bug tracker, and a directory listing before the flip points at a 404.
-  Step 1 is done; 3 gates 2 and 4, which then overlap, and 2 and 4 gate 5.
+  Steps 1 and 3 are done; 2 and 4 overlap, 4 gates 5, and **2 gates 5 only
+  until its time-box** (§ Step 2, *Why it gates Show HN*) — the stranger is
+  found by launching, so an open-ended wait on one never ends.
   **Step 2 ran ahead of the flip until 2026-09-13**, when the friend it
   counted on fell through (Tyler: nobody he knows can test it). A stranger
   can only reach a public repo, so the flip moved in front of it.
@@ -168,6 +170,19 @@ steps 4–5 (measure melt, libass and magick per OS) are the deep version of
 this; step 2 here is the shallow one: does the two-minute demo reach a
 verified render, yes or no, and where did it stop.
 
+**The gate is time-boxed, because nothing else ends it.** Written open-ended,
+it is a loop: Show HN waits for a stranger's Mac run, and strangers arrive
+through channels that all come after Show HN. With 1 star and no outside
+issue on 2026-09-14, nothing but the tester post below breaks it. So Show HN
+goes on the first weekday morning after **a Mac report, or 7 days after the
+tester post, whichever comes first**. Going without a report costs less
+than it did when this gate was written: GitHub's macOS runner takes the demo
+to a checked render (§ The Mac test in CI below), so what a person would
+still find is the install path, not proofcut failing on macOS — and the
+first comment's platforms paragraph already says no person has run it on a
+Mac, so a Mac ✗ in the thread confirms a stated limit rather than exposing
+a hidden one.
+
 **Who.** A stranger, reached through the public repo — there is no friend
 or colleague to ask (2026-09-13). The ask is in three places, each pointing
 at the next: README.md § Help wanted, right above § Requirements, where a
@@ -180,7 +195,22 @@ nothing to think about: clone, one command, attach a zip. What finds the
 stranger is step 4's listings — their audience runs Claude Code, mostly on
 Macs — and, if a week of those produces nobody, one "Mac tester wanted"
 post in a room step 6 does not use, so no launch channel's first
-impression is spent on a request. Show HN still waits for the report.
+impression is spent on a request. **That week ends 2026-09-20** (the
+registry listing went live 2026-09-13, and the awesome-list PR's badgeless
+fallback is the same day), so with no report by then the tester post goes
+up on **2026-09-21**. The room is one built for requests — r/alphaandbetausers
+first, r/SideProject if its rules turn a tester call away; read the rules
+the day of posting. Moving a step 6 channel ahead of Show HN to do this was
+weighed on 2026-09-14 and rejected: self-promotion rules commonly read a
+second post about the same project as spam, so a request posted in a launch
+room spends that room's launch post. Draft:
+
+> **[Testers] A local AI video editor needs its first run on a real Mac.**
+> proofcut is an MCP server an agent uses to cut video by transcript, then
+> check the render. CI's macOS runner passes; no person has run it. One
+> script installs what it needs, runs a 2-minute demo, zips a report, and
+> `--uninstall` removes exactly what it added. Half an hour, Apple silicon
+> or Intel: https://github.com/tydude001/proofcut/issues/1
 
 **What comes back is a queue, not a verdict** — the trial's own rule (TRIAL.md
 § The queue). Every ✗ becomes a fix or a documented requirement; every
@@ -374,8 +404,9 @@ queue they produced closed.
 
 ## Step 5 — Show HN
 
-One shot, so it goes after steps 1, 2 and 4, on a weekday morning US
-Eastern, with Tyler at a keyboard for the following six hours.
+One shot, so it goes after steps 1 and 4 and after step 2's report or its
+time-box, on a weekday morning US Eastern, with Tyler at a keyboard for the
+following six hours.
 
 **Title** (draft; HN strips "Show HN:" formatting quirks, keeps it under 80
 characters, no exclamation):
