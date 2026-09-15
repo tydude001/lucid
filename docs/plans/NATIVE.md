@@ -1,0 +1,212 @@
+# proofcut — making "cut with proofcut" true
+
+Provenance: Tyler asked on 2026-09-14 whether it is fair to say he made
+several YouTube videos, and the launch video, "almost entirely using proofcut
++ Claude Code". It is not, yet: LAUNCH.md § Step 1 already says the launch clip
+is a compositor script (`~/proofcut-work/spikes/launch-v4/clip.py`), and no
+essay cut with proofcut has been posted — Scream v8 and Lambs/Longlegs v10 are
+both cut and unposted (goodsometimes `analytics.md`), and both finish outside
+proofcut. He then asked what proofcut would need for the claims to be true,
+and whether the launch clip's editing style should become a feature. This is
+the answer, written as a plan. Sources: a native rebuild of Lambs/Longlegs v10
+(HISTORY.md § The Lambs/Longlegs native rebuild), a measurement of MLT's
+retime and easing (`~/proofcut-work/spikes/mlt-retime/FINDINGS.md`), and a
+prior-art survey of screen-recording editors
+(`~/proofcut-work/spikes/screen-mode/PRIOR-ART.md`).
+
+**The finding that frames it: the two claims cost very different amounts.**
+The essays are mostly proofcut already, and the native rebuild of v10 turned
+up six proofcut defects before it turned up a missing feature — four of them
+the kind that renders the wrong film at exit 0. The launch clip is a different
+editing grammar (a screen recording retimed and framed by UI events, not a
+voiceover cut by words), and MLT turns out to have every primitive it needs.
+
+Status lives **only** in the wiki's Open items table; this file never carries
+a status header. When a step ships, HISTORY.md gets a named section and the
+step here gains a one-line pointer.
+
+## What "cut with proofcut" means here
+
+**The delivered file comes out of `proofcut export` with nothing after it.**
+A script that drives proofcut is fine — `build_longlegs.sh` is a record of
+proofcut calls, exactly what CLAUDE.md's CLI-parity rule is for. Capture is
+fine too: a screen recorder is a camera. What does not count is the category
+v10 still has: ffmpeg or numpy reshaping the render after proofcut is done
+with it (`music_bed.py`, the cold-open concat, `clip.py`).
+
+## Part A — the essays
+
+### What the rebuild measured
+
+v10 rebuilt as `Project/proofcut-native` from the same tables
+(`assemble_longlegs_native.py` imports `assemble_longlegs.py`'s HOLDS and
+CUES rather than restating them) and v10's own VO transcript, with the cold
+open as a proofcut `head` and the eight film holds as `hold add`: the timeline
+is **352.97 s, v10's exactly**, all eight holds land on v10's in-points, and
+after the fixes below whisper hears v10's own line in every hold and the cold
+open (8609 of 8835 frames at SSIM ≥ 0.9; the rest is the cold open's framing).
+Getting there fixed, each with a test that failed first:
+
+| defect | what it did | commit |
+|---|---|---|
+| refusal named `proofcut transcript attach`; picker copied `proofcut migrate -C <path>` | both commands are refused by argparse | `f601848` |
+| a splice the shot plan refused had already registered its silence | orphaned clip, and an undo press that changed nothing | `f0710b1` |
+| a read-back segment ended at float start + duration (60.199999999999996) | a hold resolved past its own silence; export would refuse, or with slack render the film audio shifted by the hold's length | `7429abe` |
+| the holds lane read the clip from the cue's in-point, not `play_at` | every hold played the seconds *before* its line | `a3ae39f` |
+| `_transcribe_span` read a `words` key whisper does not write | `hold_check` heard "" on every real span, v10's included | `a3ae39f` |
+| MLT plays the first two of six unlabelled channels | the cold open and three Longlegs holds at −47 to −53 LUFS against v10's −16: the centre, the dialogue, never reached the render | `bb9e8bd` |
+
+**Still outside proofcut after those**, and each is a real feature:
+
+### A1. Placed music cues, levelled under the VO
+
+v10's bed is three passages alternated with 2.5 s crossfades, 22 LU under the
+VO, out across every hold; Scream v8's is three placed cues (`A Cruel World`
+from src 2.6, `A Killer Confrontation`, `A Cruel World` again) with 4.0 s and
+2.5 s crossfades. proofcut's bed is one asset from its head at the asset's own
+level. PLAN.md § The A2 music lane already said the next step would be
+"cue *placement*, in the shape the cue table already has for picture — a new
+item to raise when a video wants it"; two videos want it.
+
+**Recommended:** a list of music cues, each `(asset, clip_id, word_index_start,
+src_in, crossfade)` running to the next cue's start (or the film's end),
+`build_shots`' own derivation for picture applied to sound — never a stored
+length, for the reason the design note measured. One bed-wide `under` (LU below
+the VO), measured the way a hold's gain already is. The bed still goes out
+across every hold. The existing single bed reads as a one-cue list, so nothing
+on disk changes meaning. *Open call:* whether the list rides `MUSIC_KEY` or a
+new key — a new list key is the one shape CLAUDE.md says has bumped the schema
+before; recommendation is to extend `MUSIC_KEY` (absent `cues` = today's
+single bed) and not bump.
+
+### A2. Film audio under the VO
+
+v10 plays the fairy-tale narration 13 LU *under* the VO for one sentence —
+the essay's own argument made with the edit (`assemble_longlegs.py`'s
+FAIRY_TALE). A proofcut hold always opens a gap. **Recommended:** `hold add
+--under-vo`, the same record with no splice: the clip's audio across a word
+span at `under` LU below the VO, the bed out across it like any hold.
+`hold_check` skips the seam check for it, since there is no seam.
+
+### A3. A loudness target on export
+
+Both essays are mastered to −16 LUFS integrated / about −1 dBTP (v10 −16.0 /
+−1.21, Scream v8 −16.2 / −1.13). proofcut measures (`finish.loudness`) and
+never applies. **Recommended:** `export --loudness -16 --true-peak -1`, a
+two-pass `loudnorm` over the render proofcut just made, recorded in the render
+log, with `finish_check` reporting against the target it was asked for. It is
+proofcut's own export doing it, so it counts.
+
+### A4. The two cuts, rebuilt and posted
+
+- **Lambs/Longlegs:** re-run the native build on A1–A3, A/B it against v10 on
+  the review page, then Tyler's two open calls (synth VO vs a re-record; *"It's
+  not about her"*) — the wiki row's, not this plan's.
+- **Scream:** the retake pass was done in Kdenlive and the v8 trims by
+  `vo_trim.py` on `.kdenlive` files. `~/proofcut-work/projects/final-cut/proj`
+  already holds the 63-segment edit; v8's two trims are two `cut` calls, its
+  fifteen breath tames are `attenuate`, and the music is A1. Then the same A/B
+  against `Video Final v8.mp4`.
+- **Posting is Tyler's hand.** The claim "my last two essays were cut with
+  proofcut and Claude Code" is true the day the second one is up.
+
+## Part B — the launch clip's style, as proofcut features
+
+### What `clip.py` does, and what proofcut has
+
+| `clip.py` | proofcut today |
+|---|---|
+| a smooth speed ramp, output time → recording time (PCHIP), waits compressed, moments at 1x | nothing: `timeline.py` has no speed changes |
+| beats anchored to UI events (`typing_started`, `sent`, `struck`) | everything is anchored to transcript words |
+| an eased log-zoom camera over a 2560x1440 recording | `reframe` windows, discrete or linear (`--interp`) |
+| the agent's render drawn into the preview's rectangle, following the camera | a stacked split pane; no inset |
+| animated headline and footnote over a scrim | cards are full-frame stills |
+| key clicks and UI sounds on events; a bed offset so its drop lands | one bed from its head (A1 covers the offset) |
+| on-screen numbers read from the run, refusing a run that did not verify | `verify`/`check_frames` exist; nothing fills a card from them |
+
+### What MLT can do — measured, not assumed
+
+`FINDINGS.md`, melt 7.41.0, every number read back off a render:
+
+- **`timeremap` is frame-exact.** A 1x/6x/1x `time_map` rendered 150 of 150
+  frames on the frame asked, inside proofcut's own tractor nesting with a
+  `qtblend` filter, and `melt -consumer xml` reports the remapped length.
+  Keys are `<output frame><op>=<source seconds>`; smooth (`~`) eases and stayed
+  monotonic.
+- **Its trap:** a `length` property on the chain freezes the link on source
+  frame 0 for every output frame, at exit 0, with the declared length and the
+  file's frame count both correct. The writer must never emit one there.
+- **Audio follows the map:** pitched by exactly the speed ratio by default;
+  `pitch=1` keeps pitch at ~20 % RMS cost.
+- **Easing:** 33 keyframe operators, not the three CLAUDE.md lists; 19
+  measured within 0.5 px of their analytic curves. A scaling move is sub-pixel
+  and antialiased; **a pure translation snaps to whole pixels**, so a slow pan
+  at constant zoom may judder — unmeasured, and step B2 measures it first.
+
+### What the field does, and the opening
+
+`PRIOR-ART.md`: every screen-recording editor surveyed (Screen Studio, Cap,
+Cursorful, Canvid, FocuSee, Camtasia, …) authors zoom as **segments** — start,
+end, target, easing — and speed as a **constant per segment**; only MLT and
+Remotion do a real ramp. Every auto-zoom decision found is made from clicks and
+cursor telemetry, never from speech; nothing checks a retimed render against
+its plan; no MCP server edits screen recordings. Screen Studio has not shipped
+idle-pause compression. proofcut's two strengths — word-addressed edits and
+checking the render against the edit — are exactly the gaps. Cap and Screenity
+are AGPL/GPL: ideas, never code, in a PolyForm Shield repo; and avoid their
+product names for anything proofcut ships.
+
+### The build order
+
+Each step is usable on its own, and each is judged on a served render.
+
+- **B1. Events.** An event index per clip — `(clip_id, name, src_seconds)`,
+  imported from the recorder's JSON — addressable anywhere a word is.
+  Source-indexed like a footage description, so no edit can invalidate one.
+  Named `events` (proofcut already has `marks`, and means something else).
+- **B2. Eased camera windows on events.** `reframe` windows gain an easing
+  name (a short list over MLT's operators: `linear`, `ease`, `smooth`) and an
+  event or word address. First, measure a slow pan at constant zoom for
+  judder; if it judders, a pan is written as a scaling move of the same rect.
+- **B3. Overlays.** A card rendered with alpha and placed on the canvas
+  instead of filling it, with an opacity/position animation — a lower third.
+  Also useful to the essays.
+- **B4. Sound on events.** A1's cue list plus one-shot effects at events
+  (`send`, `land`, keystrokes).
+- **B5. Retime.** The hard one, last on purpose: it is the only step that
+  changes what "timeline time" means, so captions, cues, holds, `locate`,
+  `verify` and `check_frames` all have to compose through it.
+  **Recommended authoring unit: a stretch** — "from event `sent` to event
+  `words` in 1.0 s" — which the writer turns into `time_map` keys with easing
+  between them. It matches the field's segment unit, is a sentence an agent
+  can write, and still renders a ramp rather than steps. Refuse any map that
+  runs the recording backwards (`clip.py` already had to). Source audio in a
+  stretch that is not 1x is muted by default — `clip.py`'s own choice, with a
+  separate VO — and `pitch=1` stays available.
+- **B6. Inset.** The render drawn into a rectangle of the recording, following
+  the camera: composite onto the recording's own track, then frame the
+  composite. A nested tractor with the camera filter on it — measure before
+  building.
+- **B7. Re-cut the launch clip with proofcut**, ideally by an agent through the
+  trial harness, and A/B it against `clip-v6.mp4` on Tyler's phone. Then
+  LAUNCH.md § Step 1's "not cut with proofcut" line is retired with evidence.
+
+## Decisions for Tyler
+
+Grouped by what is actionable today; each carries a recommendation.
+
+1. **The line-edge fault in `hold_check`** (actionable now). Built and held
+   back in `git stash` ("line-edge fault, held for Tyler"): a hold whose line's
+   start or end is not heard counts as a fault. Measured on 16 real spans it
+   separates right from wrong 8/8 each way, where word recall does not.
+   It disagrees with `test_hold_check_over_the_wire`, whose "clean" case hears
+   "hello from the stub" for "i know what you did" and asserts zero faults.
+   **Recommended: take the fault**, and have that test's stub hear the line —
+   the test was asserting that nothing compared the two.
+2. **A1's key** — extend `MUSIC_KEY`, no schema bump (recommended), or a new key.
+3. **Part A before Part B** (recommended): the essays are days, Part B is weeks,
+   and the essays are what the channel's October wants.
+4. **B5's unit** — stretches (recommended), per-segment speed multipliers, or a
+   raw time map.
+5. **Who cuts the launch clip in B7** — an agent, recorded (recommended), or
+   Tyler driving the CLI.

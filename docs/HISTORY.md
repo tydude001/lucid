@@ -14469,3 +14469,91 @@ clone for those, and the MCP-client line gains the `uvx` form beside the
 line, and it was corrected in the same commit: it said the demo had run on a
 Mac, where only GitHub's runner has, and that Windows had only CI, where the
 laptop ran it end to end today.
+
+
+## The Lambs/Longlegs native rebuild — 2026-09-14
+
+Tyler asked whether it is fair to say his videos, and the launch clip, were
+made "almost entirely using proofcut + Claude Code". It was not: the launch
+clip is `clip.py` (LAUNCH.md § Step 1), and v10 of Lambs/Longlegs finishes
+outside proofcut — `music_bed.py --film` lays the film's audio into the holds
+and the bed under everything, and an ffmpeg concat puts the cold open on the
+front. proofcut has since grown a `head` and film-audio `hold`s, so v10 was
+rebuilt through them as goodsometimes `Project/proofcut-native`
+(`assemble_longlegs_native.py`, importing v10's own HOLDS and CUES, on v10's
+own VO transcript) to find out what the claim costs. docs/plans/NATIVE.md is
+the plan that came out of it.
+
+**It found six proofcut defects before it found a missing feature**, four of
+them a wrong film at exit 0. Each has a test that failed first:
+
+- **Two refusals named commands that do not parse** — the missing-transcript
+  refusal's `proofcut transcript attach`, and the picker's copied
+  `proofcut migrate -C <path>` (`-C` is global and goes first; the path was
+  unquoted too). `f601848`.
+- **A splice the shot plan refused had already registered its silence.** The
+  build's first `hold add` order was refused, leaving `silence-5300ms` in the
+  manifest with nothing using it and an undo press that walked back no edit.
+  `_splice_after` now checks against the placeholder and registers only what
+  passes. `f0710b1`.
+- **A timeline read back ended a segment at float start + duration.** 55.9 +
+  4.3 is 60.199999999999996, so the gap word "angle." (ending 60.2) resolved
+  past chilton-using-you's own 3.35 s of silence: `hold ls` read "no room …
+  2.430 s more" for a hold `hold add` had accepted. Export plans holds the same
+  way; with slack, the hold would have rendered shifted by its own length.
+  `from_otio` reads OTIO's rational end. `7429abe`.
+- **Every hold played the seconds before its line.** The holds lane read the
+  clip from `src_start`, the picture cue's in-point, not from `play_at`, where
+  the clip's playhead is when the gap opens. miggs played "What did Migs say to
+  you? … He hissed at you. What did he say?" and cut before its line;
+  discuss-in-private and bureau-knows-you played other lines entirely. The
+  existing real-render test used one constant tone, which cannot say which
+  second a hold reads; the new one's film names its own second. `a3ae39f`.
+- **`hold_check` had never heard a hold.** `_transcribe_span` joined
+  `payload["words"]`, and openai-whisper nests words under `segments[]` — so it
+  returned "" on v10's own spans, which play at −16 LUFS. The stdio test's stub
+  writes the flat shape. `a3ae39f`.
+- **MLT drops the centre of six unlabelled channels.** Every `ll-` clip is six
+  AAC channels, layout "unknown", dialogue on channel 2 (−32.6 dB) over fronts
+  at −64. melt's stereo output read the fronts exactly (−64.7/−63.1) — the cold
+  open and three Longlegs holds rendered at −47 to −53 LUFS against v10's −16,
+  their gain measured by ffmpeg with the centre in it. A tagged 5.1 `sl-` clip
+  did downmix in melt, 9 dB hotter than ffmpeg's; `channel_layout=5.1` on the
+  producer changed nothing. Import now writes one ffmpeg stereo downmix into
+  `mixed` for anything over two channels. `bb9e8bd`.
+
+**Rebuilt from nothing on those fixes, measured against v10's delivered
+file:**
+
+- Timeline **352.97 s**, v10's; 8835 frames, v10's; all eight holds on v10's
+  in-points.
+- **What whisper hears in all nine spans is v10's, line for line** — "Is it
+  scary being a lady FBI agent?" through "…he knows who you are, Agent
+  Harker." Before the `play_at` fix, six of eight holds held a different line.
+- The cold open at **−15.9 LUFS** (v10 −16.0); every hold at −18.9 to −19.9,
+  level with this cut's own VO at −19.6. v10 sits ~3.5 dB above both
+  throughout, which is its −16 LUFS master (NATIVE.md § A3).
+- **Picture: 8609 of 8835 frames at SSIM ≥ 0.9** against v10 (480×270). The
+  226 below are the cold open: v10's concat fit its 1920×1040 source inside
+  1080 with bars, proofcut fills the canvas the way it places every body shot,
+  so the picture is 847 px tall against 817. A framing difference, not an
+  error.
+- `hold_check` hears every hold now, and reports 4 seam faults — against **5**
+  on v10's delivered file over the same spans, a mix Tyler approved. The seam
+  thresholds, not this cut.
+
+**What it still does not have** is the bed (v10 alternates three passages
+22 LU under the VO), the fairy-tale narration under the VO at 13 LU, and the
+master — NATIVE.md § A1–A3. A fault for a hold whose line is not heard was
+built and held back: on these 16 spans, "one of the last two words heard"
+separates right from wrong 8/8 each way where word recall does not (v10's
+right holds 0.80–1.00, a wrong one 0.94), but it disagrees with
+`test_hold_check_over_the_wire`, which asserts no fault for a stub hearing the
+wrong words. That is Tyler's call (NATIVE.md § Decisions).
+
+The launch-clip half of the question was measured the same day and lives in
+NATIVE.md § Part B: MLT's `timeremap` rendered a 1x/6x/1x map on 150 of 150
+frames, its easing operators match their curves within 0.5 px, and a `length`
+on a remap chain freezes it on frame 0 at exit 0
+(`~/proofcut-work/spikes/mlt-retime/FINDINGS.md`). The survey behind it is
+`~/proofcut-work/spikes/screen-mode/PRIOR-ART.md`.

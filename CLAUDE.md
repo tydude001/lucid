@@ -48,6 +48,11 @@ steps a fresh session works — is
 landed, and HISTORY.md § The rename is its record. The records — HISTORY.md,
 TRIAL.md, and DAYDREAM/POLISH/STUDIO — still say `lucid` by design, and so
 does every citation of a heading that contains the word.
+What proofcut needs before "cut with proofcut" is true of the essays and the
+launch clip — the placed music cues, the loudness target, and the launch
+clip's retime/eased-camera grammar as features, with MLT's retime and easing
+measured — is [docs/plans/NATIVE.md](docs/plans/NATIVE.md), written
+2026-09-14 off a native rebuild of Lambs/Longlegs v10.
 Open-item status lives in the wiki, not here.
 
 **Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
@@ -155,6 +160,15 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
           else asking for "the original file" wants the mixdown; asking
           `media_path()` for the mics compares it against itself and
           separates nobody, at exit 0.
+        - **More than two channels are downmixed at import too, into the
+          same `mixed` key** (`media.downmix_to_stereo`, recorded as
+          `downmix`). MLT plays the *first two* of six unlabelled channels,
+          so a clip cut from a 5.1 rip renders its fronts and never its
+          centre — the dialogue — at exit 0; a tagged 5.1 stream downmixes in
+          melt, but 9 dB off ffmpeg's, so a gain ffmpeg measured is wrong for
+          what melt plays. A project imported before this has no copy, and
+          import's dedup means only a fresh import makes one. HISTORY.md § The
+          Lambs/Longlegs native rebuild.
           - **`attribute_speakers` is at chance on simultaneous speech**,
             measured on one synthetic voice, so `speakers.MARGIN_DB` is a
             reported default and never a threshold to trust — `apply` is
@@ -971,6 +985,16 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       asset, rendered *silent throughout* under 0-based keys: playback
       reaches producer frame 268 long after the animation's last defined key.
       HISTORY.md § A film-audio hold.
+    - **A hold's audio reads its clip from `play_at`, never `src_start`.**
+      `src_start` is the picture cue's in-point; by the gap the clip has
+      played `elapsed` further, and the line is there. The lane read
+      `src_start` until 2026-09-14 and every hold on the Lambs/Longlegs native
+      rebuild played the seconds before its line — past a real-render test
+      whose film was one constant tone, which cannot say which second it is.
+      And **fake whisper in whisper's own shape**: its JSON nests words under
+      `segments[].words[]`, a stub writing a flat `words[]` passed, and
+      `_transcribe_span` returned "" on every real span, so `hold_check`
+      never heard a hold. HISTORY.md § The Lambs/Longlegs native rebuild.
     - **The window sets the bed too (`POST /api/music`), and both traps in
       that are general to any editor over a projection.** A **refusal is
       sent instead of the state** — `music_error` means `state.music` is
@@ -1493,6 +1517,12 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
     on `timeline_time` is for *instants* only; passing it for one edge of a
     range double-counts the join between two segments. HISTORY.md § The head
     of the parity queue.
+    - **That `==` needs a segment's end read as OTIO's rational end, never
+      float start + duration**: 55.9 + 4.3 is 60.199999999999996, one ulp short
+      of the next segment's 60.2, and a gap word ending on a splice's join
+      resolved past the splice. `from_otio` reads `end_time_exclusive()`; any
+      new reader of a `source_range` does the same. HISTORY.md § The
+      Lambs/Longlegs native rebuild.
   - **Two clocks, once a head is configured: render time = Edit time +
     `head_seconds`.** `timeline_view`/`locate`/`status`/`caption_view` stay
     Edit-relative on purpose (0 is still the `Edit`'s own first frame) because
