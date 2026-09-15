@@ -14906,3 +14906,69 @@ clone itself, so it found no repository. `ALL STEPS RAN`, started 09:58 local.
   245 in the burn. `test_no_magick_leaves_the_caption_font_unchecked_never_crossed`
   fails on the old code. `test_an_ffmpeg_that_cannot_burn_is_still_a_cross`
   guards the other side.
+
+## The phone's Spatial Audio track — 2026-09-15
+
+`scripts/windows_probe.ps1 -Footage` on Tyler's laptop at `b5df840`, the
+wiki's "run the probe on your own footage" item, with a 30-second iPhone
+clip (`.MOV`). Every Windows case ran clean again: space, accents,
+CJK/Cyrillic, the 235-character root, `-C` confinement in two letter cases,
+and the caption burn at 1.38% of the bottom third with a line up and 0.0% in
+the gap. No second drive was attached. **`own-footage` failed at import**,
+and the failure is not Windows'.
+
+The clip's streams, from the kit's ffprobe 9.0.1:
+
+    index 0  audio  aac         2 ch
+    index 1  audio  apple_apac  4 ch
+    index 2  video  h264
+    index 3-8  data  (Core Media Metadata)
+
+An iPhone recording Spatial Audio writes the performance twice: AAC stereo,
+and Apple Positional Audio in a codec no ffmpeg here decodes. ffmpeg 9.0.1
+names it, and 8.1.2 on this box does not list it in `-codecs` at all. Import
+counted two audio streams and refused, as it would for two mics. The probe
+then asked for `--mix`, and `amix` over `[0:a:0][0:a:1]` died with "Decoding
+requested, but no decoder found for: apple_apac". So **a stranger's first
+phone clip could not be imported on any OS**, and neither of the two offered
+answers was the right question: this is one recording, not two mics. Two
+more traps sat behind it. The video is stream index 2, not 0. And ffmpeg's
+default audio pick favours the most channels, so a whisper handed the raw
+container reaches for the stream it cannot decode.
+
+**The fix.** `probe` asks `media.decodable_audio_codecs()` (the `D` column of
+`ffmpeg -codecs`, cached per process, None when it cannot be read) about any
+container with more than one audio stream. It records the rest as
+`undecodable_audio`, as `(ordinal, codec)` pairs, omitted from `as_dict` when
+empty so an ordinary record gains no key. Import counts only the readable
+streams:
+
+- one readable stream is imported with no flag, as a stream-copy pick into
+  `cache/mixed/` (`mix` records `mode: pick` and `undecodable`), so nothing
+  downstream ever sees the Spatial track;
+- `--mix` sums only the readable streams, and a sum of one is that one;
+- `--audio-stream k` naming an unreadable stream refuses, and a container
+  with no readable audio refuses by name;
+- `attribute_speakers` neither counts nor decodes an unreadable stream as a
+  mic.
+
+No ffmpeg here can make an APAC stream, so the tests build the phone's
+layout with an AC-3 stand-in (AAC at audio 0, 4-channel AC-3 at audio 1,
+video at index 2, `.mov`) and tell `probe` it has no decoder. The stand-in
+must really decode, which makes the tones mean something: a sum carries
+mic B. The undecodable-first ordering is tested too, because a rule that
+took audio 0 passes the phone's own layout. The real half,
+`test_this_ffmpeg_decodes_aac_and_not_apple_spatial_audio`, reads this box's
+ffmpeg. Two controls were run. With `src/` stashed, the seven new tests
+fail, but mostly on the missing helper, which proves little. With the
+helper kept and the old sum-everything logic restored, the four import tests
+fail on exactly the old behaviour (the refusal, and `mode: sum`). The suite
+ran 2178 passed.
+
+### Still open
+
+- **The laptop re-run.** The fix is judged on the real clip and not only on
+  the stand-in, by `windows_probe.ps1 -Footage` on the same file.
+- **The phone model and its Settings → Camera → Record Sound choice are
+  unrecorded.** Whether "Stereo" instead of "Spatial Audio" writes one
+  stream was not asked.

@@ -93,9 +93,24 @@ class MediaInfo:
     #: clips divides by `2**bit_depth - 1` first. Defaulted to 8 like the two
     #: fields above, so a hand-built `MediaInfo` still means what it meant.
     bit_depth: int = 8
+    #: `(audio ordinal, codec_name)` for each audio stream this box's ffmpeg
+    #: has no decoder for — asked only of a container with more than one.
+    #: An iPhone recording Spatial Audio holds AAC stereo at audio 0 and
+    #: `apple_apac` at audio 1: one performance written twice, not two mics,
+    #: and the second is a stream nothing here can read, so summing the two
+    #: is an ffmpeg error and not a mixdown. Found by the Windows probe on a
+    #: real phone clip; ffmpeg 9.0.1 names the codec and 8.1.2 does not list
+    #: it at all, and neither decodes it. HISTORY.md § The phone's Spatial
+    #: Audio track. Omitted from `as_dict` when empty, so an ordinary clip
+    #: record gains no key.
+    undecodable_audio: tuple[tuple[int, str], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        out = asdict(self)
+        undecodable = out.pop("undecodable_audio")
+        if undecodable:
+            out["undecodable_audio"] = [{"stream": k, "codec": c} for k, c in undecodable]
+        return out
 
 
 def _fraction(value: str | None) -> float | None:
@@ -120,6 +135,38 @@ def _ffprobe(media: Path, *args: str) -> dict[str, Any]:
     except subprocess.CalledProcessError as exc:
         raise MediaError(f"ffprobe failed on {media}: {exc.stderr.strip()}") from exc
     return json.loads(completed.stdout)
+
+
+_DECODABLE_AUDIO: frozenset[str] | None = None
+
+
+def decodable_audio_codecs() -> frozenset[str] | None:
+    """The audio `codec_name`s this box's ffmpeg can decode, or None if unknown.
+
+    Read off `ffmpeg -codecs`, whose first flag column is `D` for a codec with
+    a decoder. A codec the build has no descriptor for is not listed at all,
+    which reads the same as listed without `D` — both are undecodable. None
+    (ffmpeg would not run, or listed no decodable audio) means *don't know*,
+    and every caller then treats every stream as decodable, which is what
+    import did before this was asked. Cached for the process.
+    """
+    global _DECODABLE_AUDIO
+    if _DECODABLE_AUDIO is None:
+        try:
+            completed = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-codecs"], capture_output=True, text=True, check=False
+            )
+        except OSError:
+            return None
+        names = set()
+        for line in completed.stdout.splitlines():
+            flags, _, rest = line.strip().partition(" ")
+            if len(flags) == 6 and flags[0] == "D" and flags[2] == "A" and rest.split():
+                names.add(rest.split()[0])
+        if not names:
+            return None
+        _DECODABLE_AUDIO = frozenset(names)
+    return _DECODABLE_AUDIO
 
 
 #: How far `-show_format`'s own `duration` may disagree with the loudest of
@@ -267,6 +314,13 @@ def probe(path: Path | str) -> MediaInfo:
         fps = _fraction(video.get("r_frame_rate"))
         avg = _fraction(video.get("avg_frame_rate"))
 
+    audio_codecs = [s.get("codec_name") or "unknown" for s in streams if s.get("codec_type") == "audio"]
+    undecodable: tuple[tuple[int, str], ...] = ()
+    if len(audio_codecs) > 1:
+        decodable = decodable_audio_codecs()
+        if decodable is not None:
+            undecodable = tuple((k, c) for k, c in enumerate(audio_codecs) if c not in decodable)
+
     return MediaInfo(
         duration=float(duration),
         has_video=video is not None,
@@ -280,9 +334,10 @@ def probe(path: Path | str) -> MediaInfo:
         audio_codec=audio.get("codec_name") if audio else None,
         # A 1% tolerance: 30000/1001 vs 29.97 is rounding, not variability.
         vfr=bool(fps and avg and abs(fps - avg) / fps > 0.01),
-        audio_streams=sum(1 for s in streams if s.get("codec_type") == "audio"),
+        audio_streams=len(audio_codecs),
         has_chapters=has_chapters,
         bit_depth=_bit_depth(video),
+        undecodable_audio=undecodable,
     )
 
 
@@ -623,6 +678,7 @@ def derive_single_audio(
     streams: int,
     pick: int | None = None,
     has_video: bool = False,
+    undecodable: tuple[tuple[int, str], ...] = (),
 ) -> dict[str, Any]:
     """Write a one-audio-stream copy of `source`, either summed or picked.
 
@@ -654,14 +710,23 @@ def derive_single_audio(
             f"{source} has {streams} audio streams, numbered 0-{streams - 1}; asked for {pick}"
         )
 
+    # `undecodable` (`MediaInfo.undecodable_audio`) never reaches a filter
+    # graph: a sum takes the rest, and a sum of one is that one, copied.
+    skipped = {k for k, _ in undecodable}
+    usable = [k for k in range(streams) if k not in skipped]
+    if pick is not None and pick in skipped:
+        raise MediaError(f"{source} audio stream {pick} is {dict(undecodable)[pick]}, which ffmpeg cannot decode")
+    if pick is None and len(usable) == 1:
+        pick = usable[0]
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     codec = "copy"
     command = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source)]
     if pick is None:
-        taps = "".join(f"[0:a:{k}]" for k in range(streams))
+        taps = "".join(f"[0:a:{k}]" for k in usable)
         command += [
             "-filter_complex",
-            f"{taps}amix=inputs={streams}:duration=longest:normalize=1[a]",
+            f"{taps}amix=inputs={len(usable)}:duration=longest:normalize=1[a]",
         ]
         command += ["-map", "0:v"] if has_video else []
         command += ["-map", "[a]"]
@@ -682,12 +747,15 @@ def derive_single_audio(
             f"ffmpeg could not reduce {source} to one audio stream: "
             f"{completed.stderr.strip()[-800:]}"
         )
-    return {
+    report: dict[str, Any] = {
         "streams": streams,
         "mode": "pick" if pick is not None else "sum",
         "stream": pick,
         "codec": codec,
     }
+    if undecodable:
+        report["undecodable"] = [{"stream": k, "codec": c} for k, c in undecodable]
+    return report
 
 
 def downmix_to_stereo(source: Path, dest: Path, *, channels: int, has_video: bool = False) -> dict[str, Any]:
@@ -878,7 +946,17 @@ def import_media(
     # above is a documented no-op that returns the existing record, and a
     # refusal ahead of it would make a retried call raise about a container
     # whose two mics were summed days ago.
-    if info.audio_streams > 1 and not mix and audio_stream is None:
+    # A stream no decoder can read is not a mic to choose (`undecodable_audio`):
+    # an iPhone's Spatial Audio track beside its AAC one is one recording, so
+    # a container left with one readable stream is imported as holding one.
+    undecodable = info.undecodable_audio
+    readable = info.audio_streams - len(undecodable)
+    if info.audio_streams > 1 and readable == 0:
+        raise MediaError(
+            f"{source.name} holds {info.audio_streams} audio streams and ffmpeg can decode none "
+            f"of them ({', '.join(c for _, c in undecodable)})"
+        )
+    if readable > 1 and not mix and audio_stream is None:
         raise MultiAudioError(
             f"{source.name} holds {info.audio_streams} audio streams, and proofcut edits one. "
             "Registering it as it stands would record only the first: whisper picks a stream "
@@ -918,6 +996,7 @@ def import_media(
                 streams=info.audio_streams,
                 pick=audio_stream,
                 has_video=info.has_video,
+                undecodable=undecodable,
             )
         except MediaError:
             derived.unlink(missing_ok=True)

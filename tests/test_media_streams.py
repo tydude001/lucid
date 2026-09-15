@@ -706,3 +706,165 @@ def test_a_stripped_only_project_resolves_in_a_planned_reel(tmp_path: Path) -> N
         entry["key"] for entry in plan["would_link"] if entry["clip_id"] == clip_id
     }
     assert "stripped" in would_link_keys
+
+
+# The phone's Spatial Audio track — HISTORY.md § The phone's Spatial Audio track.
+#
+# An iPhone recording Spatial Audio writes AAC stereo at audio 0, `apple_apac`
+# (4 channels) at audio 1, and the video at stream index 2. No ffmpeg here can
+# decode APAC and none can make one, so these build that layout with an AC-3
+# stand-in and tell `probe` the stand-in has no decoder. The tones say which
+# stream the derived copy carries: a sum over both would carry mic B too.
+
+SPATIAL_STAND_IN = "ac3"
+
+
+def _phone_shaped_container(dest: Path, *, seconds: float = 2.0, stand_in_first: bool = False) -> Path:
+    """AAC stereo `MIC_A_HZ` and a 4-channel `MIC_B_HZ` stand-in, then video."""
+    command = ["ffmpeg", "-nostdin", "-v", "error", "-y"]
+    command += ["-f", "lavfi", "-i", f"sine=frequency={MIC_A_HZ}:duration={seconds}:sample_rate=48000"]
+    command += ["-f", "lavfi", "-i", f"sine=frequency={MIC_B_HZ}:duration={seconds}:sample_rate=48000"]
+    command += ["-f", "lavfi", "-i", f"testsrc=size=160x120:rate=30:duration={seconds}"]
+    aac = ["-map", "0:a", "-c:a:{n}", "aac", "-ac:a:{n}", "2"]
+    spatial = ["-map", "1:a", "-c:a:{n}", SPATIAL_STAND_IN, "-ac:a:{n}", "4"]
+    for n, part in enumerate((spatial, aac) if stand_in_first else (aac, spatial)):
+        command += [arg.format(n=n) for arg in part]
+    command += ["-map", "2:v", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(dest)]
+    subprocess.run(command, capture_output=True, check=True)
+    return dest
+
+
+def _no_decoder_for_the_stand_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = media.decodable_audio_codecs()
+    assert real is not None and SPATIAL_STAND_IN in real, "the stand-in must really decode, or the tones prove nothing"
+    monkeypatch.setattr(media, "decodable_audio_codecs", lambda: real - {SPATIAL_STAND_IN})
+
+
+def _audio_streams(path: Path) -> list[str]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    return out.split()
+
+
+@needs_ffmpeg
+def test_this_ffmpeg_decodes_aac_and_not_apple_spatial_audio() -> None:
+    """The real half of the mechanism: read off `ffmpeg -codecs`, not assumed.
+
+    `apple_apac` is either absent (8.1.2, no descriptor) or listed without a
+    decoder (9.0.1) — both are undecodable, and both must read that way.
+    """
+    decodable = media.decodable_audio_codecs()
+
+    assert decodable is not None
+    assert "aac" in decodable
+    assert "apple_apac" not in decodable
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_probe_names_the_stream_nothing_can_decode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    container = _phone_shaped_container(tmp_path / "IMG_0001.MOV")
+    _no_decoder_for_the_stand_in(monkeypatch)
+
+    info = media.probe(container)
+
+    assert info.audio_streams == 2
+    assert info.undecodable_audio == ((1, SPATIAL_STAND_IN),)
+    assert info.as_dict()["undecodable_audio"] == [{"stream": 1, "codec": SPATIAL_STAND_IN}]
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_an_ordinary_clip_record_gains_no_undecodable_key(tmp_path: Path) -> None:
+    container = _two_mic_container(tmp_path / "cohost.mkv")
+
+    info = media.probe(container)
+
+    assert info.undecodable_audio == ()
+    assert "undecodable_audio" not in info.as_dict()
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_phone_clip_imports_as_the_one_stream_it_can_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No flag: a person importing a phone clip has no second mic to choose."""
+    project = Project.create(tmp_path / "proj")
+    container = _phone_shaped_container(tmp_path / "IMG_0001.MOV")
+    _no_decoder_for_the_stand_in(monkeypatch)
+
+    record = media.import_media(project, container, clip_id="phone")
+
+    assert record["mix"] == {
+        "streams": 2, "mode": "pick", "stream": 0, "codec": "copy",
+        "undecodable": [{"stream": 1, "codec": SPATIAL_STAND_IN}],
+    }  # fmt: skip
+    derived = media.media_path(project, record)
+    assert _audio_streams(derived) == ["aac"]
+    assert _tone_power(derived, MIC_A_HZ) > 100.0
+    assert _tone_power(derived, MIC_B_HZ) < 10.0
+    assert media.probe(derived).has_video is True
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_mix_on_a_phone_clip_takes_the_readable_stream_rather_than_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Windows probe's own call: `--mix` summed into an ffmpeg error."""
+    project = Project.create(tmp_path / "proj")
+    container = _phone_shaped_container(tmp_path / "IMG_0001.MOV")
+    _no_decoder_for_the_stand_in(monkeypatch)
+
+    record = media.import_media(project, container, clip_id="phone", mix=True)
+
+    assert record["mix"]["mode"] == "pick" and record["mix"]["stream"] == 0
+    assert _tone_power(media.media_path(project, record), MIC_B_HZ) < 10.0
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_the_readable_stream_is_taken_where_it_is_not_where_it_usually_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Undecodable first: a rule that took audio 0 would keep the unreadable one."""
+    project = Project.create(tmp_path / "proj")
+    container = _phone_shaped_container(tmp_path / "IMG_0002.MOV", stand_in_first=True)
+    _no_decoder_for_the_stand_in(monkeypatch)
+
+    record = media.import_media(project, container, clip_id="phone")
+
+    assert record["mix"]["stream"] == 1
+    derived = media.media_path(project, record)
+    assert _audio_streams(derived) == ["aac"]
+    assert _tone_power(derived, MIC_A_HZ) > 100.0
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_picking_the_undecodable_stream_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = Project.create(tmp_path / "proj")
+    container = _phone_shaped_container(tmp_path / "IMG_0001.MOV")
+    _no_decoder_for_the_stand_in(monkeypatch)
+
+    with pytest.raises(media.MediaError, match="cannot decode"):
+        media.import_media(project, container, audio_stream=1)
+    assert project.read_manifest()["clips"] == []
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_container_with_no_readable_audio_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = Project.create(tmp_path / "proj")
+    container = _phone_shaped_container(tmp_path / "IMG_0001.MOV")
+    real = media.decodable_audio_codecs()
+    assert real is not None
+    monkeypatch.setattr(media, "decodable_audio_codecs", lambda: real - {"aac", SPATIAL_STAND_IN})
+
+    with pytest.raises(media.MediaError, match="can decode none"):
+        media.import_media(project, container)
+    assert project.read_manifest()["clips"] == []

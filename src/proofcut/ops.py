@@ -768,14 +768,17 @@ def attribute_speakers(
     # The recorded count when the clip has one, so an ordinary clip costs no
     # probe; a record written before `audio_streams` existed gets asked.
     available = int(clip.get("audio_streams") or media.probe(container).audio_streams)
-    if available < 2:
+    # A stream nothing can decode is no mic (`MediaInfo.undecodable_audio`):
+    # an iPhone's Spatial Audio track would otherwise be offered as speaker 2.
+    unreadable = {u["stream"] for u in clip.get("undecodable_audio") or ()}
+    if available - len(unreadable) < 2:
         raise ProjectError(
             f"{clip_id} was recorded on one audio stream, and attribution compares mics "
             "against each other. There is no local route to speaker identity on a mixed "
             "track — see PLAN.md § The co-hosted recording"
         )
 
-    wanted = list(range(available)) if streams is None else [int(s) for s in streams]
+    wanted = [k for k in range(available) if k not in unreadable] if streams is None else [int(s) for s in streams]
     if len(wanted) != len(set(wanted)):
         raise ProjectError(f"the same audio stream is named twice: {wanted}")
     for stream in wanted:
@@ -784,6 +787,8 @@ def attribute_speakers(
                 f"{clip_id} has {available} audio streams, numbered 0-{available - 1}; "
                 f"asked for {stream}"
             )
+        if stream in unreadable:
+            raise ProjectError(f"{clip_id}'s audio stream {stream} is one ffmpeg cannot decode")
 
     named = [f"speaker{k + 1}" for k in range(len(wanted))] if labels is None else list(labels)
     if len(named) != len(wanted):

@@ -505,8 +505,11 @@ def main() -> int:
         remove_tree(project)
         project.parent.mkdir(parents=True, exist_ok=True)
         c.step("init", [sys.executable, "-m", "proofcut.cli", "init", str(project)])
-        # A phone clip has one audio stream; an OBS recording can have two, which
-        # import refuses by design. Sum them, the way a person would be told to.
+        # An OBS recording can have two audio streams, which import refuses by
+        # design; sum them, the way a person would be told to. An iPhone clip
+        # recording Spatial Audio has two as well, and --mix is the call that
+        # found import could not read the second (HISTORY.md § The phone's
+        # Spatial Audio track), so it stays the call this asks.
         ffprobe = shutil.which("ffprobe") or "ffprobe"
         streams = run([ffprobe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
                        "-of", "csv=p=0", str(args.footage.resolve())], timeout=60)[2].split()

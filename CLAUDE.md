@@ -145,6 +145,14 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
         power, never by counting streams** — auto-editor's half of the trap
         passes both tracks through, so the file holds two and everything that
         decodes it takes the first. HISTORY.md § The two mics survive import.
+        - **A stream no decoder reads is not a mic.** An iPhone recording
+          Spatial Audio holds AAC at audio 0 and `apple_apac` at audio 1,
+          which no ffmpeg decodes, so `--mix` was an ffmpeg error and the
+          refusal asked a question with no right answer. `probe` records
+          `undecodable_audio` off `ffmpeg -codecs`, and import counts only
+          the readable streams: one is imported unflagged as a pick, found
+          wherever it sits rather than assumed to be audio 0 — and the
+          phone's video is stream index 2, not 0. HISTORY.md § The phone's Spatial Audio track.
         - **`_reel_media`'s key tuple *is* `media_path()`'s preference
           chain** (`ops.py`, and again in `reel(plan=True)`'s `would_link`);
           a key in one and not the other hands the derived project a path
