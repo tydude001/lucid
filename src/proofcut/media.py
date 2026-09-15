@@ -690,6 +690,40 @@ def derive_single_audio(
     }
 
 
+def downmix_to_stereo(source: Path, dest: Path, *, channels: int, has_video: bool = False) -> dict[str, Any]:
+    """Write a copy of `source` whose one audio stream is a stereo downmix.
+
+    **MLT plays only the first two channels of a stream with more than two
+    and no channel layout**, so the centre — where a film's dialogue is —
+    never reaches the render. Measured on the Lambs/Longlegs clips cut from a
+    5.1 rip (`ll-1230-half-psychic`: dialogue on channel 2 at −32.6 dB, fronts
+    at −64.6/−63.0): melt's stereo output read −64.7/−63.1, the fronts exactly,
+    while `ffmpeg -ac 2` read −40.4 with the centre in it. A stream tagged 5.1
+    did downmix in melt, but 9 dB hotter than ffmpeg's, so a hold's gain —
+    measured by ffmpeg — did not describe what melt played; and MLT's own
+    avformat notes call more than two channels above 16 bits unsupported. Its
+    producer has no layout override (`channel_layout=5.1` changed nothing).
+
+    So one downmix, ffmpeg's, made once at import and read by everything:
+    whisper, the loudness measurement, the preview and melt. Video is copied
+    through; audio re-encodes, as the multi-mic sum does.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    codec = "pcm_s16le" if dest.suffix.lower() == ".wav" else "aac"
+    command = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source)]
+    command += ["-map", "0:v", "-c:v", "copy"] if has_video else []
+    command += ["-map", "0:a:0", "-ac", "2", "-c:a", codec, str(dest)]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise MediaError(f"could not run ffmpeg: {' '.join(command)}") from exc
+    if completed.returncode != 0 or not dest.exists():
+        raise MediaError(
+            f"ffmpeg could not downmix {source} to stereo: {completed.stderr.strip()[-800:]}"
+        )
+    return {"channels": channels}
+
+
 def strip_chapters(source: Path, dest: Path) -> dict[str, Any]:
     """Write a copy of `source` with its chapter list and data track dropped.
 
@@ -892,6 +926,29 @@ def import_media(
         record["mixed"] = str(derived.relative_to(project.root))
 
     most_derived: Path | None = derived if "mixed" in record else None
+    # More than two channels — a clip cut from a 5.1 rip — is downmixed after
+    # any stream choice (a picked stream can itself be six channels) and before
+    # the chapter strip, and lands in `mixed`, the key every resolver and
+    # `_reel_media` already prefer: `downmix_to_stereo`'s docstring has the
+    # measurement. Unconditional, like the strip — there is no second reading
+    # of six channels that a stereo render could honour.
+    carried = probe(most_derived).channels if most_derived is not None else info.channels
+    if carried is not None and carried > 2:
+        stereo_source = most_derived or source
+        stereo = project.mixed_dir / f"{clip_id}.stereo{source.suffix or '.mkv'}"
+        try:
+            record["downmix"] = downmix_to_stereo(
+                stereo_source, stereo, channels=carried, has_video=info.has_video
+            )
+        except MediaError:
+            stereo.unlink(missing_ok=True)
+            if most_derived is not None:
+                most_derived.unlink(missing_ok=True)
+            raise
+        if most_derived is not None:
+            most_derived.unlink(missing_ok=True)
+        record["mixed"] = str(stereo.relative_to(project.root))
+        most_derived = stereo
     if info.has_chapters:
         # Same derive-before-place ordering as the mixed-copy branch above,
         # and for the same reason: a failure here must leave nothing

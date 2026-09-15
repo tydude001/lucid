@@ -9100,3 +9100,51 @@ def test_a_hold_plays_the_film_from_where_its_playhead_is_when_the_gap_opens(
     assert at_play_at > 500.0, "the hold must play the film's second 10, where its line is"
     assert at_src_start < at_play_at / 4, "the hold must not play the seconds before its line"
 
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_a_hold_from_a_six_channel_clip_with_no_layout_is_heard(visible_tmp: Path) -> None:
+    """A film rip's clip keeps six channels and, often, no layout; its dialogue
+    is the centre. MLT renders the first two channels of such a stream, so on
+    the Lambs/Longlegs native rebuild the cold open and all three Longlegs
+    holds came out at −47 to −53 LUFS against v10's −16 — at exit 0, with the
+    hold's own gain measured (by ffmpeg, centre included) as if it were fine.
+    Here the film's only real audio is a 700 Hz centre channel."""
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    film = visible_tmp / "film.mkv"
+    _quiet_vo_wav(vo, 6.0)
+    exprs = "|".join("0.5*sin(2*PI*700*t)" if k == 2 else "0.005*sin(2*PI*1000*t)" for k in range(6))
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=25",
+         "-f", "lavfi", "-i", f"aevalsrc=exprs={exprs}:s=48000:d=25",
+         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-af", "aformat=channel_layouts=6C", "-c:a", "pcm_s16le", str(film)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    hold = result["holds"][0]
+    centre = _tone_window(Path(result["output"]), 700.0, hold["timeline_start"] + 0.4, 1.0)
+    assert centre > 500.0, "the centre channel is the film's dialogue and must reach the render"

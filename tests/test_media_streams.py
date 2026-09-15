@@ -365,6 +365,73 @@ def test_a_reel_carries_the_mixdown(tmp_path: Path) -> None:
 # fixture exercises the one that measurably fires.
 
 
+CENTRE_HZ = 400.0
+
+
+def _unlabelled_six_channel(dest: Path, *, seconds: float = 2.0) -> Path:
+    """Six channels with no layout, the tone on the third (a 5.1 centre) and the
+    rest near-silent — the shape of the Lambs/Longlegs `ll-` clips, whose
+    dialogue sits on channel 2 at −33 dB over fronts at −64. PCM in Matroska,
+    because every AAC and MOV write stamps a 5.1 layout on six channels and
+    only this container kept "unknown" when it was measured.
+    """
+    exprs = "|".join(
+        f"0.5*sin(2*PI*{CENTRE_HZ:g}*t)" if k == 2 else "0.005*sin(2*PI*1000*t)" for k in range(6)
+    )
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", f"testsrc=size=160x120:rate=25:duration={seconds}",
+         "-f", "lavfi", "-i", f"aevalsrc=exprs={exprs}:s=48000:d={seconds}",
+         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+         "-af", "aformat=channel_layouts=6C", "-c:a", "pcm_s16le", str(dest)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    return dest
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_import_downmixes_audio_with_more_than_two_channels(tmp_path: Path) -> None:
+    """MLT plays only the first two channels of a six-channel stream with no
+    layout — the centre, where a film's dialogue is, never reaches the render
+    (measured on the real clips and on this fixture: melt −37 dB, the fronts
+    alone, against ffmpeg's −16.8 dB downmix). And its own notes say more than
+    two channels above 16 bits is unsupported. So import writes one stereo
+    downmix, recorded as the `mixed` copy every resolver already prefers, and
+    nothing downstream ever reads six channels."""
+    project = Project.create(tmp_path / "proj")
+    container = _unlabelled_six_channel(tmp_path / "film.mkv")
+    assert media.probe(container).channels == 6
+
+    clip = media.import_media(project, container)
+
+    assert clip["downmix"] == {"channels": 6}
+    resolved = media.media_path(project, clip)
+    assert resolved == project.root / clip["mixed"]
+    assert media.probe(resolved).channels == 2
+    assert media.probe(resolved).has_video
+    assert _tone_power(resolved, CENTRE_HZ) > 100.0
+
+
+@needs_ffprobe
+@needs_ffmpeg
+def test_a_stereo_import_gets_no_downmix(tmp_path: Path) -> None:
+    project = Project.create(tmp_path / "proj")
+    container = _two_mic_container(tmp_path / "one.mkv")
+    mono = tmp_path / "stereo.mkv"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(container), "-map", "0:v", "-map", "0:a:0",
+         "-c", "copy", str(mono)],
+        capture_output=True, check=True,
+    )  # fmt: skip
+
+    clip = media.import_media(project, mono)
+
+    assert "downmix" not in clip
+    assert "mixed" not in clip
+
+
 @needs_ffprobe
 @needs_ffmpeg
 def test_probe_detects_a_chapter_list(tmp_path: Path) -> None:
