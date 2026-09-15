@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tydude001/proofcut",
   "title": "proofcut",
-  "description": "Local-first AI video editor: cut by transcript, hang b-roll off phrases, render, then verify",
+  "description": "Local-first AI video editor: recordings to a finished film, cut by transcript, then verified",
   "version": "0.24.0",
   "repository": {
     "url": "https://github.com/tydude001/proofcut",

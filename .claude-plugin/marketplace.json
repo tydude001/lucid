@@ -8,7 +8,7 @@
       "name": "proofcut",
       "source": "./",
       "displayName": "proofcut",
-      "description": "Local-first AI video editor: cut by transcript, hang b-roll off phrases, render, then verify",
+      "description": "Local-first AI video editor: recordings to a finished film, cut by transcript, then verified",
       "version": "0.24.0",
       "author": { "name": "tydude001" },
       "homepage": "https://github.com/tydude001/proofcut/blob/main/docs/DEMO.md",
