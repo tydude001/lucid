@@ -14851,9 +14851,10 @@ renders would read the same.
 
 `scripts/windows_trial.ps1` on Tyler's laptop again, at `e402062`: the first
 run by a person of the kit's score and master steps (§ The whole film, said).
-It was the same machine as § The render that never exited, from a fresh clone.
-The Desktop's old `proofcut` folder was not a git checkout, so `git pull` had
-nothing to update. `ALL STEPS RAN`, started 09:58 local.
+It was the same machine as § The render that never exited, from a fresh clone
+at `Desktop\proofcut-new`. `git pull` had been run in `Desktop\proofcut`, which
+is the folder holding the earlier runs' clone (`proofcut\proofcut`) and not the
+clone itself, so it found no repository. `ALL STEPS RAN`, started 09:58 local.
 
 - **The master exited.** `DEMO 7 render and master (melt)` took 29 s, against
   23 s for the unmastered render at `0689b47`. `export --loudness` adds an
