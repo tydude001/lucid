@@ -1921,6 +1921,8 @@ def music(
     passages: list[dict[str, Any]] | None = None,
     under: float | None = None,
     clear_under: bool = False,
+    duck: float | None = None,
+    clear_duck: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -1962,6 +1964,12 @@ def music(
     the whole bed that many LU below the VO, measured; `clear_under` returns
     every asset to its own level. `passages=[]` / `rotate=[]` clear them.
     `passage_words` echoes each passage's resolved start word.
+
+    `duck` pulls the bed that many dB down while the voice is speaking and
+    lets it back up in the pauses — keyed off the timeline's own audio at
+    export, never the transcript's word timings — under the level `under`
+    set; `clear_duck` returns it to one level. `export`'s `music.duck` says
+    what the render carries: the threshold, the seconds ducked, the keys.
     """
     return ops.music(
         path,
@@ -1982,6 +1990,8 @@ def music(
         passages=passages,
         under=under,
         clear_under=clear_under,
+        duck=duck,
+        clear_duck=clear_duck,
         reset=reset,
         plan=plan,
     )

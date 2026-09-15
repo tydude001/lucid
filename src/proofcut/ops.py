@@ -53,6 +53,12 @@ from proofcut import describe as dsc
 # collision again, and the same fix.
 from proofcut import doctor as doc
 
+# `duck` is `music`'s own argument, so the module takes an alias rather than
+# be shadowed inside the one function that sets it.
+from proofcut import duck as dk
+
+# `duck` is `music`'s own argument, so the module takes an alias rather than
+# be shadowed inside the one function that sets it.
 # `fonts` is also the name of the op below, so the module needs an alias here
 # or the function would shadow it at call time — the `describe`/`verify` fix.
 from proofcut import fonts as proofcut_fonts
@@ -10601,6 +10607,7 @@ def _stored_music(project: Project) -> dict[str, Any] | None:
             f"'asset' and an integer 'word_index_start', and 'rotate' a list of clip ids — {exc}"
         ) from exc
     under = stored.get("under")
+    duck_db = stored.get("duck")
     return {
         "asset": asset,
         "clip_id": clip_id,
@@ -10615,6 +10622,7 @@ def _stored_music(project: Project) -> dict[str, Any] | None:
         "rotate": rotate,
         "passages": passages,
         "under": float(under) if under is not None else None,
+        "duck": float(duck_db) if duck_db is not None else None,
     }
 
 
@@ -10651,10 +10659,18 @@ def music(
     passages: list[dict[str, Any]] | None = None,
     under: float | None = None,
     clear_under: bool = False,
+    duck: float | None = None,
+    clear_duck: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
     """Read or change the A2 music bed this project mixes under its edit.
+
+    **`duck` pulls the bed that many dB down while the voice is speaking** and
+    lets it back up in the pauses — gated on the Edit's own audio at build
+    time, never on the transcript's word durations (`duck.py`), so a cut moves
+    it with nothing to refresh. It sits under whatever level `under` set: that
+    is the bed's level in a pause. `clear_duck` returns the bed to one level.
 
     **A bed can be several passages, placed and levelled** (docs/plans/
     NATIVE.md § A1). `passages` replaces the list of passages after the bed's
@@ -10756,8 +10772,9 @@ def music(
             rotate,
             passages,
             under,
+            duck,
         )
-    ) or clear_under
+    ) or clear_under or clear_duck
 
     if reset:
         state: dict[str, Any] | None = None
@@ -10887,6 +10904,16 @@ def music(
             merged["passages"] = resolved_passages
         if resolved_under is not None:
             merged["under"] = resolved_under
+        resolved_duck = None if clear_duck else (float(duck) if duck is not None else base.get("duck"))
+        if resolved_duck is not None:
+            # The fade floor is -60 dB; a duck at or past it is the bed gone
+            # under every line, which is a hold's job and not a level.
+            if not (math.isfinite(resolved_duck) and 0 < resolved_duck < -mlt.FADE_FLOOR_DB):
+                raise ProjectError(
+                    f"music duck is the dB the bed drops under the voice, above 0 and "
+                    f"below {-mlt.FADE_FLOOR_DB}, not {resolved_duck!r} — clear_duck removes it"
+                )
+            merged["duck"] = resolved_duck
 
         if merged["asset"] is None or merged["clip_id"] is None or merged["word_index_start"] is None:
             raise ProjectError(
@@ -11495,6 +11522,42 @@ def _vo_loudness(project: Project, edit: tl.Edit) -> float:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _duck_frames(
+    project: Project, edit: tl.Edit, rate: float, *, edit_frames: int, depth_db: float, vo_lufs: float
+) -> list[float]:
+    """The bed's duck in dB on every frame of the Edit, keyed off the Edit's
+    own audio (`duck.py`).
+
+    Each segment's source audio is measured where `autoeditor.frame_layout`
+    puts that segment — never at a running sum of float durations, which
+    drifts off the rendered timeline by a frame or two over a film. Each
+    distinct file is decoded once, at `energy.RATE`, however many segments
+    read it. **Not cached, and export-only**: `_music_plan` runs on every
+    `project-changed` and must never compose this in (CLAUDE.md, the
+    `reframe_coverage` rule) — the decode is a second or two on a film.
+    """
+    blocks = [dk.FLOOR_DB] * (math.ceil(edit_frames / rate / dk.BLOCK) + 1)
+    decoded: dict[str, Any] = {}
+    cursor = 0
+    for seg, (_, frames) in zip(edit.segments, autoeditor.frame_layout(edit, rate), strict=True):
+        resource = str(media.media_path(project, media.get_clip(project, seg.clip_id)))
+        if resource not in decoded:
+            try:
+                decoded[resource] = energy.decode(resource)
+            except energy.EnergyError as exc:
+                raise ProjectError(f"the music bed's duck could not read the timeline's audio: {exc}") from exc
+        samples = decoded[resource]
+        levels = dk.block_levels(
+            samples[round(seg.start * energy.RATE) : round(seg.end * energy.RATE)], energy.RATE
+        )
+        at = round(cursor / rate / dk.BLOCK)
+        blocks[at : at + len(levels)] = levels
+        cursor += frames
+    del blocks[math.ceil(edit_frames / rate / dk.BLOCK) + 1 :]
+    envelope = dk.gate(blocks, threshold_db=vo_lufs + dk.THRESHOLD_LU, depth_db=depth_db)
+    return dk.per_frame(envelope, rate=rate, frames=edit_frames)
+
+
 def _hold_gain_db(vo_lufs: float, hold_lufs: float, under: float) -> float:
     """`music_bed.py`'s own formula (`gain = 10**((vo_i - under - seg_i)/20)`),
     in dB directly rather than a linear factor — the writer's `gain_db` takes
@@ -11608,6 +11671,7 @@ def _gate_music_lane(
                         fade_out_frames=out_ramp,
                         gain_db=entry.gain_db,
                         crossfade_in=entry.crossfade_in and cursor == entry_start,
+                        gain_keys=mlt.slice_gain_keys(entry.gain_keys, cursor - entry_start, seg_frames),
                     )
                 )
             silence = _tail_silence(project, (hi - lo) / rate)
@@ -11626,6 +11690,7 @@ def _gate_music_lane(
                     fade_out_frames=min(entry.fade_out_frames, max(seg_frames - 1 - in_ramp, 0)),
                     gain_db=entry.gain_db,
                     crossfade_out=entry.crossfade_out,
+                    gain_keys=mlt.slice_gain_keys(entry.gain_keys, cursor - entry_start, seg_frames),
                 )
             )
     return out
@@ -12668,6 +12733,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         # on top of the cold open, at exit 0, invisible to `mlt.document`'s
         # own checks (which verify each lane's total, never its alignment).
         level_db = 0.0
+        vo_lufs = _vo_loudness(project, edit) if music_plan["under"] is not None or music_plan["duck"] else None
         if music_plan["under"] is not None:
             # One gain for the whole bed, `music_bed.py`'s own rule: the bed's
             # loudness is the duration-weighted power mean of what each piece
@@ -12681,7 +12747,16 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
                 powers += piece["frames"] * 10 ** (lufs / 10)
                 weights += piece["frames"]
             bed_lufs = 10 * math.log10(powers / weights)
-            level_db = round(_vo_loudness(project, edit) - music_plan["under"] - bed_lufs, 2)
+            level_db = round(vo_lufs - music_plan["under"] - bed_lufs, 2)
+        duck_frames = (
+            _duck_frames(
+                project, edit, rate, edit_frames=edit_frames, depth_db=music_plan["duck"], vo_lufs=vo_lufs
+            )
+            if music_plan["duck"]
+            else None
+        )
+        ducked_frames = 0
+        duck_keys = 0
         lanes: list[list[mlt.Entry]] = [music_lane, music2_lane]
         cursors = [0, 0]
         for piece in music_plan["pieces"]:
@@ -12690,12 +12765,25 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             if gap:
                 silence = _tail_silence(project, gap / rate)
                 bed_lane.append(mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False))
+            # Keyed in Edit frames, where the envelope was measured; the head
+            # offset is the lane's business, not the envelope's.
+            gain_keys = (
+                dk.keys_for(duck_frames, piece["start_frame"], piece["frames"]) if duck_frames is not None else ()
+            )
+            if duck_frames is not None:
+                ducked_frames += sum(
+                    1
+                    for frame in range(piece["start_frame"], piece["start_frame"] + piece["frames"])
+                    if frame < len(duck_frames) and duck_frames[frame] <= dk.DUCKED_DB
+                )
+                duck_keys += len(gain_keys)
             bed_lane.append(
                 mlt.Entry(
                     piece["asset_path"],
                     piece["src_in_frames"],
                     piece["frames"],
                     has_video=False,
+                    gain_keys=gain_keys,
                     # Entry-attached, so the fades land on the piece's own
                     # first and last audible frames however much silence pads it.
                     fade_in_frames=piece["fade_in_frames"],
@@ -12738,6 +12826,19 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             )
         }
         music_report["level_db"] = level_db
+        # What the render carries, not what the manifest asked: the depth, the
+        # level the gate opened at, how much of the bed it pulled down (frames
+        # of pieces, so a crossfade's overlap counts twice) and the keys drawn.
+        music_report["duck"] = (
+            {
+                "depth_db": music_plan["duck"],
+                "threshold_lufs": round(vo_lufs + dk.THRESHOLD_LU, 2),
+                "ducked_seconds": round(ducked_frames / rate, 2),
+                "keys": duck_keys,
+            }
+            if duck_frames is not None
+            else None
+        )
         music_report["pieces"] = _music_pieces_view(music_plan["pieces"], rate)
 
     # The holds lane: a fourth, audio-only lane, each stored hold's own

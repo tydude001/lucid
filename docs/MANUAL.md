@@ -450,6 +450,7 @@ proofcut -C myproject music --asset score-a --clip-id vo --start-word 0 \
   --fade-in 2 --under 22 --plan                          # resolve and check, write nothing
 proofcut -C myproject music --asset score-a --clip-id vo --start-word 0 \
   --fade-in 2 --under 22
+proofcut -C myproject music --duck 8                     # 8 dB down under the voice, up in its pauses
 proofcut -C myproject music --passage score-b,412,0,2.5  # from word 412, score-b, crossfading 2.5 s
 proofcut -C myproject music --rotate score-c --crossfade 2.5  # when an asset runs out, the next
 proofcut -C myproject music                              # what is in force
@@ -471,6 +472,11 @@ by what is said, the same way every word-addressed tool does.
   when one runs out before the film does.
 - **`--under N`** levels the whole bed N LU below the voiceover, measured,
   rather than playing each asset at its own level.
+- **`--duck DB`** pulls the bed DB down while the voice is speaking and lets it
+  back up in the pauses, so `--under` is the level in a pause. It is keyed off
+  the timeline's own audio when you export, never the transcript's word
+  timings, and a cut moves it for free. `export`'s `music.duck` reports what
+  the render carries. `--clear-duck` puts the bed back at one level.
 
 Overlapping passages are crossfaded on an equal-power curve. Two plain fades
 crossing leave a hole in the middle, measured at 26–30 dB under the bed. The
@@ -541,9 +547,12 @@ diffing (`head_words_trimmed`).
 proofcut -C myproject export final.mp4 --render --loudness -16 --true-peak -1
 ```
 
-`--loudness` masters the render proofcut just made with a two-pass `loudnorm`
-and measures it before and after. The reply's `loudness` carries both
-numbers. A master that misses its target by more than 1 LU, or its ceiling by
+`--loudness` masters the render proofcut just made with one measured gain and
+a true-peak limiter, and measures it before and after. The reply's `loudness`
+carries both numbers, the gain, and whether the limiter had peaks to hold
+(`normalization`: `linear` or `limited`). It never rides the mix's level the
+way `loudnorm`'s dynamic mode does, so a duck, a fade or a hold's level
+arrives in the master as it was mixed. A master that misses its target by more than 1 LU, or its ceiling by
 more than 0.5 dB, is refused, and the render is left as it was. It masters
 media only, so an NLE export refuses it. `captions --burn` afterwards copies
 the audio through untouched, so the master survives the burn.

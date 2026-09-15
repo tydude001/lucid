@@ -153,6 +153,52 @@ def test_a_master_keeps_the_audio_the_length_it_was(tmp_path: Path) -> None:
     assert not long, f"audio packets claiming more than one AAC frame: {long[:3]}"
 
 
+def _tone_level_db(path: Path, hz: float, start: float, seconds: float) -> float:
+    """dB of one pure tone's amplitude over a window of `path`'s audio."""
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-ss", str(start), "-t", str(seconds),
+         "-ac", "1", "-ar", "48000", "-f", "s16le", "-"],
+        capture_output=True, check=True,
+    ).stdout  # fmt: skip
+    samples = struct.unpack(f"<{len(raw) // 2}h", raw[: len(raw) // 2 * 2])
+    re = sum(v * math.cos(2 * math.pi * hz * i / 48000) for i, v in enumerate(samples))
+    im = sum(v * math.sin(2 * math.pi * hz * i / 48000) for i, v in enumerate(samples))
+    return 20 * math.log10(2 * math.hypot(re, im) / len(samples) / 32768)
+
+
+@needs_ffmpeg
+def test_a_master_that_has_to_limit_keeps_the_mix_it_was_given(tmp_path: Path) -> None:
+    """A quiet mix with one hot transient cannot reach −16 LUFS by gain alone
+    under a −1 dBTP ceiling, and `loudnorm` then drops its own `linear=true`
+    for dynamic mode: an automatic gain rider over the whole mix. On the Scream
+    rebuild that put 5 of a 12 dB duck back — the bed rode up in every pause
+    and down under every line, at exit 0, with the loudness on target
+    (HISTORY.md § The duck). The master is one gain and a true-peak limiter,
+    `music_bed.py`'s chain, so a 10 dB step inside the mix stays 10 dB."""
+    render = tmp_path / "mix.wav"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "sine=f=220:d=4:sample_rate=48000",
+         "-f", "lavfi", "-i", "sine=f=880:d=4:sample_rate=48000",
+         "-f", "lavfi", "-i", "aevalsrc='0.9*sin(2*PI*3000*t)*between(t,2,2.02)':s=48000:d=8",
+         "-filter_complex",
+         ("[0:a]volume=-26dB[a];[1:a]volume=-36dB[b];[a][b]concat=n=2:v=0:a=1[ab];"
+          "[ab][2:a]amix=inputs=2:normalize=0:duration=first"),
+         "-c:a", "pcm_s16le", str(render)],
+        check=True,
+    )  # fmt: skip
+    step_before = _tone_level_db(render, 220.0, 0.5, 1.0) - _tone_level_db(render, 880.0, 5.5, 2.0)
+
+    report = finish.master_loudness(render, integrated=-16.0, true_peak=-1.0)
+
+    step_after = _tone_level_db(render, 220.0, 0.5, 1.0) - _tone_level_db(render, 880.0, 5.5, 2.0)
+    assert report["after"]["integrated"] == pytest.approx(-16.0, abs=finish.MASTER_LU_TOLERANCE)
+    assert report["after"]["true_peak"] <= -1.0 + finish.MASTER_PEAK_ALLOWANCE
+    assert step_after == pytest.approx(step_before, abs=0.5), (
+        f"the master moved a {step_before:.1f} dB step inside the mix to {step_after:.1f} dB"
+    )
+
+
 # -- hold_seams ----------------------------------------------------------------
 
 

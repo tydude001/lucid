@@ -732,3 +732,16 @@ def test_under_vo_alone_makes_the_project_layered_and_blocks_clip_rm(project: Pr
     assert ops._is_layered(project, _edit(project)) is True
     with pytest.raises(ProjectError, match="under the VO"):
         ops.clip_rm(project.root, "film")
+
+
+@needs_ffmpeg
+def test_a_hold_splitting_a_ducked_bed_keeps_the_duck_on_both_sides(project: Project) -> None:
+    """Splitting an entry builds new ones, so the duck's keys have to be cut
+    with it — a piece rebuilt without them plays undipped, and nothing but
+    listening would say so."""
+    keys = ((0, 0.0), (20, -8.0), (80, -8.0), (99, 0.0))
+    lane = [mlt.Entry("/tmp/bed.wav", 0, 100, has_video=False, gain_keys=keys)]
+    before, _, after = ops._gate_music_lane(project, lane, "/tmp/bed.wav", [(40, 60)], 30.0)
+
+    assert before.gain_keys == ((0, 0.0), (20, -8.0), (39, -8.0))
+    assert after.gain_keys[0] == (0, -8.0) and after.gain_keys[-1] == (39, 0.0)

@@ -9052,6 +9052,76 @@ def test_hold_plays_its_own_film_audio_and_gates_the_bed_on_a_real_render(
 @needs_ffprobe
 @needs_ffmpeg
 @needs_melt
+def test_a_ducked_bed_drops_under_the_voice_and_comes_back_in_the_pause_on_a_real_render(
+    visible_tmp: Path,
+) -> None:
+    """The duck as project state, rendered through melt and read back by tone:
+    a VO speaking (100 Hz) for three seconds and silent for three, a bed at
+    440 Hz under it with `duck=12`. The bed reads ~12 dB lower under the voice
+    than in the pause — the keys ride the bed's own `volume` filter, offset by
+    its `src_in` — and the render carries what `music.duck` reports. Without
+    the duck the two windows read the same (the A1 test above's bed)."""
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    bed = visible_tmp / "bed.wav"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "sine=frequency=100:duration=3:sample_rate=48000",
+         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-filter_complex",
+         "[1:a]atrim=0:3[s];[0:a][s]concat=n=2:v=0:a=1", "-c:a", "pcm_s16le", str(vo)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+    _tone_wav(bed, 440.0, 8.0)
+    transcript = visible_tmp / "vo.json"
+    transcript.write_text(
+        json.dumps({"language": "en", "words": [
+            {"word": "one", "start": 0.0, "end": 0.3},
+            {"word": "two", "start": 2.0, "end": 2.3},
+        ]}),
+        encoding="utf-8",
+    )  # fmt: skip
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+        bed_clip = await client.call("import_media", path=str(project), source=str(bed))
+        await client.call(
+            "attach_transcript", path=str(project), clip_id=vo_clip["clip_id"], transcript_path=str(transcript)
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "music",
+            path=str(project),
+            asset=bed_clip["clip_id"],
+            clip_id=vo_clip["clip_id"],
+            word_index_start=0,
+            src_in=1.0,
+            duck=12.0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["writer"] == "melt"
+    duck = result["music"]["duck"]
+    assert duck["depth_db"] == 12.0 and duck["keys"] > 2
+    assert 2.5 < duck["ducked_seconds"] < 3.6, duck
+    render = Path(result["output"])
+    speaking = _tone_window(render, 440.0, 1.0, 1.5)
+    pause = _tone_window(render, 440.0, 4.3, 1.5)
+    drop = 20 * math.log10(pause / speaking)
+    assert 9.0 < drop < 15.0, f"the bed should read ~12 dB lower under the voice, measured {drop:.1f}"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
 def test_music_passages_crossfade_on_a_real_render_and_sit_under_the_vo(visible_tmp: Path) -> None:
     """Two passages as project state, rendered through melt and read back by
     tone: the first (440 Hz) alone before the second's start word, the second

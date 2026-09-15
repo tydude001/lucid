@@ -1044,11 +1044,30 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       against a −24 plateau, where the equal-power keys hold the total flat.
       A new overlap that sets only `fade_*_frames` renders that hole at
       exit 0.
-    - **`export --loudness` restamps its audio (`asetpts`) after `loudnorm`,
-      and must keep doing so.** `loudnorm`'s frame timestamps run ahead of
-      its samples, so one AAC packet claims up to ~90 ms more than its 1024
-      samples, and everything after it plays that late. On a real render that
-      packet sits 3 s before the end, where it flushes its lookahead. **Judge
+    - **A bed's duck (`duck` on `MUSIC_KEY`) is keyed off the Edit's own
+      audio, never the transcript's words** — scored against Scream v8's bed
+      recovered from its render, a word-span duck was 3.39 dB off against no
+      duck's 3.62 and the audio gate's 2.72. It is a gate (`duck.py`), drawn
+      as `mlt.Entry.gain_keys` on the bed's own `volume` filter, measured
+      where `frame_layout` puts each segment, and **computed in `_build_mlt`
+      only** — the decode is export's cost, never `_music_plan`'s, which runs
+      on every `project-changed`. **Anything that splits an `Entry` cuts its
+      keys with `mlt.slice_gain_keys`**: a rebuilt piece without them plays
+      undipped at exit 0, which is `_gate_music_lane`'s two splits.
+      HISTORY.md § The duck.
+    - **`export --loudness` is one gain and a true-peak limiter, never
+      `loudnorm`'s second pass.** `loudnorm` keeps `linear=true` only while
+      the gain fits under the ceiling and otherwise switches to dynamic mode,
+      which rides the whole mix: on Scream it put 5 dB of a 12 dB duck back,
+      on target and at exit 0. `alimiter` needs `level=disabled` (or it makes
+      up to the ceiling) and `latency=true` (or every sample is 5 ms late).
+      HISTORY.md § The duck.
+    - **The master restamps its audio in AAC's 1024-sample frames
+      (`asetnsamples` + `asetpts=N/SR/TB`), and must keep doing so.**
+      `loudnorm`'s frame timestamps ran ahead of its samples, so one AAC
+      packet claimed up to ~90 ms more than its 1024 samples and everything
+      after it played that late; stamping by samples consumed still left one
+      packet a sample long after the limiter's 192 kHz round trip. **Judge
       audio timing by packet durations, never by decoded samples** (PCM
       ignores timestamps) **and never by pts contiguity** (the long packet
       still abuts the next one). Both missed it here. HISTORY.md § The

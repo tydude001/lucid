@@ -31,7 +31,6 @@ purpose, not hold-specific, so a second caller composes rather than forks it.
 from __future__ import annotations
 
 import array
-import json
 import math
 import re
 import subprocess
@@ -166,35 +165,44 @@ def loudness(
 MASTER_LU_TOLERANCE = 1.0
 MASTER_PEAK_ALLOWANCE = 0.5
 
+#: dB under the true-peak ceiling the limiter aims, for the AAC encoder's own
+#: overshoot: at 48 kHz a −1.5 dB sample-peak limit landed −0.63 dBTP in the
+#: file, and oversampled it lands inside the ceiling (`music_bed.py`).
+LIMIT_HEADROOM = 0.5
+
 
 def master_loudness(
     path: Path | str, *, integrated: float, true_peak: float = -1.0, lra: float = 11.0
 ) -> dict[str, Any]:
-    """Two-pass `loudnorm` of `path`'s audio to `integrated` LUFS under a
-    `true_peak` ceiling, in place — measured before, measured after, and
-    refused rather than kept when the result misses.
+    """`path`'s audio to `integrated` LUFS under a `true_peak` ceiling, in
+    place — one gain and a true-peak limiter, measured before, measured after,
+    and refused rather than kept when the result misses.
 
-    The one action in this module, and deliberately beside `loudness`: it is
-    judged by that same measurement, not by `loudnorm`'s own report of what it
-    did. The first pass measures, the second applies the measurement
-    (`linear=true`, which `loudnorm` itself abandons for dynamic mode when the
-    ceiling cannot be held linearly, and says so — reported as
-    `normalization`). Picture is copied through untouched; the new file is
-    written beside `path` and replaces it only once it measures inside
-    `MASTER_LU_TOLERANCE` and `MASTER_PEAK_ALLOWANCE`, so a refusal leaves the
-    render exactly as it was. docs/plans/NATIVE.md § A3.
+    **One gain, never `loudnorm`'s second pass.** `loudnorm` keeps
+    `linear=true` only while the gain fits under the ceiling; past it, it
+    switches to dynamic mode and rides the whole mix's gain — which on the
+    Scream rebuild put 5 dB of a 12 dB duck back, the bed rising in every
+    pause and falling under every line, loudness on target and exit 0
+    (HISTORY.md § The duck). A master that has to move the mix is a mix
+    decision, not a master. So: the measured gain, then `alimiter` at 4x
+    oversampling — a limiter that sees inter-sample peaks is a true-peak
+    limiter to within the encoder's overshoot, and it aims `LIMIT_HEADROOM`
+    under the ceiling for that overshoot (`music_bed.py`'s chain, measured on
+    Lambs/Longlegs v4). `level=disabled`, or alimiter makes its output up to
+    the ceiling; `latency=true`, or it delays every sample 5 ms. `lra` is
+    kept for callers and reported, and no longer shapes anything.
+    docs/plans/NATIVE.md § A3.
     """
     source = Path(path).expanduser()
     if not source.exists():
         raise FinishError(f"no media to master: {source}")
-    target = f"I={integrated:g}:TP={true_peak:g}:LRA={lra:g}"
-
-    first = _run(
-        [FFMPEG, "-hide_banner", "-nostdin", "-i", str(source), "-map", "0:a:0",
-         "-af", f"loudnorm={target}:print_format=json", "-f", "null", "-"]
-    )  # fmt: skip
-    measured = _loudnorm_json(first.stderr)
     before = loudness(source)
+    if before.get("integrated") is None or not math.isfinite(before["integrated"]):
+        raise FinishError(f"{source.name} has no measurable loudness to master")
+    gain = integrated - before["integrated"]
+    limit = 10 ** ((true_peak - LIMIT_HEADROOM) / 20)
+    peak = before.get("true_peak")
+    limited = peak is not None and peak + gain > true_peak - LIMIT_HEADROOM
 
     staged = source.with_name(f"{source.stem}.mastering{source.suffix}")
     codec = ["-c:a", "pcm_s16le"] if source.suffix.lower() == ".wav" else ["-c:a", "aac", "-b:a", "256k"]
@@ -202,23 +210,20 @@ def master_loudness(
         [FFMPEG, "-hide_banner", "-nostdin", "-y", "-i", str(source), "-map", "0:v?", "-map", "0:a:0",
          "-c:v", "copy",
          "-af", (
-             f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
-             f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
-             f":offset={measured['target_offset']}:linear=true:print_format=json,aresample=48000"
-             # loudnorm's frame timestamps run ahead of its samples, so one
-             # AAC packet came out up to ~90 ms long and everything after it
-             # played that late: on a real render that is where it flushes
-             # its 3 s lookahead, the last seconds and the end card. The
-             # stream reading longer than its picture was the visible half.
-             # Restamp from the samples consumed. TRIAL.md § The third trial.
-             ",asetpts=NB_CONSUMED_SAMPLES/SR/TB"
+             f"volume={gain:.3f}dB,aresample=192000,"
+             f"alimiter=limit={limit:.5f}:level=disabled:latency=true,aresample=48000"
+             # A filter's frame timestamps can run ahead of its samples — loudnorm's
+             # did, by up to ~90 ms in one AAC packet, and everything after it
+             # played that late. Restamp by samples, in AAC's own 1024-sample
+             # frames: stamped from samples consumed, the 192 kHz round trip
+             # still left one packet a sample long. TRIAL.md § The third trial.
+             ",asetnsamples=n=1024:p=0,asetpts=N/SR/TB"
          ),
          *codec, "-movflags", "+faststart", str(staged)]
     )  # fmt: skip
     if second.returncode != 0 or not staged.exists():
         staged.unlink(missing_ok=True)
         raise FinishError(f"ffmpeg could not master {source.name}: {second.stderr[-400:].strip()}")
-    applied = _loudnorm_json(second.stderr)
     after = loudness(staged)
     misses = []
     if abs(after["integrated"] - integrated) > MASTER_LU_TOLERANCE:
@@ -234,18 +239,14 @@ def master_loudness(
     return {
         "target_integrated": integrated,
         "target_true_peak": true_peak,
-        "normalization": applied.get("normalization_type"),
+        # "linear" when the gain fit under the ceiling, "limited" when the
+        # limiter had peaks to hold — never "dynamic", which this no longer does.
+        "normalization": "limited" if limited else "linear",
+        "gain_db": round(gain, 2),
+        "lra_target": lra,
         "before": before,
         "after": after,
     }
-
-
-def _loudnorm_json(stderr: str) -> dict[str, Any]:
-    """`loudnorm`'s `print_format=json` block — the last `{…}` on stderr."""
-    start, end = stderr.rfind("{"), stderr.rfind("}")
-    if start < 0 or end < start:
-        raise FinishError(f"loudnorm printed no measurement: {stderr[-400:].strip()}")
-    return json.loads(stderr[start : end + 1])
 
 
 def _decode(media: Path | str, *, rate: int = DECODE_RATE) -> array.array:

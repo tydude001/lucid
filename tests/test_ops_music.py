@@ -632,3 +632,43 @@ def test_a_crossfading_bed_leaves_the_picture_lane_its_footage(tmp_path: Path) -
         if (node.get("id") or "").startswith("vchain")
     ]
     assert picture and all(resource.endswith("film.mp4") for resource in picture), picture
+
+
+# -- duck: the bed down under the voice, up in its pauses ----------------------
+
+
+def test_a_duck_is_stored_on_the_bed_and_cleared_by_name(tmp_path: Path) -> None:
+    project = _film_project(tmp_path)
+    ops.music(project.root, asset="calm-a", clip_id="vo", word_index_start=0, under=17.5)
+
+    set_ = ops.music(project.root, duck=8.0)
+    assert set_["music"]["duck"] == 8.0 and set_["music"]["under"] == 17.5
+    assert ops._stored_music(project)["duck"] == 8.0
+
+    cleared = ops.music(project.root, clear_duck=True)
+    assert "duck" not in cleared["music"]
+    assert ops._stored_music(project)["duck"] is None
+
+
+def test_a_bed_stored_before_the_duck_reads_as_undocked(project: Project) -> None:
+    ops.music(project.root, asset="bed", clip_id="vo", word_index_start=1)
+    assert ops._stored_music(project)["duck"] is None
+
+
+@pytest.mark.parametrize("depth", [0.0, -3.0, 60.0, float("nan")])
+def test_a_duck_that_is_not_a_depth_is_refused(tmp_path: Path, depth: float) -> None:
+    project = _film_project(tmp_path)
+    ops.music(project.root, asset="calm-a", clip_id="vo", word_index_start=0)
+
+    with pytest.raises(ProjectError, match="duck"):
+        ops.music(project.root, duck=depth)
+    assert "duck" not in ops._stored_music(project) or ops._stored_music(project)["duck"] is None
+
+
+def test_a_planned_duck_writes_nothing(tmp_path: Path) -> None:
+    project = _film_project(tmp_path)
+    ops.music(project.root, asset="calm-a", clip_id="vo", word_index_start=0)
+
+    result = ops.music(project.root, duck=6.0, plan=True)
+    assert result["music"]["duck"] == 6.0 and not result["written"]
+    assert ops._stored_music(project)["duck"] is None

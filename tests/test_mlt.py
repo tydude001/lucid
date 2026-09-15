@@ -1368,3 +1368,31 @@ def test_a_crossfade_edge_follows_the_equal_power_curve() -> None:
 def test_a_plain_fade_is_still_one_straight_line() -> None:
     entry = mlt.Entry("/a.wav", 0, 100, fade_in_frames=40, fade_out_frames=20)
     assert mlt._fade_level(entry) == "0=-60;40=0;79=0;99=-60"
+
+
+def test_gain_keys_add_to_the_plateau_and_the_fades() -> None:
+    """The duck's envelope rides the same `volume` filter as the level and the
+    fades — summed in dB at the union of both key sets, which is exact for two
+    straight-line envelopes, and floored where a fade already is."""
+    entry = mlt.Entry(
+        "/bed.wav", 10, 100, fade_in_frames=20, gain_db=-12.0, gain_keys=((0, 0.0), (50, -8.0), (99, -8.0))
+    )
+    keys = dict(tuple(map(float, key.split("="))) for key in mlt._fade_level(entry).split(";"))
+
+    assert keys[10.0] == mlt.FADE_FLOOR_DB
+    assert keys[30.0] == pytest.approx(-12.0 - 8.0 * 20 / 50)
+    assert keys[60.0] == -20.0
+    assert keys[109.0] == -20.0
+
+
+def test_an_entry_with_only_gain_keys_still_gets_its_filter() -> None:
+    entry = mlt.Entry("/bed.wav", 0, 10, gain_keys=((0, 0.0), (9, -6.0)))
+    playlist = mlt._playlist("music", [entry], {"/bed.wav": "chain0"})
+    level = playlist.find("entry/filter/property[@name='level']")
+    assert level is not None and level.text == "0=0;9=-6"
+
+
+def test_slicing_gain_keys_keeps_the_envelope_at_the_cut() -> None:
+    keys = ((0, 0.0), (40, -8.0), (99, -8.0))
+    assert mlt.slice_gain_keys(keys, 20, 30) == ((0, -4.0), (20, -8.0), (29, -8.0))
+    assert mlt.slice_gain_keys((), 20, 30) == ()

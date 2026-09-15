@@ -15068,3 +15068,146 @@ looked at on the laptop; the count is the check.
   picture-cue asset bound. None was measured laying down a frame past the
   picture. `seed` and `restore` are the two that set how far a clip's span
   reaches.
+
+## The duck — 2026-09-15
+
+Scream's rebuild had no duck (§ The Scream native rebuild). v8's bed dropped
+under the voice and came back up in its pauses, through `music_bed.py`'s
+`sidechaincompress` applied to the finished render. A bed can now do that as
+project state: `music --duck DB`, keyed off the timeline's own audio at export
+and drawn as keyframes on the bed's `volume` filter. Building it turned up a
+second defect, in `export --loudness`: its master was flattening the duck.
+
+### Choosing the mechanism
+
+**The reference is v8 itself.** Two copies of it:
+- **Regenerated:** `v8-nomusic`'s audio sits at the recording's own −21.9
+  LUFS, which is what `music_bed.py` keyed off, so its exact compressor
+  settings over a constant tone give v8's gain reduction frame by frame.
+- **Recovered:** the bed-v8.wav from § The Scream native rebuild, which is v8
+  minus `v8-nomusic`.
+
+The two agree on timing, at a correlation of 0.70–0.75 over 500 ms. The
+recovered bed is shallower than `music_bed.py`'s default ratio of 4.5 implies.
+v8's invocation was never recorded, so the recovered bed is the reference.
+
+**Three candidates, scored as the level error against the recovered bed**,
+over three windows totalling 195 s, each at its best settings:
+
+| duck | error |
+|---|---|
+| none (the flat bed) | 3.62 dB |
+| gated on believable word spans | 3.39 dB |
+| gated on the VO's own level | 2.72 dB, keyframed at 30 fps |
+| a compressor emulation | 2.67 dB |
+
+- **Words barely beat nothing.** The repo's rule is to trust a transcript's
+  word order and never its durations, and this is that rule in numbers.
+- **The gate and the compressor are within noise of each other**, and a
+  compressor writes a key on almost every frame. So it is a gate, at a
+  threshold 2 LU under the VO's integrated loudness, with a 15 ms attack, a
+  0.38 s release and no hold. A hold of 0.1–0.3 s scored worse at every
+  length.
+- **Keys are simplified to within 0.5 dB**, which kept the fit at 2.713 →
+  2.722.
+
+### What shipped
+
+- **`duck.py`**, the gate, stdlib only.
+- **`mlt.Entry.gain_keys`**, summed with the plateau and the fades at the union
+  of their keys. Both are straight lines, so the sum is exact. An entry with no
+  keys writes the same document as before.
+- **`mlt.slice_gain_keys`** for anything that splits an entry. The hold gate
+  splits the bed in two places, and a piece rebuilt without its keys plays
+  undipped.
+- **`_duck_frames`** measures each segment where `frame_layout` puts it, and
+  only inside `_build_mlt`. Its decode is export's cost and never
+  `_music_plan`'s.
+- **The parameter everywhere:** `music --duck` / `--clear-duck`, the MCP
+  `music` tool, and `export`'s `music.duck`, which reports the depth, the
+  threshold, the seconds ducked and the key count.
+
+**Tests:** the gate, the keys, their slicing through a hold, the op's
+refusals, and a real melt render read back by tone. That render drops the bed
+~12 dB under a 100 Hz voice against its pause. A control with the keys left
+out of the writer read 0.0 dB.
+
+### What the render said, and the master that undid it
+
+`scream-native-4.mp4`, the duck at 8 dB, carried barely any of it. Against the
+flat `-3`, under speech the bed moved 3.3 of the 8.4 dB it was louder than v8,
+and the trajectory error only went from 3.82 to 3.70. The render-against-design
+slope was 0.36. The fault was located by elimination:
+- **The document was right**, with keys where the design put them, offset by
+  each entry's `src_in`.
+- **The measurement was right.** The designed envelope applied to `-3`'s bed
+  offline measured a slope of 0.98.
+- **melt was right.** A synthetic voice switching on and off every 0.6 s
+  rendered unmastered at a slope of 0.93, one frame late.
+- **The master was not.** `-4`'s reply said `normalization: dynamic`.
+  `loudnorm` keeps `linear=true` only while the gain fits under the ceiling.
+  +5.9 dB on a −6.8 dBTP render does not, so it rode the whole mix: the bed
+  rose in every pause and fell under every line, loudness on target, exit 0.
+  An unmastered render of the same project measured a trajectory error of
+  2.90.
+
+**So `export --loudness` is now one gain and a true-peak limiter**, the chain
+v8 itself was mastered with (`alimiter` at 4x oversampling, `level=disabled`,
+aiming 0.5 dB under the ceiling). `latency=true` is needed there: without it
+every sample comes out 5 ms late, 240 samples on a click. The audio is
+restamped in 1024-sample frames. Stamping by samples consumed after the
+192 kHz round trip left one AAC packet a sample long, and
+`test_a_master_keeps_the_audio_the_length_it_was` caught that unchanged. The
+new test is a quiet mix with one hot transient: `loudnorm` missed its target
+(−14.1 LUFS against −16), and the limiter keeps a 10 dB step inside the mix
+at 10 dB. `normalization` now reads `linear` or `limited`.
+
+**The depth was re-fit on the whole film, unmastered.** Undoing the rendered
+envelope reproduced the flat bed exactly, and depth 8 re-applied gave `-4`'s
+2.90 back. Over the whole film:
+
+| depth | 0 | 4 | 8 | 10 | 12 | 14 | 16 |
+|---|---|---|---|---|---|---|---|
+| error, dB | 4.36 | 3.54 | 2.90 | 2.71 | **2.65** | 2.70 | 2.84 |
+
+The three-window fit that picked 8 had underfit.
+
+### `scream-native-5.mp4`
+
+A 12 dB duck under the same 17.5 LU level, and the new master.
+
+- **−16.0 LUFS / −1.0 dBTP**, a +5.9 dB gain with the limiter holding peaks.
+- 2615 keys and 246 s of the bed ducked.
+- The VO is still sample-aligned with `v8-nomusic`.
+- **Against v8's bed:** the error is 3.04 dB against `-3`'s 3.82, and the
+  correlation 0.79 against 0.67. Under speech the bed reads 2.6 dB louder
+  than v8, against 8.4. In pauses it reads 1.9 dB quieter, against 0.0.
+
+**What is left is a gate against a compressor.** v8's duck deepened on a loud
+word and this one does not. Moving `under` trades the pause error for the
+speech error, so it stays at 17.5.
+
+**A correction to § The Scream native rebuild.** It said the flat bed was
+"quieter in a pause" than v8. It was not: 0.0 dB off in pauses, measured here.
+That was a prediction, and only the "louder under a line" half was right.
+
+### `longlegs-native-7.mp4`, the same project with only the master changed
+
+- **The master:** −16.1 LUFS / −1.4 dBTP from −19.4 / +0.1, a +3.4 dB gain,
+  `limited`, 8835 frames as before.
+- **Against `-6`:** −0.2 dB on the median 3 s short-term loudness, with 90% of
+  windows between −0.4 and +0.7.
+- **Every window that moved more than 1.5 dB is in the first 15 s**, the cold
+  open. They reach +4.5 dB at the head and +3.0 dB from 8 to 15 s.
+  Dynamic `loudnorm` starts low while its window fills, so `-6` opened its cold
+  open up to 4.5 dB under the mix, and every check read the whole file on
+  target.
+
+### Still open
+
+- **Lambs/Longlegs v10's bed went through `music_bed.py` too, which always
+  ducks** (`--duck` defaults to 9). Its rebuild has no duck and nobody has
+  measured the difference. Measuring it means recovering v10's bed from under
+  its holds' film audio, the part of that film's mix Scream never had.
+- **Nobody has listened to `-5`.** The numbers say it is closer to v8; the
+  wiki row `proofcut-native` holds the watch.

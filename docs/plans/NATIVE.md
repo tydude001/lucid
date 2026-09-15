@@ -105,8 +105,9 @@ proofcut's own export doing it, so it counts.
 
 ### A4. The two cuts, rebuilt and posted
 
-Both rebuilt and measured — HISTORY.md § The Scream native rebuild. What
-remains of this step is the posting, and Scream's missing duck.
+Both rebuilt and measured — HISTORY.md § The Scream native rebuild. Scream's
+duck followed the same day (HISTORY.md § The duck). What remains of this step
+is the posting.
 
 - **Lambs/Longlegs:** re-run the native build on A1–A3, A/B it against v10 on
   the review page, then Tyler's two open calls (synth VO vs a re-record; *"It's

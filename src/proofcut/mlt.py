@@ -63,6 +63,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from fractions import Fraction
+from itertools import pairwise
 from math import gcd
 from pathlib import Path
 from typing import Any
@@ -128,6 +129,13 @@ class Entry:
     #: document before this field, byte-identical.
     crossfade_in: bool = False
     crossfade_out: bool = False
+    #: A gain envelope in dB on top of the plateau and the fades — `(offset,
+    #: dB)` with offsets relative to the entry's first frame, straight lines
+    #: between them. The duck (`duck.py`) is the one caller. Empty writes
+    #: exactly what an entry wrote before this field, and **anything that
+    #: splits an entry must cut these with `slice_gain_keys`**, or the split
+    #: pieces play undipped at exit 0.
+    gain_keys: tuple[tuple[int, float], ...] = ()
 
     @property
     def src_out(self) -> int:
@@ -758,6 +766,35 @@ def _power_ramp(start: int, frames: int, plateau: float, *, rising: bool) -> lis
     return keys
 
 
+def _line_at(keys: list[tuple[int, float]], frame: int) -> float:
+    """The value of a keyframed line at `frame`, held flat past either end.
+    Where two keys share a frame (a short fade rounds that way) the later
+    one is the value from there on, which is how the string reads to MLT."""
+    if frame <= keys[0][0]:
+        return keys[0][1]
+    for (x0, y0), (x1, y1) in pairwise(keys):
+        if x0 <= frame <= x1:
+            if x1 == x0:
+                return y1
+            if frame < x1:
+                return y0 + (y1 - y0) * (frame - x0) / (x1 - x0)
+    return keys[-1][1]
+
+
+def slice_gain_keys(
+    keys: tuple[tuple[int, float], ...], start: int, frames: int
+) -> tuple[tuple[int, float], ...]:
+    """`Entry.gain_keys` for the `frames` frames of an entry from offset
+    `start` on, rebased to the piece — with a key at each cut edge carrying the
+    envelope's value there, so the piece ramps exactly as the whole did."""
+    if not keys:
+        return ()
+    listed = list(keys)
+    end = start + frames - 1
+    inside = [(offset - start, level) for offset, level in listed if start < offset < end]
+    return ((0, round(_line_at(listed, start), 2)), *inside, (frames - 1, round(_line_at(listed, end), 2)))
+
+
 def _fade_level(entry: Entry) -> str:
     """The `volume` filter's animation string for this entry's fades.
 
@@ -791,6 +828,16 @@ def _fade_level(entry: Entry) -> str:
         keys += [(last - entry.fade_out_frames, plateau), (last, FADE_FLOOR_DB)]
     else:
         keys += [(last, plateau)]
+    if entry.gain_keys:
+        # Both are straight lines between their own keys, so their sum is a
+        # straight line between the union of the two — evaluating it there is
+        # exact, not an approximation of either.
+        envelope = [(first + offset, level) for offset, level in entry.gain_keys]
+        frames = sorted({frame for frame, _ in keys} | {frame for frame, _ in envelope})
+        keys = [
+            (frame, round(max(FADE_FLOOR_DB, _line_at(keys, frame) + _line_at(envelope, frame)), 2))
+            for frame in frames
+        ]
     # `:g` rather than a bare f-string: `plateau` is a float now (`gain_db`
     # defaults to 0.0), and a bare `{0.0}` prints "0.0" where the old
     # hardcoded-int plateau printed "0" — `:g` keeps every existing document
@@ -823,7 +870,7 @@ def _playlist(playlist_id: str, entries: list[Entry], nodes: dict[str, str]) -> 
                 "out": str(entry.src_out),
             },
         )
-        if entry.fade_in_frames or entry.fade_out_frames or entry.gain_db:
+        if entry.fade_in_frames or entry.fade_out_frames or entry.gain_db or entry.gain_keys:
             filt = ET.SubElement(node, "filter", {"id": f"{playlist_id}fade{index}"})
             _property(filt, "mlt_service", "volume")
             _property(filt, "level", _fade_level(entry))

@@ -1256,6 +1256,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_music.add_argument("--clear-passages", action="store_true", help="drop every later passage")
     p_music.add_argument("--under", type=float, help="level the bed this many LU below the VO, measured")
     p_music.add_argument("--clear-under", action="store_true", help="play every asset at its own level again")
+    p_music.add_argument(
+        "--duck", type=float, metavar="DB", help="pull the bed this many dB down while the voice is speaking"
+    )
+    p_music.add_argument("--clear-duck", action="store_true", help="play the bed at one level again")
     p_music.add_argument("--reset", action="store_true", help="drop the music bed entirely")
     p_music.add_argument(
         "--plan", action="store_true", help="resolve and check without writing the manifest"
@@ -2612,6 +2616,8 @@ def _cmd_music(args: argparse.Namespace) -> int:
             passages=[] if args.clear_passages else _passages(args.passage),
             under=args.under,
             clear_under=args.clear_under,
+            duck=args.duck,
+            clear_duck=args.clear_duck,
             reset=args.reset,
             plan=args.plan,
         )
