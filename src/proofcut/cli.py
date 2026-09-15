@@ -1234,6 +1234,28 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="drop the end word back to running to the end of the timeline",
     )
+    p_music.add_argument("--src-in", type=float, help="seconds into the bed's own asset where it starts")
+    p_music.add_argument(
+        "--crossfade", type=float, help="seconds a rotation's assets overlap, and a passage's default"
+    )
+    p_music.add_argument(
+        "--rotate",
+        action="append",
+        metavar="CLIP_ID",
+        help="an asset played in turn when the bed's own runs out — repeatable; --clear-rotate empties it",
+    )
+    p_music.add_argument("--clear-rotate", action="store_true", help="drop the bed's rotation")
+    p_music.add_argument(
+        "--passage",
+        action="append",
+        metavar="ASSET,START[,SRC_IN[,CROSSFADE]]",
+        help="a later passage: its asset, its start (a word index, or a phrase), and optionally "
+        "its in-point and the crossfade into it — repeatable, and replaces every passage; "
+        "--clear-passages empties them",
+    )
+    p_music.add_argument("--clear-passages", action="store_true", help="drop every later passage")
+    p_music.add_argument("--under", type=float, help="level the bed this many LU below the VO, measured")
+    p_music.add_argument("--clear-under", action="store_true", help="play every asset at its own level again")
     p_music.add_argument("--reset", action="store_true", help="drop the music bed entirely")
     p_music.add_argument(
         "--plan", action="store_true", help="resolve and check without writing the manifest"
@@ -2554,10 +2576,40 @@ def _cmd_music(args: argparse.Namespace) -> int:
             fade_in=args.fade_in,
             fade_out=args.fade_out,
             clear_end=args.clear_end,
+            src_in=args.src_in,
+            crossfade=args.crossfade,
+            rotate=[] if args.clear_rotate else args.rotate,
+            passages=[] if args.clear_passages else _passages(args.passage),
+            under=args.under,
+            clear_under=args.clear_under,
             reset=args.reset,
             plan=args.plan,
         )
     )
+
+
+def _passages(specs: list[str] | None) -> list[dict[str, Any]] | None:
+    """`ASSET,START[,SRC_IN[,CROSSFADE]]` — START is a word index when it is an
+    integer and a phrase otherwise, which is why a phrase with a comma in it
+    goes through MCP's `passages` instead."""
+    if specs is None:
+        return None
+    out: list[dict[str, Any]] = []
+    for spec in specs:
+        parts = [part.strip() for part in spec.split(",")]
+        if len(parts) < 2 or len(parts) > 4 or not parts[0] or not parts[1]:
+            raise SystemExit(f"--passage wants ASSET,START[,SRC_IN[,CROSSFADE]], not {spec!r}")
+        passage: dict[str, Any] = {"asset": parts[0]}
+        if parts[1].lstrip("-").isdigit():
+            passage["word_index_start"] = int(parts[1])
+        else:
+            passage["phrase_start"] = parts[1]
+        if len(parts) > 2 and parts[2]:
+            passage["src_in"] = float(parts[2])
+        if len(parts) > 3 and parts[3]:
+            passage["crossfade"] = float(parts[3])
+        out.append(passage)
+    return out
 
 
 def _cmd_vo_extend(args: argparse.Namespace) -> int:

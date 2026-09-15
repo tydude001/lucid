@@ -3526,6 +3526,15 @@ textarea {
   --clip-fill: var(--clip-peach);
 }
 
+/* A crossfade: two pieces overlap, so each takes half the row. */
+.clip-block.music-block-upper {
+  bottom: 50%;
+}
+
+.clip-block.music-block-lower {
+  top: 50%;
+}
+
 /* Fade ramps on the bed's own edges — the writer's frame counts scaled to
    pixels, drawn as the lane's background washing over the block so the block
    visibly rises out of (and sinks back into) silence. Tokens only: both ends

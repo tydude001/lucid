@@ -9048,6 +9048,79 @@ def test_hold_plays_its_own_film_audio_and_gates_the_bed_on_a_real_render(
 @needs_ffprobe
 @needs_ffmpeg
 @needs_melt
+def test_music_passages_crossfade_on_a_real_render_and_sit_under_the_vo(visible_tmp: Path) -> None:
+    """Two passages as project state, rendered through melt and read back by
+    tone: the first (440 Hz) alone before the second's start word, the second
+    (990 Hz) alone after the crossfade, and — with `under=10` — the bed about
+    10 dB below the VO's own 100 Hz. The overlap is what needs the second
+    music lane; the level is what `music_bed.py --under` did after the fact.
+    docs/plans/NATIVE.md § A1."""
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    first = visible_tmp / "first.wav"
+    second = visible_tmp / "second.wav"
+    _quiet_vo_wav(vo, 6.0)
+    _tone_wav(first, 440.0, 6.0)
+    _tone_wav(second, 990.0, 6.0)
+    transcript = visible_tmp / "vo.json"
+    transcript.write_text(
+        json.dumps({"language": "en", "words": [
+            {"word": "one", "start": 0.0, "end": 0.3},
+            {"word": "two", "start": 3.0, "end": 3.3},
+        ]}),
+        encoding="utf-8",
+    )  # fmt: skip
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+        first_clip = await client.call("import_media", path=str(project), source=str(first))
+        second_clip = await client.call("import_media", path=str(project), source=str(second))
+        await client.call(
+            "attach_transcript", path=str(project), clip_id=vo_clip["clip_id"], transcript_path=str(transcript)
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "music",
+            path=str(project),
+            asset=first_clip["clip_id"],
+            clip_id=vo_clip["clip_id"],
+            word_index_start=0,
+            passages=[{"asset": second_clip["clip_id"], "word_index_start": 1, "crossfade": 0.5}],
+            under=10.0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    assert result["writer"] == "melt"
+    assert [p["lane"] for p in result["music"]["pieces"]] == [0, 1]
+    render = Path(result["output"])
+    before_440 = _tone_window(render, 440.0, 1.0, 1.5)
+    before_990 = _tone_window(render, 990.0, 1.0, 1.5)
+    after_440 = _tone_window(render, 440.0, 4.0, 1.5)
+    after_990 = _tone_window(render, 990.0, 4.0, 1.5)
+    assert before_440 > 10 * max(before_990, 1.0), "only the first passage before the second's word"
+    assert after_990 > 10 * max(after_440, 1.0), "only the second passage after the crossfade"
+    # Mid-crossfade (word two at 3.0 s, overlap 3.0–3.5 s) both passages are
+    # clearly there. Two straight-in-dB fades leave both 25–30 dB down at the
+    # middle — a hole — where the equal-power curve puts each ~3 dB down.
+    mid_440 = _tone_window(render, 440.0, 3.15, 0.2)
+    mid_990 = _tone_window(render, 990.0, 3.15, 0.2)
+    assert mid_440 > 0.3 * before_440 and mid_990 > 0.3 * after_990, "a crossfade, not a hole"
+    vo_level = _tone_window(render, 100.0, 1.0, 1.5)
+    under = 20 * math.log10(vo_level / before_440)
+    assert 7.0 < under < 13.0, f"the bed should sit ~10 dB under the VO, measured {under:.1f}"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
 def test_a_hold_plays_the_film_from_where_its_playhead_is_when_the_gap_opens(
     visible_tmp: Path,
 ) -> None:

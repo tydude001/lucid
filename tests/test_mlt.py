@@ -1349,3 +1349,22 @@ def test_gain_db_is_the_plateau_a_fade_ramps_to_and_holds_at() -> None:
     playlist = next(p for p in document.findall("playlist") if p.get("id") == "playlist0")
     level = playlist.find("entry/filter/property[@name='level']")
     assert level is not None and level.text == "0=-60;30=-6;89=-6;119=-60"
+
+
+def test_a_crossfade_edge_follows_the_equal_power_curve() -> None:
+    """Two dB-linear fades crossing leave a hole; a crossfade edge takes
+    `CROSSFADE_STEPS` keys along sin/cos in amplitude instead, so the two
+    sides' powers sum to the plateau at every key (docs/plans/NATIVE.md § A1)."""
+    rising = mlt.Entry("/b.wav", 0, 100, fade_in_frames=40, crossfade_in=True)
+    falling = mlt.Entry("/a.wav", 0, 100, fade_out_frames=40, crossfade_out=True)
+    up = [tuple(map(float, key.split("="))) for key in mlt._fade_level(rising).split(";")][: mlt.CROSSFADE_STEPS + 1]
+    down = [tuple(map(float, key.split("="))) for key in mlt._fade_level(falling).split(";")][1:]
+
+    assert up[0] == (0.0, float(mlt.FADE_FLOOR_DB)) and up[-1] == (40.0, 0.0)
+    for (_, a), (_, b) in list(zip(up, down))[1:-1]:
+        assert 10 ** (a / 10) + 10 ** (b / 10) == pytest.approx(1.0, abs=0.01)
+
+
+def test_a_plain_fade_is_still_one_straight_line() -> None:
+    entry = mlt.Entry("/a.wav", 0, 100, fade_in_frames=40, fade_out_frames=20)
+    assert mlt._fade_level(entry) == "0=-60;40=0;79=0;99=-60"

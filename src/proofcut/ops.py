@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 import statistics
@@ -2472,7 +2473,7 @@ def clip_rm(path: Path | str, clip_id: str) -> dict[str, Any]:
     ):
         blockers.append("it is referenced by a hold (see hold_ls, hold_rm)")
     bed = manifest.get(MUSIC_KEY)
-    if bed and (bed.get("clip_id") == clip_id or bed.get("asset") == clip_id):
+    if bed and (bed.get("clip_id") == clip_id or clip_id in _music_assets(bed)):
         blockers.append("it is the music bed's own clip (see music reset=True)")
     if any(mark["clip_id"] == clip_id for mark in manifest.get(UNSPOKEN_KEY, [])):
         blockers.append("it has an unspoken mark (see unspoken_ls, unspoken_rm)")
@@ -3283,7 +3284,7 @@ def _referenced_clip_ids(manifest: dict[str, Any], on_timeline: set[str]) -> set
     bed = manifest.get(MUSIC_KEY)
     if bed:
         referenced.add(bed.get("clip_id"))
-        referenced.add(bed.get("asset"))
+        referenced.update(_music_assets(bed))
     referenced.discard(None)
     return referenced
 
@@ -4076,8 +4077,10 @@ def timeline_view(path: Path | str, clip_id: str | None = None) -> dict[str, Any
                         "fade_out",
                         "fade_in_frames",
                         "fade_out_frames",
+                        "under",
                     )
                 }
+                music_view["pieces"] = _music_pieces_view(plan["pieces"], shots_rate)
         except (ProjectError, tx.TranscriptError) as exc:
             music_error = str(exc)
 
@@ -10515,6 +10518,25 @@ def _stored_music(project: Project) -> dict[str, Any] | None:
             f"'asset', 'clip_id' and an integer 'word_index_start', not {stored!r}"
         ) from exc
     end = stored.get("word_index_end")
+    try:
+        passages = [
+            {
+                "asset": str(passage["asset"]),
+                "word_index_start": int(passage["word_index_start"]),
+                "src_in": float(passage.get("src_in", 0.0)),
+                "crossfade": float(passage.get("crossfade", stored.get("crossfade", 0.0))),
+                "rotate": [str(a) for a in passage.get("rotate", [])],
+                **({"phrase_start": passage["phrase_start"]} if passage.get("phrase_start") else {}),
+            }
+            for passage in stored.get("passages", [])
+        ]
+        rotate = [str(a) for a in stored.get("rotate", [])]
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ProjectError(
+            f"{project.manifest_path}'s {MUSIC_KEY!r} passages must each hold an "
+            f"'asset' and an integer 'word_index_start', and 'rotate' a list of clip ids — {exc}"
+        ) from exc
+    under = stored.get("under")
     return {
         "asset": asset,
         "clip_id": clip_id,
@@ -10522,7 +10544,27 @@ def _stored_music(project: Project) -> dict[str, Any] | None:
         "word_index_end": int(end) if end is not None else None,
         "fade_in": float(stored.get("fade_in", 0.0)),
         "fade_out": float(stored.get("fade_out", 0.0)),
+        # Additive-optional, so a bed stored before passages existed reads as
+        # exactly what it meant: one asset from its head at its own level.
+        "src_in": float(stored.get("src_in", 0.0)),
+        "crossfade": float(stored.get("crossfade", 0.0)),
+        "rotate": rotate,
+        "passages": passages,
+        "under": float(under) if under is not None else None,
     }
+
+
+def _music_assets(bed: dict[str, Any] | None) -> set[str]:
+    """Every clip id a stored bed plays — its own asset, every passage's, and
+    every rotation's — for the reads that ask whether a clip is in use."""
+    if not bed:
+        return set()
+    assets = {bed.get("asset"), *bed.get("rotate", [])}
+    for passage in bed.get("passages", []):
+        assets.add(passage.get("asset"))
+        assets.update(passage.get("rotate", []))
+    assets.discard(None)
+    return {str(a) for a in assets}
 
 
 def music(
@@ -10539,10 +10581,30 @@ def music(
     fade_in: float | None = None,
     fade_out: float | None = None,
     clear_end: bool = False,
+    src_in: float | None = None,
+    crossfade: float | None = None,
+    rotate: list[str] | None = None,
+    passages: list[dict[str, Any]] | None = None,
+    under: float | None = None,
+    clear_under: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
     """Read or change the A2 music bed this project mixes under its edit.
+
+    **A bed can be several passages, placed and levelled** (docs/plans/
+    NATIVE.md § A1). `passages` replaces the list of passages after the bed's
+    own asset, each `{asset, word_index_start | phrase_start, src_in?,
+    crossfade?, rotate?}`: it starts at its word (a phrase resolves forward
+    from the passage before it), plays its asset from `src_in`, and the
+    passage before runs on past that word by `crossfade` seconds so the two
+    overlap. `rotate` (on the bed, or on a passage) is further assets played
+    in turn when the first runs out, overlapping by the bed's `crossfade` —
+    Lambs/Longlegs' three calm passages tiled to the film. `src_in` is where
+    the bed's own asset starts. `under` levels the whole bed that many LU below
+    the VO, measured, the way a hold is; unset, every asset plays at its own
+    level, which is what every bed before this meant. `passages=[]` and
+    `rotate=[]` clear them; `clear_under` drops the level.
 
     PLAN.md § The A2 music lane — the design note, and the one op step 05 of
     the Studio reshape stopped for review over. Called with no arguments it
@@ -10625,8 +10687,13 @@ def music(
             phrase_end,
             fade_in,
             fade_out,
+            src_in,
+            crossfade,
+            rotate,
+            passages,
+            under,
         )
-    )
+    ) or clear_under
 
     if reset:
         state: dict[str, Any] | None = None
@@ -10700,6 +10767,63 @@ def music(
         if stored_phrase_end is not None:
             merged["phrase_end"] = stored_phrase_end
 
+        # The arrangement fields ride only when set, so a bed that uses none of
+        # them is stored exactly as it was before they existed.
+        resolved_src_in = float(src_in) if src_in is not None else float(base.get("src_in", 0.0))
+        resolved_crossfade = (
+            float(crossfade) if crossfade is not None else float(base.get("crossfade", 0.0))
+        )
+        resolved_rotate = [str(a) for a in rotate] if rotate is not None else list(base.get("rotate", []))
+        resolved_under = None if clear_under else (float(under) if under is not None else base.get("under"))
+        if passages is not None:
+            resolved_passages: list[dict[str, Any]] = []
+            previous = int(merged["word_index_start"]) if merged["word_index_start"] is not None else -1
+            for number, raw in enumerate(passages):
+                if not isinstance(raw, dict) or "asset" not in raw:
+                    raise ProjectError(f"music passage {number} needs an 'asset', not {raw!r}")
+                passage: dict[str, Any] = {"asset": str(raw["asset"])}
+                if raw.get("phrase_start") is not None:
+                    if resolved_clip_id is None:
+                        raise ProjectError("a passage phrase needs the bed's clip_id to resolve against")
+                    word, _ = _resolve_word_or_phrase(
+                        _transcript(project, resolved_clip_id),
+                        word_index=None,
+                        phrase=str(raw["phrase_start"]),
+                        after=previous,
+                        occurrence=raw.get("occurrence"),
+                        edge="first",
+                    )
+                    passage["word_index_start"] = int(word)
+                    passage["phrase_start"] = str(raw["phrase_start"])
+                elif raw.get("word_index_start") is not None:
+                    passage["word_index_start"] = int(raw["word_index_start"])
+                else:
+                    raise ProjectError(
+                        f"music passage {number} ({raw['asset']!r}) needs a word_index_start or phrase_start"
+                    )
+                for key in ("src_in", "crossfade"):
+                    if raw.get(key) is not None:
+                        passage[key] = float(raw[key])
+                if raw.get("rotate"):
+                    passage["rotate"] = [str(a) for a in raw["rotate"]]
+                previous = passage["word_index_start"]
+                resolved_passages.append(passage)
+        else:
+            resolved_passages = [
+                {k: v for k, v in passage.items() if not (k == "rotate" and not v)}
+                for passage in base.get("passages", [])
+            ]
+        if resolved_src_in:
+            merged["src_in"] = resolved_src_in
+        if resolved_crossfade:
+            merged["crossfade"] = resolved_crossfade
+        if resolved_rotate:
+            merged["rotate"] = resolved_rotate
+        if resolved_passages:
+            merged["passages"] = resolved_passages
+        if resolved_under is not None:
+            merged["under"] = resolved_under
+
         if merged["asset"] is None or merged["clip_id"] is None or merged["word_index_start"] is None:
             raise ProjectError(
                 "a music bed needs `asset`, `clip_id` and `word_index_start` "
@@ -10718,6 +10842,17 @@ def music(
                 f"music fades must not be negative, not "
                 f"{merged['fade_in']!r}/{merged['fade_out']!r}"
             )
+        arrangement = [merged.get("src_in", 0.0), merged.get("crossfade", 0.0)] + [
+            passage.get(key, 0.0) for passage in merged.get("passages", []) for key in ("src_in", "crossfade")
+        ]
+        if any(value < 0 for value in arrangement):
+            raise ProjectError("music src_in and crossfade must not be negative")
+        for extra in _music_assets(merged) - {str(merged["asset"])}:
+            if extra.startswith("card:"):
+                raise ProjectError(
+                    f"music asset must be a clip_id, not {extra!r} — a held frame has no sound to mix"
+                )
+            media.get_clip(project, extra)
         if merged["word_index_end"] is not None and merged["word_index_end"] < merged["word_index_start"]:
             raise ProjectError(
                 f"music word_index_end ({merged['word_index_end']}) sits before "
@@ -10742,17 +10877,23 @@ def music(
     # — an index one past the intended phrase reads correctly on its own.
     start_word: dict[str, Any] | None = None
     end_word: dict[str, Any] | None = None
+    passage_words: list[dict[str, Any]] = []
     if state is not None:
         parsed = _transcript(project, state["clip_id"])
         start_word = _cue_echo(parsed, state["word_index_start"])
         if state["word_index_end"] is not None:
             end_word = _cue_echo(parsed, state["word_index_end"])
+        passage_words = [
+            {"asset": passage["asset"], **_cue_echo(parsed, passage["word_index_start"])}
+            for passage in state.get("passages", [])
+        ]
 
     return {
         "project": str(project.root),
         "music": state,
         "start_word": start_word,
         "end_word": end_word,
+        "passage_words": passage_words,
         "written": write,
         "reset": bool(reset),
         "plan": bool(plan),
@@ -10823,53 +10964,195 @@ def _music_plan(
             f"{rate:g} fps grid"
         )
 
-    clip = media.get_clip(project, stored["asset"])
-    duration = clip.get("duration")
-    if not duration:
-        raise ProjectError(
-            f"music asset {stored['asset']!r} has no known duration, so there "
-            "is no way to trim it to its span"
+    # The passages: the bed's own asset first, then each stored passage from
+    # the timeline position of its start word — a word index, never a stored
+    # second, for the design note's measured reason. Each runs to where the
+    # next one starts, plus that one's crossfade, or to the bed's end.
+    starts: list[tuple[int, dict[str, Any]]] = [
+        (
+            start_frame,
+            {
+                "asset": stored["asset"],
+                "src_in": stored["src_in"],
+                "crossfade": 0.0,
+                "rotate": stored["rotate"],
+                "word_index_start": stored["word_index_start"],
+            },
         )
-    available = round(float(duration) * rate)
-    span_frames = end_frame - start_frame
-    music_frames = min(span_frames, available)
+    ]
+    for passage in stored["passages"]:
+        echo = _cue_echo(parsed, passage["word_index_start"])
+        span = edit.timeline_span(stored["clip_id"], echo["start"], echo["end"])
+        if span is None:
+            raise ProjectError(
+                f"a music passage ({passage['asset']!r}) starts at {stored['clip_id']!r} "
+                f"word {passage['word_index_start']} ({echo['text']!r}), which a cut "
+                "removed from the timeline — move the passage's start word"
+            )
+        frame = min(round(span[0] * rate), end_frame)
+        if frame <= starts[-1][0]:
+            raise ProjectError(
+                f"music passage {passage['asset']!r} starts at word "
+                f"{passage['word_index_start']} ({echo['text']!r}), not after the passage "
+                "before it — passages run forward, each from its own start word"
+            )
+        starts.append((frame, passage))
 
-    # The fades are drawn over the bed's *audible* frames — entry-attached,
-    # so a fade-out ends where the music actually ends, before any trail
-    # silence — and a pair that no longer fits refuses here rather than in
-    # the writer, so `timeline_view` reports it as `music_error` and `export`
-    # refuses by name. A cut can shrink the bed under fades that used to fit;
-    # that is a real decision point, not something to clamp quietly.
-    fade_in_frames = round(stored["fade_in"] * rate)
-    fade_out_frames = round(stored["fade_out"] * rate)
-    if fade_in_frames + fade_out_frames > max(music_frames - 1, 0):
-        raise ProjectError(
-            f"the music fades ({stored['fade_in']:g}s + {stored['fade_out']:g}s) "
-            f"do not fit inside the bed's audible {music_frames / rate:.3f}s — "
-            "shorten the fades, or move the bed's boundary words to lengthen "
-            "it (music, or CLI `proofcut music`)"
-        )
+    pieces = _music_pieces(project, stored, starts, end_frame, rate)
+    covered: set[int] = set()
+    for piece in pieces:
+        covered.update(range(piece["start_frame"], piece["start_frame"] + piece["frames"]))
+    span_frames = end_frame - start_frame
+    music_frames = len(covered)
+    first = pieces[0]
 
     return {
         **stored,
-        "asset_path": str(media.media_path(project, clip)),
+        # The first piece's, which for a bed with no passages is the bed.
+        "asset_path": first["asset_path"],
         "start_frame": start_frame,
         "end_frame": end_frame,
         "timeline_start": start_seconds,
         "timeline_end": end_seconds,
         "to_end": to_end,
-        # The asset trimmed by frame count where it outruns its span; where it
-        # runs short the lane pads out with real silence instead, and both are
-        # by construction rather than melt's un-checked padding (the note's
-        # resolution (b)).
+        # Frames something plays over, and frames of the span nothing does —
+        # an asset shorter than its span pads with real silence, never melt's
+        # un-checked padding (the note's resolution (b)).
         "music_frames": music_frames,
-        "padded_frames": max(0, span_frames - available),
+        "padded_frames": span_frames - music_frames,
         # What the writer will actually draw, in its own units, so the reply
         # and the view state the fade the render carries rather than the one
         # the manifest asked for.
-        "fade_in_frames": fade_in_frames,
-        "fade_out_frames": fade_out_frames,
+        "fade_in_frames": first["fade_in_frames"],
+        "fade_out_frames": pieces[-1]["fade_out_frames"],
+        "pieces": pieces,
     }
+
+
+def _music_pieces_view(pieces: list[dict[str, Any]], rate: float) -> list[dict[str, Any]]:
+    """The pieces as a reply or a lane states them: in Edit seconds, no paths."""
+    return [
+        {
+            "asset": piece["asset"],
+            "passage": piece["passage"],
+            "lane": piece["lane"],
+            "timeline_start": piece["start_frame"] / rate,
+            "timeline_end": (piece["start_frame"] + piece["frames"]) / rate,
+            "src_in": piece["src_in_frames"] / rate,
+            "fade_in": piece["fade_in_frames"] / rate,
+            "fade_out": piece["fade_out_frames"] / rate,
+        }
+        for piece in pieces
+    ]
+
+
+def _music_pieces(
+    project: Project,
+    stored: dict[str, Any],
+    starts: list[tuple[int, dict[str, Any]]],
+    end_frame: int,
+    rate: float,
+) -> list[dict[str, Any]]:
+    """Lay the bed's passages out as the pieces the writer plays, in Edit frames.
+
+    A passage plays its asset from `src_in`; when the asset runs out before
+    the passage does, a passage with `rotate` carries on with the next asset
+    in its rotation, each from its head, overlapping the last by the bed's
+    `crossfade` — goodsometimes `gen_longlegs_mix.py`'s tiling, three
+    passages alternated to fill the body — and a passage without one pads
+    with silence, today's single bed, because the listen settled that one
+    looped cue loses (HISTORY.md § The three served answers). A passage's
+    last piece runs on past the next passage's start by that passage's own
+    `crossfade`, so the two overlap there; the writer puts overlapping pieces
+    on two lanes.
+
+    Every fade is sized here, and one that does not fit refuses by name, so
+    `timeline_view` reports it as `music_error` and `export` refuses — a cut
+    can shrink a passage under a crossfade that used to fit, and that is a
+    decision, not something to clamp.
+    """
+    bed_crossfade = round(stored["crossfade"] * rate)
+    pieces: list[dict[str, Any]] = []
+    for index, (passage_start, passage) in enumerate(starts):
+        if index + 1 < len(starts):
+            next_start, next_passage = starts[index + 1]
+            span_end = min(next_start + round(next_passage["crossfade"] * rate), end_frame)
+        else:
+            span_end = end_frame
+        cycle = [passage["asset"], *passage["rotate"]]
+        cursor, turn = passage_start, 0
+        while cursor < span_end:
+            asset = cycle[turn % len(cycle)]
+            clip = media.get_clip(project, asset)
+            duration = clip.get("duration")
+            if not duration:
+                raise ProjectError(
+                    f"music asset {asset!r} has no known duration, so there is no way "
+                    "to trim it to its span"
+                )
+            src_in = round((passage["src_in"] if turn == 0 else 0.0) * rate)
+            available = round(float(duration) * rate) - src_in
+            if available <= 0:
+                raise ProjectError(
+                    f"music asset {asset!r} starts at src {src_in / rate:.3f}s, past its "
+                    f"own {float(duration):.3f}s"
+                )
+            frames = min(available, span_end - cursor)
+            pieces.append(
+                {
+                    "asset": asset,
+                    "asset_path": str(media.media_path(project, clip)),
+                    "start_frame": cursor,
+                    "frames": frames,
+                    "src_in_frames": src_in,
+                    "passage": index,
+                }
+            )
+            if cursor + frames >= span_end or len(cycle) == 1:
+                break
+            if frames <= bed_crossfade:
+                raise ProjectError(
+                    f"music asset {asset!r} plays {frames / rate:.3f}s, no longer than the "
+                    f"bed's {bed_crossfade / rate:.3f}s crossfade — a rotation has to move forward"
+                )
+            cursor += frames - bed_crossfade
+            turn += 1
+
+    # Fades: the bed's own at its two ends, a crossfade wherever two pieces
+    # overlap, nothing where a piece runs out into silence.
+    for index, piece in enumerate(pieces):
+        piece_end = piece["start_frame"] + piece["frames"]
+        before = pieces[index - 1] if index else None
+        after = pieces[index + 1] if index + 1 < len(pieces) else None
+        overlap_in = (before["start_frame"] + before["frames"] - piece["start_frame"]) if before else 0
+        overlap_out = (piece_end - after["start_frame"]) if after else 0
+        piece["fade_in_frames"] = max(overlap_in, 0) if before else round(stored["fade_in"] * rate)
+        piece["fade_out_frames"] = max(overlap_out, 0) if after else round(stored["fade_out"] * rate)
+        # An overlap is a crossfade, and takes the equal-power curve; the
+        # bed's own ends fade to and from silence the way they always did.
+        piece["crossfade_in"] = bool(before) and overlap_in > 0
+        piece["crossfade_out"] = bool(after) and overlap_out > 0
+        if piece["fade_in_frames"] + piece["fade_out_frames"] > max(piece["frames"] - 1, 0):
+            raise ProjectError(
+                f"the music fades on {piece['asset']!r} "
+                f"({piece['fade_in_frames'] / rate:.3f}s in + {piece['fade_out_frames'] / rate:.3f}s out) "
+                f"do not fit inside its audible {piece['frames'] / rate:.3f}s — shorten the "
+                "fades or crossfades, or move the boundary words to lengthen it "
+                "(music, or CLI `proofcut music`)"
+            )
+
+    # Two lanes: a piece goes on the first lane whose last piece has ended.
+    lane_ends = [0, 0]
+    for piece in pieces:
+        lane = next((k for k in (0, 1) if lane_ends[k] <= piece["start_frame"]), None)
+        if lane is None:
+            raise ProjectError(
+                f"music asset {piece['asset']!r} would overlap two pieces at once — a "
+                "crossfade longer than the piece between them"
+            )
+        piece["lane"] = lane
+        lane_ends[lane] = piece["start_frame"] + piece["frames"]
+    return pieces
 
 
 # -- film-audio holds ------------------------------------------------------
@@ -11187,7 +11470,7 @@ def _hold_gate_spans(
 def _gate_music_lane(
     project: Project,
     music_lane: list[mlt.Entry],
-    bed_resource: str,
+    bed_resource: str | set[str],
     hold_spans: list[tuple[int, int]],
     rate: float,
 ) -> list[mlt.Entry]:
@@ -11206,6 +11489,7 @@ def _gate_music_lane(
     """
     if not music_lane or not hold_spans:
         return music_lane
+    bed_resources = {bed_resource} if isinstance(bed_resource, str) else bed_resource
 
     ramp = max(1, round(HOLD_GATE_RAMP * rate))
     out: list[mlt.Entry] = []
@@ -11213,7 +11497,7 @@ def _gate_music_lane(
     for entry in music_lane:
         entry_start, entry_end = offset, offset + entry.frames
         offset = entry_end
-        if entry.resource != bed_resource:
+        if entry.resource not in bed_resources:
             out.append(entry)
             continue
 
@@ -11243,6 +11527,7 @@ def _gate_music_lane(
                         ),
                         fade_out_frames=min(ramp, seg_frames),
                         gain_db=entry.gain_db,
+                        crossfade_in=entry.crossfade_in and cursor == entry_start,
                     )
                 )
             silence = _tail_silence(project, (hi - lo) / rate)
@@ -11259,6 +11544,7 @@ def _gate_music_lane(
                     fade_in_frames=min(ramp, seg_frames),
                     fade_out_frames=entry.fade_out_frames,
                     gain_db=entry.gain_db,
+                    crossfade_out=entry.crossfade_out,
                 )
             )
     return out
@@ -12058,41 +12344,65 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
     # offset is a real silent producer entry, never a `<blank>`.
     music_report: dict[str, Any] | None = None
     music_lane: list[mlt.Entry] = []
+    music2_lane: list[mlt.Entry] = []
+    music_resources: set[str] = set()
     music_plan = _music_plan(project, edit, rate, edit_frames=edit_frames)
     if music_plan is not None:
         total_frames = sum(entry.frames for entry in audio)
-        # `music_plan["start_frame"]` is resolved against the Edit's own
-        # frames (`edit_frames`, above) and knows nothing of a head — it
-        # cannot, a head is not part of the `Edit`. But `audio`'s own index 0
-        # is no longer the Edit's start once a head has been prepended to
-        # it, so the *lane's* lead pad has to grow by `head_frames` on top
-        # of the plan's own boundary, or the bed plays `head_frames` seconds
-        # too early — directly on top of the cold open, at exit 0, invisible
-        # to `mlt.document`'s own checks (which only verify the music lane's
-        # total frame count, never its internal alignment against the edit
-        # track).
-        lead = head_frames + music_plan["start_frame"]
-        if lead:
-            lead_silence = _tail_silence(project, lead / rate)
-            music_lane.append(mlt.Entry(str(lead_silence), 0, lead, is_image=False, has_video=False))
-        music_lane.append(
-            mlt.Entry(
-                music_plan["asset_path"],
-                0,
-                music_plan["music_frames"],
-                has_video=False,
-                # Entry-attached, so the fades land on the bed's own first
-                # and last audible frames however much silence pads the lane.
-                fade_in_frames=music_plan["fade_in_frames"],
-                fade_out_frames=music_plan["fade_out_frames"],
+        # A piece's `start_frame` is resolved against the Edit's own frames
+        # and knows nothing of a head — it cannot, a head is not part of the
+        # `Edit`. But `audio`'s own index 0 is no longer the Edit's start once
+        # a head has been prepended, so every lane position grows by
+        # `head_frames`, or the bed plays `head_frames` too early — directly
+        # on top of the cold open, at exit 0, invisible to `mlt.document`'s
+        # own checks (which verify each lane's total, never its alignment).
+        level_db = 0.0
+        if music_plan["under"] is not None:
+            # One gain for the whole bed, `music_bed.py`'s own rule: the bed's
+            # loudness is the duration-weighted power mean of what each piece
+            # plays, landed `under` LU below the VO the way a hold is levelled.
+            powers, weights = 0.0, 0
+            for piece in music_plan["pieces"]:
+                start = piece["src_in_frames"] / rate
+                lufs = energy.integrated_loudness(
+                    piece["asset_path"], start=start, end=start + piece["frames"] / rate
+                )
+                powers += piece["frames"] * 10 ** (lufs / 10)
+                weights += piece["frames"]
+            bed_lufs = 10 * math.log10(powers / weights)
+            level_db = round(_vo_loudness(project, edit) - music_plan["under"] - bed_lufs, 2)
+        lanes: list[list[mlt.Entry]] = [music_lane, music2_lane]
+        cursors = [0, 0]
+        for piece in music_plan["pieces"]:
+            lane, at = lanes[piece["lane"]], head_frames + piece["start_frame"]
+            gap = at - cursors[piece["lane"]]
+            if gap:
+                silence = _tail_silence(project, gap / rate)
+                lane.append(mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False))
+            lane.append(
+                mlt.Entry(
+                    piece["asset_path"],
+                    piece["src_in_frames"],
+                    piece["frames"],
+                    has_video=False,
+                    # Entry-attached, so the fades land on the piece's own
+                    # first and last audible frames however much silence pads it.
+                    fade_in_frames=piece["fade_in_frames"],
+                    fade_out_frames=piece["fade_out_frames"],
+                    gain_db=level_db,
+                    crossfade_in=piece["crossfade_in"],
+                    crossfade_out=piece["crossfade_out"],
+                )
             )
-        )
-        trail = total_frames - lead - music_plan["music_frames"]
-        if trail:
-            trail_silence = _tail_silence(project, trail / rate)
-            music_lane.append(
-                mlt.Entry(str(trail_silence), 0, trail, is_image=False, has_video=False)
-            )
+            music_resources.add(piece["asset_path"])
+            cursors[piece["lane"]] = at + piece["frames"]
+        for index, lane in enumerate(lanes):
+            if not lane:
+                continue
+            trail = total_frames - cursors[index]
+            if trail:
+                silence = _tail_silence(project, trail / rate)
+                lane.append(mlt.Entry(str(silence), 0, trail, is_image=False, has_video=False))
         # Deliberately NOT added to `clip_of`: a reframe crops what is on
         # screen, and nothing of the music lane is — its nodes never take one.
         music_report = {
@@ -12111,8 +12421,11 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
                 "fade_out",
                 "fade_in_frames",
                 "fade_out_frames",
+                "under",
             )
         }
+        music_report["level_db"] = level_db
+        music_report["pieces"] = _music_pieces_view(music_plan["pieces"], rate)
 
     # The holds lane: a fourth, audio-only lane, each stored hold's own
     # resolved film-clip span sitting at exactly the frame it plays, real
@@ -12182,15 +12495,11 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         # score on cleared dialogue is a Content ID problem, not a loudness
         # preference (this module's own docstring). Resolved after the holds
         # lane itself so the two can never disagree about where a hold plays.
+        gate_spans = [(start, end) for start, end, _ in hold_spans]
         if music_lane:
-            bed_resource = music_plan["asset_path"] if music_plan is not None else ""
-            music_lane = _gate_music_lane(
-                project,
-                music_lane,
-                bed_resource,
-                [(start, end) for start, end, _ in hold_spans],
-                rate,
-            )
+            music_lane = _gate_music_lane(project, music_lane, music_resources, gate_spans, rate)
+        if music2_lane:
+            music2_lane = _gate_music_lane(project, music2_lane, music_resources, gate_spans, rate)
 
     resolution = _mlt_resolution(project)
     by_clip = _reframe_map(project, resolution)
@@ -12201,6 +12510,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         audio=audio,
         picture=lane,
         music=music_lane,
+        music2=music2_lane,
         holds=holds_lane,
         rate=rate,
         resolution=resolution,
@@ -12213,7 +12523,9 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         "resolution": resolution,
         "shots": shots,
         "frames": sum(entry.frames for entry in audio),
-        "sources": len({entry.resource for entry in [*audio, *lane, *music_lane, *holds_lane]}),
+        "sources": len(
+            {entry.resource for entry in [*audio, *lane, *music_lane, *music2_lane, *holds_lane]}
+        ),
         # None with no head, or the resolved config plus the frames it
         # added — `tail`'s own echo shape, mirrored at the other end.
         "head": head_report,

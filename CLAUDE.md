@@ -1005,6 +1005,19 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       indexes, so sending the view's current clip on a fades-only change
       re-addresses the bed, and reads as correct in every call that happens
       to be a first set. HISTORY.md § The A2 lane became settable.
+    - **A bed can be passages, a rotation and a level** — `passages`,
+      `rotate`, `crossfade`, `src_in`, `under` on `MUSIC_KEY`, each additive
+      and absent-means-today's-bed, so no schema bump (docs/plans/NATIVE.md
+      § A1). `_music_pieces` lays them out as pieces in Edit frames, and
+      **overlapping pieces go on a second lane** (`music2`, `tractorC`):
+      one playlist cannot hold two things at once, and a bed that never
+      overlaps writes no second lane and the same bytes as before.
+      **A crossfade edge is `crossfade_in`/`crossfade_out` on `mlt.Entry`,
+      and it must be** — the ordinary fade is a straight line in dB, and two
+      crossing sum to a hole: −50 and −54 dB at 0.9 s into a 2.5 s overlap
+      against a −24 plateau, where the equal-power keys hold the total flat.
+      A new overlap that sets only `fade_*_frames` renders that hole at
+      exit 0.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

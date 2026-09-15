@@ -1904,6 +1904,12 @@ def music(
     fade_in: float | None = None,
     fade_out: float | None = None,
     clear_end: bool = False,
+    src_in: float | None = None,
+    crossfade: float | None = None,
+    rotate: list[str] | None = None,
+    passages: list[dict[str, Any]] | None = None,
+    under: float | None = None,
+    clear_under: bool = False,
     reset: bool = False,
     plan: bool = False,
 ) -> dict[str, Any]:
@@ -1935,6 +1941,16 @@ def music(
     pair that outgrows the bed refuses at build time. `plan` resolves and
     validates without writing. Both word indices are echoed with their
     resolved words and neighbours — check them.
+
+    A bed can be several passages: `passages` replaces the list after the
+    bed's own asset, each `{asset, word_index_start | phrase_start, src_in?,
+    crossfade?, rotate?}` — starting at its word, from `src_in` seconds into
+    its asset, with the passage before overlapping it by `crossfade`. `rotate`
+    plays further assets in turn when one runs out, overlapping by the bed's
+    `crossfade`. `src_in` is where the bed's own asset starts. `under` levels
+    the whole bed that many LU below the VO, measured; `clear_under` returns
+    every asset to its own level. `passages=[]` / `rotate=[]` clear them.
+    `passage_words` echoes each passage's resolved start word.
     """
     return ops.music(
         path,
@@ -1949,6 +1965,12 @@ def music(
         fade_in=fade_in,
         fade_out=fade_out,
         clear_end=clear_end,
+        src_in=src_in,
+        crossfade=crossfade,
+        rotate=rotate,
+        passages=passages,
+        under=under,
+        clear_under=clear_under,
         reset=reset,
         plan=plan,
     )

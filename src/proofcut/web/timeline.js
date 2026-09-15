@@ -814,51 +814,72 @@ function buildMusicRow(state, pxPerSec, duration) {
   // view does not send: the two counts were built on one grid, so the
   // fraction is exact and no second clock enters this file.
   const secondsPerFrame = spanFrames ? span / spanFrames : 0;
-  const audible = music.music_frames * secondsPerFrame;
+  // One block per piece the writer plays (docs/plans/NATIVE.md § A1): a bed
+  // of passages or a rotation is several assets, and a single block labelled
+  // with the first would draw a bed the render does not mix. A view from
+  // before pieces existed has none, and draws the one audible span it meant.
+  const pieces = Array.isArray(music.pieces) && music.pieces.length
+    ? music.pieces
+    : [{
+        asset: music.asset,
+        lane: 0,
+        timeline_start: music.timeline_start,
+        timeline_end: music.timeline_start + music.music_frames * secondsPerFrame,
+        fade_in: music.fade_in_frames * secondsPerFrame,
+        fade_out: music.fade_out_frames * secondsPerFrame,
+      }];
+  const overlapping = pieces.some((piece) => piece.lane === 1);
 
-  const block = el("div", "clip-block music-block");
-  block.style.left = `${(music.timeline_start * pxPerSec).toFixed(1)}px`;
-  block.style.width = `${Math.max(1, audible * pxPerSec).toFixed(1)}px`;
-  const fades = [];
-  if (music.fade_in) fades.push(`fade in ${music.fade_in}s`);
-  if (music.fade_out) fades.push(`fade out ${music.fade_out}s`);
-  block.title = [
-    `music: ${music.asset} — mixed under the edit`,
-    `plays ${fmt(music.timeline_start)}–${fmt(music.timeline_start + audible)}`
-      + (music.padded_frames ? ` (the asset ends there; silence pads to ${fmt(music.timeline_end)})` : ""),
-    music.to_end
-      ? "no end word — the bed runs to the end of the timeline"
-      : `cue: ${music.clip_id} words ${music.word_index_start}–${music.word_index_end}`,
-    ...fades,
-  ].join("\n");
-  if (music.fade_in_frames) {
-    const ramp = el("div", "fade-ramp fade-ramp-in");
-    ramp.style.width = `${(music.fade_in_frames * secondsPerFrame * pxPerSec).toFixed(1)}px`;
-    block.append(ramp);
+  for (const piece of pieces) {
+    const width = Math.max(0, piece.timeline_end - piece.timeline_start);
+    const block = el("div", "clip-block music-block");
+    // Two lanes share one row only where a crossfade overlaps them: the
+    // second takes the lower half, so an overlap reads as two things at once.
+    if (overlapping) block.classList.add(piece.lane === 1 ? "music-block-lower" : "music-block-upper");
+    block.style.left = `${(piece.timeline_start * pxPerSec).toFixed(1)}px`;
+    block.style.width = `${Math.max(1, width * pxPerSec).toFixed(1)}px`;
+    const fades = [];
+    if (piece.fade_in) fades.push(`fade in ${fmt(piece.fade_in)}`);
+    if (piece.fade_out) fades.push(`fade out ${fmt(piece.fade_out)}`);
+    block.title = [
+      `music: ${piece.asset} — mixed under the edit`,
+      `plays ${fmt(piece.timeline_start)}–${fmt(piece.timeline_end)}`
+        + (piece.src_in ? `, from ${fmt(piece.src_in)} into the asset` : ""),
+      music.under != null ? `levelled ${music.under} LU under the VO` : "at the asset's own level",
+      music.to_end
+        ? "no end word — the bed runs to the end of the timeline"
+        : `cue: ${music.clip_id} words ${music.word_index_start}–${music.word_index_end}`,
+      ...fades,
+    ].join("\n");
+    if (piece.fade_in) {
+      const ramp = el("div", "fade-ramp fade-ramp-in");
+      ramp.style.width = `${(piece.fade_in * pxPerSec).toFixed(1)}px`;
+      block.append(ramp);
+    }
+    if (piece.fade_out) {
+      const ramp = el("div", "fade-ramp fade-ramp-out");
+      ramp.style.width = `${(piece.fade_out * pxPerSec).toFixed(1)}px`;
+      block.append(ramp);
+    }
+    block.append(el("span", "clip-label", piece.asset));
+    // Target-phase, like a shot block: clicking the bed inspects its start
+    // word, so the cue that placed it is one click from the thing it placed —
+    // and opens the bed's panel on the asset and the fades, the edits that do
+    // not want a new span. A drag across the lane is the one that re-spans it.
+    block.addEventListener("click", (event) => {
+      if (ctx) ctx.emit("inspect-word", { clipId: music.clip_id, wordIndex: music.word_index_start });
+      const lanes = $("track-lanes");
+      if (!lanes) return;
+      const rect = lanes.getBoundingClientRect();
+      openMusicPanel(
+        null,
+        null,
+        Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
+        Math.max(0, event.clientY - rect.top + 10),
+      );
+    });
+    row.append(block);
   }
-  if (music.fade_out_frames) {
-    const ramp = el("div", "fade-ramp fade-ramp-out");
-    ramp.style.width = `${(music.fade_out_frames * secondsPerFrame * pxPerSec).toFixed(1)}px`;
-    block.append(ramp);
-  }
-  block.append(el("span", "clip-label", music.asset));
-  // Target-phase, like a shot block: clicking the bed inspects its start
-  // word, so the cue that placed it is one click from the thing it placed —
-  // and opens the bed's panel on the asset and the fades, the edits that do
-  // not want a new span. A drag across the lane is the one that re-spans it.
-  block.addEventListener("click", (event) => {
-    if (ctx) ctx.emit("inspect-word", { clipId: music.clip_id, wordIndex: music.word_index_start });
-    const lanes = $("track-lanes");
-    if (!lanes) return;
-    const rect = lanes.getBoundingClientRect();
-    openMusicPanel(
-      null,
-      null,
-      Math.max(0, event.clientX - rect.left + lanes.scrollLeft),
-      Math.max(0, event.clientY - rect.top + 10),
-    );
-  });
-  row.append(block);
 
   seekOnClick(row, pxPerSec);
   return row;

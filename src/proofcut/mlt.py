@@ -58,6 +58,7 @@ with the cue that asks for it, not speculatively.
 
 from __future__ import annotations
 
+import math
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -119,6 +120,14 @@ class Entry:
     #: byte-identically to before this field existed. The head's cold-open
     #: audio is the first caller to set it to something else.
     gain_db: float = 0.0
+    #: Whether a fade edge is half of a crossfade, and so follows the
+    #: equal-power curve rather than a straight line in dB. Two dB-linear
+    #: fades crossing sum to a hole: on a 2.5 s crossfade the outgoing and
+    #: incoming passages read −50 and −54 dB at 0.9 s against a −24 plateau
+    #: (docs/plans/NATIVE.md § A1). False keeps every other fade, and every
+    #: document before this field, byte-identical.
+    crossfade_in: bool = False
+    crossfade_out: bool = False
 
     @property
     def src_out(self) -> int:
@@ -730,6 +739,25 @@ def _source_node(node_id: str, entry: Entry, bin_id: int, rate: float) -> ET.Ele
 FADE_FLOOR_DB = -60
 
 
+#: Keyframes along each half of a crossfade — MLT interpolates linearly in dB
+#: between them, so enough points make the equal-power curve hold within a
+#: fraction of a dB where two straight dB ramps would leave a hole.
+CROSSFADE_STEPS = 8
+
+
+def _power_ramp(start: int, frames: int, plateau: float, *, rising: bool) -> list[tuple[int, float]]:
+    """One side of an equal-power crossfade: gain sin(πt/2) rising, cos(πt/2)
+    falling, in dB against `plateau`, floored at `FADE_FLOOR_DB` — so the two
+    sides' powers sum to the plateau's across the overlap."""
+    keys: list[tuple[int, float]] = []
+    for step in range(CROSSFADE_STEPS + 1):
+        t = step / CROSSFADE_STEPS
+        gain = math.sin(t * math.pi / 2) if rising else math.cos(t * math.pi / 2)
+        level = max(FADE_FLOOR_DB, plateau + 20 * math.log10(gain)) if gain > 0 else FADE_FLOOR_DB
+        keys.append((start + round(frames * t), round(level, 2)))
+    return keys
+
+
 def _fade_level(entry: Entry) -> str:
     """The `volume` filter's animation string for this entry's fades.
 
@@ -751,11 +779,15 @@ def _fade_level(entry: Entry) -> str:
     last = entry.src_in + entry.frames - 1
     plateau = entry.gain_db
     keys: list[tuple[int, float]] = []
-    if entry.fade_in_frames:
+    if entry.fade_in_frames and entry.crossfade_in:
+        keys += _power_ramp(first, entry.fade_in_frames, plateau, rising=True)
+    elif entry.fade_in_frames:
         keys += [(first, FADE_FLOOR_DB), (first + entry.fade_in_frames, plateau)]
     else:
         keys += [(first, plateau)]
-    if entry.fade_out_frames:
+    if entry.fade_out_frames and entry.crossfade_out:
+        keys += _power_ramp(last - entry.fade_out_frames, entry.fade_out_frames, plateau, rising=False)
+    elif entry.fade_out_frames:
         keys += [(last - entry.fade_out_frames, plateau), (last, FADE_FLOOR_DB)]
     else:
         keys += [(last, plateau)]
@@ -902,6 +934,7 @@ def document(
     audio: list[Entry],
     picture: list[Entry] | None = None,
     music: list[Entry] | None = None,
+    music2: list[Entry] | None = None,
     holds: list[Entry] | None = None,
     rate: float,
     resolution: tuple[int, int] = DEFAULT_RESOLUTION,
@@ -949,6 +982,13 @@ def document(
     lane's entries with everything unsplit blanked out, and one more compositing
     transition. Nothing else changes — no new service, no mask, no crop filter.
 
+    `music2` is the bed's second lane, and exists only for a crossfade: two
+    passages that overlap cannot share a playlist, so the writer alternates
+    them across `music` and `music2`, each padded to the timeline like `music`
+    and mixed the same way. Its ids are their own (nchain/playlist12/
+    playlist13/tractorC), so a bed that never overlaps — every bed before
+    passages existed — writes no second lane and the same bytes as before.
+
     `holds` is a fourth, audio-only lane, structurally identical to `music`
     (own coverage check, own node prefix, own playlist pair, own tractor, own
     additive `mix` transition) but with the opposite mute: its nodes carry
@@ -993,6 +1033,19 @@ def document(
                 f"the music lane holds a still ({wrong[0]!r}) — a held frame has "
                 "no sound to mix, so a card can never be a music entry"
             )
+    music2 = music2 or []
+    if music2:
+        if not music:
+            raise MLTError("a second music lane needs a first — `music2` only carries crossfades")
+        covered = sum(entry.frames for entry in music2)
+        if covered != total_frames:
+            raise MLTError(
+                f"the second music lane covers {covered} frames but the timeline is "
+                f"{total_frames} — `music`'s own discipline"
+            )
+        wrong = [entry.resource for entry in music2 if entry.is_image]
+        if wrong:
+            raise MLTError(f"the second music lane holds a still ({wrong[0]!r})")
     holds = holds or []
     if holds:
         covered = sum(entry.frames for entry in holds)
@@ -1009,7 +1062,7 @@ def document(
                 f"the holds lane holds a still ({wrong[0]!r}) — a hold plays a "
                 "clip's own clean audio, and a still has none to play"
             )
-    for entry in [*audio, *picture, *music, *holds]:
+    for entry in [*audio, *picture, *music, *music2, *holds]:
         if entry.fade_in_frames < 0 or entry.fade_out_frames < 0:
             raise MLTError(f"negative fade frames on {entry.resource!r}")
         if entry.fade_in_frames + entry.fade_out_frames > max(entry.frames - 1, 0):
@@ -1049,7 +1102,7 @@ def document(
     # of the producer, not of the entry — but both point at one bin entry, so
     # `kdenlive:id` is keyed on the resource and not on the node.
     sources: dict[str, Entry] = {}
-    for entry in [*audio, *picture, *music, *holds]:
+    for entry in [*audio, *picture, *music, *music2, *holds]:
         sources.setdefault(entry.resource, entry)
     bin_ids = {resource: index + 2 for index, resource in enumerate(sources)}
 
@@ -1208,6 +1261,30 @@ def document(
         for playlist_id in ("playlist8", "playlist9"):
             ET.SubElement(music_track, "track", {"producer": playlist_id, "hide": "video"})
 
+    # The bed's second lane, for crossfades only — `music`'s exact shape with
+    # its own node set, since one producer serves one lane per role here.
+    music2_nodes: dict[str, str] = {}
+    if music2:
+        for entry in music2:
+            if entry.resource in music2_nodes:
+                continue
+            node_id = f"nchain{len(music2_nodes)}"
+            music2_nodes[entry.resource] = node_id
+            node = _source_node(node_id, entry, bin_ids[entry.resource], rate)
+            _property(node, "set.test_audio", "0")
+            _property(node, "set.test_video", "1")
+            root.append(node)
+
+        root.append(_playlist("playlist12", music2, music2_nodes))
+        root.append(ET.Element("playlist", {"id": "playlist13"}))
+        music2_track = ET.SubElement(
+            root, "tractor", {"id": "tractorC", "in": "0", "out": str(total_frames - 1)}
+        )
+        _property(music2_track, "kdenlive:timeline_active", "1")
+        _property(music2_track, "kdenlive:track_name", "Music 2")
+        for playlist_id in ("playlist12", "playlist13"):
+            ET.SubElement(music2_track, "track", {"producer": playlist_id, "hide": "video"})
+
     # The holds lane: real footage, picture switched off at the node rather
     # than declared absent (`music`'s `set.test_video=1`) — the resource has
     # actual video, so the node needs `video_index=-1` to stop it being
@@ -1260,6 +1337,8 @@ def document(
         stack.append("tractor4")
     if music:
         stack.append("tractorA")
+    if music2:
+        stack.append("tractorC")
     if holds:
         stack.append("tractorB")
     for producer in stack:
@@ -1290,7 +1369,7 @@ def document(
     for index, producer in enumerate(stack):
         if (
             index == 0
-            or producer in ("tractorA", "tractorB")
+            or producer in ("tractorA", "tractorB", "tractorC")
             or (producer == "tractor0" and not audio_has_video)
         ):
             continue
@@ -1324,6 +1403,20 @@ def document(
             {
                 "a_track": "0",
                 "b_track": str(stack.index("tractorA")),
+                "mlt_service": "mix",
+                "internal_added": "237",
+                "always_active": "1",
+                "sum": "1",
+            },
+        )
+    if music2:
+        extra_mix += 1
+        _transition(
+            sequence,
+            f"transition{extra_mix}",
+            {
+                "a_track": "0",
+                "b_track": str(stack.index("tractorC")),
                 "mlt_service": "mix",
                 "internal_added": "237",
                 "always_active": "1",
