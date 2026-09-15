@@ -14980,6 +14980,6 @@ auto-editor at 1080x1920. `frames` read 1055 of 1055, delta 0. The clip is
   about one frame past the end of the file, on a single segment. The render
   agrees with the timeline, so `frames` could not see it. This is one reading,
   not yet judged: the file's audio and video stream durations were not read.
-- **The phone model and its Settings → Camera → Record Sound choice are
-  unrecorded.** Whether "Stereo" instead of "Spatial Audio" writes one
-  stream was not asked.
+- **The phone is an iPhone 17 Pro; its Settings → Camera → Record Sound
+  choice is unrecorded.** Whether "Stereo" instead of "Spatial Audio" writes
+  one stream was not asked.
