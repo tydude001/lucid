@@ -275,6 +275,10 @@ film" — though its one candidate, `answerprint`, was rejected by Tyler on
 
 ## Decisions for Tyler
 
+Taken 2026-09-15: Tyler kept the name, rejecting `answerprint`, and accepted
+every other recommendation (HISTORY.md § The whole film, said). Kept as
+written, since they are the record of what was asked.
+
 Grouped by what is actionable today; each carries a recommendation.
 
 **Actionable now:**
