@@ -53,6 +53,11 @@ launch clip — the placed music cues, the loudness target, and the launch
 clip's retime/eased-camera grammar as features, with MLT's retime and easing
 measured — is [docs/plans/NATIVE.md](docs/plans/NATIVE.md), written
 2026-09-14 off a native rebuild of Lambs/Longlegs v10.
+How the repo says proofcut makes a whole film — the README, manual, demo and
+listings that predate the finishing half, the third trial that measures an
+agent doing it, why never "generate" or "from scratch", and why the name
+stays — is [docs/plans/SHOWCASE.md](docs/plans/SHOWCASE.md), written
+2026-09-15.
 Open-item status lives in the wiki, not here.
 
 **Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
