@@ -14978,8 +14978,61 @@ auto-editor at 1080x1920. `frames` read 1055 of 1055, delta 0. The clip is
 - **Seed's timeline is longer than its source.** The report reads
   `source_duration` 35.141667 and `timeline_duration` 35.178393, which is
   about one frame past the end of the file, on a single segment. The render
-  agrees with the timeline, so `frames` could not see it. This is one reading,
-  not yet judged: the file's audio and video stream durations were not read.
+  agrees with the timeline, so `frames` could not see it. Judged the same day:
+  the render's last frame was black. § The phone's black last frame.
 - **The phone is an iPhone 17 Pro; its Settings → Camera → Record Sound
   choice is unrecorded.** Whether "Stereo" instead of "Spatial Audio" writes
   one stream was not asked.
+
+## The phone's black last frame — 2026-09-15
+
+**Every render of the iPhone clip ended on one black frame that is not in the
+clip.** The laptop read the streams on request. IMG_2309.MOV, from an iPhone
+17 Pro, holds **1054** video frames in 35.141667 s. Its AAC runs 35.140 s.
+The render held **1055** frames at 30 fps, 35.166667 s.
+
+| | frames | rate | seconds |
+|---|---|---|---|
+| the clip's video | 1054 | r 30/1, avg 126480/4217 | 35.141667 |
+| auto-editor's v3 | 1055 | timebase 2999/100 | 35.178393 |
+| the render | 1055 | 30/1 | 35.166667 |
+
+**The cause is the phone's timing, and auto-editor's rounding of it.** The
+phone puts every frame on the 1/30 grid and stretches only the last, by
+5/600 s, so `avg_frame_rate` is 29.993 against an `r_frame_rate` of 30.
+auto-editor 31.4.2 rounds that to a 2999/100 timebase and counts 1055 frames
+of it. `seed` took the count as seconds, 35.178393. `export` then laid the
+timeline down at the manifest's 30 fps: `round(35.178393 × 30)` is 1055. The
+1055th frame is past the picture and rendered black. `frames` compares the
+render against the timeline, so it read 1055 of 1055 and passed.
+
+**Reproduced here before it was fixed.** A testsrc clip with the phone's timing
+(1054 frames at 1/600, the last packet shifted 5 ticks by `setts`, and AAC
+muxed separately to end 1.7 ms short of the picture) probed identically:
+avg 126480/4217, 35.141667 s. auto-editor gave `2999/100`, 1055. The seed
+read 35.1783927975992, exactly the laptop's figure. The render's frame 1054
+has mean luma 0.0, against 124.3 for the clip's last frame. **A 2 s version
+is not the case**: at 60 frames ffprobe guesses `r_frame_rate` 120 off the
+one long frame, and the render ran 245 frames at 120 fps. The test's clip is
+150 frames and asserts it probes at 30.
+
+**The fix: `seed_timeline` clamps auto-editor's segments to the clip's
+registered duration**, and drops any segment that starts past it. On the 35 s
+reproduction the seed now reads 35.141667, and the render holds 1054 frames
+whose last is picture (mean 124.3). `tests/test_seed_past_the_end.py` holds
+both halves: the timeline and `check_frames`' expected count, and a real
+auto-editor render's frame count and last-frame luma. Both tests failed
+on the unclamped code: 5.0417 s against 5.0083 s, and 151 frames against
+150.
+
+### Still open
+
+- **Audio that outlasts the picture still renders a black last frame.** The
+  same clip with its AAC made 35.160 s long has a format duration of 35.16,
+  which `probe` records as the clip's duration. The clamp therefore allows
+  35.16, which is 1054.8 frames at 30 fps and rounds to 1055. The render's
+  last frame read mean luma 0.0 with `frames` agreeing. It needs no
+  auto-editor, only audio more than half a frame longer than the video, and
+  a seed without silence removal takes the same duration. The bound for a
+  clip with picture is the video stream's end, which the manifest does not
+  record.

@@ -2943,6 +2943,17 @@ def seed_timeline(
         edit = autoeditor.silence_edit(
             source, clip_id, threshold=threshold, margin=margin, edit_expr=edit_expr
         )
+        # auto-editor can count past the end of the file: an iPhone clip whose
+        # last frame runs 5/600 s long gets a 2999/100 timebase and one frame
+        # more than it holds, which `export` renders black and `frames` passes.
+        # HISTORY.md § The phone's black last frame.
+        end = float(clip["duration"])
+        if edit.segments and edit.segments[-1].end > end:
+            edit = tl.Edit([
+                tl.Segment(clip_id=s.clip_id, start=s.start, end=min(s.end, end))
+                for s in edit.segments
+                if s.start < end
+            ])
     else:
         edit = tl.Edit([tl.Segment(clip_id=clip_id, start=0.0, end=float(clip["duration"]))])
 
