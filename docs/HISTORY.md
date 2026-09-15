@@ -14965,10 +14965,21 @@ helper kept and the old sum-everything logic restored, the four import tests
 fail on exactly the old behaviour (the refusal, and `mode: sum`). The suite
 ran 2178 passed.
 
+**The laptop re-run, at `41aa673`: `ALL CASES RAN CLEAN`.** The same probe
+command on the same clip, 11:49 local. `own-footage` imported with
+`mix: {mode: pick, stream: 0, codec: copy}` and `undecodable_audio`
+naming `apple_apac` at stream 1. The derived `cache/mixed/own.MOV` previews
+as playable H.264/AAC, and the clip seeded to one segment and rendered through
+auto-editor at 1080x1920. `frames` read 1055 of 1055, delta 0. The clip is
+35.14 s at 30 fps, not VFR.
+
 ### Still open
 
-- **The laptop re-run.** The fix is judged on the real clip and not only on
-  the stand-in, by `windows_probe.ps1 -Footage` on the same file.
+- **Seed's timeline is longer than its source.** The report reads
+  `source_duration` 35.141667 and `timeline_duration` 35.178393, which is
+  about one frame past the end of the file, on a single segment. The render
+  agrees with the timeline, so `frames` could not see it. This is one reading,
+  not yet judged: the file's audio and video stream durations were not read.
 - **The phone model and its Settings → Camera → Record Sound choice are
   unrecorded.** Whether "Stereo" instead of "Spatial Audio" writes one
   stream was not asked.
