@@ -473,6 +473,56 @@ def test_hold_check_reports_no_faults_when_the_owned_cue_agrees(
     assert result["faults"] == 0
 
 
+def test_hold_check_counts_a_hold_that_plays_the_wrong_stretch_of_its_line(
+    project: Project, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`hold_check` printed `phrase` beside `heard` and compared neither: a hold
+    playing the seconds before its line — every hold on the Lambs/Longlegs
+    native rebuild — counted only its seam faults. A line whose end is not
+    heard is a fault of its own."""
+    manifest = project.read_manifest()
+    manifest[ops.HOLDS_KEY] = [dict(STORED_HOLD)]
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": 8.95}]
+    project.write_manifest(manifest)
+    render = tmp_path / "render.mp4"
+    render.write_bytes(b"not a real render, just needs to exist")
+    monkeypatch.setattr(ops, "_transcribe_span", lambda *a, **k: "something before i know what")
+    monkeypatch.setattr(
+        finish, "hold_seams", lambda media, marks, **k: [_seam_row(name, t) for name, t in marks]
+    )
+
+    result = ops.hold_check(project.root, render)
+
+    assert result["holds"][0]["line_edges"] == {"start": True, "end": False}
+    assert result["faults"] == 1
+
+
+def test_line_edges_separate_the_measured_right_and_wrong_holds() -> None:
+    """Pinned on real whisper output off Lambs/Longlegs v10 (right) and its
+    native rebuild before the `play_at` fix (wrong), both halves of the
+    measurement `_line_edges_heard`'s docstring states."""
+    miggs = "He hissed at you. What did he say? He said, I can smell your cunt."
+    assert all(ops._line_edges_heard(miggs, "He hissed at you. What did he say? He said, I can smell your cunt.").values())
+    assert not ops._line_edges_heard(
+        miggs, "What did Migs say to you? Multiple Migs in the next cell. He hissed at you. What did he say?"
+    )["end"]
+    # A respelt first word is still a heard start: "Longlegs" came back "Long Legs".
+    witch = "Longlegs is just a man, Harker. Not a witch doctor."
+    assert all(ops._line_edges_heard(witch, "Long Legs is just a man, Hawker, not a witch doctor.").values())
+    # 0.94 of the words, and still the wrong placement — the end is what is missing.
+    point = (
+        "When I told the sheriff we shouldn't talk in front of a woman, that really burned you, didn't it? "
+        "It was just smoke, Starling. I had to get rid of him. It matters, Mr. Crawford. "
+        "Cops look at you to see how to act. It matters. Point taken."
+    )
+    early = (
+        "I'm Starling When I told that sheriff We shouldn't talk in front of a woman That really burned you, "
+        "didn't it? It was just smoke, Starling I had to get rid of him It matters, Mr. Crawford "
+        "Cops look at you to see how to act It matters"
+    )
+    assert ops._line_edges_heard(point, early) == {"start": True, "end": False}
+
+
 @needs_ffmpeg
 def test_transcribe_span_reads_words_nested_under_whisper_segments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

@@ -2251,12 +2251,17 @@ def test_cut_by_time_on_an_untranscribed_clip_still_cuts(tmp_path: Path) -> None
     assert out["duration_after"] == pytest.approx(out["duration_before"] - 1.0, abs=0.01)
 
 
-def _fake_whisper(path: Path) -> Path:
+def _fake_whisper(path: Path, heard: str = "hello from the stub") -> Path:
     """A whisper stand-in for `PROOFCUT_WHISPER`: writes a fixed transcript.
 
     Real whisper's CLI shape, minus the GPU — `asr.transcribe` only cares that
     the binary accepts these flags and drops `<stem>.json` in `--output_dir`.
+    `heard` is what it hears, one word every half second.
     """
+    words = [
+        {"word": word, "start": round(0.5 * i, 2), "end": round(0.5 * i + 0.4, 2)}
+        for i, word in enumerate(heard.split())
+    ]
     return write_stub(
         path / "fake-whisper",
         "import argparse, json\n"
@@ -2269,12 +2274,7 @@ def _fake_whisper(path: Path) -> Path:
         "p.add_argument('--output_dir')\n"
         "p.add_argument('--language', default=None)\n"
         "args = p.parse_args()\n"
-        "words = [\n"
-        "    {'word': 'hello', 'start': 0.0, 'end': 0.4},\n"
-        "    {'word': 'from', 'start': 0.5, 'end': 0.8},\n"
-        "    {'word': 'the', 'start': 0.9, 'end': 1.0},\n"
-        "    {'word': 'stub', 'start': 1.1, 'end': 1.5},\n"
-        "]\n"
+        f"words = {words!r}\n"
         "out = Path(args.output_dir) / f'{Path(args.media).stem}.json'\n"
         "out.write_text(json.dumps({'language': args.language or 'en', 'words': words}))\n",
     )
@@ -8781,7 +8781,9 @@ def test_hold_check_over_the_wire(tmp_path: Path) -> None:
     server = StdioServerParameters(
         command=sys.executable,
         args=["-m", "proofcut.cli", "mcp"],
-        env={"PROOFCUT_WHISPER": str(_fake_whisper(tmp_path))},
+        # The stub hears the hold's own line: a "clean" hold is one whose line
+        # is heard, and `hold_check` counts a line it does not hear as a fault.
+        env={"PROOFCUT_WHISPER": str(_fake_whisper(tmp_path, heard="i know what you did"))},
     )
 
     async def body(session: ClientSession) -> dict[str, Any]:
@@ -8822,7 +8824,8 @@ def test_hold_check_over_the_wire(tmp_path: Path) -> None:
 
     assert out["clean"]["count"] == 1
     assert out["clean"]["holds"][0]["cue_drift"] is None
-    assert out["clean"]["holds"][0]["heard"] == "hello from the stub"
+    assert out["clean"]["holds"][0]["heard"] == "i know what you did"
+    assert out["clean"]["holds"][0]["line_edges"] == {"start": True, "end": True}
     assert out["clean"]["holds"][0]["phrase"] == "i know what you did"
     assert out["clean"]["faults"] == 0
 

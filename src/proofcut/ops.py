@@ -11684,6 +11684,36 @@ def _transcribe_span(
         shutil.rmtree(work, ignore_errors=True)
 
 
+#: How many words at each end of a hold's phrase `_line_edges_heard` looks for.
+#: Two, not one: whisper respells a name ("Longlegs" heard as "Long Legs"), and
+#: on v10 of Lambs/Longlegs that was the first word of a hold heard correctly.
+LINE_EDGE_WORDS = 2
+
+
+def _line_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower().replace("-", " "))
+
+
+def _line_edges_heard(phrase: str, heard: str) -> dict[str, bool]:
+    """Whether the start and the end of a hold's line are in what was heard.
+
+    The edges and not a similarity score, because a mis-placed hold keeps most
+    of its line: measured on the 16 hold spans of Lambs/Longlegs v10 and its
+    native rebuild, word recall ran 0.80–1.00 on the right placements and up to
+    0.94 on a wrong one (point-taken, 1.9 s early, lost only "point taken"),
+    while "one of the last two words heard" was true on all eight right and
+    false on all eight wrong. The start is checked for the placement that is
+    late instead. A report, not a threshold anything gates on.
+    """
+    want, got = _line_tokens(phrase), set(_line_tokens(heard))
+    if not want:
+        return {"start": True, "end": True}
+    return {
+        "start": any(w in got for w in want[:LINE_EDGE_WORDS]),
+        "end": any(w in got for w in want[-LINE_EDGE_WORDS:]),
+    }
+
+
 def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
     """Transcribe each hold's own span off a render and check its seams.
 
@@ -11704,6 +11734,11 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
     half of the same guard, since `finish_report(holds=True)` calls this op,
     not `hold_ls`, and a drifted owned cue must not read as `faults: 0`
     here. A drift counts toward `faults` alongside a seam fault.
+
+    **And `line_edges`, the check it did not have** — whether the start and
+    the end of the hold's own phrase are in what was heard
+    (`_line_edges_heard`). A missing edge is a fault: it is the placement
+    that plays the wrong stretch of the film, which the seams cannot see.
     """
     project = Project.open(path)
     render_path = Path(render).expanduser()
@@ -11756,6 +11791,8 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
             )
         except tx.TranscriptError:
             entry["phrase"] = None
+        if entry["heard"] is not None and entry["phrase"]:
+            entry["line_edges"] = _line_edges_heard(entry["phrase"], entry["heard"])
 
         marks.append((f"{label} in", render_start))
         marks.append((f"{label} out", render_end))
@@ -11773,7 +11810,9 @@ def hold_check(path: Path | str, render: Path | str) -> dict[str, Any]:
         for item in items
         for seam in item.get("seams", [])
         if seam["fault"] is not None
-    ) + sum(1 for item in items if item.get("cue_drift") is not None)
+    ) + sum(1 for item in items if item.get("cue_drift") is not None) + sum(
+        1 for item in items if "line_edges" in item and not all(item["line_edges"].values())
+    )
     return {
         "project": str(project.root),
         "render": str(render_path),
