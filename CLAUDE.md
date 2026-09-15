@@ -36,9 +36,10 @@ of them ran the same day and its evidence and failure queue are
 scored. What a macOS/Windows port would take — the one Windows crash, the
 Linux-shaped resolvers, and the melt/libass/magick measurements that have to
 be redone per OS — is [docs/plans/PORTABILITY.md](docs/plans/PORTABILITY.md),
-surveyed 2026-09-10. How a public repo gets seen — the recording, one
-stranger's Mac run, the flip, the MCP directories, Show HN, in that order —
-is [docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
+surveyed 2026-09-10. How a public repo gets seen — the recording, the flip,
+the MCP directories beside one stranger's Mac run, Show HN, in that order,
+with Show HN's wait for the Mac run time-boxed — is
+[docs/plans/LAUNCH.md](docs/plans/LAUNCH.md), written 2026-09-11.
 **The rename to `proofcut`** — why LAUNCH.md's "No rename" was wrong (Lucid
 Software's own MCP server is the registry's first result for the word, and
 it holds a live LUCID mark), the measured surface, the decisions, and the
