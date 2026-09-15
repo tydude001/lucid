@@ -65,6 +65,19 @@ class FontError(RuntimeError):
     """A vendored face could not be installed, or a probe could not be run."""
 
 
+class FontToolMissing(FontError):
+    """A binary the probe runs is not on PATH, named by `tool`.
+
+    Which one matters to a reader: no `ffmpeg` means no caption burns at all,
+    while no `magick` means only that the probe cannot compare its two frames
+    — the burn itself never calls it.
+    """
+
+    def __init__(self, tool: str) -> None:
+        super().__init__(f"{tool} not found — the font probe needs it on PATH")
+        self.tool = tool
+
+
 #: The font system that is not fontconfig, on the two OSes that have one.
 #: libass resolves through it there, so `fc-match` — and anything fontconfig
 #: says about a directory — is an answer about a resolver nobody is using.
@@ -423,7 +436,7 @@ def _run_tool(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str
     try:
         return subprocess.run(argv, check=False, **kwargs)
     except FileNotFoundError:
-        raise FontError(f"{argv[0]} not found — the font probe needs it on PATH") from None
+        raise FontToolMissing(argv[0]) from None
 
 
 #: libass's own account of a burn, under `ffmpeg -v verbose`: which font

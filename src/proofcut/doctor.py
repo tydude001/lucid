@@ -660,11 +660,31 @@ def _caption_font() -> dict[str, Any]:
     }
     try:
         drew = fonts.probe(family)
+    except fonts.FontToolMissing as exc:
+        report["why"] = str(exc)
+        if exc.tool == "magick":
+            # The probe burns both frames before it compares them, so a missing
+            # magick is met after libass has already drawn. It is an optional
+            # tool the check needs, not a caption defect: `–`, never `✗`.
+            report["unavailable"] = True
+            report["fix"] = (
+                "put ImageMagick 7's `magick` on PATH to check which face draws "
+                "(the probe does not read PROOFCUT_MAGICK). Captions burn without "
+                f"it, through ffmpeg's libass, but whether in {family} or a "
+                "substitute is unchecked."
+            )
+        else:
+            report["fix"] = (
+                "captions burn through ffmpeg with libass (`ffmpeg -filters | grep "
+                "ass`), so they cannot be burnt until it runs."
+            )
+        return report
     except fonts.FontError as exc:
         report["why"] = str(exc)
         report["fix"] = (
-            "the probe needs ffmpeg with libass (`ffmpeg -filters | grep ass`) "
-            "and magick. Fix those first; captions cannot be burnt without them."
+            "the probe burns with ffmpeg's libass (`ffmpeg -filters | grep ass`) "
+            "and compares with `magick`; the line above names the step that "
+            "failed. If it is the burn, captions cannot be burnt either."
         )
         return report
     # Where the OS has its own font system, fontconfig is not asked at all:
@@ -946,6 +966,10 @@ def render(payload: dict[str, Any]) -> str:
             else f"{system} — fontconfig is not this platform's font system"
         )
         lines.append(f"  {_TICK} {font['font']} draws ({resolved})")
+    elif font.get("unavailable"):
+        lines.append(f"  {_DASH} {font['font']} — not checked")
+        lines += _wrap(font["why"], indent="      ")
+        lines += _wrap(f"fix: {font['fix']}", indent="      ")
     else:
         lines.append(f"  {_CROSS} {font['font']}")
         lines += _wrap(font["why"], indent="      ")

@@ -553,6 +553,55 @@ def test_fontconfig_and_the_render_are_reported_side_by_side(
     assert font["resolves_to"] == "Noto Sans"
 
 
+def _render_font(font: dict[str, Any]) -> str:
+    return doctor.render(
+        {
+            "proofcut": "0.0.0",
+            "ok": True,
+            "required": [],
+            "optional": [],
+            "display": {"ok": True, "how": "a Wayland session"},
+            "caption_font": font,
+        }
+    )
+
+
+def test_no_magick_leaves_the_caption_font_unchecked_never_crossed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Neither test kit installs ImageMagick, so every tester's doctor read
+    `✗ Outfit` and "captions cannot be burnt" — but the burn is ffmpeg's
+    libass alone, and magick only compares the probe's two frames. The probe
+    could not ask, which is not an answer about captions. HISTORY.md § The
+    whole-film demo on the Windows laptop."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    # The two burns succeed; the comparison meets a PATH with no magick on it.
+    monkeypatch.setattr(doctor.fonts, "_burn_probe", lambda family, out, **kw: {"provider": None, "faces": []})
+    monkeypatch.setenv("PATH", str(tmp_path))
+    font = doctor._caption_font()
+    assert font["ok"] is False
+    assert font["unavailable"] is True
+    assert "cannot be burnt" not in font["fix"]
+    text = _render_font(font)
+    assert "– Outfit" in text
+    assert "✗ Outfit" not in text
+    assert "cannot be burnt" not in text
+
+
+def test_an_ffmpeg_that_cannot_burn_is_still_a_cross(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The other half: with no ffmpeg the probe fails at the burn, which is the
+    case where captions really cannot be burnt, so it stays a failure."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    font = doctor._caption_font()
+    assert font["ok"] is False
+    assert not font.get("unavailable")
+    assert "libass" in font["fix"]
+    assert "✗ Outfit" in _render_font(font)
+
+
 # -- the human render, and the CLI ---------------------------------------
 
 

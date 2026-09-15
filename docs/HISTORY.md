@@ -14892,4 +14892,16 @@ nothing to update. `ALL STEPS RAN`, started 09:58 local.
   (`fonts.py`'s `magick compare`). So the row reports that the probe could not
   ask, not that captions cannot burn, and it shows an absent optional tool as
   a failure against doctor's own rule. `windows-demo`'s runner has ImageMagick
-  7.1.2 and reads `✓ Outfit draws (DirectWrite …)`. Not yet changed.
+  7.1.2 and reads `✓ Outfit draws (DirectWrite …)`.
+
+  **Fixed the same day.** `fonts._run_tool` raises `FontToolMissing`, a
+  `FontError` that names its `tool`. doctor reads a missing `magick` as
+  `– Outfit — not checked`, with a fix line saying captions still burn
+  through libass and that the face is unchecked. It also notes that the probe
+  looks on PATH and does not read `PROOFCUT_MAGICK`. A missing `ffmpeg` stays
+  a ✗. On this box, doctor with only ffmpeg and ffprobe on PATH printed the
+  `–` row, and the full PATH still reads `✓ Outfit draws`. `captions.burn`
+  on that magick-less PATH burnt a caption onto black: YMAX 16 in the source,
+  245 in the burn. `test_no_magick_leaves_the_caption_font_unchecked_never_crossed`
+  fails on the old code. `test_an_ffmpeg_that_cannot_burn_is_still_a_cross`
+  guards the other side.
