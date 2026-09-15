@@ -31,6 +31,7 @@ purpose, not hold-specific, so a second caller composes rather than forks it.
 from __future__ import annotations
 
 import array
+import json
 import math
 import re
 import subprocess
@@ -155,6 +156,89 @@ def loudness(
             f"{proc.stderr[-400:].strip()}"
         )
     return result
+
+
+#: How far a mastered file may land from the integrated target, in LU, and
+#: above the true-peak ceiling, in dB, before `master_loudness` refuses it.
+#: The peak allowance is AAC's: the encoder re-adds inter-sample peak after
+#: the limiter, which is why v10 came out at −1.21 dBTP for a −1 ceiling and
+#: Scream v8 at −1.13.
+MASTER_LU_TOLERANCE = 1.0
+MASTER_PEAK_ALLOWANCE = 0.5
+
+
+def master_loudness(
+    path: Path | str, *, integrated: float, true_peak: float = -1.0, lra: float = 11.0
+) -> dict[str, Any]:
+    """Two-pass `loudnorm` of `path`'s audio to `integrated` LUFS under a
+    `true_peak` ceiling, in place — measured before, measured after, and
+    refused rather than kept when the result misses.
+
+    The one action in this module, and deliberately beside `loudness`: it is
+    judged by that same measurement, not by `loudnorm`'s own report of what it
+    did. The first pass measures, the second applies the measurement
+    (`linear=true`, which `loudnorm` itself abandons for dynamic mode when the
+    ceiling cannot be held linearly, and says so — reported as
+    `normalization`). Picture is copied through untouched; the new file is
+    written beside `path` and replaces it only once it measures inside
+    `MASTER_LU_TOLERANCE` and `MASTER_PEAK_ALLOWANCE`, so a refusal leaves the
+    render exactly as it was. docs/plans/NATIVE.md § A3.
+    """
+    source = Path(path).expanduser()
+    if not source.exists():
+        raise FinishError(f"no media to master: {source}")
+    target = f"I={integrated:g}:TP={true_peak:g}:LRA={lra:g}"
+
+    first = _run(
+        [FFMPEG, "-hide_banner", "-nostdin", "-i", str(source), "-map", "0:a:0",
+         "-af", f"loudnorm={target}:print_format=json", "-f", "null", "-"]
+    )  # fmt: skip
+    measured = _loudnorm_json(first.stderr)
+    before = loudness(source)
+
+    staged = source.with_name(f"{source.stem}.mastering{source.suffix}")
+    codec = ["-c:a", "pcm_s16le"] if source.suffix.lower() == ".wav" else ["-c:a", "aac", "-b:a", "256k"]
+    second = _run(
+        [FFMPEG, "-hide_banner", "-nostdin", "-y", "-i", str(source), "-map", "0:v?", "-map", "0:a:0",
+         "-c:v", "copy",
+         "-af", (
+             f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
+             f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
+             f":offset={measured['target_offset']}:linear=true:print_format=json,aresample=48000"
+         ),
+         *codec, "-movflags", "+faststart", str(staged)]
+    )  # fmt: skip
+    if second.returncode != 0 or not staged.exists():
+        staged.unlink(missing_ok=True)
+        raise FinishError(f"ffmpeg could not master {source.name}: {second.stderr[-400:].strip()}")
+    applied = _loudnorm_json(second.stderr)
+    after = loudness(staged)
+    misses = []
+    if abs(after["integrated"] - integrated) > MASTER_LU_TOLERANCE:
+        misses.append(f"integrated {after['integrated']:.1f} LUFS against {integrated:g}")
+    if after.get("true_peak") is not None and after["true_peak"] > true_peak + MASTER_PEAK_ALLOWANCE:
+        misses.append(f"true peak {after['true_peak']:.2f} dBTP against a {true_peak:g} ceiling")
+    if misses:
+        staged.unlink(missing_ok=True)
+        raise FinishError(
+            f"mastering {source.name} missed: {'; '.join(misses)} — the render is left as it was"
+        )
+    staged.replace(source)
+    return {
+        "target_integrated": integrated,
+        "target_true_peak": true_peak,
+        "normalization": applied.get("normalization_type"),
+        "before": before,
+        "after": after,
+    }
+
+
+def _loudnorm_json(stderr: str) -> dict[str, Any]:
+    """`loudnorm`'s `print_format=json` block — the last `{…}` on stderr."""
+    start, end = stderr.rfind("{"), stderr.rfind("}")
+    if start < 0 or end < start:
+        raise FinishError(f"loudnorm printed no measurement: {stderr[-400:].strip()}")
+    return json.loads(stderr[start : end + 1])
 
 
 def _decode(media: Path | str, *, rate: int = DECODE_RATE) -> array.array:

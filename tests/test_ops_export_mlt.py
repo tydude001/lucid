@@ -724,3 +724,14 @@ def test_verify_reports_zero_head_words_trimmed_with_no_head(
     assert result["head_seconds"] == 0.0
     assert result["head_words_trimmed"] == 0
     assert result["similarity"] == 1.0
+
+
+
+def test_loudness_is_refused_on_an_nle_export(tmp_path: Path) -> None:
+    """Mastering is for rendered media — an NLE project file has no audio of
+    its own to master (docs/plans/NATIVE.md § A3)."""
+    from proofcut.project import Project, ProjectError
+
+    project = Project.create(tmp_path / "proj")
+    with pytest.raises(ProjectError, match="loudness masters rendered media"):
+        ops.export(project.root, tmp_path / "out.kdenlive", export_format="kdenlive", loudness=-16.0)

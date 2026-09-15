@@ -1987,6 +1987,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "size — does not crop or reframe it. Refused on a multi-source (melt) "
         "project. To crop to fill instead, set the shape with `proofcut canvas`",
     )
+    p_export.add_argument(
+        "--loudness",
+        type=float,
+        metavar="LUFS",
+        help="--render only: master the render to this integrated loudness (e.g. -16), "
+        "measured before and after",
+    )
+    p_export.add_argument(
+        "--true-peak", type=float, default=-1.0, metavar="DBTP", help="the ceiling --loudness holds (default -1)"
+    )
 
     return parser
 
@@ -2957,6 +2967,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
             fps=args.fps,
             preset=args.preset,
             resolution=args.resolution,
+            loudness=args.loudness,
+            true_peak=args.true_peak,
         )
     )
 

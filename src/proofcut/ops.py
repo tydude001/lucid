@@ -13027,8 +13027,16 @@ def export(
     preset: str | None = None,
     resolution: tuple[int, int] | None = None,
     log: bool = True,
+    loudness: float | None = None,
+    true_peak: float = -1.0,
 ) -> dict[str, Any]:
     """Map the timeline to auto-editor v3 and render or export it.
+
+    **`loudness` masters the render** to that many LUFS integrated under a
+    `true_peak` ceiling (dBTP) — `finish.master_loudness`, two-pass, measured
+    after and refused rather than kept when it misses — and the reply's
+    `loudness` says what it measured before and after. Render only; an NLE
+    project has no audio of its own to master. docs/plans/NATIVE.md § A3.
 
     `export_format="kdenlive"` writes an MLT project — the only handoff that
     actually opens on this box. `export_format=None` renders media instead.
@@ -13104,6 +13112,12 @@ def export(
             "bitrate or pixel size of its own. Pass export_format=None to "
             "render, or drop preset/resolution to export the project as-is."
         )
+    if loudness is not None and export_format is not None:
+        raise ProjectError(
+            "loudness masters rendered media — an NLE handoff "
+            f"({export_format!r}) writes a project file with no audio of its own. "
+            "Pass export_format=None to render, or drop loudness."
+        )
     bundle = _resolve_preset(preset, resolution)
 
     project = Project.open(path)
@@ -13134,6 +13148,10 @@ def export(
             preset=preset,
             consumer_args=_melt_consumer_args(bundle),
         )
+        if loudness is not None:
+            reply["loudness"] = finish.master_loudness(
+                reply["output"], integrated=loudness, true_peak=true_peak
+            )
         if export_format is None and log:
             _log_render(
                 project,
@@ -13193,6 +13211,8 @@ def export(
         "preset": preset,
         **extra,
     }
+    if loudness is not None:
+        reply["loudness"] = finish.master_loudness(reply["output"], integrated=loudness, true_peak=true_peak)
     if export_format is None and log:
         _log_render(
             project,

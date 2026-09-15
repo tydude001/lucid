@@ -1599,6 +1599,8 @@ def export(
     fps: float | None = None,
     preset: str | None = None,
     resolution: Sequence[int] | None = None,
+    loudness: float | None = None,
+    true_peak: float = -1.0,
 ) -> dict[str, Any]:
     """Export the timeline, or render it.
 
@@ -1631,6 +1633,11 @@ def export(
     (melt) project, where widening the hardcoded consumer to accept it has not
     been re-proven memory-safe (HISTORY.md § 4). The reply's `canvas` is the
     shape the render was built at, on either road.
+
+    `loudness` (render only) masters the file to that many LUFS integrated
+    under a `true_peak` dBTP ceiling (default -1): two-pass, measured before
+    and after, and refused — leaving the render as it was — if the result
+    misses by more than 1 LU. The reply's `loudness` carries both measurements.
     """
     return ops.export(
         path,
@@ -1639,6 +1646,8 @@ def export(
         fps=fps,
         preset=preset,
         resolution=tuple(resolution) if resolution is not None else None,
+        loudness=loudness,
+        true_peak=true_peak,
     )
 
 

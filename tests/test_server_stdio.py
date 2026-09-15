@@ -29,7 +29,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from stubs import write_stub
 
-from proofcut import energy, finishlog, graphics, media, ops, picture
+from proofcut import energy, finish, finishlog, graphics, media, ops, picture
 from proofcut.project import Project
 
 SERVER = StdioServerParameters(command=sys.executable, args=["-m", "proofcut.cli", "mcp"])
@@ -9120,6 +9120,54 @@ def test_music_passages_crossfade_on_a_real_render_and_sit_under_the_vo(visible_
     vo_level = _tone_window(render, 100.0, 1.0, 1.5)
     under = 20 * math.log10(vo_level / before_440)
     assert 7.0 < under < 13.0, f"the bed should sit ~10 dB under the VO, measured {under:.1f}"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_export_masters_a_render_to_its_loudness_target(visible_tmp: Path) -> None:
+    """docs/plans/NATIVE.md § A3: `export --loudness -16` leaves a file that
+    measures −16 LUFS integrated under a −1 dBTP ceiling (with AAC's allowance),
+    judged by `finish.loudness` on the finished file rather than by loudnorm's
+    own report — and the reply says what it was before."""
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    bed = visible_tmp / "bed.wav"
+    _quiet_vo_wav(vo, 6.0)
+    _tone_wav(bed, 880.0, 6.0)
+    transcript = visible_tmp / "vo.json"
+    transcript.write_text(
+        json.dumps({"language": "en", "words": [{"word": "one", "start": 0.0, "end": 0.3}]}), encoding="utf-8"
+    )
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        await client.call("init", path=str(project))
+        vo_clip = await client.call("import_media", path=str(project), source=str(vo))
+        bed_clip = await client.call("import_media", path=str(project), source=str(bed))
+        await client.call(
+            "attach_transcript", path=str(project), clip_id=vo_clip["clip_id"], transcript_path=str(transcript)
+        )
+        await client.call(
+            "seed_timeline", path=str(project), clip_id=vo_clip["clip_id"], remove_silences=False
+        )
+        await client.call(
+            "music", path=str(project), asset=bed_clip["clip_id"], clip_id=vo_clip["clip_id"],
+            word_index_start=0, under=20.0,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None,
+            loudness=-16.0,
+        )
+
+    result = anyio.run(_with_server, body)
+
+    report = result["loudness"]
+    assert abs(report["before"]["integrated"] - -16.0) > 1.0, "the fixture must start away from the target"
+    measured = finish.loudness(result["output"])
+    assert measured["integrated"] == pytest.approx(-16.0, abs=1.0)
+    assert measured["true_peak"] <= -1.0 + 0.5
+    assert not list(visible_tmp.glob("*.mastering.*")), "no staged copy left beside the render"
 
 
 @needs_ffprobe
