@@ -262,16 +262,17 @@ that column rarely separates anything.
 
 **What would change the recommendation:** a live mark on `proofcut` in
 classes 9 or 42, or Tyler deciding the name itself must carry "the whole
-film", in which case the answer is `answerprint` and RENAME.md is re-read with
-that word.
+film" — though its one candidate, `answerprint`, was rejected by Tyler on
+2026-09-15, so that route needs a new name first.
 
 ## Decisions for Tyler
 
 Grouped by what is actionable today; each carries a recommendation.
 
 **Actionable now:**
-1. **Keep the name** (recommended), or `answerprint` if the name itself must
-   say "the whole film" (§ The rename, considered).
+1. **Keep the name** — taken 2026-09-15. Tyler rejected `answerprint`
+   ("answerprint sucks"), the only candidate more exact than `proofcut`, so
+   the name stays and the tagline carries the film.
 2. **The tagline and the description.** Step 1's and step 2's wording
    (recommended), or a variant. The one constraint is that neither says
    "generate" or "from scratch".
