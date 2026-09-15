@@ -14557,3 +14557,111 @@ frames, its easing operators match their curves within 0.5 px, and a `length`
 on a remap chain freezes it on frame 0 at exit 0
 (`~/proofcut-work/spikes/mlt-retime/FINDINGS.md`). The survey behind it is
 `~/proofcut-work/spikes/screen-mode/PRIOR-ART.md`.
+
+## The Scream native rebuild — 2026-09-15
+
+Tyler took all five of docs/plans/NATIVE.md's recommendations: the line-edge
+fault, A1 on `MUSIC_KEY` with no schema bump, Part A before Part B, stretches
+for B5 and an agent for B7. Part A's features were built and both essays rebuilt
+through them, each measured against its own delivered file.
+
+### What shipped for it
+
+- **`hold_check` counts a hold whose line is not heard** — `line_edges`, a
+  fault when either of the line's first or last `LINE_EDGE_WORDS` is missing
+  from what whisper hears. `test_hold_check_over_the_wire`'s stub now hears the
+  line it is checked against, which is what its clean case always meant.
+  `903bc5a`.
+- **A1: a bed can be passages, a rotation and a level** — `passages`,
+  `rotate`, `crossfade`, `src_in` and `under` on `MUSIC_KEY`, each absent-means-
+  today's-bed. Overlapping pieces take a second lane (`music2`, `tractorC`),
+  and a crossfade edge is an equal-power curve: two dB-linear fades crossing
+  measured a hole of −50 and −54 dB inside a −24 plateau. `acfa032`.
+- **A2: film audio under the VO** — `hold under`, reading from wherever the
+  shot showing the asset has got to, so it cannot disagree with the picture.
+  `65eb16a`.
+- **A3: `export --loudness`** — two-pass `loudnorm`, measured after, refused
+  and deleted rather than kept when it misses by more than 1 LU. `fc04dc2`.
+- **A hold that cut a bed piece off inside its crossfade made the bed
+  unbuildable** ("fades of 60+17 frames do not fit inside the 60 frames") on
+  Lambs/Longlegs' first A1 render; the gate now shortens the fade. `553e85b`.
+
+### Two more wrong films at exit 0
+
+- **Every render with a crossfading bed was black.** `_build_mlt`'s bed loop
+  named its loop variable `lane`, which is the picture lane's own variable, so a
+  bed with a second lane handed the picture lane its music. Lambs/Longlegs
+  v11 and Scream both rendered correct, mastered audio under black after the
+  head, and every audio check here passed. The A1 real-render test had no cues
+  and so no picture to lose. Found only because Scream's A/B measures picture
+  and Lambs' v11 check had measured sound. `7343070`.
+- **`import-edit` dropped a Kdenlive `silence` entry.** Scream's VO
+  timeline opens on 1.467 s of silence and ends on 6.367 s. `read_ranges`
+  skipped both as not-media, so the import was 7.9 s short of its own
+  declared length and every cue landed 1.5 s early. The only trace was
+  `declares_otherwise`, which reports and never refuses. A silence entry now
+  imports as generated silence, `vo_extend`'s own file, and both real
+  documents import at their declared 10538 and 10094 frames. `65a44bc`.
+
+### Lambs/Longlegs, v11
+
+`assemble_longlegs_native.py` adds v10's bed as a rotation (three calm
+passages, 2.5 s crossfades, 22 LU under), the fairy tale under the VO at 13 LU,
+and `--loudness -16`. `longlegs-native-5.mp4` against v10:
+
+- **−16.0 LUFS / −1.0 dBTP** (v10 −16.0 / −1.2). The nine spans sit within
+  1.6 dB of v10's.
+- Whisper hears all eight holds and the cold open, and **every line edge is
+  heard**. `hold_check`'s five seam faults are the same five holds, of the same
+  kinds, as on v10's own file.
+- **The fairy tale correlates at v10's level and offset**: a −16.2 dB share
+  against v10's −16.3, and an offset within 6 ms. The bed sits where the plan
+  puts it, at a −23 dB share against a −39 dB control at the wrong second, and
+  is absent across a hold.
+- Picture **8609 of 8835 frames at SSIM ≥ 0.9**, as before A1. `longlegs-native-4.mp4`, the
+  first v11 render, is the black one.
+
+### Scream, from nothing
+
+`assemble_scream_native.py` builds a new project at the NAS's
+`Project/proofcut-native`:
+
+1. It imports v7's Kdenlive VO cut, the August retake pass.
+2. v8's two trims are two word-addressed `cut`s. Word 107's 1.02 s "and" is
+   confirmed as suspect, because v8's own trim ended on exactly its 44.24.
+3. The shortened tail is one `cut-at` and a 5.533 s outro `tail`.
+4. The cards are `card new` from the film project's records, and each of the
+   36 cues is pinned to the in-point `assemble_scream.py`'s own planner gave v8.
+5. `attenuate` (23 events at −12 dB), the three cues as passages, and a
+   `-16` master.
+
+The edit matches v8's 63 VO ranges to the millisecond. `scream-native-2.mp4`
+against `Video Final v8.mp4`:
+
+- **10094 frames** (v8 10095, its trailing black frame). **−16.0 LUFS**
+  (v8 −16.1).
+- **The VO is sample-aligned with `v8-nomusic.mp4`** at all seven
+  checkpoints: offset 0.000 s, correlation 0.91–0.998.
+- **v8's bed, recovered** as v8 minus `v8-nomusic` at the best gain (+5.66 dB),
+  is −33.8 LUFS, about 17.5 LU under the VO. Its three cues land within 5 ms of
+  scream.md's documented seconds, and it rises ~9 dB on the outro card, which is
+  the duck letting go. The native bed plays each cue within 0.15 s of v8's (a
+  passage starts on a word), at a 21–23 dB share.
+- **Picture 7151 of 10095 frames at SSIM ≥ 0.9, none below 0.7**, on v8's
+  active 1920×816. Two causes cover the rest, both looked at side by side:
+  - The cards are proofcut's re-authored ones, carrying Tyler's 2026-08-12
+    quote trims, where v8 still has `make_scream_cards.py`'s PNGs.
+  - Footage under 816 rows tall sits a few pixels differently in an 816
+    canvas than in v8's 1080 letterbox. It is the same shot at the same
+    instant.
+
+**What is still not v8**, printed by the script. Everything else comes out of
+`proofcut export`:
+
+- **No duck.** v8's bed was sidechain-ducked about 9 dB under speech. proofcut
+  sets one level at v8's integrated 17.5 LU, which is louder than v8 under a
+  line and quieter in a pause. Part A has no step for this.
+- A proofcut bed opens on its first word (1.5 s in) and ends with the Edit, so
+  the outro card holds over silence.
+- 1920×816, not v8's letterboxed 1080.
+- The retake pass is still Kdenlive's.

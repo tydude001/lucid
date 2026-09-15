@@ -60,6 +60,8 @@ Getting there fixed, each with a test that failed first:
 
 ### A1. Placed music cues, levelled under the VO
 
+Shipped — HISTORY.md § The Scream native rebuild.
+
 v10's bed is three passages alternated with 2.5 s crossfades, 22 LU under the
 VO, out across every hold; Scream v8's is three placed cues (`A Cruel World`
 from src 2.6, `A Killer Confrontation`, `A Cruel World` again) with 4.0 s and
@@ -81,6 +83,8 @@ single bed) and not bump.
 
 ### A2. Film audio under the VO
 
+Shipped as `hold under` — HISTORY.md § The Scream native rebuild.
+
 v10 plays the fairy-tale narration 13 LU *under* the VO for one sentence —
 the essay's own argument made with the edit (`assemble_longlegs.py`'s
 FAIRY_TALE). A proofcut hold always opens a gap. **Recommended:** `hold add
@@ -90,6 +94,8 @@ span at `under` LU below the VO, the bed out across it like any hold.
 
 ### A3. A loudness target on export
 
+Shipped — HISTORY.md § The Scream native rebuild.
+
 Both essays are mastered to −16 LUFS integrated / about −1 dBTP (v10 −16.0 /
 −1.21, Scream v8 −16.2 / −1.13). proofcut measures (`finish.loudness`) and
 never applies. **Recommended:** `export --loudness -16 --true-peak -1`, a
@@ -98,6 +104,9 @@ log, with `finish_check` reporting against the target it was asked for. It is
 proofcut's own export doing it, so it counts.
 
 ### A4. The two cuts, rebuilt and posted
+
+Both rebuilt and measured — HISTORY.md § The Scream native rebuild. What
+remains of this step is the posting, and Scream's missing duck.
 
 - **Lambs/Longlegs:** re-run the native build on A1–A3, A/B it against v10 on
   the review page, then Tyler's two open calls (synth VO vs a re-record; *"It's
@@ -192,6 +201,10 @@ Each step is usable on its own, and each is judged on a served render.
   LAUNCH.md § Step 1's "not cut with proofcut" line is retired with evidence.
 
 ## Decisions for Tyler
+
+Taken 2026-09-15: Tyler accepted every recommendation below (HISTORY.md § The
+Scream native rebuild). Kept as written, since they are the record of what was
+asked.
 
 Grouped by what is actionable today; each carries a recommendation.
 

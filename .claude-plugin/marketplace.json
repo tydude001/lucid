@@ -2,14 +2,14 @@
   "name": "proofcut",
   "owner": { "name": "tydude001", "url": "https://github.com/tydude001" },
   "description": "proofcut — a local-first AI video editor, as a Claude Code plugin",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "plugins": [
     {
       "name": "proofcut",
       "source": "./",
       "displayName": "proofcut",
       "description": "Local-first AI video editor: cut by transcript, hang b-roll off phrases, render, then verify",
-      "version": "0.23.0",
+      "version": "0.24.0",
       "author": { "name": "tydude001" },
       "homepage": "https://github.com/tydude001/proofcut/blob/main/docs/DEMO.md",
       "repository": "https://github.com/tydude001/proofcut",
