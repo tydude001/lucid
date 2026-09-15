@@ -386,7 +386,8 @@ twos, with time to fix what they find.
   claim is not a listing: Glama takes a submission, through the **Add
   Server** button on `glama.ai/mcp/servers` (GitHub OAuth, write access to
   the repo verified), and two days public listed nothing on its own.
-  Submitted 2026-09-15 and in review; the awesome-list line waits on it.
+  Submitted 2026-09-15 and **live the same day, rated A**, so the
+  awesome-list PR is the one piece of this step still to open.
   Shipped — see HISTORY.md § The launch clip's product defects, fixed,
   § Glama takes a submission, and the probe that missed it.
 - **A Claude Code plugin.** The agent pane already spawns `claude` against a

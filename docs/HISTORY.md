@@ -15237,12 +15237,15 @@ outside it).
   and `glama.ai/mcp/servers/tydude001/proofcut` still answered 404 on
   2026-09-15, two days and three syncs later.
 - **Submitted 2026-09-15**, Tyler's hand and his GitHub login: "Your server
-  has been submitted for review." Review is a queue of unknown length, so
-  nothing is scheduled off it.
-- **What it unblocks:** the awesome-mcp-servers PR was waiting on the score
-  badge resolving, with a badgeless fallback dated 2026-09-20 (LAUNCH.md
-  step 4, wiki row `lucid-publish`). If the listing goes live first, the
-  line carries its badge and the fallback is not needed.
+  has been submitted for review" — and it **went live the same day**, so the
+  review queue cost hours, not the weeks that were planned around.
+  `glama.ai/mcp/servers/tydude001/proofcut` serves the README in full under
+  Multimedia / Audio / Image & Video Processing, and the badge at
+  `…/proofcut/badges/score.svg` — the exact URL the drafted awesome-list line
+  already carried — resolves with **`rated A`** in its own `<title>`.
+- **What it unblocks:** the awesome-mcp-servers PR was waiting on that badge,
+  with a badgeless fallback dated 2026-09-20 (LAUNCH.md step 4, wiki row
+  `lucid-publish`). **The fallback is not needed**; the line carries an A.
 - Everything else in LAUNCH.md step 3 was verified live the same day:
   description and the eight topics, private vulnerability reporting on,
   `v0.23.0` latest, Ko-fi in `fundingLinks`, issues #1 and #2 pinned.
