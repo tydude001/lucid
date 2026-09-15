@@ -344,3 +344,58 @@ def test_a_document_that_contradicts_itself_says_which_claim_disagrees(tmp_path:
 
     assert report["document_frames"] == 67
     assert report["declares_otherwise"] == ["producer0 length"]
+
+
+def _write_silence_doc(tmp_path: Path, source: Path) -> Path:
+    """The shape `vo_extend.py` leaves in a Kdenlive VO timeline: a `silence`
+    producer with no resource, entered before the first range and after the
+    last — Scream's `final v3 + outro.kdenlive` opens on 1.467 s of one and
+    ends on 6.367 s."""
+    document = tmp_path / "padded.kdenlive"
+    document.write_text(
+        f'<mlt root="{source.parent}">'
+        '<profile frame_rate_num="30" frame_rate_den="1" />'
+        '<producer id="silence0"><property name="mlt_service">silence</property>'
+        '<property name="length">00:00:12.400</property></producer>'
+        f'<chain id="chain0"><property name="resource">{source.name}</property></chain>'
+        '<playlist id="playlist0">'
+        '<entry producer="silence0" in="0" out="44"/>'
+        '<entry producer="chain0" in="0" out="66"/>'
+        '<entry producer="silence0" in="0" out="29"/>'
+        "</playlist>"
+        '<tractor id="tractor0" out="00:00:04.733"/>'
+        "</mlt>",
+        encoding="utf-8",
+    )
+    return document
+
+
+@needs_ffmpeg
+def test_a_silence_entry_is_runtime_and_imports_as_silence(tmp_path: Path) -> None:
+    """A silence entry is runtime the cut plays, exactly as a `<blank>` is —
+    and skipped as "not media", it closed silently: every cue after a 1.5 s
+    head of silence landed 1.5 s early, with `declares_otherwise` the only
+    trace (HISTORY.md § The Scream native rebuild). It comes in as generated
+    silence, the file `vo_extend` splices, so the timeline is the document's."""
+    root, source, _ = _project(tmp_path)
+    document = _write_silence_doc(tmp_path, source)
+    clips_before = {c["clip_id"] for c in ops.assets(root)["clips"]}
+
+    planned = ops.import_edit(root, document, plan=True)
+
+    assert planned["document_frames"] == 45 + 67 + 30
+    assert planned["declares_otherwise"] == []
+    assert planned["timeline_duration"] == pytest.approx(142 / 30)
+    assert [s["seconds"] for s in planned["silences"]] == [pytest.approx(1.5), pytest.approx(1.0)]
+    assert {c["clip_id"] for c in ops.assets(root)["clips"]} == clips_before, "a plan registers nothing"
+
+    report = ops.import_edit(root, document)
+
+    assert report["segments"] == 3
+    assert ops.status(root)["timeline_duration"] == pytest.approx(142 / 30)
+    view = ops.timeline_view(root)
+    first, middle, last = view["segments"]
+    assert middle["clip_id"] == "vo"
+    assert first["clip_id"] != "vo" and last["clip_id"] != "vo"
+    registered = {c["clip_id"] for c in ops.assets(root)["clips"]} - clips_before
+    assert registered == {first["clip_id"], last["clip_id"]}

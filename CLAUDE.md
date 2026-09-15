@@ -1126,6 +1126,12 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
     Scream project's fourteen are assemblies with a real picture track, and
     picking a playlist would import half an edit at exit 0. HISTORY.md § The
     import that was one frame short, sixty-three times.
+    **A `silence` entry is runtime too, and imports as generated silence**
+    (`ImportedRange.silence`, registered only on a write) — skipped as "not
+    media", Scream's 1.5 s head of silence closed and every cue landed 1.5 s
+    early, `declares_otherwise` the only trace. `declares_otherwise` is named,
+    never refused, so **read it**: non-empty means the import is not the
+    document's film. HISTORY.md § The Scream native rebuild.
 - **`melt` is inside the Kdenlive flatpak, and that flatpak cannot see
   `/tmp`.** It has no host package here; resolve it through
   `picture.melt_command()`. Pointed at a project under `/tmp` it prints

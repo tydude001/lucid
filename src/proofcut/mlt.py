@@ -1577,6 +1577,9 @@ class ImportedRange:
     resource: str
     start: float
     end: float
+    #: an entry of a `silence` producer: runtime with no file behind it, which
+    #: `resource` is then empty for and the caller has to manufacture
+    silence: bool = False
 
     @property
     def duration(self) -> float:
@@ -1655,6 +1658,16 @@ def _resources(root: ET.Element) -> dict[str, str]:
     return found
 
 
+def _silence_producers(root: ET.Element) -> set[str]:
+    """The producer ids whose service is MLT's `silence` — no file, only runtime."""
+    found: set[str] = set()
+    for node in [*root.findall("chain"), *root.findall("producer")]:
+        service = node.find("property[@name='mlt_service']")
+        if node.get("id") and service is not None and (service.text or "").strip() == "silence":
+            found.add(node.get("id"))
+    return found
+
+
 def declared_length(root: ET.Element, rate: float) -> dict[str, int]:
     """Every place an outside document states how long its own cut is.
 
@@ -1714,6 +1727,7 @@ def read_ranges(root: ET.Element) -> tuple[list[ImportedRange], float]:
     """
     rate = profile_rate(root)
     resources = _resources(root)
+    silences = _silence_producers(root)
 
     candidates: list[tuple[str, list[ImportedRange]]] = []
     for playlist in root.findall("playlist"):
@@ -1734,6 +1748,14 @@ def read_ranges(root: ET.Element) -> tuple[list[ImportedRange], float]:
             if child.tag != "entry":
                 continue
             producer = child.get("producer") or ""
+            if producer in silences:
+                # Runtime the cut plays, exactly as a `<blank>` is — Kdenlive
+                # pads a VO timeline with these, and skipping one as "not
+                # media" closes it silently (HISTORY.md § The Scream native
+                # rebuild). Its in-point means nothing, so only its length is kept.
+                frames = _position(child.get("out") or "", rate) - _position(child.get("in") or "0", rate) + 1
+                ranges.append(ImportedRange(resource="", start=0.0, end=frames / rate, silence=True))
+                continue
             if producer not in resources:
                 continue
             start = _position(child.get("in") or "0", rate)

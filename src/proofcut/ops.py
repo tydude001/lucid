@@ -3039,7 +3039,7 @@ def import_edit(
     except mlt.MLTError as exc:
         raise ProjectError(str(exc)) from exc
 
-    resources = list(dict.fromkeys(r.resource for r in ranges))
+    resources = list(dict.fromkeys(r.resource for r in ranges if not r.silence))
     if clip_id is not None and len(resources) > 1:
         raise ProjectError(
             f"{source.name} holds {len(resources)} distinct resources "
@@ -3071,7 +3071,14 @@ def import_edit(
 
     segments: list[tl.Segment] = []
     overshot: list[dict[str, Any]] = []
-    for entry in ranges:
+    silences: list[dict[str, Any]] = []
+    for position, entry in enumerate(ranges):
+        if entry.silence:
+            # Generated silence, `vo_extend`'s own file — registered only on a
+            # write, below; a plan carries a placeholder id that is never saved.
+            silences.append({"entry": position, "seconds": entry.duration})
+            segments.append(tl.Segment(clip_id=f"silence-{round(entry.duration * 1000)}ms", start=0.0, end=entry.duration))
+            continue
         cid = mapping[entry.resource]
         duration = float(clips[cid]["duration"])
         end = entry.end
@@ -3116,6 +3123,7 @@ def import_edit(
         "document_frames": read_frames,
         "declared_frames": declared,
         "declares_otherwise": disagrees,
+        "silences": silences,
     }
     if plan:
         report["plan"] = True
@@ -3124,6 +3132,19 @@ def import_edit(
     manifest = project.read_manifest()
     manifest.setdefault("timebase", rate)
     project.write_manifest(manifest)
+    if silences:
+        registered = {
+            round(s["seconds"] * 1000): media.import_media(project, _tail_silence(project, s["seconds"]))["clip_id"]
+            for s in silences
+        }
+        edit = tl.Edit(
+            segments=[
+                tl.Segment(clip_id=registered[round(seg.end * 1000)], start=0.0, end=seg.end)
+                if ranges[i].silence else seg
+                for i, seg in enumerate(segments)
+            ]
+        )
+        report["clips"] = sorted({seg.clip_id for seg in edit.segments})
     _save_edit(project, edit)
     report["undo_depth"] = len(project.snapshots())
     return report
