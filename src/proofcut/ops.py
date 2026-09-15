@@ -493,8 +493,9 @@ def _transcript(project: Project, clip_id: str) -> tx.Transcript:
     cached = project.transcript_path(clip_id)
     if not cached.exists():
         raise tx.TranscriptError(
-            f"no transcript for {clip_id!r} — attach one with "
-            f"`proofcut transcript attach {clip_id} <whisper.json>`"
+            f"no transcript for {clip_id!r} — make one with "
+            f"`proofcut transcribe {clip_id}`, or attach one with "
+            f"`proofcut attach-transcript {clip_id} <whisper.json>`"
         )
     return tx.load(cached, clip_id=clip_id)
 

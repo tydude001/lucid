@@ -1372,3 +1372,26 @@ def test_any_other_os_error_still_raises(monkeypatch: pytest.MonkeyPatch, tmp_pa
     monkeypatch.setattr(ops, "init", refuse)
     with pytest.raises(PermissionError):
         main(["init", str(tmp_path / "proj")])
+
+
+def test_the_missing_transcript_refusal_names_commands_that_parse(tmp_path: Path) -> None:
+    """The refusal told every client to run `proofcut transcript attach`, which
+    is not a command: `transcript` takes a clip id, so `attach` parsed as one
+    and the words after it were refused. A first-token check passes that line
+    too, so each named command is parsed whole, placeholders filled in.
+    """
+    import re
+    import shlex
+
+    from proofcut import transcript as tx
+    from proofcut.cli import _build_parser
+    from proofcut.project import Project
+
+    project = Project.create(tmp_path / "proj")
+    with pytest.raises(tx.TranscriptError) as refused:
+        ops._transcript(project, "vo")
+    commands = re.findall(r"`(proofcut [^`]+)`", str(refused.value))
+    assert commands
+    for command in commands:
+        argv = shlex.split(re.sub(r"<[^>]*>", "X", command))[1:]
+        _build_parser().parse_args(argv)

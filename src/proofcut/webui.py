@@ -473,7 +473,7 @@ def scan_projects(root: Path) -> list[dict[str, Any]]:
       the workspace's top bar uses.
     * `status: "needs_migration"` — a manifest at a schema `Project.open`
       refuses; `schema_version` names what was found. Listed, not skipped
-      and not opened — `proofcut migrate -C <path>` is the way forward, and the
+      and not opened — `proofcut -C <path> migrate` is the way forward, and the
       picker says so without taking it. A directory holding only a
       pre-rename `lucid.json` is one of these too, with `manifest:
       "lucid.json"` (docs/plans/RENAME.md, decision 1).

@@ -65,6 +65,15 @@ function badgeText(entry) {
 
 /** Copies `text` to the clipboard and toasts, success or failure alike — a
  * silent copy leaves someone re-typing a path by hand. */
+// `-C` is a global flag and argparse takes it only BEFORE the subcommand, so
+// `proofcut migrate -C <path>` — what this page used to print and copy — is
+// refused as an unrecognized argument. A path with a space (every NAS project
+// on the box this was found on) is quoted, or the shell splits it.
+function migrateCommand(path) {
+  const arg = /^[\w@%+=:,./-]+$/.test(path) ? path : `"${path}"`;
+  return `proofcut -C ${arg} migrate`;
+}
+
 async function copyToClipboard(text, okMessage) {
   try {
     await navigator.clipboard.writeText(text);
@@ -113,7 +122,7 @@ function card(entry) {
     main.append(meta);
   } else if (entry.status === "needs_migration") {
     const meta = el("div", "picker-meta");
-    meta.textContent = `needs \`proofcut migrate -C ${entry.path}\` before it can open`;
+    meta.textContent = `needs \`${migrateCommand(entry.path)}\` before it can open`;
     main.append(meta);
   } else {
     // Still the op's own message. Red is reserved for the cases this page
@@ -166,7 +175,7 @@ function card(entry) {
     const button = el("button", "", "Copy command");
     button.type = "button";
     button.addEventListener("click", () => {
-      copyToClipboard(`proofcut migrate -C ${entry.path}`, "copied — run it in a terminal");
+      copyToClipboard(migrateCommand(entry.path), "copied — run it in a terminal");
     });
     row.append(button);
   }
