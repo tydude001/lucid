@@ -104,6 +104,14 @@ class MediaInfo:
     #: Audio track. Omitted from `as_dict` when empty, so an ordinary clip
     #: record gains no key.
     undecodable_audio: tuple[tuple[int, str], ...] = ()
+    #: Seconds from the file's zero to where its picture stops: the first
+    #: video stream's `start_time + duration`, never the container's, which
+    #: ends with the longer stream. Audio that outlasts the picture by more
+    #: than half a frame otherwise seeds a timeline one frame past the video,
+    #: and that frame renders black with `frames` agreeing. An attached
+    #: picture (an audio file's cover art) is not picture, and None means no
+    #: stream says. HISTORY.md § The phone's black last frame.
+    picture_end: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -309,6 +317,18 @@ def probe(path: Path | str) -> MediaInfo:
     if duration is None:
         raise MediaError(f"ffprobe reported no duration for {media}")
 
+    picture = next(
+        (s for s in streams
+         if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")),
+        None,
+    )
+    picture_duration = _stream_duration(picture)
+    picture_end = (
+        float(picture.get("start_time") or 0.0) + picture_duration
+        if picture is not None and picture_duration is not None
+        else None
+    )
+
     fps = avg = None
     if video is not None:
         fps = _fraction(video.get("r_frame_rate"))
@@ -338,6 +358,7 @@ def probe(path: Path | str) -> MediaInfo:
         has_chapters=has_chapters,
         bit_depth=_bit_depth(video),
         undecodable_audio=undecodable,
+        picture_end=picture_end,
     )
 
 

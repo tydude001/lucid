@@ -2921,6 +2921,27 @@ def _picture_plan(
 # -- timeline ------------------------------------------------------------
 
 
+def _timeline_bound(project: Project, clip: dict[str, Any]) -> float:
+    """How far into `clip` a timeline may reach: its duration, or where its picture stops if sooner.
+
+    A clip's `duration` is its container's, which ends with the longer stream,
+    so audio that outlasts the video by half a frame lays down one frame the
+    video has not got. It renders black and `frames` agrees, because it
+    compares the render against the timeline. A clip imported before
+    `picture_end` was recorded is probed for it. HISTORY.md § The phone's
+    black last frame.
+    """
+    end = float(clip["duration"])
+    if clip.get("has_video"):
+        if "picture_end" in clip:
+            picture_end = clip["picture_end"]
+        else:
+            picture_end = media.probe(media.media_path(project, clip)).picture_end
+        if picture_end is not None:
+            end = min(end, float(picture_end))
+    return end
+
+
 def seed_timeline(
     path: Path | str,
     clip_id: str,
@@ -2939,15 +2960,15 @@ def seed_timeline(
     clip = media.get_clip(project, clip_id)
     source = media.media_path(project, clip)
 
+    # Neither seed may run past the file's picture: auto-editor can count a
+    # frame past the end (an iPhone clip's stretched last frame gets a
+    # 2999/100 timebase). HISTORY.md § The phone's black last frame.
+    end = _timeline_bound(project, clip)
+
     if remove_silences:
         edit = autoeditor.silence_edit(
             source, clip_id, threshold=threshold, margin=margin, edit_expr=edit_expr
         )
-        # auto-editor can count past the end of the file: an iPhone clip whose
-        # last frame runs 5/600 s long gets a 2999/100 timebase and one frame
-        # more than it holds, which `export` renders black and `frames` passes.
-        # HISTORY.md § The phone's black last frame.
-        end = float(clip["duration"])
         if edit.segments and edit.segments[-1].end > end:
             edit = tl.Edit([
                 tl.Segment(clip_id=s.clip_id, start=s.start, end=min(s.end, end))
@@ -2955,7 +2976,7 @@ def seed_timeline(
                 if s.start < end
             ])
     else:
-        edit = tl.Edit([tl.Segment(clip_id=clip_id, start=0.0, end=float(clip["duration"]))])
+        edit = tl.Edit([tl.Segment(clip_id=clip_id, start=0.0, end=end)])
 
     manifest = project.read_manifest()
     manifest.setdefault(
@@ -5890,7 +5911,8 @@ def restore(
     `cut_by_transcript`'s `already_cut`.
 
     Restoring only ever brings back material the source recording already
-    has (bounded by the clip's own registered duration), so the timeline
+    has (bounded by `_timeline_bound`: the clip's registered duration, or its
+    picture's end if sooner), so the timeline
     stays a subset of the source throughout — this is not `vo_extend`
     (PLAN.md parks that separately), which would splice in material the
     source never had.
@@ -5915,7 +5937,7 @@ def restore(
     parsed = _transcript(project, clip_id)
     edit = _load_edit(project)
     before = edit.duration
-    duration = float(clip["duration"])
+    duration = _timeline_bound(project, clip)
 
     applied: list[dict[str, Any]] = []
     for first, last in ranges:

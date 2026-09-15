@@ -1132,6 +1132,12 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
   over twelve real files here**, but the tightest true-CFR margin measured is
   0.33%, so that tolerance clears real material by ~3× and not 100×.
   Normalising at NLE export is still open. HISTORY.md § The VFR probe.
+- **A clip's `duration` is its container's, which ends with the longer
+  stream, so no span may reach past `_timeline_bound`** — the sooner of it and
+  `picture_end`. Audio half a frame past the video, or auto-editor counting
+  past a phone's stretched last frame, seeds one frame the video has not got:
+  black, with `frames` agreeing, since it checks against the timeline. `seed`
+  and `restore` go through it. HISTORY.md § The phone's black last frame.
 - **A frame count comes from `autoeditor.frame_layout`, never from the
   duration.** Each segment edge quantises on its own, so `sum(dur)` and
   `round(edit.duration * fps)` are different numbers and the first one is the

@@ -15025,14 +15025,38 @@ auto-editor render's frame count and last-frame luma. Both tests failed
 on the unclamped code: 5.0417 s against 5.0083 s, and 151 frames against
 150.
 
+### Audio that outlasts the picture, the same day
+
+**The clamp was to the wrong number: a clip's `duration` is its container's,
+and the container ends with the longer stream.** The phone clip with its AAC
+made 35.160 s long registers 35.16. The clamp allowed that, which is 1054.8
+frames at 30 fps and rounds to 1055, and the render's last frame read mean
+luma 0.0 with `frames` agreeing. It needs no auto-editor, only audio more than
+half a frame past the video, so an unsilenced seed hit it too. **`restore` is
+a second door**: bounded by the same duration, bringing back a last word
+grows the timeline past the picture again.
+
+**The fix: `probe` records `picture_end`**, the first video stream's
+`start_time + duration`, **and `_timeline_bound` bounds both `seed` and
+`restore` by it** when it is sooner. A clip imported before the field existed
+is probed for it at that moment, so no project needs a re-import. An attached
+picture (cover art) is skipped. On the 35.16 s reproduction the seed now reads
+35.141667, and the render holds 1054 frames whose last is picture (mean 124.3).
+
+Six new tests hold it, on a 150-frame clip whose AAC runs 0.03 s past the
+picture: probe's figure, both seeds, a real render's count and last-frame
+luma, the fallback for an older record, cover art, and `restore`. Every one
+failed before the fix: the probe and cover-art tests on the missing field,
+the rest on 5.03 s or 151 frames. Two controls proved the guards. With the probe fallback removed, the older-record test
+failed at 151 frames. With the attached-picture skip removed, the cover-art
+test failed, reading 3.0 s. That was the song's length, not a short stream,
+so the guard is there because a cover stream's duration is whatever the muxer
+wrote, not because it would have emptied that clip.
+
 ### Still open
 
-- **Audio that outlasts the picture still renders a black last frame.** The
-  same clip with its AAC made 35.160 s long has a format duration of 35.16,
-  which `probe` records as the clip's duration. The clamp therefore allows
-  35.16, which is 1054.8 frames at 30 fps and rounds to 1055. The render's
-  last frame read mean luma 0.0 with `frames` agreeing. It needs no
-  auto-editor, only audio more than half a frame longer than the video, and
-  a seed without silence removal takes the same duration. The bound for a
-  clip with picture is the video stream's end, which the manifest does not
-  record.
+- **Every other reader of a clip's `duration` still reads the container's.**
+  About twenty of them in `ops.py`, among them `describe`'s windows and the
+  picture-cue asset bound. None was measured laying down a frame past the
+  picture. `seed` and `restore` are the two that set how far a clip's span
+  reaches.
