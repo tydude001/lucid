@@ -382,9 +382,13 @@ twos, with time to fix what they find.
   request to the `awesome-mcp-servers` list under its media/video heading.
   Each takes the repo URL, the description and the release; none needs
   anything built. **Glama's ownership claim, `glama.json`, is already at the
-  repo root** (2026-09-12, checked against its published schema), so after
-  the flip nothing is left to add but the listing itself. Shipped — see
-  HISTORY.md § The launch clip's product defects, fixed.
+  repo root** (2026-09-12, checked against its published schema) — but a
+  claim is not a listing: Glama takes a submission, through the **Add
+  Server** button on `glama.ai/mcp/servers` (GitHub OAuth, write access to
+  the repo verified), and two days public listed nothing on its own.
+  Submitted 2026-09-15 and in review; the awesome-list line waits on it.
+  Shipped — see HISTORY.md § The launch clip's product defects, fixed,
+  § Glama takes a submission, and the probe that missed it.
 - **A Claude Code plugin.** The agent pane already spawns `claude` against a
   generated MCP config (`webui._agent_bin`), so the one-command install for a
   Claude Code user is a plugin manifest naming `proofcut mcp` as its server.

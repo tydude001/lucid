@@ -13686,7 +13686,9 @@ repository, and `websiteUrl` at docs/DEMO.md.
   page a few minutes after the publish; it has no submission page (every
   `/add`-shaped URL redirects to a search), so the registry entry and the
   root `glama.json` are the whole of what lucid can do, and the
-  awesome-mcp-servers line waits on its badge resolving.
+  awesome-mcp-servers line waits on its badge resolving. **The "no
+  submission page" half is wrong and was wrong when written** — see § Glama
+  takes a submission, and the probe that missed it.
 - **The Claude Code plugin was proven from the public repo the same hour**,
   in an isolated `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
   tydude001/lucid` cloned and validated, `claude plugin install
@@ -15211,3 +15213,36 @@ That was a prediction, and only the "louder under a line" half was right.
   its holds' film audio, the part of that film's mix Scream never had.
 - **Nobody has listened to `-5`.** The numbers say it is closer to v8; the
   wiki row `proofcut-native` holds the watch.
+
+## Glama takes a submission, and the probe that missed it — 2026-09-15
+
+§ The registry listing recorded that Glama "has no submission page (every
+`/add`-shaped URL redirects to a search)". It has one. The redirects are
+real and mean nothing: `/mcp/servers/<x>` is an author route, so
+`/mcp/servers/add` answers 301 to `?query=author%3Aadd` for every word,
+`submit` and `new` and `create` alike. **The route is a `<button>Add
+Server</button>` in the page's own markup, which no URL probe can reach** —
+found by grepping the served HTML of `/mcp/servers` rather than by asking
+for paths. It signs in with GitHub OAuth and verifies the submitter has
+write or admin access to the repo (`glama.ai/mcp/methodology`).
+
+That is the general rule again, in a new place: **absence is the one result
+a probe produces spontaneously, and a probe of URLs is blind to a control**
+(CLAUDE.md's RTK rule, and the memory *A check's window is a claim too* —
+the window here was "things Glama exposes as paths", and the answer lived
+outside it).
+
+- **The root `glama.json` did not get it listed.** It names the maintainer
+  for a claim; it is not a submission. The repo was public from 2026-09-13
+  and `glama.ai/mcp/servers/tydude001/proofcut` still answered 404 on
+  2026-09-15, two days and three syncs later.
+- **Submitted 2026-09-15**, Tyler's hand and his GitHub login: "Your server
+  has been submitted for review." Review is a queue of unknown length, so
+  nothing is scheduled off it.
+- **What it unblocks:** the awesome-mcp-servers PR was waiting on the score
+  badge resolving, with a badgeless fallback dated 2026-09-20 (LAUNCH.md
+  step 4, wiki row `lucid-publish`). If the listing goes live first, the
+  line carries its badge and the fallback is not needed.
+- Everything else in LAUNCH.md step 3 was verified live the same day:
+  description and the eight topics, private vulnerability reporting on,
+  `v0.23.0` latest, Ko-fi in `fundingLinks`, issues #1 and #2 pinned.

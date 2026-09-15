@@ -94,7 +94,9 @@ span at `under` LU below the VO, the bed out across it like any hold.
 
 ### A3. A loudness target on export
 
-Shipped — HISTORY.md § The Scream native rebuild.
+Shipped — HISTORY.md § The Scream native rebuild. The two-pass `loudnorm`
+recommended below is one gain and a true-peak limiter as of HISTORY.md § The
+duck: past the peak ceiling `loudnorm` drops `linear=true` and rides the mix.
 
 Both essays are mastered to −16 LUFS integrated / about −1 dBTP (v10 −16.0 /
 −1.21, Scream v8 −16.2 / −1.13). proofcut measures (`finish.loudness`) and
