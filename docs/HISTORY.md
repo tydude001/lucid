@@ -14665,3 +14665,90 @@ against `Video Final v8.mp4`:
   the outro card holds over silence.
 - 1920×816, not v8's letterboxed 1080.
 - The retake pass is still Kdenlive's.
+
+## The whole film, said — 2026-09-15
+
+Tyler asked whether the repo highlights that proofcut can make an entire video,
+and whether it should be renamed again for it. The answer was
+docs/plans/SHOWCASE.md.
+- **Not yet highlighted.** Every document a newcomer reads, and every listing,
+  predated v0.24.0's music, holds, cold open and master. No trial had asked an
+  agent for any of them.
+- **Not "from scratch".** proofcut makes no footage, and that wording would
+  place it among the registry's video generators.
+- **The name stays.** 57 candidates were swept against the registry, PyPI,
+  npm, GitHub and domains. `answerprint` was the only one more exact than
+  `proofcut`, and Tyler rejected it. He then took every recommendation, and
+  SHOWCASE.md steps 1–4 were built the same day.
+
+### What shipped
+
+- **The README and the manual** (`cd1b9a3`).
+  - **Tagline:** it now names the finished, mastered film and keeps "proves
+    its cuts".
+  - **New README section:** "From recordings to a finished film", one command
+    per stage.
+  - **Sound:** a new group in § What it does.
+  - **MANUAL.md § Music, holds, a cold open and the master:** covers `music`
+    (passages, rotation, `under`), `hold add`/`under`/`check`, `head`, and
+    `export --loudness`. Before this the manual never mentioned the word
+    "music".
+- **Every listing's description** (`aa65150`): "Local-first AI video editor:
+  recordings to a finished film, cut by transcript, then verified". It is 92
+  characters against the registry schema's cap of 100. The same wording went
+  into `pyproject.toml`, `server.json`, both plugin manifests, LAUNCH.md's
+  Show HN draft and LISTINGS.md's awesome-list line. The registry republish
+  and the GitHub description are Tyler's hand, at the next release.
+- **The demo makes a whole film** (`8dac40c`).
+  - **The score:** `make_demo.py` writes a seeded pentatonic melody with
+    `wave`, so there is still nothing to licence.
+  - **DEMO.md:** scores the cut, masters it with `--loudness -16`, and ends on
+    an optional card.
+  - **The kits:** both run the score and the master.
+  - **The kit check:** `trial_check.py` checks the master's
+    after-measurement, and hears the score in the render.
+- **`agent_trial.py --film`** (`0ee367a`): the whole-film brief and three
+  checks judged off the delivered file. Its result is TRIAL.md § The third
+  trial — a whole film.
+
+### How the score is heard, and the drone that hid it
+
+A manifest's bed says what a render *would* carry; `MUSIC_KEY`'s own trap is a
+render with no music at exit 0. So both checks correlate the render's audio
+against the score. They measure at the second the bed plan puts it, and
+against the best of four wrong seconds.
+
+The first score was a plucked melody over a soft A2/E3 drone. It measured
+−16.5 dB at its own second and −23.2 at a wrong one, a margin of 6.7. A held
+tone matches the render at every second it is held, and within the ±60 ms lag
+search it matched in any phase. With the drone removed:
+
+| render | own second | best wrong second | margin |
+|---|---|---|---|
+| scored and mastered | −16.7 dB | −26.8 | 10.1 |
+| no score | −29.4 dB | −30.5 | 1.0 |
+
+`BED_MARGIN_DB` is 6. The music at 18 LU under cost `verify` nothing: 0.971
+with 34 of 34 heard, the same as the unscored render.
+
+### Where the build left the plan
+
+- **No title card in the demo.** A card cued at word 0 moves the blue shot, and
+  the kits' frame check reads blue at 3 s. The end card alone shows a card.
+- **The end card is DEMO.md § 8 and not a kit step.** It needs ImageMagick 7,
+  which neither kit installs. The kit check therefore has no card check; the
+  trial has one.
+- **`card_present` and `tail_present` became one check,
+  `end_card_rendered`.** It reads the frame halfway through the tail, counted
+  forward from the edit's own end, and fails a render too short to reach it.
+  Counted back from the file's end, a render that dropped its tail landed on
+  the demo's b-roll, whose white counter text reads as ink by YMAX.
+
+### Still open
+
+- **CI has not run the new kit steps.** `mac-demo` and `windows-demo` run on
+  the next push.
+- **`export --loudness` lengthens the audio by ~47 ms,** so `spot_frames`
+  distrusts every mastered render. TRIAL.md § The queue — one defect, found by
+  the agent.
+- **SHOWCASE.md step 5** is posting an essay, which is Tyler's hand.

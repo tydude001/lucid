@@ -457,3 +457,104 @@ word-level route. The VO side still needs its transcript.
 - **The 45-second constraint did the cutting.** The agent's largest editorial
   decision was forced by a contradiction in the brief, so this run says little
   about how it cuts when nothing is over-constrained.
+
+## The third trial — a whole film — 2026-09-15
+
+The first two briefs asked for a cut: fluff gone, b-roll, captions, a render
+and a check. Neither asked for a score, an end card or a master, so the claim
+"an agent makes a whole film" had never been measured (docs/plans/SHOWCASE.md
+§ Step 4). This run measures it.
+
+`--film` is the same instrument: the same client, the same confinement, the
+same nine checks. It adds `make_demo.py`'s generated score to the demo
+material, a brief asking for a finished film, and three checks, each read off
+the delivered file rather than the manifest:
+
+- **`music_placed`** correlates the render's audio against the score at the
+  second the project's bed plan puts it, and at four wrong seconds.
+  `scripts/trial_check.py`'s kit check does the same, and both use one
+  implementation.
+- **`loudness_on_target`** measures the file's integrated loudness against the
+  brief's −16 LUFS, within `export --loudness`'s own 1 LU band.
+- **`end_card_rendered`** needs a card recorded as the tail, a render long
+  enough to reach the tail's midpoint (counted forward from the edit's end),
+  and ink on screen there.
+
+**The checks were calibrated before the agent ran.** `--film --control`, the
+walkthrough in DEMO.md §§ 6–8 run by script, passed 12 of 12. Three renders of
+one project each failed only the check for what they lacked:
+- **The finished render:** passed all three. The score read −16.6 dB at its own
+  second against −26.8 at the best wrong one.
+- **Mastered with the score but no tail:** failed `end_card_rendered`, because
+  the render ends at 12.10 s, before the tail's midpoint at 14.01 s.
+- **No score, no master, no tail:** failed all three. The score check's margin
+  was 1.0 dB, and loudness measured −20.6 LUFS.
+
+The brief is `FILM_BRIEF` in `scripts/agent_trial.py`. The whole run is kept at
+`~/proofcut-work/spikes/agent-trial-film/runs/20260915-140025/`, and the
+control at `~/proofcut-work/spikes/agent-trial-film-control/`.
+
+### The result — a whole film
+
+**12 of 12 checks pass.** 43 turns, 42 tool calls across 31 distinct tools,
+**no refusals**, 3 images returned, 192 s, $2.27 on Opus 5.
+
+| check | verdict |
+|---|---|
+| the first nine | as the first trial: 0 of 6 retake words survive, 6 of 6 of the good take do, 387 frames against 387, similarity 1.0 with 34 of 34 heard, captions burned |
+| `music_placed` | −16.1 dB at its own second, −26.0 at the best wrong one (margin 9.9), 18 LU under the voice |
+| `loudness_on_target` | −16.1 LUFS integrated, true peak −1.0 dBTP |
+| `end_card_rendered` | `card:endcard` for 3 s, YMAX 239 at 14.63 s |
+
+Two frames were read back to check beyond the numbers:
+- **6 s:** rust b-roll under the caption "a word in the transcript."
+- **14.6 s:** the end card reading "proofcut" alone.
+
+**What the agent did with the parts no earlier brief asked for:**
+- **Music:** it placed the bed with `music --plan` first, then wrote it from
+  word 0 at 18 LU under, with a 1.5 s fade-out.
+- **End card:** it read `card_templates`, drew `endcard` with the mark
+  "proofcut", checked the canvas, and set a 3 s tail.
+- **Export:** it exported with `loudness: -16`, then burned captions into a
+  second file. The burn copies the audio, so the master survived it.
+- **Checks:** it ran `check_black`, `spot_frames`, a windowed `verify`,
+  `finish_check`, `continuity_check` and `finish_report` beyond what the brief
+  named, and `attenuate_noises --plan`, which found nothing to do.
+- **Cut:** it re-heard the retake span with `hear` before cutting it
+  (`through_pause`), and chose not to strip silences, so the timeline holds 2
+  segments.
+
+### The queue — one defect, found by the agent
+
+**1. `export --loudness` lengthens the audio stream, and `spot_frames` stops
+trusting the render.**
+- **What the agent reported:** the file reads 0.075 s longer than the
+  timeline, and `spot_frames` returned `mapping_trusted: false`.
+- **Measured on the control project:** the plain render's audio runs 12.053 s
+  against 12.042 s of video. The same edit mastered runs 12.100 s, 47 ms longer.
+  The master re-encodes audio to AAC through `aresample`, and the encoder pads.
+- **Why `spot_frames` distrusts it:** it trusts a mapping only within half a
+  frame, 20.8 ms at 24 fps.
+- **What still passes:** `finish_check`'s 0.5 s duration tolerance and
+  `check_frames`, which counts video frames.
+
+So every mastered render is one that `spot_frames` will not map to words,
+while every other check stays clean. The fix belongs in
+`finish.master_loudness`: trim the mastered audio to the length it had before
+the master. It needs a test that fails first.
+
+The agent also flagged "sound in a pause" at 3.5–4.5 s from the windowed
+`verify`, and guessed correctly that it was the score in the breath before the
+good take. Its reading was not a defect.
+
+### What this run does not settle
+
+- **Nobody has listened to it.** The level, the fade and whether 18 LU under is
+  the right place for the score are numbers here. `cut.mp4` is at
+  `~/proofcut-work/spikes/agent-trial-film/`.
+- **The demo's material has no subject,** so the picture was hung by sentence,
+  as in the first trial. A whole film over real footage, with a real score, is
+  the next run.
+- **One brief, one model, one run.** The brief named the level, the card's text,
+  and where the music starts. A brief that leaves those to taste asks a
+  different question.

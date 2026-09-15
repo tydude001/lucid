@@ -64,6 +64,8 @@ step here gains a one-line pointer.
 
 ## Step 1 — the README and the manual say it
 
+Shipped — see HISTORY.md § The whole film, said.
+
 **The tagline keeps "proves its cuts" and gains the film.** Proof is the
 differentiator (finding 1), so it stays the first thing read. Recommended:
 
@@ -118,6 +120,8 @@ the new section has a manual section a link resolves to. The
 
 ## Step 2 — the one-line description, everywhere it is copied
 
+Shipped — see HISTORY.md § The whole film, said.
+
 The same string lives in five places:
 - `server.json`
 - `.claude-plugin/plugin.json`
@@ -146,6 +150,8 @@ Its line is copied from the description, so **steps 1–2 land before then**.
 
 ## Step 3 — the demo makes a whole film
 
+Shipped — see HISTORY.md § The whole film, said (and § Where the build left the plan: no title card, and the end card is not a kit step).
+
 DEMO.md is what a stranger runs first, and the Mac and Windows kits and CI's
 two demo workflows all run it. Today it ends at a verified cut with b-roll;
 captions are an optional extra at the bottom of the page.
@@ -172,6 +178,8 @@ so the demo workflows cost no Actions minutes.
 VO by measurement, on this box and on CI's three runners.
 
 ## Step 4 — the third trial: a whole film, unattended
+
+Shipped — see HISTORY.md § The whole film, said; the run is TRIAL.md § The third trial — a whole film (the three checks landed as `music_placed`, `loudness_on_target` and `end_card_rendered`).
 
 The same instrument (`scripts/agent_trial.py`), client, confinement and brief
 rule: the goal, never the steps. The brief adds what a finished film has:

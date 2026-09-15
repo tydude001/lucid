@@ -13,12 +13,18 @@ film the agent cut): [the workspace](https://github.com/tydude001/proofcut/relea
 (2:26) and [Claude Code with the proofcut plugin](https://github.com/tydude001/proofcut/releases/download/v0.23.0/proofcut-v0.23.0-uncut-claude-code-run.mp4)
 (3:09).
 
-That is not a staged run. [TRIAL.md](docs/TRIAL.md) scores two unattended
-ones, each handed a goal and no steps, and each passed all nine of its checks.
-The first was that demo. The second was 96 seconds of real narration with its
-fluffed takes left in, plus four clips of film footage. The agent cut it to 45
-seconds, chose footage by what each line was about, burned captions, and
-checked its own render: all 123 expected words heard back.
+That is not a staged run. [TRIAL.md](docs/TRIAL.md) scores three unattended
+ones, each handed a goal and no steps, and each passed every one of its checks.
+- **The demo cut**, the one above.
+- **Real footage:** 96 seconds of narration with its fluffed takes left in,
+  plus four clips of film footage. The agent cut it to 45 seconds, chose
+  footage by what each line was about, burned captions, and checked its own
+  render: all 123 expected words heard back.
+- **A whole film:** the demo material plus a score, briefed as a finished film
+  ready to upload. In 192 seconds and $2.27 the agent cut it, laid the music
+  under the voice, ended on a card, mastered it to −16 LUFS, and checked it.
+  The score, the level and the end card were each measured in the delivered
+  file, not taken from the project.
 
 > **Have a Mac or a Windows PC and half an hour?** Nobody has run proofcut on
 > a Mac yet, and on Windows only its author has. One script runs the whole
