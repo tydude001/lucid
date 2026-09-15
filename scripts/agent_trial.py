@@ -21,6 +21,7 @@ the trial cannot silently measure a different client than the one that ships.
     python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial-control --control
     python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial --prepare-only
     python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial --score-only <run dir>
+    python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial-film --film
 
     python scripts/agent_trial.py ~/proofcut-work/spikes/agent-trial-real \
         --source ~/proofcut-work/spikes/agent-trial-real/media \
@@ -42,6 +43,15 @@ everything else is unchanged: the same client, the same confinement, the same
 demo files and a fluffed take that a real folder does not have, and it refuses
 a directory that is itself a proofcut project — the trial's agent must never be
 pointed at real authored state, only at real *material*. Point it at a copy.
+
+**`--film` asks for a whole film, not a cut** — docs/plans/SHOWCASE.md § Step 4.
+The first two runs asked for cuts, b-roll, captions and a check, so "an agent
+makes the whole film" was never measured. The film brief adds a score, an end
+card and a master to the same material, and `score()` adds three checks, each
+read off the delivered file: the score heard at its own second
+(`music_placed`), the master measured (`loudness_on_target`), and ink on screen
+in the tail (`end_card_rendered`). A manifest only says what a render would
+carry, so none of them trusts one.
 
 **What the agent is given is a goal, never the steps.** A brief listing the
 commands would measure this file's authorship, not the agent — so the default
@@ -80,10 +90,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import make_demo
+import trial_check
 
+from proofcut import finish, ops, webui
 from proofcut import media as proofcut_media
-from proofcut import ops, webui
-from proofcut.project import LEGACY_MANIFEST_NAME, MANIFEST_NAME, TIMELINE_NAME
+from proofcut.project import LEGACY_MANIFEST_NAME, MANIFEST_NAME, TIMELINE_NAME, Project
 
 
 class TrialError(RuntimeError):
@@ -123,6 +134,50 @@ When you are done, report in plain prose what you cut, what picture you hung
 where, and what every check you ran said — including anything that disagreed
 with what you expected.
 """
+
+#: `--film`'s brief: the demo brief's material plus the score, and a finished
+#: film's delivery list. Still a goal, never the steps — it names a level in
+#: LUFS because a delivery spec does, and no command.
+FILM_BRIEF = """\
+You are making a short film, and proofcut's tools are the only thing you have —
+there is no shell, no file browser, and no way to read a file except through a
+proofcut tool.
+
+The raw material is four files in {media}:
+
+  vo.wav            a voiceover, one speaker, with a fluffed take in it: the
+                    narrator starts a sentence, gives up, and says it again
+  broll-blue.mp4    b-roll
+  broll-rust.mp4    b-roll
+  music.wav         a piece of music for the film
+
+The project is already initialised at {project}, and every tool takes it as
+`path`. The server is bound to that one project and will refuse any other.
+
+Deliver a finished film, ready to upload:
+
+  * the fluffed take gone, and nothing else that the narrator meant to say;
+  * b-roll on screen under the lines it belongs to, rather than over all of it
+    or none of it;
+  * the music under the narration from its first word, low enough that every
+    word is still clear;
+  * an end card after the last line, reading "proofcut";
+  * captions burned into the picture;
+  * mastered to -16 LUFS integrated;
+  * rendered to {output};
+  * and the render checked against the timeline, not merely produced.
+
+When you are done, report in plain prose what you cut, what picture you hung
+where, what you did with the music, the end card and the level, and what every
+check you ran said — including anything that disagreed with what you expected.
+"""
+
+#: What the film brief asks the master to measure, and `finish`'s own band.
+FILM_LOUDNESS = -16.0
+FILM_LOUDNESS_TOLERANCE = finish.MASTER_LU_TOLERANCE
+#: A frame is ink rather than black above this 8-bit YMAX. Black is 16, and
+#: CLAUDE.md's measured floor for a real frame is 127 (`SHEET_BLANK_MAX`'s rule).
+INK_YMAX = 100
 
 #: Killed at this many seconds by default. Generous: whisper on a cold cache
 #: and a melt render are both minutes, and a trial that times out mid-render
@@ -256,7 +311,9 @@ def check_source(source: Path) -> list[Path]:
     return found
 
 
-def prepare(work: Path, *, fresh: bool, source: Path | None = None) -> tuple[Path, Path]:
+def prepare(
+    work: Path, *, fresh: bool, source: Path | None = None, film: bool = False
+) -> tuple[Path, Path]:
     """Generate the footage and an empty project. Returns (media dir, project).
 
     `fresh` removes an existing project so a re-run is not scored against a
@@ -283,6 +340,8 @@ def prepare(work: Path, *, fresh: bool, source: Path | None = None) -> tuple[Pat
             make_demo.make_voiceover(vo)
         if not all((media / name).exists() for name, _c, _l in make_demo.BROLL):
             make_demo.make_broll(media)
+        if film and not (media / "music.wav").exists():
+            make_demo.make_music(media / "music.wav")
 
     project = work / "proj"
     if project.exists() and fresh:
@@ -628,6 +687,7 @@ def score(
     *,
     phrases: dict[str, str] | None = None,
     min_clips: int = DEMO_MIN_CLIPS,
+    film: bool = False,
 ) -> dict[str, Any]:
     """Score the finished project against the checks the shipped film trusts.
 
@@ -644,6 +704,7 @@ def score(
     the same instrument over different material, and a second scoring function
     would be a second opinion about what a finished cut is. Both default to
     the demo's, so every run scored before they existed re-scores identically.
+    `film` adds `--film`'s three checks (`_film_checks`) after the rest.
     """
     phrases = DEMO_PHRASES if phrases is None else phrases
     checks: list[dict[str, Any]] = []
@@ -754,9 +815,138 @@ def score(
         except Exception as exc:  # noqa: BLE001
             checks.append(_check("verify_similarity", None, f"verify refused: {exc}"))
         checks.append(_captions_check(final, evidence))
+    if film:
+        checks.extend(_film_checks(project, final, vo, facts))
 
     facts["finish_report"] = _safe(lambda: ops.finish_report(project))
     return {"checks": checks, "facts": facts}
+
+
+def _film_checks(
+    project: Path, final: Path | None, vo: str | None, facts: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """`--film`'s three checks, each judged off the delivered file.
+
+    Each is unsettled rather than failed when there is nothing to judge — no
+    render, no narration clip — and failed when the project or the file says
+    no, `score()`'s own rule.
+    """
+    if final is None:
+        return [_check(name, None, "no render to check")
+                for name in ("music_placed", "loudness_on_target", "end_card_rendered")]
+    # `ops.status` above reports the edit's own length; the tail check counts
+    # forward from it.
+    return [
+        _music_check(project, final, vo, facts),
+        _loudness_check(final, facts),
+        _end_card_check(project, final, facts),
+    ]
+
+
+def _music_check(project: Path, final: Path, vo: str | None, facts: dict[str, Any]) -> dict[str, Any]:
+    """Is the score in the render, at the second the plan put it?
+
+    The same correlation `scripts/trial_check.py` asks of the kits' run — one
+    implementation — over a window read off this project's own bed: inside the
+    first piece's fades, offset by any cold open, and correlated against the
+    asset the agent actually placed.
+    """
+    if vo is None:
+        return _check("music_placed", None, "no narration clip to read the bed's plan off")
+    view = _safe(lambda: ops.timeline_view(project, vo))
+    plan = view.get("music") if isinstance(view, dict) else None
+    if not plan:
+        error = view.get("music_error") if isinstance(view, dict) else None
+        return _check("music_placed", False, f"no bed in the project{': ' + error if error else ''}")
+    piece = (plan.get("pieces") or [None])[0]
+    if not piece:
+        return _check("music_placed", False, "the bed has no pieces to play")
+    head = float(view.get("head_seconds") or 0.0)
+    start = head + float(piece["timeline_start"]) + float(piece.get("fade_in") or 0.0) + 0.2
+    end = head + float(piece["timeline_end"]) - float(piece.get("fade_out") or 0.0) - 0.2
+    if end - start < 3.0:
+        return _check("music_placed", None, f"the bed's unfaded span is {end - start:.1f}s, too short to judge")
+    opened = Project.open(project)
+    clip = next((c for c in opened.read_manifest().get("clips", []) if c.get("clip_id") == piece["asset"]), None)
+    if clip is None:
+        return _check("music_placed", None, f"the bed's asset {piece['asset']!r} is not a registered clip")
+    score_path = proofcut_media.media_path(opened, clip)
+    offset = float(piece.get("src_in") or 0.0) - float(piece["timeline_start"]) - head
+    heard, score_samples = trial_check.decode_mono(final), trial_check.decode_mono(score_path)
+    right = trial_check.bed_share(heard, score_samples, offset, (start, end))
+    wrong = max(trial_check.bed_share(heard, score_samples, offset + s, (start, end))
+                for s in trial_check.BED_WRONG_SECONDS)
+    facts["music_correlation"] = {"right_db": right, "wrong_db": wrong, "window": [start, end],
+                                  "asset": piece["asset"], "under": plan.get("under")}
+    return _check(
+        "music_placed",
+        right - wrong >= trial_check.BED_MARGIN_DB,
+        (f"{piece['asset']} heard at {right:.1f} dB at its own second, {wrong:.1f} at the best "
+         f"wrong one (margin {right - wrong:.1f}, needs {trial_check.BED_MARGIN_DB:g}); "
+         f"under {plan.get('under')} LU"),
+    )
+
+
+def _loudness_check(final: Path, facts: dict[str, Any]) -> dict[str, Any]:
+    measured = _safe(lambda: finish.loudness(final))
+    facts["loudness"] = measured
+    integrated = measured.get("integrated") if isinstance(measured, dict) else None
+    if not isinstance(integrated, int | float):
+        return _check("loudness_on_target", None, f"could not measure: {measured}")
+    return _check(
+        "loudness_on_target",
+        abs(integrated - FILM_LOUDNESS) <= FILM_LOUDNESS_TOLERANCE,
+        (f"{integrated} LUFS integrated, true peak {measured.get('true_peak')} "
+         f"(asked {FILM_LOUDNESS:g} ± {FILM_LOUDNESS_TOLERANCE:g})"),
+    )
+
+
+def _end_card_check(project: Path, final: Path, facts: dict[str, Any]) -> dict[str, Any]:
+    """A card recorded as the tail, and ink on screen halfway through it.
+
+    Halfway is counted forward from the edit's own end (plus any cold open),
+    never back from the file's: a render that dropped its tail ends on b-roll,
+    and the demo's b-roll carries white text a YMAX reads as ink. So a render
+    shorter than that instant fails outright. The frame is read back, because a tail recorded in the manifest is not a
+    tail in the file — the end card that re-cutting dropped at exit 0 is this
+    repo's own history (CLAUDE.md, `TAIL_KEY`). YMAX, never a mean: the end
+    card template is light ink on a dark ground.
+    """
+    tail = _safe(lambda: ops.tail(project))
+    record = tail.get("tail") if isinstance(tail, dict) else None
+    if not record or not str(record.get("asset", "")).startswith("card:"):
+        return _check("end_card_rendered", False, f"no card recorded as the tail: {record}")
+    status = facts.get("status") if isinstance(facts.get("status"), dict) else {}
+    edit_seconds = status.get("timeline_duration")
+    head = status.get("head_seconds") or 0.0
+    if not isinstance(edit_seconds, int | float):
+        return _check("end_card_rendered", None, f"no edit length to find the tail by: {status}")
+    at = float(head) + float(edit_seconds) + float(record.get("seconds") or 0.0) / 2
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(final)],
+        capture_output=True, text=True, check=False,
+    )
+    try:
+        length = float(probe.stdout.strip())
+    except ValueError:
+        return _check("end_card_rendered", None, f"could not read the render's length: {probe.stderr[-200:]}")
+    if length <= at:
+        return _check("end_card_rendered", False,
+                      f"{record['asset']} recorded for {record.get('seconds')}s, but the render ends at "
+                      f"{length:.2f}s, before the tail's midpoint {at:.2f}s")
+    stats = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", f"{at:.3f}", "-i", str(final), "-frames:v", "1",
+         "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YMAX:file=-", "-f", "null", "-"],
+        capture_output=True, text=True, check=False,
+    )
+    ymax = next((float(line.split("=", 1)[1]) for line in stats.stdout.splitlines()
+                 if line.startswith("lavfi.signalstats.YMAX=")), None)
+    facts["end_card"] = {"tail": record, "at": at, "ymax": ymax}
+    if ymax is None:
+        return _check("end_card_rendered", None, f"no frame read at {at:.2f}s: {stats.stderr[-200:]}")
+    return _check("end_card_rendered", ymax > INK_YMAX,
+                  f"{record['asset']} for {record.get('seconds')}s; YMAX {ymax:g} at {at:.2f}s "
+                  f"(ink above {INK_YMAX})")
 
 
 def _voiceover_clip(project: Path, clips: list[dict[str, Any]]) -> str | None:
@@ -846,7 +1036,9 @@ def _safe(thunk: Any) -> Any:
 # ------------------------------------------------------------------ control
 
 
-def run_control(project: Path, media: Path, output: Path, run_dir: Path) -> dict[str, Any]:
+def run_control(
+    project: Path, media: Path, output: Path, run_dir: Path, *, film: bool = False
+) -> dict[str, Any]:
     """Meet the same brief by script, so the checks have a known-good answer.
 
     A first run of a new check gives candidates, not findings (the repo's
@@ -898,7 +1090,16 @@ def run_control(project: Path, media: Path, output: Path, run_dir: Path) -> dict
     step("cue", "add", "vo", "--phrase", "the render can be checked", "rust")
 
     plain = output.with_name(output.stem + "-plain" + output.suffix)
-    step("export", str(plain), "--render")
+    if film:
+        # DEMO.md §§ 6–8, which is the film brief met by the walkthrough.
+        step("import", str(media / "music.wav"), "--clip-id", "score")
+        step("music", "--asset", "score", "--clip-id", "vo", "--start-word", "0",
+             "--fade-in", "1", "--fade-out", "2", "--under", "18")
+        step("card", "new", "end", "--template", "endcard", "--set", "mark=proofcut")
+        step("tail", "--asset", "card:end", "--seconds", "4")
+        step("export", str(plain), "--render", "--loudness", f"{FILM_LOUDNESS:g}")
+    else:
+        step("export", str(plain), "--render")
     captions = output.with_suffix(".ass")
     step("captions", str(captions), "--burn", str(plain), "--burn-output", str(output))
 
@@ -1036,6 +1237,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep-project", action="store_true",
                         help="score the project as it stands instead of starting from `init`")
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--film", action="store_true",
+                        help="the whole-film brief (score, end card, master) and its three checks")
     parser.add_argument("--control", action="store_true",
                         help="meet the brief by script instead of by agent, and score it identically")
     parser.add_argument("--score-only", metavar="RUN_DIR",
@@ -1099,6 +1302,7 @@ def main(argv: list[str] | None = None) -> int:
             evidence_from_analysis(analysis),
             phrases=params.get("phrases"),
             min_clips=params.get("min_clips", DEMO_MIN_CLIPS),
+            film=bool(params.get("film")),
         )
         report = write_report(run_dir, run, analysis, scored, (run_dir / "brief.txt").read_text())
         print(f"\n{report}")
@@ -1106,7 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock = hold_lock(work)
     try:
-        media, project = prepare(work, fresh=not args.keep_project, source=source)
+        media, project = prepare(work, fresh=not args.keep_project, source=source, film=args.film)
         print(f"media   -> {media}" + ("  (real footage, not generated)" if source else ""))
         print(f"project -> {project}")
         if args.prepare_only:
@@ -1115,7 +1319,7 @@ def main(argv: list[str] | None = None) -> int:
         brief = (
             Path(args.brief_file).expanduser().read_text(encoding="utf-8")
             if args.brief_file
-            else DEMO_BRIEF.format(media=media, project=project, output=output)
+            else (FILM_BRIEF if args.film else DEMO_BRIEF).format(media=media, project=project, output=output)
         )
 
         phrases = (
@@ -1137,7 +1341,8 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
         (run_dir / "scoring.json").write_text(
-            json.dumps({"phrases": phrases, "min_clips": min_clips, "material": str(media)},
+            json.dumps({"phrases": phrases, "min_clips": min_clips, "material": str(media),
+                        "film": args.film},
                        indent=2),
             encoding="utf-8",
         )
@@ -1145,7 +1350,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.control:
             started = time.time()
-            evidence = run_control(project, media, output, run_dir)
+            evidence = run_control(project, media, output, run_dir, film=args.film)
             run = {"returncode": 0, "timed_out": False,
                    "wall_seconds": round(time.time() - started, 1),
                    "undecodable_lines": 0, "stderr_tail": ""}
@@ -1156,7 +1361,7 @@ def main(argv: list[str] | None = None) -> int:
             analysis = analyse(run["events"])
             evidence = evidence_from_analysis(analysis)
         run["material"] = str(media)
-        scored = score(project, evidence, phrases=phrases, min_clips=min_clips)
+        scored = score(project, evidence, phrases=phrases, min_clips=min_clips, film=args.film)
         report = write_report(run_dir, run, analysis, scored, brief)
         print(f"\n{report}")
         failed = [c["check"] for c in scored["checks"] if c["ok"] is False]

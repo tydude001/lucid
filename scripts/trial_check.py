@@ -109,10 +109,16 @@ def decode_mono(media: Path) -> array.array:
     return samples
 
 
-def bed_share(render: array.array, music: array.array, offset: float) -> float:
-    """The best normalised correlation, in dB, of the render's window against
-    the score read `offset` seconds into its own timeline-to-source mapping."""
-    i0, i1 = (int(s * BED_RATE) for s in BED_WINDOW)
+def bed_share(
+    render: array.array, music: array.array, offset: float, window: tuple[float, float] = BED_WINDOW
+) -> float:
+    """The best normalised correlation, in dB, of the render's `window` (render
+    seconds) against the score, where render second s is score second s + `offset`.
+
+    `scripts/agent_trial.py --film` asks the same question of an agent's own
+    bed, over a window read off its plan, so this is the one implementation.
+    """
+    i0, i1 = (int(s * BED_RATE) for s in window)
     window = render[i0:i1]
     power = sum(x * x for x in window) or 1
     best = 0.0
