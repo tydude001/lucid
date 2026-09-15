@@ -14748,7 +14748,75 @@ with 34 of 34 heard, the same as the unscored render.
 
 - **CI has not run the new kit steps.** `mac-demo` and `windows-demo` run on
   the next push.
-- **`export --loudness` lengthens the audio by ~47 ms,** so `spot_frames`
-  distrusts every mastered render. TRIAL.md § The queue — one defect, found by
-  the agent.
+- ~~**`export --loudness` lengthens the audio by ~47 ms**~~ — fixed the same
+  day, and it was a sync defect rather than a length one: HISTORY.md § The
+  master's late audio.
 - **SHOWCASE.md step 5** is posting an essay, which is Tyler's hand.
+
+## The master's late audio — 2026-09-15
+
+The whole-film trial's agent reported its own render reading 0.075 s longer
+than its timeline, and `spot_frames` answering `mapping_trusted: false`
+(TRIAL.md § The third trial — a whole film). On the control project the same
+edit ran 47 ms longer in audio once mastered. TRIAL.md first recorded the
+cause as AAC padding, and a trim to the old length as the fix. **Both were
+wrong.**
+
+### What it was
+
+Masters of a 3-second tone and picture, each stream's length read by ffprobe:
+
+| second pass | audio stream | samples decoded |
+|---|---|---|
+| `aresample`, AAC | 3.008 s | 144384 |
+| `loudnorm`, WAV | 3.008 s | 144384 |
+| `loudnorm`, AAC | **3.100 s** | 144384 |
+| `loudnorm`, `atrim` to the source's samples, AAC | **3.092 s** | 144384 |
+| `loudnorm`, `asetpts=NB_CONSUMED_SAMPLES/SR/TB`, AAC | 3.008 s | 144384 |
+
+Every master decoded the same samples, so no audio was added, and a trim had
+nothing to remove. **The extra length was in the timestamps.** One AAC packet,
+at pts 5120, claimed a duration of 5440 samples while holding 1024, so every
+packet after it was stamped 92 ms late. `loudnorm`'s own output shows why: a
+first frame of 0.1 s, a second of 8 ms stamped 0.1, and a third stamped 0.2.
+
+On a real render the long packet sits where `loudnorm` flushes its 3 s
+lookahead:
+
+| render | long packet at | extra |
+|---|---|---|
+| `scream-native-2.mp4` (336.5 s) | 333.6 s | 30.7 ms |
+| `longlegs-native-5.mp4` (368.6 s) | 365.6 s | 88.0 ms |
+| the agent trial's `cut.mp4` (16.2 s) | 13.2 s | 72.0 ms |
+
+So on those files the last three seconds of sound play late against the
+picture, and the stream outruns it. Everything before that point is in sync.
+The earlier alignment measurements in § The Scream native rebuild decoded to
+PCM, so they could not see it.
+
+### The fix
+
+`finish.master_loudness` restamps the audio from the samples consumed
+(`asetpts=NB_CONSUMED_SAMPLES/SR/TB`) after `loudnorm` and `aresample`.
+`test_a_master_keeps_the_audio_the_length_it_was` masters a picture-plus-AAC
+file and asserts two things. The audio stream stays within half a frame of
+its old length. No audio packet may claim more than one AAC frame. Each
+assertion fails the old code on its own: 0.100 s against a 0.021 s allowance,
+and `[(5120, 5440)]`.
+
+**Two checks that looked sufficient were not:**
+- **Decoded samples** read identical before and after, because PCM decoding
+  ignores timestamps.
+- **pts contiguity** read clean, because the long packet still abuts the next
+  one. The first draft of the test checked only this, and would have passed
+  the bug.
+
+The agent trial's project, re-mastered with the fix: audio 16.128 s against
+16.125 s of video, no long packet, `spots` `mapping_trusted: true`, `verify`
+1.0 with 34 of 34 heard, and `frames` delta 0.
+
+### Still open
+
+**Both essay rebuilds were mastered before the fix,** so each carries the
+late last three seconds in the table above. Re-running each build script's
+export fixes it. Those renders are Tyler's project files, so it is his call.

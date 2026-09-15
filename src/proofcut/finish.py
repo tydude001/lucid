@@ -205,6 +205,13 @@ def master_loudness(
              f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
              f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
              f":offset={measured['target_offset']}:linear=true:print_format=json,aresample=48000"
+             # loudnorm's frame timestamps run ahead of its samples, so one
+             # AAC packet came out up to ~90 ms long and everything after it
+             # played that late: on a real render that is where it flushes
+             # its 3 s lookahead, the last seconds and the end card. The
+             # stream reading longer than its picture was the visible half.
+             # Restamp from the samples consumed. TRIAL.md § The third trial.
+             ",asetpts=NB_CONSUMED_SAMPLES/SR/TB"
          ),
          *codec, "-movflags", "+faststart", str(staged)]
     )  # fmt: skip

@@ -1032,6 +1032,15 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       against a −24 plateau, where the equal-power keys hold the total flat.
       A new overlap that sets only `fade_*_frames` renders that hole at
       exit 0.
+    - **`export --loudness` restamps its audio (`asetpts`) after `loudnorm`,
+      and must keep doing so.** `loudnorm`'s frame timestamps run ahead of
+      its samples, so one AAC packet claims up to ~90 ms more than its 1024
+      samples, and everything after it plays that late. On a real render that
+      packet sits 3 s before the end, where it flushes its lookahead. **Judge
+      audio timing by packet durations, never by decoded samples** (PCM
+      ignores timestamps) **and never by pts contiguity** (the long packet
+      still abuts the next one). Both missed it here. HISTORY.md § The
+      master's late audio.
 - Resolve media through `media.media_path()`, never `root / clip["media"]`. A
   `media/` entry is optional — the NAS rejects symlinks, so import falls back to
   referencing the source in place (wiki `files.md`).

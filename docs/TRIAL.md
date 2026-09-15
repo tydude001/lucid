@@ -532,16 +532,20 @@ trusting the render.**
   timeline, and `spot_frames` returned `mapping_trusted: false`.
 - **Measured on the control project:** the plain render's audio runs 12.053 s
   against 12.042 s of video. The same edit mastered runs 12.100 s, 47 ms longer.
-  The master re-encodes audio to AAC through `aresample`, and the encoder pads.
+  The cause first recorded here, "the encoder pads", was wrong. It is a
+  timestamp jump in `loudnorm`'s output, and it moved audio late rather than
+  only lengthening the stream (HISTORY.md § The master's late audio).
 - **Why `spot_frames` distrusts it:** it trusts a mapping only within half a
   frame, 20.8 ms at 24 fps.
 - **What still passes:** `finish_check`'s 0.5 s duration tolerance and
   `check_frames`, which counts video frames.
 
 So every mastered render is one that `spot_frames` will not map to words,
-while every other check stays clean. The fix belongs in
-`finish.master_loudness`: trim the mastered audio to the length it had before
-the master. It needs a test that fails first.
+while every other check stays clean.
+
+**Fixed the same day.** The first idea, trimming the audio back to its old
+length, would not have worked: a trim measured 3.092 s against 3.100 s,
+because no samples were extra. HISTORY.md § The master's late audio.
 
 The agent also flagged "sound in a pause" at 3.5–4.5 s from the windowed
 `verify`, and guessed correctly that it was the score in the breath before the

@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import shutil
 import struct
+import subprocess
 import wave
 from pathlib import Path
 
@@ -96,6 +97,60 @@ def test_loudness_measures_a_real_file(tmp_path: Path) -> None:
 def test_loudness_refuses_a_missing_file(tmp_path: Path) -> None:
     with pytest.raises(finish.FinishError, match="no media"):
         finish.loudness(tmp_path / "nope.wav")
+
+
+# -- master_loudness ----------------------------------------------------------
+
+
+def _stream_seconds(path: Path, kind: str) -> float:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", f"{kind}:0", "-show_entries", "stream=duration",
+         "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(probe.stdout.strip())
+
+
+@needs_ffmpeg
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe is not installed")
+def test_a_master_keeps_the_audio_the_length_it_was(tmp_path: Path) -> None:
+    """`loudnorm`'s frame timestamps run ahead of its samples, so a master
+    carried one AAC packet claiming up to ~90 ms more than the 1024 samples it
+    holds. Every sample after it played that late, and the stream read longer
+    than its picture — 3.000 s became 3.100 s here, with the same samples
+    decoded. On a real render the packet sits where loudnorm flushes its 3 s
+    lookahead: 3 s before the end of both essay rebuilds and the agent trial's
+    film, whose 47 ms overrun was enough for `spot_frames` to call it stale
+    (`mapping_trusted` is half a frame).
+
+    **The packets are the witness, and only their durations.** Decoding to PCM
+    ignores timestamps, so a sample count cannot see this, and the long packet
+    still abuts the next one, so a pts-contiguity check cannot either. TRIAL.md
+    § The third trial — a whole film, the queue."""
+    render = tmp_path / "render.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:r=24:d=3",
+         "-f", "lavfi", "-i", "sine=f=220:d=3:sample_rate=48000", "-af", "volume=-20dB",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(render)],
+        check=True,
+    )
+    audio_before, video_before = _stream_seconds(render, "a"), _stream_seconds(render, "v")
+
+    report = finish.master_loudness(render, integrated=-16.0)
+
+    assert report["after"]["integrated"] == pytest.approx(-16.0, abs=finish.MASTER_LU_TOLERANCE)
+    half_frame = 0.5 / 24
+    assert abs(_stream_seconds(render, "a") - audio_before) <= half_frame
+    assert _stream_seconds(render, "v") == pytest.approx(video_before, abs=1e-6)
+    packets = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "packet=pts,duration",
+         "-of", "csv=p=0", str(render)],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    stamps = [tuple(int(v) for v in line.strip(",").split(",")) for line in packets]
+    frame = 1024  # AAC's own frame size
+    long = [(pts, duration) for pts, duration in stamps[:-1] if duration > frame]
+    assert not long, f"audio packets claiming more than one AAC frame: {long[:3]}"
 
 
 # -- hold_seams ----------------------------------------------------------------
