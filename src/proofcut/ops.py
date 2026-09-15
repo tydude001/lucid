@@ -12647,12 +12647,12 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
         lanes: list[list[mlt.Entry]] = [music_lane, music2_lane]
         cursors = [0, 0]
         for piece in music_plan["pieces"]:
-            lane, at = lanes[piece["lane"]], head_frames + piece["start_frame"]
+            bed_lane, at = lanes[piece["lane"]], head_frames + piece["start_frame"]
             gap = at - cursors[piece["lane"]]
             if gap:
                 silence = _tail_silence(project, gap / rate)
-                lane.append(mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False))
-            lane.append(
+                bed_lane.append(mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False))
+            bed_lane.append(
                 mlt.Entry(
                     piece["asset_path"],
                     piece["src_in_frames"],
@@ -12669,13 +12669,15 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             )
             music_resources.add(piece["asset_path"])
             cursors[piece["lane"]] = at + piece["frames"]
-        for index, lane in enumerate(lanes):
-            if not lane:
+        # `bed_lane`, never `lane`: that name is the picture lane's, and
+        # rebinding it here handed the picture lane the bed's second lane
+        for index, bed_lane in enumerate(lanes):
+            if not bed_lane:
                 continue
             trail = total_frames - cursors[index]
             if trail:
                 silence = _tail_silence(project, trail / rate)
-                lane.append(mlt.Entry(str(silence), 0, trail, is_image=False, has_video=False))
+                bed_lane.append(mlt.Entry(str(silence), 0, trail, is_image=False, has_video=False))
         # Deliberately NOT added to `clip_of`: a reframe crops what is on
         # screen, and nothing of the music lane is — its nodes never take one.
         music_report = {

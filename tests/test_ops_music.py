@@ -603,3 +603,32 @@ def test_timeline_view_carries_every_piece(tmp_path: Path) -> None:
 
     assert [p["asset"] for p in view["music"]["pieces"]] == ["calm-a", "calm-b", "calm-c", "calm-a"]
     assert view["music"]["pieces"][1]["timeline_start"] == pytest.approx(31.5)
+
+
+def test_a_crossfading_bed_leaves_the_picture_lane_its_footage(tmp_path: Path) -> None:
+    """The bed's lane loop in `_build_mlt` once bound `lane` — the picture
+    lane's own name — to its music lanes, so a bed with a second lane handed
+    the picture lane its music: every render of Scream and Lambs/Longlegs on
+    A1 was black under correct audio, at exit 0 (HISTORY.md § The Scream
+    native rebuild)."""
+    project = _film_project(tmp_path)
+    film = tmp_path / "film.mp4"
+    film.write_bytes(b"")  # the planner asks only that the footage exists
+    manifest = project.read_manifest()
+    manifest["clips"].append(
+        {"clip_id": "film", "source": str(film), "duration": 120.0, "has_video": True,
+         "has_audio": True, "width": 1920, "height": 816, "fps": 30.0}
+    )
+    project.write_manifest(manifest)
+    ops.cue_add(project.root, "vo", 0, "film")
+    ops.music(project.root, asset="calm-a", clip_id="vo", word_index_start=0,
+              rotate=["calm-b", "calm-c"], crossfade=2.5)
+
+    built = ops._build_mlt(project, ops._load_edit(project), fps=RATE)
+
+    picture = [
+        node.find("property[@name='resource']").text
+        for node in built["document"].findall("chain")
+        if (node.get("id") or "").startswith("vchain")
+    ]
+    assert picture and all(resource.endswith("film.mp4") for resource in picture), picture
