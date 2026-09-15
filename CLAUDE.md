@@ -58,7 +58,11 @@ listings that predate the finishing half, the third trial that measures an
 agent doing it, why never "generate" or "from scratch", and why the name
 stays — is [docs/plans/SHOWCASE.md](docs/plans/SHOWCASE.md), written
 2026-09-15.
-Open-item status lives in the wiki, not here.
+Open-item status lives in the wiki, not here. **This repo is public: a
+goodsometimes video's production record (versions, renders, creative calls,
+release state) goes in `goodsometimes/ideas/<video>.md`**, and HISTORY.md
+keeps only what the film showed about proofcut. The rule and the reason are in
+wiki `projects.md`.
 
 **Every document but this one, README.md, CONTRIBUTING.md and SECURITY.md
 lives under `docs/`** — the five that sat at the root moved there
