@@ -15053,6 +15053,14 @@ test failed, reading 3.0 s. That was the song's length, not a short stream,
 so the guard is there because a cover stream's duration is whatever the muxer
 wrote, not because it would have emptied that clip.
 
+**The laptop re-run, at `968ba4b`: `ALL CASES RAN CLEAN`.** The same probe
+command on IMG_2309.MOV, 12:46 local. Import recorded `picture_end`
+35.141667, and the seed read `timeline_duration` 35.141667 against its
+35.141667 source. The auto-editor render laid down 35.133333 s at 30 fps,
+and `frames` read **1054 of 1054**, delta 0, where the run at `41aa673` read
+1055. 1054 is the clip's own count of video frames. The last frame was not
+looked at on the laptop; the count is the check.
+
 ### Still open
 
 - **Every other reader of a clip's `duration` still reads the container's.**
