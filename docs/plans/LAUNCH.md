@@ -487,16 +487,49 @@ tuned to the room.
 
 1. **r/LocalLLaMA** — the hook is local whisper, a local VLM, a local face
    model, no cloud. This is their thesis, not a video-editing pitch.
-2. **r/ClaudeAI** and the Claude Code Discord — the hook is the agent pane
+2. **The OpenTimelineIO community** — the hook is an agent editing an OTIO
+   timeline by transcript, and the render checked against that timeline.
+   Added 2026-09-15, on the one piece of evidence any channel has so far:
+   the first star from someone other than Tyler came before any channel
+   in this plan ran. It came from a film-studio pipeline developer, and
+   the repos they starred just before and after proofcut were all OTIO
+   tooling (adapters, diff tools, JS bindings). That is one person, which
+   is why this is second and not first. The audience writes and maintains
+   OTIO tooling, so it will open `project.otio` and take the interop claims
+   literally.
+   - **Where:** one post in the *Show and tell* category of
+     `AcademySoftwareFoundation/OpenTimelineIO`'s GitHub Discussions. Also
+     add one line to the OTIO wiki's *Tools and Projects Using
+     OpenTimelineIO* page, under *Other Applications/Plugins/etc*,
+     alphabetical, which asks readers to add projects. That line is a
+     listing, like step 4's, not a post. The wiki may not take edits from
+     outside the project; if it refuses, ask in the Discussions post
+     instead. The OTIO mailing list and the ASWF Slack channel (both linked
+     from OTIO's README) are the same people, so posting there too is the
+     second post this step's rule avoids.
+   - **Say only what is measured.** `project.otio` is the timeline proofcut
+     edits, not an export. The Kdenlive round-trip is measured
+     (HISTORY.md § The import that was one frame short, sixty-three times).
+     Resolve and Premiere are **not**: Premiere is not installed here, and
+     the free Resolve cannot decode H.264/AAC (HISTORY.md § First
+     milestones — all seven ran). So do not repeat
+     README.md § No lock-in's "finish in Resolve, Premiere or Kdenlive" in
+     this room. The detail this audience will find interesting is that
+     OTIO's edit algorithms have no Python bindings, so every cut is done
+     by hand-rolled track surgery (CLAUDE.md § Things that will bite you).
+   - Wiki line (draft): `- [proofcut](https://github.com/tydude001/proofcut)
+     - Local-first AI video editor: an MCP server whose agent cuts an OTIO
+     timeline by transcript and checks the render against it.`
+3. **r/ClaudeAI** and the Claude Code Discord — the hook is the agent pane
    and the plugin from step 4. Tag it as an MCP server first, an editor
    second.
-3. **X and Bluesky** — the clip, the seven-word tagline, and the MCP and
+4. **X and Bluesky** — the clip, the seven-word tagline, and the MCP and
    Claude Code tags. Anthropic's developer-relations people repost MCP
    servers that do something visibly new, and an agent cutting video with a
    self-check is that; do not ask them to, just make it easy to find.
-4. **r/selfhosted** — the hook is "no accounts, no metering", which is the
+5. **r/selfhosted** — the hook is "no accounts, no metering", which is the
    README's stated non-goal and their whole reason for being there.
-5. **The films themselves.** Every goodsometimes release from here carries
+6. **The films themselves.** Every goodsometimes release from here carries
    "cut in proofcut" and the repo link in its description, and the launch clip's
    making-of is a short of its own. This is the slow channel and the honest
    one: the tool's best advertisement is the work made with it.
