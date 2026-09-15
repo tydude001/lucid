@@ -2472,6 +2472,11 @@ def clip_rm(path: Path | str, clip_id: str) -> dict[str, Any]:
         for hold in manifest.get(HOLDS_KEY, [])
     ):
         blockers.append("it is referenced by a hold (see hold_ls, hold_rm)")
+    if any(
+        item.get("clip_id") == clip_id or item.get("asset") == clip_id
+        for item in manifest.get(UNDER_VO_KEY, [])
+    ):
+        blockers.append("it plays under the VO (see hold_ls, hold_under_rm)")
     bed = manifest.get(MUSIC_KEY)
     if bed and (bed.get("clip_id") == clip_id or clip_id in _music_assets(bed)):
         blockers.append("it is the music bed's own clip (see music reset=True)")
@@ -3278,7 +3283,7 @@ def _referenced_clip_ids(manifest: dict[str, Any], on_timeline: set[str]) -> set
     for cue in manifest.get("cues", []):
         referenced.add(cue["clip_id"])
         referenced.add(cue["asset"])
-    for hold in manifest.get(HOLDS_KEY, []):
+    for hold in [*manifest.get(HOLDS_KEY, []), *manifest.get(UNDER_VO_KEY, [])]:
         referenced.add(hold["clip_id"])
         referenced.add(hold["asset"])
     bed = manifest.get(MUSIC_KEY)
@@ -11456,12 +11461,22 @@ def _hold_gate_spans(
         plan = _hold_plan(project, edit, rate, stored_hold)
         start_frame = head_frames + round(plan["gap_at"] * rate)
         resolved.append((start_frame, start_frame + plan["hold_frames"], plan))
+    # Film audio under the VO shares the lane and the bed's gate (NATIVE.md § A2).
+    for stored in _stored_under_vo(project):
+        plan = _under_vo_plan(project, edit, rate, stored)
+        start_frame = head_frames + round(plan["gap_at"] * rate)
+        resolved.append((start_frame, start_frame + plan["hold_frames"], plan))
     resolved.sort(key=lambda item: item[0])
+
+    def label(plan: dict[str, Any]) -> str:
+        if plan.get("kind") == "under_vo":
+            return f"film audio under the VO at {plan['clip_id']!r} word {plan['word_index_start']}"
+        return f"hold at {plan['clip_id']!r} word {plan['gap_word_index']}"
+
     for (a_start, a_end, a_plan), (b_start, b_end, b_plan) in pairwise(resolved):
         if b_start < a_end:
             raise ProjectError(
-                f"hold at {a_plan['clip_id']!r} word {a_plan['gap_word_index']} "
-                f"and hold at {b_plan['clip_id']!r} word {b_plan['gap_word_index']} "
+                f"{label(a_plan)} and {label(b_plan)} "
                 "overlap on the timeline — holds cannot stack"
             )
     return resolved
@@ -11915,7 +11930,234 @@ def hold_ls(path: Path | str) -> dict[str, Any]:
         entry["cue_drift"] = _hold_cue_drift(cues_by_key, stored_hold, plan)
         items.append(entry)
 
-    return {"project": str(project.root), "holds": items, "count": len(items)}
+    under_vo: list[dict[str, Any]] = []
+    for stored in _stored_under_vo(project):
+        entry = dict(stored)
+        try:
+            resolved = _under_vo_plan(project, edit, rate, stored)
+            entry.update(
+                {
+                    "timeline_start": resolved["gap_at"],
+                    "timeline_end": resolved["gap_at"] + resolved["hold_length"],
+                    "play_at": resolved["play_at"],
+                    "start_word": resolved["start_word"],
+                    "end_word": resolved["end_word"],
+                }
+            )
+        except _PICTURE_REFUSALS as exc:
+            entry["under_vo_error"] = str(exc)
+        under_vo.append(entry)
+
+    return {"project": str(project.root), "holds": items, "count": len(items), "under_vo": under_vo}
+
+
+# -- film audio under the VO ---------------------------------------------------
+#
+# docs/plans/NATIVE.md § A2. A hold opens a gap and plays the film's line in
+# it; this plays a film clip's own audio *under* the VO, across a span of VO
+# words, `under` LU below it — Lambs/Longlegs' fairy-tale narration, which the
+# essay talks over on purpose (goodsometimes `assemble_longlegs.py` FAIRY_TALE).
+# No splice, and no in-point of its own: the picture already decides what is
+# on screen, so the audio reads from wherever the shot showing `asset` has got
+# to when the span starts — one source of truth, the `play_at` lesson applied
+# before it could be got wrong. It rides the holds lane (holds sit in gaps,
+# this sits under speech, so the two never overlap) and the bed goes out
+# across it, `music_bed.py --film`'s own rule for every film cue.
+
+UNDER_VO_KEY = "under_vo"
+UNDER_VO_UNDER = 13.0
+
+
+def _stored_under_vo(project: Project) -> list[dict[str, Any]]:
+    stored = project.read_manifest().get(UNDER_VO_KEY, [])
+    if not isinstance(stored, list):
+        raise ProjectError(f"{project.manifest_path}'s {UNDER_VO_KEY!r} must be a JSON array")
+    items: list[dict[str, Any]] = []
+    for item in stored:
+        try:
+            items.append(
+                {
+                    "clip_id": str(item["clip_id"]),
+                    "word_index_start": int(item["word_index_start"]),
+                    "word_index_end": int(item["word_index_end"]),
+                    "asset": str(item["asset"]),
+                    "under": float(item.get("under", UNDER_VO_UNDER)),
+                    "fade_in": float(item.get("fade_in", HOLD_FADE_IN)),
+                    "fade_out": float(item.get("fade_out", HOLD_FADE_OUT)),
+                    **{k: item[k] for k in ("phrase_start", "phrase_end") if item.get(k)},
+                }
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProjectError(
+                f"{project.manifest_path}'s {UNDER_VO_KEY!r} entry must hold 'clip_id', "
+                f"'word_index_start', 'word_index_end' and 'asset', not {item!r}"
+            ) from exc
+    return items
+
+
+def _under_vo_plan(
+    project: Project, edit: tl.Edit, rate: float, stored: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve one under-VO span to what the holds lane plays — in the keys the
+    lane's own loop reads (`gap_at`, `play_at`, `hold_length`, …), so it needs
+    no second loop."""
+    parsed = _transcript(project, stored["clip_id"])
+    first = _cue_echo(parsed, stored["word_index_start"])
+    last = _cue_echo(parsed, stored["word_index_end"])
+    head = edit.timeline_span(stored["clip_id"], first["start"], first["end"])
+    tail = edit.timeline_span(stored["clip_id"], last["start"], last["end"])
+    if head is None or tail is None:
+        gone = first if head is None else last
+        raise ProjectError(
+            f"film audio under the VO ({stored['asset']!r}) is addressed to "
+            f"{stored['clip_id']!r} word {gone['word_index']} ({gone['text']!r}), which a cut "
+            "removed from the timeline — move the span's words"
+        )
+    span_start, span_end = head[0], tail[1]
+    if span_end <= span_start:
+        raise ProjectError(
+            f"film audio under the VO resolves to no time — word {stored['word_index_end']} "
+            f"ends before word {stored['word_index_start']} starts"
+        )
+    shots, _ = _picture_plan(project, rate, edit=edit)
+    shot = next(
+        (
+            s for s in shots
+            if s["asset"] == stored["asset"] and s["start"] - 1 / rate <= span_start < s["start"] + s["duration"]
+        ),
+        None,
+    )
+    if shot is None:
+        raise ProjectError(
+            f"{stored['asset']!r} is not on screen at {first['text']!r} "
+            f"({span_start:.3f}s) — film audio under the VO plays the shot that is showing, "
+            "so cue the asset at or before the span's first word"
+        )
+    play_at = shot["src_start"] + (span_start - shot["start"])
+    length = span_end - span_start
+    clip = media.get_clip(project, stored["asset"])
+    if clip.get("duration") and play_at + length > float(clip["duration"]) + 1 / rate:
+        raise ProjectError(
+            f"{stored['asset']!r} runs out {play_at + length - float(clip['duration']):.3f}s "
+            "before the span under the VO does — end the span earlier or cue the shot earlier"
+        )
+    frames = max(1, round(length * rate))
+    fade_in_frames = round(stored["fade_in"] * rate)
+    fade_out_frames = round(stored["fade_out"] * rate)
+    if fade_in_frames + fade_out_frames > frames - 1:
+        raise ProjectError(
+            f"the fades on {stored['asset']!r} under the VO do not fit its {length:.3f}s"
+        )
+    return {
+        **stored,
+        "kind": "under_vo",
+        "gap_word_index": None,
+        "cue_word_index": shot["word_index"],
+        "asset_path": str(media.media_path(project, clip)),
+        "src_start": shot["src_start"],
+        "play_at": play_at,
+        "gap_at": span_start,
+        "hold_length": length,
+        "hold_frames": frames,
+        "fade_in_frames": fade_in_frames,
+        "fade_out_frames": fade_out_frames,
+        "start_word": first,
+        "end_word": last,
+    }
+
+
+def hold_under(
+    path: Path | str,
+    clip_id: str,
+    asset: str,
+    *,
+    word_index_start: int | None = None,
+    word_index_end: int | None = None,
+    phrase_start: str | None = None,
+    phrase_end: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+    under: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Play `asset`'s own audio under a span of `clip_id`'s VO, `under` LU below it.
+
+    Addressed by `(clip_id, word_index_start)`; a second call at the same
+    address replaces the entry. Resolved against the current edit and picture
+    before anything is written, so an asset that is not on screen at the
+    span's first word is refused rather than stored. `plan` resolves without
+    writing. Echoes both boundary words with their neighbours.
+    """
+    project = Project.open(path)
+    parsed = _transcript(project, clip_id)
+    start, _ = _resolve_word_or_phrase(
+        parsed, word_index=word_index_start, phrase=phrase_start, after=after, occurrence=occurrence, edge="first"
+    )
+    end_after = start - 1 if phrase_end is not None else after
+    _, end = _resolve_word_or_phrase(
+        parsed, word_index=word_index_end, phrase=phrase_end, after=end_after, occurrence=occurrence, edge="last"
+    )
+    if asset.startswith("card:"):
+        raise ProjectError(f"{asset!r} is a card — a held frame has no audio to play under the VO")
+    media.get_clip(project, asset)
+    record: dict[str, Any] = {
+        "clip_id": clip_id,
+        "word_index_start": int(start),
+        "word_index_end": int(end),
+        "asset": asset,
+        "under": UNDER_VO_UNDER if under is None else float(under),
+        "fade_in": HOLD_FADE_IN if fade_in is None else float(fade_in),
+        "fade_out": HOLD_FADE_OUT if fade_out is None else float(fade_out),
+    }
+    if phrase_start is not None:
+        record["phrase_start"] = phrase_start
+    if phrase_end is not None:
+        record["phrase_end"] = phrase_end
+    resolved = _under_vo_plan(project, _load_edit(project), _rate(project), record)
+
+    if not plan:
+        manifest = project.read_manifest()
+        kept = [
+            item for item in manifest.get(UNDER_VO_KEY, [])
+            if not (item.get("clip_id") == clip_id and item.get("word_index_start") == record["word_index_start"])
+        ]
+        kept.append(record)
+        kept.sort(key=lambda item: (item["clip_id"], item["word_index_start"]))
+        manifest[UNDER_VO_KEY] = kept
+        project.write_manifest(manifest)
+    return {
+        "project": str(project.root),
+        "under_vo": record,
+        "timeline_start": resolved["gap_at"],
+        "timeline_end": resolved["gap_at"] + resolved["hold_length"],
+        "play_at": resolved["play_at"],
+        "start_word": resolved["start_word"],
+        "end_word": resolved["end_word"],
+        "written": not plan,
+        "plan": bool(plan),
+    }
+
+
+def hold_under_rm(path: Path | str, clip_id: str, word_index_start: int) -> dict[str, Any]:
+    """Drop the film audio under the VO addressed by `(clip_id, word_index_start)`."""
+    project = Project.open(path)
+    manifest = project.read_manifest()
+    items = manifest.get(UNDER_VO_KEY, [])
+    found = next(
+        (i for i in items if i.get("clip_id") == clip_id and i.get("word_index_start") == int(word_index_start)),
+        None,
+    )
+    if found is None:
+        raise ProjectError(f"no film audio under the VO at {clip_id!r} word {word_index_start}")
+    remaining = [i for i in items if i is not found]
+    if remaining:
+        manifest[UNDER_VO_KEY] = remaining
+    else:
+        manifest.pop(UNDER_VO_KEY, None)
+    project.write_manifest(manifest)
+    return {"clip_id": clip_id, "word_index_start": int(word_index_start), "removed": found}
 
 
 def _transcribe_span(
@@ -12191,6 +12433,9 @@ def _is_layered(project: Project, edit: tl.Edit) -> bool:
         or manifest.get(MUSIC_KEY)
         or manifest.get(HEAD_KEY)
         or manifest.get(HOLDS_KEY)
+        # Film audio under the VO is a lane auto-editor has no export for —
+        # recorded but routed there, the render comes back without it at exit 0.
+        or manifest.get(UNDER_VO_KEY)
     )
 
 
@@ -12474,6 +12719,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
             cursor = end_frame
             holds_report.append(
                 {
+                    "kind": hold_plan.get("kind", "hold"),
                     "clip_id": hold_plan["clip_id"],
                     "gap_word_index": hold_plan["gap_word_index"],
                     "cue_word_index": hold_plan["cue_word_index"],
@@ -15453,6 +15699,7 @@ def reel(
     # a hold re-opened blind on a derivation is the `cues_pinned`-without-a-
     # pin failure shape CLAUDE.md already documents for the picture side.
     holds_dropped = _stored_holds(source)
+    under_vo_dropped = _stored_under_vo(source)
     # Checked here rather than left to `cut_by_time`, at the granularity a reel
     # actually has a boundary at — see `_reel_suspect_edges`. Under `plan` it
     # is reported and never refused, which is `cut_by_time`'s own convention
@@ -15520,6 +15767,7 @@ def reel(
         # [] if the film had no holds; otherwise every one it had, never
         # carried onto the derived project — same rule, same reason.
         "holds_dropped": holds_dropped,
+        "under_vo_dropped": under_vo_dropped,
         "plan": bool(plan),
     }
     report["over_platform_cap"] = report["duration"] > PLATFORM_CAP
@@ -15556,6 +15804,7 @@ def reel(
         manifest.pop(MUSIC_KEY, None)
         # `holds_dropped`'s own "never" line, for the same reason.
         manifest.pop(HOLDS_KEY, None)
+        manifest.pop(UNDER_VO_KEY, None)
         # Provenance, and the answer to the question a hand-made scratch copy
         # could not answer once already: which film is this, and which seconds
         # of it (HISTORY.md § The VO the project was holding). Additive and

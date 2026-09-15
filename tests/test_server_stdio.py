@@ -91,6 +91,8 @@ EXPECTED_TOOLS = {
     "vo_synth",
     "hold_add",
     "hold_rm",
+    "hold_under",
+    "hold_under_rm",
     "hold_ls",
     "hold_check",
     "finish_check",
@@ -582,6 +584,8 @@ TOOL_TO_COMMAND = {
     "vo_synth": "vo-synth",
     "hold_add": "hold",
     "hold_rm": "hold",
+    "hold_under": "hold",
+    "hold_under_rm": "hold",
     "hold_ls": "hold",
     "hold_check": "hold",
     "finish_check": "finish-check",
@@ -9116,6 +9120,62 @@ def test_music_passages_crossfade_on_a_real_render_and_sit_under_the_vo(visible_
     vo_level = _tone_window(render, 100.0, 1.0, 1.5)
     under = 20 * math.log10(vo_level / before_440)
     assert 7.0 < under < 13.0, f"the bed should sit ~10 dB under the VO, measured {under:.1f}"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_film_audio_under_the_vo_plays_the_shot_on_screen_below_the_voice(visible_tmp: Path) -> None:
+    """docs/plans/NATIVE.md § A2 on a real render. The film's tone names its
+    second (200 + 50·⌊t⌋ Hz); it is cued from src 8.0, and as the first cue
+    its shot runs from frame 0 (`build_shots`), so under words 3–4 (1.5–2.2 s)
+    the picture is at film 9.5–10.2 — 650 Hz at 1.6–2.0 s, never the in-point's
+    600 Hz — and the audio has to be there too, ~6 dB under the VO's 100 Hz
+    with `under=6`. Nothing is spliced: the timeline keeps its length."""
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    film = visible_tmp / "film.mp4"
+    _quiet_vo_wav(vo, 6.0)
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=25",
+         "-f", "lavfi", "-i", "aevalsrc=exprs='sin(2*PI*(200+50*floor(t))*t)':s=48000:d=25",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(film)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "cue_add", path=str(project), clip_id=clips["vo"], word_index=2, asset=clips["film"], src_start=8.0
+        )
+        placed = await client.call(
+            "hold_under",
+            path=str(project),
+            clip_id=clips["vo"],
+            asset=clips["film"],
+            word_index_start=3,
+            word_index_end=4,
+            under=6.0,
+        )
+        exported = await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+        return {"placed": placed, "exported": exported}
+
+    out = anyio.run(_with_server, body)
+
+    assert out["placed"]["play_at"] == pytest.approx(9.5)
+    assert out["exported"]["holds"][0]["kind"] == "under_vo"
+    render = Path(out["exported"]["output"])
+    right = _tone_window(render, 650.0, 1.6, 0.4)
+    wrong = _tone_window(render, 600.0, 1.6, 0.4)
+    voice = _tone_window(render, 100.0, 1.6, 0.4)
+    assert right > 4 * max(wrong, 1.0), "the span plays the film from where the shot has got to"
+    below = 20 * math.log10(voice / right)
+    assert 3.0 < below < 10.0, f"about 6 dB under the VO, measured {below:.1f}"
 
 
 @needs_ffprobe

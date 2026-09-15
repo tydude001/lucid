@@ -1387,6 +1387,26 @@ def _build_parser() -> argparse.ArgumentParser:
 
     hold_sub.add_parser("ls", help="list holds with their live-resolved plan")
 
+    p_hold_under = hold_sub.add_parser(
+        "under", help="play a film clip's own audio under a span of the VO, levelled below it"
+    )
+    p_hold_under.add_argument("clip_id", help="the VO clip whose words the span addresses")
+    p_hold_under.add_argument("asset", help="the film clip on screen across the span")
+    p_hold_under.add_argument("--start-word", type=int, help="first VO word of the span")
+    p_hold_under.add_argument("--end-word", type=int, help="last VO word of the span")
+    p_hold_under.add_argument("--phrase-start", help="resolve the span's first word by phrase")
+    p_hold_under.add_argument("--phrase-end", help="resolve the span's last word by phrase, after the start")
+    p_hold_under.add_argument("--after", type=int, default=-1, help="only match a phrase forward of this word")
+    p_hold_under.add_argument("--occurrence", type=int, help="pick the Nth match rather than refusing")
+    p_hold_under.add_argument("--under", type=float, help="LU below the VO (default 13)")
+    p_hold_under.add_argument("--fade-in", type=float, help="seconds (default 0.1)")
+    p_hold_under.add_argument("--fade-out", type=float, help="seconds (default 0.3)")
+    p_hold_under.add_argument("--plan", action="store_true", help="resolve and report without writing")
+
+    p_hold_under_rm = hold_sub.add_parser("under-rm", help="drop film audio under the VO")
+    p_hold_under_rm.add_argument("clip_id")
+    p_hold_under_rm.add_argument("word_index_start", type=int)
+
     p_hold_check = hold_sub.add_parser(
         "check", help="transcribe each hold's own span off a render and check its seams"
     )
@@ -2676,6 +2696,26 @@ def _cmd_hold(args: argparse.Namespace) -> int:
         return _emit(ops.hold_rm(args.project, args.clip_id, args.gap_word_index))
     if args.hold_command == "ls":
         return _emit(ops.hold_ls(args.project))
+    if args.hold_command == "under":
+        return _emit(
+            ops.hold_under(
+                args.project,
+                args.clip_id,
+                args.asset,
+                word_index_start=args.start_word,
+                word_index_end=args.end_word,
+                phrase_start=args.phrase_start,
+                phrase_end=args.phrase_end,
+                after=args.after,
+                occurrence=args.occurrence,
+                under=args.under,
+                fade_in=args.fade_in,
+                fade_out=args.fade_out,
+                plan=args.plan,
+            )
+        )
+    if args.hold_command == "under-rm":
+        return _emit(ops.hold_under_rm(args.project, args.clip_id, args.word_index_start))
     # "check"
     return _emit(ops.hold_check(args.project, args.render))
 

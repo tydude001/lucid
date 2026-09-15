@@ -275,6 +275,8 @@ _ANNOTATIONS: dict[str, ToolAnnotations] = {
             "add_captions", "caption_style", "canvas", "head", "tail", "music", "reframe",
             "reframe_sheet", "shot_sheet", "footage_sheet", "synopsis", "film_check",
             "import_edit", "review_verdict",
+            # Replaces the entry at its address.
+            "hold_under",
         ],
         _SET,
     ),
@@ -282,7 +284,7 @@ _ANNOTATIONS: dict[str, ToolAnnotations] = {
         [
             "clip_rm", "transcribe", "cue_rm", "unspoken_rm", "unspoken_detect",
             "cut_by_transcript", "cut_by_time", "undo", "vo_extend", "vo_synth",
-            "hold_add", "hold_rm", "reel", "continuity_reject", "attenuate_noises",
+            "hold_add", "hold_rm", "hold_under_rm", "reel", "continuity_reject", "attenuate_noises",
             "review_add",
         ],
         _EDIT,
@@ -2185,6 +2187,55 @@ def hold_rm(path: str | None = None,
     a broken one.
     """
     return ops.hold_rm(path, clip_id, gap_word_index)
+
+
+@_tool()
+def hold_under(
+    path: str | None = None,
+    *,
+    clip_id: str,
+    asset: str,
+    word_index_start: int | None = None,
+    word_index_end: int | None = None,
+    phrase_start: str | None = None,
+    phrase_end: str | None = None,
+    after: int = -1,
+    occurrence: int | None = None,
+    under: float | None = None,
+    fade_in: float | None = None,
+    fade_out: float | None = None,
+    plan: bool = False,
+) -> dict[str, Any]:
+    """Play a film clip's own audio *under* a span of the VO, `under` LU below
+    it (default 13) — no gap, unlike `hold_add`. The span is VO words
+    (`word_index_start`/`word_index_end`, or `phrase_start`/`phrase_end`), and
+    the audio reads from wherever the shot showing `asset` has got to at the
+    span's first word, so `asset` must be on screen there — cue it first. A
+    second call at the same `(clip_id, word_index_start)` replaces the entry;
+    the music bed goes out across it. `plan` resolves without writing. Both
+    boundary words are echoed with neighbours — check them.
+    """
+    return ops.hold_under(
+        path,
+        clip_id,
+        asset,
+        word_index_start=word_index_start,
+        word_index_end=word_index_end,
+        phrase_start=phrase_start,
+        phrase_end=phrase_end,
+        after=after,
+        occurrence=occurrence,
+        under=under,
+        fade_in=fade_in,
+        fade_out=fade_out,
+        plan=plan,
+    )
+
+
+@_tool()
+def hold_under_rm(path: str | None = None, *, clip_id: str, word_index_start: int) -> dict[str, Any]:
+    """Drop the film audio under the VO addressed by `(clip_id, word_index_start)`."""
+    return ops.hold_under_rm(path, clip_id, word_index_start)
 
 
 @_tool()

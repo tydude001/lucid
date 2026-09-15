@@ -985,6 +985,15 @@ configured — face detection, say — at exit 0. HISTORY.md § `lucid doctor`.
       asset, rendered *silent throughout* under 0-based keys: playback
       reaches producer frame 268 long after the animation's last defined key.
       HISTORY.md § A film-audio hold.
+    - **Film audio under the VO (`UNDER_VO_KEY`, `hold under`) stores no
+      in-point** — it reads from wherever the shot showing its asset has got
+      to at the span's first word, so it cannot disagree with the picture,
+      and it refuses an asset that is not on screen there. It rides the
+      holds lane, gates the bed out like a hold, and is `_is_layered`'s
+      eighth trigger. Mind that **the first shot is forced to frame 0**
+      (`build_shots`): a first cue's asset is on screen from the open, so
+      its playhead at a later word is the cue's in-point *plus that word's
+      time*. docs/plans/NATIVE.md § A2.
     - **A hold's audio reads its clip from `play_at`, never `src_start`.**
       `src_start` is the picture cue's in-point; by the gap the clip has
       played `elapsed` further, and the line is there. The lane read

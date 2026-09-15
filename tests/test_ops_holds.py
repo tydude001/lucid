@@ -647,3 +647,63 @@ def test_reel_reports_holds_dropped_and_the_derived_manifest_has_none(project: P
 
     planned = ops.reel(project.root, project.root.parent / "reel-plan", start=0.0, end=6.0, plan=True)
     assert planned["holds_dropped"] == [dict(STORED_HOLD)]
+
+
+
+# -- film audio under the VO (docs/plans/NATIVE.md § A2) ------------------------
+
+
+def _cued(project: Project, *, src_start: float = 8.0) -> None:
+    (project.root / "film.mp4").touch()
+    manifest = project.read_manifest()
+    for clip in manifest["clips"]:
+        if clip["clip_id"] == "film":
+            clip["source"] = str(project.root / "film.mp4")
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 2, "asset": "film", "src_start": src_start}]
+    project.write_manifest(manifest)
+
+
+def test_under_vo_reads_the_film_from_where_its_shot_has_got_to(project: Project) -> None:
+    """Cued from src 8.0 — and the first shot is forced to frame 0
+    (`build_shots`), so the film is showing from the open. A span starting at
+    "minutes" (1.5 s) reads it from 9.5: the picture's own playhead, never a
+    stored in-point, and never the cue's 8.0."""
+    _cued(project)
+    result = ops.hold_under(project.root, "vo", "film", word_index_start=3, word_index_end=4, plan=True)
+
+    assert result["play_at"] == pytest.approx(9.5)
+    assert result["timeline_start"] == pytest.approx(1.5)
+    assert result["timeline_end"] == pytest.approx(2.2)
+    assert result["start_word"]["text"] == "minutes"
+    assert result["written"] is False
+
+
+def test_under_vo_refuses_an_asset_that_is_not_on_screen(project: Project) -> None:
+    with pytest.raises(ProjectError, match="not on screen"):
+        ops.hold_under(project.root, "vo", "film", word_index_start=3, word_index_end=4)
+
+
+def test_under_vo_is_stored_by_address_and_replaced_not_duplicated(project: Project) -> None:
+    _cued(project)
+    ops.hold_under(project.root, "vo", "film", word_index_start=3, word_index_end=4)
+    ops.hold_under(project.root, "vo", "film", word_index_start=3, word_index_end=4, under=9.0)
+
+    stored = project.read_manifest()[ops.UNDER_VO_KEY]
+    assert len(stored) == 1 and stored[0]["under"] == 9.0
+    listed = ops.hold_ls(project.root)["under_vo"]
+    assert listed[0]["play_at"] == pytest.approx(9.5)
+
+    ops.hold_under_rm(project.root, "vo", 3)
+    assert ops.UNDER_VO_KEY not in project.read_manifest()
+
+
+def test_under_vo_alone_makes_the_project_layered_and_blocks_clip_rm(project: Project) -> None:
+    _cued(project)
+    ops.hold_under(project.root, "vo", "film", word_index_start=3, word_index_end=4)
+    manifest = project.read_manifest()
+    manifest["cues"] = []
+    project.write_manifest(manifest)
+
+    assert ops._is_layered(project, _edit(project)) is True
+    with pytest.raises(ProjectError, match="under the VO"):
+        ops.clip_rm(project.root, "film")
