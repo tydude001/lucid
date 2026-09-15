@@ -14820,3 +14820,28 @@ The agent trial's project, re-mastered with the fix: audio 16.128 s against
 **Both essay rebuilds were mastered before the fix,** so each carries the
 late last three seconds in the table above. Re-running each build script's
 export fixes it. Those renders are Tyler's project files, so it is his call.
+
+**2026-09-15: both re-exported at his request, and neither carries it.** Each
+build script's `--render` alone wrote `scream-native-3.mp4` and
+`longlegs-native-6.mp4`, beside the old renders, which stay:
+
+| render | packets not 1024 samples, bar the last | audio − video | loudness |
+|---|---|---|---|
+| `scream-native-2.mp4` | 1 (333.568 s, +30.7 ms) | +33.3 ms | |
+| `scream-native-3.mp4` | **0** of 15773 | **+2.3 ms** | −16.0 LUFS, −1.00 dBTP |
+| `longlegs-native-5.mp4` | 1 (365.611 s, +88.0 ms) | +106.9 ms | |
+| `longlegs-native-6.mp4` | **0** of 17275 | **+18.9 ms** | −16.0 LUFS, −1.00 dBTP |
+
+Longlegs's +18.9 ms is under half a frame at 23.976 fps and under one AAC
+frame (21.3 ms), so it is as close as AAC packets can end. The check was run
+on the old files first, as its control, and found the table above exactly.
+
+Against the old renders, the H.264 bitstream and the decoded audio are
+byte-identical (md5 of each). The re-export changed audio timestamps and
+nothing else. `frames` agrees at delta 0 on both (10094 and 8835 frames).
+`spots` reads `mapping_trusted: true` on both, with samples placed inside the
+last three seconds. `verify` reads 0.947 on Scream (925 of 931 heard) and
+0.919 on Longlegs (1001 heard of 861 expected, the holds' film audio
+included). Neither render was verified before, so those two numbers have no
+earlier reading to compare against; with the decoded audio identical, the old
+renders would read the same.
