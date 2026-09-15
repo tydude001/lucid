@@ -265,7 +265,7 @@ than guessed at, and `proofcut migrate` brings it forward.
 GitHub's macOS runner takes the demo to a checked render, but a runner never
 reads the instructions, and no person has run proofcut on a Mac. If you have
 one and half an hour, one script installs what proofcut needs, makes a short
-test video, has proofcut cut, render and check it, and puts a report on your
+test video, has proofcut cut, score, master and check it, and puts a report on your
 Desktop. It asks before it starts.
 
 ```sh
@@ -288,7 +288,9 @@ is the finding.
 The author's own Windows 11 laptop ran this test end to end on 2026-09-14
 ([#3](https://github.com/tydude001/proofcut/issues/3)), once the one bug it
 found was fixed: the render finished its file and then never exited, which
-GitHub's runner could not show because it has no console. That is one x64 PC,
+GitHub's runner could not show because it has no console. It ran again on
+2026-09-15 with the score and the master the demo now makes, and passed every
+check, including hearing the score in the render. That is one x64 PC,
 set up by the person who wrote the script, so a run by anyone else is still
 the missing report. Windows 10 and ARM64 PCs have not been tried at all. From
 PowerShell:

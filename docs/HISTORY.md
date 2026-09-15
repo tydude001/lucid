@@ -14746,8 +14746,9 @@ with 34 of 34 heard, the same as the unscored render.
 
 ### Still open
 
-- **CI has not run the new kit steps.** `mac-demo` and `windows-demo` run on
-  the next push.
+- ~~**CI has not run the new kit steps.**~~ Both ran green at `e402062`, and
+  Tyler's laptop ran them too: HISTORY.md § The whole-film demo on the
+  Windows laptop.
 - ~~**`export --loudness` lengthens the audio by ~47 ms**~~ — fixed the same
   day, and it was a sync defect rather than a length one: HISTORY.md § The
   master's late audio.
@@ -14845,3 +14846,50 @@ last three seconds. `verify` reads 0.947 on Scream (925 of 931 heard) and
 included). Neither render was verified before, so those two numbers have no
 earlier reading to compare against; with the decoded audio identical, the old
 renders would read the same.
+
+## The whole-film demo on the Windows laptop — 2026-09-15
+
+`scripts/windows_trial.ps1` on Tyler's laptop again, at `e402062`: the first
+run by a person of the kit's score and master steps (§ The whole film, said).
+It was the same machine as § The render that never exited, from a fresh clone.
+The Desktop's old `proofcut` folder was not a git checkout, so `git pull` had
+nothing to update. `ALL STEPS RAN`, started 09:58 local.
+
+- **The master exited.** `DEMO 7 render and master (melt)` took 29 s, against
+  23 s for the unmastered render at `0689b47`. `export --loudness` adds an
+  ffmpeg pass with captured output after melt, and nothing hung.
+- **The export reply:** loudness −20.6 → −16.0 LUFS integrated, true peak
+  −4.5 → −1.0, the bed at `level_db` −25.41, and 289 of 289 frames at
+  640x360. `verify` scored 0.971 with 34 of 34 heard; its one diff is `a`
+  heard as `are`, as on every run. `frames` delta 0. Transcribe took 97 s,
+  and verify 47 s.
+- **`trial_check.py` passed all seven checks, run by hand.** The kit itself
+  never runs it; only CI's job does. Tyler ran it on the kit's folder with the
+  kit's ffmpeg on PATH:
+
+  | check | laptop |
+  |---|---|
+  | master | −16.0 LUFS, true peak −1.0 |
+  | score | −16.7 dB at its own second, −26.9 at the best wrong one, margin 10.2 |
+  | frames | delta 0, 289 of 289 |
+  | verify | 0.971, 34 of 34, 0 dropped, 0 repeated |
+  | frame-3s / frame-10s | 2 from BLUE / 4 from RUST |
+
+  `windows-demo` (run 34982389847) and `mac-demo` (34982389718) at the same
+  commit printed the same score line; the Mac runner's master read −16.1.
+- **The late-audio fix is not measured here.** The master is after `88fa0b4`,
+  but nobody read its packet durations on Windows.
+- **Not the stranger's run.** Issue #2 stays open, and its body now names this
+  run beside #3.
+
+### Still open
+
+- **doctor's `Caption font` row is a ✗ on every kit run, and its fix line is
+  wrong.** Neither kit installs ImageMagick, so on the laptop and on the
+  `mac-demo` runner it read `✗ Outfit`, "magick not found — the font probe
+  needs it on PATH … captions cannot be burnt without them". `captions.burn`
+  is ffmpeg's `ass=` filter alone. magick is only the probe's comparator
+  (`fonts.py`'s `magick compare`). So the row reports that the probe could not
+  ask, not that captions cannot burn, and it shows an absent optional tool as
+  a failure against doctor's own rule. `windows-demo`'s runner has ImageMagick
+  7.1.2 and reads `✓ Outfit draws (DirectWrite …)`. Not yet changed.
