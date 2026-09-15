@@ -336,7 +336,10 @@ it does not, the README's first screen is a dead link on launch day.
    the button is what the thread will find. **Wired 2026-09-15 as Ko-fi
    (`ko_fi: tydude001`)**, not Sponsors: GitHub Sponsors approval can take
    weeks, which would put Show HN up with no button, and Ko-fi has no
-   queue. When Sponsors approves, the line becomes `github: tydude001` —
+   queue. **The file alone draws no button**: GitHub parsed it (GraphQL
+   `fundingLinks` answered `KO_FI`) and the page showed nothing until
+   Settings → General → Features → **Sponsorships** was ticked.
+   When Sponsors approves, the line becomes `github: tydude001` —
    a swap, keeping one platform. Never name `github:` before approval; the
    button would open a sponsor page that does not exist.
 9. **Open and pin the Mac test issue**, and create the `mac-test` label the
