@@ -9040,3 +9040,63 @@ def test_hold_plays_its_own_film_audio_and_gates_the_bed_on_a_real_render(
     assert during_hold_300 > 500.0, "the hold's own film audio must be audible across its span"
     assert during_hold_880 < 50.0, "the bed must be gated OUT across the hold, not merely ducked"
     assert before_hold_880 > 500.0, "the bed must be audible before the hold gates it"
+
+
+@needs_ffprobe
+@needs_ffmpeg
+@needs_melt
+def test_a_hold_plays_the_film_from_where_its_playhead_is_when_the_gap_opens(
+    visible_tmp: Path,
+) -> None:
+    """The picture cue shows the clip from `src_start`; by the time the VO
+    reaches the gap the clip has played `elapsed` further, so the hold's audio
+    has to read from `play_at` = `src_start + elapsed` — where the line is. The
+    holds lane read from `src_start`, and a constant-tone fixture cannot tell
+    the two apart: the test above passed while every hold on the Lambs/Longlegs
+    native rebuild played the seconds *before* its line (miggs heard "What did
+    Migs say to you?" for "He hissed at you … I can smell your cunt").
+
+    So the film's tone names its own second: 200 + 50·⌊t⌋ Hz. The hold reads
+    film 9.85–11.75 (`play_at`), so 0.4–0.9 s into it is film 10.25–10.75 —
+    700 Hz. Read from `src_start` (8.95) it would be film 9.35–9.85 — 650 Hz.
+    """
+    project = visible_tmp / "proj"
+    vo = visible_tmp / "vo.wav"
+    film = visible_tmp / "film.mp4"
+    _quiet_vo_wav(vo, 6.0)
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=25",
+         "-f", "lavfi", "-i", "aevalsrc=exprs='sin(2*PI*(200+50*floor(t))*t)':s=48000:d=25",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(film)],
+        capture_output=True,
+        check=True,
+    )  # fmt: skip
+
+    async def body(session: ClientSession) -> dict[str, Any]:
+        client = Client(session)
+        clips = await _hold_fixture(client, project, vo, film)
+        await client.call(
+            "hold_add",
+            path=str(project),
+            clip_id=clips["vo"],
+            gap_word_index=3,
+            cue_word_index=2,
+            asset=clips["film"],
+            word_index_first=0,
+            word_index_last=4,
+        )
+        return await client.call(
+            "export", path=str(project), output=str(visible_tmp / "render.mp4"), export_format=None
+        )
+
+    result = anyio.run(_with_server, body)
+
+    hold = result["holds"][0]
+    assert hold["src_start"] == pytest.approx(8.95)
+    render = Path(result["output"])
+    at_play_at = _tone_window(render, 700.0, hold["timeline_start"] + 0.4, 0.5)
+    at_src_start = _tone_window(render, 650.0, hold["timeline_start"] + 0.4, 0.5)
+    assert at_play_at > 500.0, "the hold must play the film's second 10, where its line is"
+    assert at_src_start < at_play_at / 4, "the hold must not play the seconds before its line"
+

@@ -473,6 +473,40 @@ def test_hold_check_reports_no_faults_when_the_owned_cue_agrees(
     assert result["faults"] == 0
 
 
+@needs_ffmpeg
+def test_transcribe_span_reads_words_nested_under_whisper_segments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """openai-whisper's JSON has no top-level `words`; they are under
+    `segments[].words[]`, and `_transcribe_span` read only the top level — so
+    every real span came back "" and `hold_check` never heard a hold. The fakes
+    in the tests above replace `_transcribe_span` whole, which is how it went
+    unnoticed; this one fakes only whisper, in whisper's own shape."""
+    import subprocess
+
+    media = tmp_path / "span.wav"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+         "-t", "2", str(media)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    whisper_shaped = {
+        "text": " He hissed at you.",
+        "segments": [{"text": " He hissed at you.", "words": [
+            {"word": " He", "start": 0.0, "end": 0.5},
+            {"word": " hissed", "start": 0.5, "end": 1.1},
+            {"word": " at", "start": 1.1, "end": 1.2},
+            {"word": " you.", "start": 1.2, "end": 1.5},
+        ]}],
+        "language": "en",
+    }  # fmt: skip
+    monkeypatch.setattr(ops.asr, "transcribe", lambda *a, **k: whisper_shaped)
+    assert ops._transcribe_span(media, 0.0, 2.0) == "He hissed at you."
+
+    monkeypatch.setattr(ops.asr, "transcribe", lambda *a, **k: {"text": "", "segments": [], "language": "en"})
+    assert ops._transcribe_span(media, 0.0, 2.0) == ""
+
+
 # -- _hold_gain_db --------------------------------------------------------------
 
 

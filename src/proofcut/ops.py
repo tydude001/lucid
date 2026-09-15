@@ -11672,7 +11672,14 @@ def _transcribe_span(
         ]
         subprocess.run(cmd, capture_output=True, check=True)
         payload = asr.transcribe(clip, model=model)
-        return " ".join(w.get("word", "").strip() for w in payload.get("words", [])).strip()
+        # openai-whisper nests words under `segments[].words[]` and has no
+        # top-level `words` — reading only that returned "" for every real
+        # span, so `hold_check` never heard a hold. A flat `words[]` is still
+        # read, and silence is "" rather than `parse_whisper`'s refusal.
+        words = payload.get("words")
+        if not isinstance(words, list):
+            words = [w for segment in payload.get("segments") or [] for w in segment.get("words") or []]
+        return " ".join((w.get("word") or w.get("text") or "").strip() for w in words).strip()
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -12091,16 +12098,20 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
                 holds_lane.append(
                     mlt.Entry(str(silence), 0, gap, is_image=False, has_video=False)
                 )
+            # `play_at`, never `src_start`: the cue shows the clip from
+            # `src_start`, and by the gap it has played `elapsed` further — the
+            # line is at `play_at`. Read from `src_start`, every hold on the
+            # Lambs/Longlegs native rebuild played the seconds before its line.
             hold_lufs = energy.integrated_loudness(
                 hold_plan["asset_path"],
-                start=hold_plan["src_start"],
-                end=hold_plan["src_start"] + hold_plan["hold_length"],
+                start=hold_plan["play_at"],
+                end=hold_plan["play_at"] + hold_plan["hold_length"],
             )
             level_db = _hold_gain_db(vo_lufs, hold_lufs, hold_plan.get("under", HOLD_UNDER))
             holds_lane.append(
                 mlt.Entry(
                     hold_plan["asset_path"],
-                    round(hold_plan["src_start"] * rate),
+                    round(hold_plan["play_at"] * rate),
                     hold_plan["hold_frames"],
                     has_video=True,
                     fade_in_frames=hold_plan["fade_in_frames"],
@@ -12116,6 +12127,7 @@ def _build_mlt(project: Project, edit: tl.Edit, *, fps: float | None) -> dict[st
                     "cue_word_index": hold_plan["cue_word_index"],
                     "asset": hold_plan["asset"],
                     "src_start": hold_plan["src_start"],
+                    "play_at": hold_plan["play_at"],
                     "hold_frames": hold_plan["hold_frames"],
                     "level_db": level_db,
                     "timeline_start": hold_plan["gap_at"],
