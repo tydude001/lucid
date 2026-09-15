@@ -1,13 +1,14 @@
-# The demo — a cut, a picture, and a render that checks itself
+# The demo — a cut, a picture, a score, and a render that checks itself
 
 Two minutes, start to finish, on footage the repo generates rather than ships.
-By the end you will have cut a retake out of a voiceover by naming the words,
-hung two b-roll clips off phrases in the transcript, rendered the result, and
+By the end you will have a small finished film. You will have cut a retake
+out of a voiceover by naming its words, hung two b-roll clips off phrases in the
+transcript, laid a score under the voice, rendered and mastered the result, and
 had proofcut confirm the render says what the timeline says.
 
-Every command below is verbatim. The output sketches are from a real run on
-2026-09-13 — yours will differ in the third decimal place and in whatever
-whisper hears, and that is the point of the last step.
+Every command below is verbatim. The output sketches are from real runs, on
+2026-09-13 and, for steps 6–8, 2026-09-15. Yours will differ in the third
+decimal place and in whatever whisper hears, and that is the point of step 7.
 
 ## What you need
 
@@ -30,9 +31,10 @@ uv run proofcut doctor
 ```
 
 It probes all of them and, for anything missing, prints the fix rather than
-just a ✗.
+just a ✗. Step 8's end card also needs **ImageMagick 7** (`magick`), and is the
+one step you can skip without it.
 
-On a box with no desktop (a server, a container, SSH), step 6's render needs
+On a box with no desktop (a server, a container, SSH), step 7's render needs
 Qt to draw without one. `proofcut doctor`'s Display row renders a probe frame and
 says whether `QT_QPA_PLATFORM=offscreen` is enough for your MLT. Where it is
 not, as with Ubuntu 24.04's and Fedora 44's packaged melt, run the render as
@@ -50,6 +52,7 @@ uv run python scripts/make_demo.py ~/proofcut-demo
 voiceover  -> /home/you/proofcut-demo/vo.wav
 b-roll     -> /home/you/proofcut-demo/broll-blue.mp4
 b-roll     -> /home/you/proofcut-demo/broll-rust.mp4
+music      -> /home/you/proofcut-demo/music.wav
 ```
 
 The voiceover is about 19 seconds and says this — read it, because the fourth
@@ -71,6 +74,11 @@ moment; and every *corner* names itself, so a crop window that keeps all four
 is one that is not cropping. On real footage you judge a crop by whether the
 subject survived — there is no subject here, so the frame answers the question
 instead.
+
+The score is a plucked melody, generated from a fixed seed. It sounds like a
+music box and is findable the same way: its notes never repeat in the same
+order, so a render can be checked for it at the exact second it should be
+playing.
 
 ## 2. Make the project
 
@@ -189,19 +197,46 @@ uv run proofcut -C ~/proofcut-demo/proj shots
 Two shots. Note that a cue survives a cut — it names a *word*, not a second,
 so nothing you do to the edit can move it out from under its own line.
 
-## 6. Render, and check the render
+## 6. Score it
+
+Music is a clip like any other. A bed is addressed by the word it starts on, so
+it moves with every cut rather than drifting off a stored second:
 
 ```sh
-uv run proofcut -C ~/proofcut-demo/proj export ~/proofcut-demo/demo.mp4 --render
+uv run proofcut -C ~/proofcut-demo/proj import ~/proofcut-demo/music.wav --clip-id score
+uv run proofcut -C ~/proofcut-demo/proj music --asset score --clip-id vo --start-word 0 --fade-in 1 --fade-out 2 --under 18
 ```
 
-Two sources plus the voiceover, so this goes through MLT rather than
-auto-editor — proofcut picks the writer from the project, never from a flag.
+```
+"music": {"asset": "score", "word_index_start": 0,
+          "fade_in": 1.0, "fade_out": 2.0, "under": 18.0},
+"start_word": {"word_index": 0, "text": "This", "start": 0.0}
+```
+
+With no end word the bed runs to the end of the edit. `--under 18` sets its
+level 18 LU below the voice, measured, rather than trusting the file's own
+level.
+
+## 7. Render, master, and check the render
+
+```sh
+uv run proofcut -C ~/proofcut-demo/proj export ~/proofcut-demo/demo.mp4 --render --loudness -16
+```
+
+Two b-roll sources, the voiceover and the score, so this goes through MLT rather
+than auto-editor — proofcut picks the writer from the project, never from a
+flag. `--loudness -16` then masters the render to a common target for online video
+and measures it before and after:
 
 ```
-"writer": "melt", "shots": 2, "sources": 3,
-"timeline_duration": 12.006, "frames": 289
+"writer": "melt", "shots": 2, "sources": 4, "frames": 289,
+"music": {"level_db": -25.41, "timeline_start": 0.0, ...},
+"loudness": {"before": {"integrated": -20.6},
+             "after":  {"integrated": -16.1, "true_peak": -1.0}}
 ```
+
+A master that misses its target by more than 1 LU is refused, and the render is
+left as it was.
 
 Now the step that matters:
 
@@ -216,9 +251,10 @@ uv run proofcut -C ~/proofcut-demo/proj verify ~/proofcut-demo/demo.mp4
 ```
 
 proofcut just transcribed its own render and diffed it against what the timeline
-claims. 34 words expected, 34 heard, and the retake is not among them. A
-render that quietly dropped a segment, or a cut that landed a frame early,
-shows up here as a number rather than as something you notice a week later.
+claims. 34 words expected, 34 heard, and the retake is not among them. The
+score under the voice did not cost a word. A render that quietly dropped a
+segment, or a cut that landed a frame early, shows up here as a number rather
+than as something you notice a week later.
 
 Frame counts have their own check, because a duration and a frame grid are
 different questions:
@@ -231,7 +267,32 @@ uv run proofcut -C ~/proofcut-demo/proj frames ~/proofcut-demo/demo.mp4
 "agrees": true, "delta": 0
 ```
 
-## 7. Look at it
+## 8. End on a card
+
+This step needs ImageMagick 7; skip it without. A card is drawn from a template
+at the project's own frame size, and a `tail` plays it after the last word:
+
+```sh
+uv run proofcut -C ~/proofcut-demo/proj card new demo-end --template endcard --set mark=proofcut --set "footnote=cut, scored, mastered and checked"
+uv run proofcut -C ~/proofcut-demo/proj tail --asset card:demo-end --seconds 4
+uv run proofcut -C ~/proofcut-demo/proj export ~/proofcut-demo/final.mp4 --render --loudness -16
+uv run proofcut -C ~/proofcut-demo/proj verify ~/proofcut-demo/final.mp4
+uv run proofcut -C ~/proofcut-demo/proj frames ~/proofcut-demo/final.mp4
+```
+
+```
+"tail": {"asset": "card:demo-end", "seconds": 4.0, "frames": 96},
+"frames": 385
+"similarity": 0.971, "heard_words": 34, "expected_words": 34
+"agrees": true, "delta": 0
+```
+
+Four seconds and 96 frames longer, and still agreeing. The tail is project
+state, so the next cut keeps it rather than dropping it: it was never applied
+to a file after the render. The score ends with the edit, so the card holds
+over silence.
+
+## 9. Look at it
 
 ```sh
 uv run proofcut -C ~/proofcut-demo/proj open

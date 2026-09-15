@@ -349,7 +349,7 @@ def test_missing_magick_says_everything_else_works(monkeypatch: pytest.MonkeyPat
 
 def test_missing_magick_is_unavailable_and_never_moves_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ubuntu 24.04 packages only ImageMagick 6, so a stranger there could never
-    see `ok` although DEMO.md draws no card. Cards are one feature, like the
+    see `ok` although DEMO.md's one card is a step it says to skip without magick. Cards are one feature, like the
     other optional rows. HISTORY.md § A stranger's install, on a clean Ubuntu."""
     monkeypatch.setattr(
         doctor, "_magick_entry", lambda: doctor._entry("magick", "cards", ok=False, why="absent")

@@ -402,15 +402,17 @@ try {
         @('DEMO 5 cue blue', ($L + @('cue', 'add', 'vo', '--phrase', 'Every cut you make names a word', 'blue'))),
         @('DEMO 5 cue rust', ($L + @('cue', 'add', 'vo', '--phrase', 'the render can be checked', 'rust'))),
         @('DEMO 5 shots', ($L + @('shots'))),
-        @('DEMO 6 render (melt)', ($L + @('export', (Join-Path $DEMO 'demo.mp4'), '--render'))),
-        @('DEMO 6 verify', ($L + @('verify', (Join-Path $DEMO 'demo.mp4')))),
-        @('DEMO 6 frames', ($L + @('frames', (Join-Path $DEMO 'demo.mp4'))))
+        @('DEMO 6 import the score', ($L + @('import', (Join-Path $DEMO 'music.wav'), '--clip-id', 'score'))),
+        @('DEMO 6 score it', ($L + @('music', '--asset', 'score', '--clip-id', 'vo', '--start-word', '0', '--fade-in', '1', '--fade-out', '2', '--under', '18'))),
+        @('DEMO 7 render and master (melt)', ($L + @('export', (Join-Path $DEMO 'demo.mp4'), '--render', '--loudness', '-16'))),
+        @('DEMO 7 verify', ($L + @('verify', (Join-Path $DEMO 'demo.mp4')))),
+        @('DEMO 7 frames', ($L + @('frames', (Join-Path $DEMO 'demo.mp4'))))
     )
     foreach ($s in $demoSteps) {
         if (-not (Step $s[0] $uv $s[1])) { break }
     }
 
-    # DEMO.md section 7: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". A person reads these.
+    # DEMO.md section 9: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". A person reads these.
     $video = Join-Path $DEMO 'demo.mp4'
     if (Test-Path -LiteralPath $video) {
         & $ffmpegExe.FullName -v error -y -ss 3 -i $video -frames:v 1 (Join-Path $W 'frame-3s.png') 2>&1 | Out-Null

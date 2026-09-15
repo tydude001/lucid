@@ -27,6 +27,10 @@ asks a question a counter cannot answer: a crop window that keeps all four
 corners is not cropping. Real footage screenshots better; synthetic footage is
 what ships because it costs nobody a licence review.
 
+The score is a plucked pentatonic melody written with `wave` from a fixed seed
+(`make_music`), so the demo can be scored and mastered as well as cut, and so a
+render can be checked for the bed at the second it should be playing.
+
     python scripts/make_demo.py ~/proofcut-demo          # just the media
     python scripts/make_demo.py ~/proofcut-demo --build  # ...and a seeded project
 
@@ -37,9 +41,13 @@ skip ahead or check their own run against it.
 from __future__ import annotations
 
 import argparse
+import array
+import math
+import random
 import shutil
 import subprocess
 import sys
+import wave
 from pathlib import Path
 
 #: The narration, in the order it is spoken. `retake=True` marks the fluffed
@@ -72,6 +80,17 @@ BROLL = [
 BROLL_SECONDS = 12
 BROLL_SIZE = "640x360"
 BROLL_FPS = 24
+
+#: The score. Long enough to run under the whole cut and an end card after it,
+#: so the bed never pads out with silence in the walkthrough.
+MUSIC_SECONDS = 24
+MUSIC_RATE = 22050
+#: A minor pentatonic over two octaves — nothing in it can clash with anything
+#: else in it, which is the whole of the composition.
+MUSIC_NOTES = [220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25]
+#: Seeds the melody, so every machine generates the same score and
+#: `scripts/trial_check.py` can look for it in a render.
+MUSIC_SEED = 7
 
 
 class DemoError(RuntimeError):
@@ -195,6 +214,49 @@ def make_broll(directory: Path) -> list[Path]:
     return made
 
 
+def make_music(out: Path) -> Path:
+    """A plucked pentatonic melody, written with `wave`.
+
+    Music has to be generated for the same reason the voice is: nothing is
+    vendored. It is built from the standard library rather than an ffmpeg
+    `sine` chord because it has to be **findable in a render**. A held chord
+    repeats every period, so it correlates with a render at the wrong second
+    as well as the right one, and a check comparing the two would learn
+    nothing. A melody whose notes are drawn from a seeded generator matches
+    itself at one offset only — the same idea as the b-roll's burnt-in
+    counter, for sound (`scripts/trial_check.py`'s bed check).
+    """
+    rng = random.Random(MUSIC_SEED)
+    total = MUSIC_SECONDS * MUSIC_RATE
+    samples = [0.0] * total
+    # No drone under it: a sustained tone matches the render at every second
+    # it is held, and measured a wrong-second control within 7 dB of the right
+    # one. The melody alone carries the identity.
+    at = 0.0
+    while at < MUSIC_SECONDS:
+        length = rng.choice([0.25, 0.25, 0.5, 0.5, 0.75])
+        freq = rng.choice(MUSIC_NOTES)
+        start = int(at * MUSIC_RATE)
+        ring = int(min(length * 2.5, MUSIC_SECONDS - at) * MUSIC_RATE)
+        for k in range(ring):
+            t = k / MUSIC_RATE
+            envelope = math.exp(-4.0 * t) * min(1.0, t / 0.005)
+            samples[start + k] += 0.22 * envelope * (
+                math.sin(2 * math.pi * freq * t) + 0.3 * math.sin(4 * math.pi * freq * t)
+            )
+        at += length
+    peak = max(abs(s) for s in samples) or 1.0
+    frames = array.array("h", (int(32000 * s / peak) for s in samples))
+    if sys.byteorder == "big":
+        frames.byteswap()
+    with wave.open(str(out), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(MUSIC_RATE)
+        handle.writeframes(frames.tobytes())
+    return out
+
+
 def build_project(root: Path, media: Path) -> None:
     """Run the walkthrough's own commands, so `--build` and DEMO.md cannot drift."""
     proofcut = [sys.executable, "-m", "proofcut.cli"]
@@ -235,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
         make_voiceover(media / "vo.wav")
         for clip in make_broll(media):
             print(f"b-roll     -> {clip}")
+        print(f"music      -> {media / 'music.wav'}")
+        make_music(media / "music.wav")
         if args.build:
             root = media / "proj"
             print(f"project    -> {root}")

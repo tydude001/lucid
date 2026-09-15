@@ -127,8 +127,10 @@ uv sync
 ### The two-minute demo
 
 No footage needed. [docs/DEMO.md](docs/DEMO.md) generates a voiceover with a
-real retake, then walks the whole loop: cut the retake by naming its words,
-hang b-roll off a phrase, render, and check the render against the timeline.
+real retake, b-roll and a score, then walks a whole small film: cut the retake
+by naming its words, hang b-roll off a phrase, lay the score under the voice,
+render and master it, end on a card, and check the render against the
+timeline.
 
 ```sh
 uv run python scripts/make_demo.py ~/proofcut-demo

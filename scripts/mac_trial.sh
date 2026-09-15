@@ -389,11 +389,13 @@ step "DEMO 4 cut" L cut vo 11:23 --pad 0.1 &&
 step "DEMO 5 cue blue" L cue add vo --phrase "Every cut you make names a word" blue &&
 step "DEMO 5 cue rust" L cue add vo --phrase "the render can be checked" rust &&
 step "DEMO 5 shots" L shots &&
-step "DEMO 6 render (melt)" L export "$DEMO/demo.mp4" --render &&
-step "DEMO 6 verify" L verify "$DEMO/demo.mp4" &&
-step "DEMO 6 frames" L frames "$DEMO/demo.mp4"
+step "DEMO 6 import the score" L import "$DEMO/music.wav" --clip-id score &&
+step "DEMO 6 score it" L music --asset score --clip-id vo --start-word 0 --fade-in 1 --fade-out 2 --under 18 &&
+step "DEMO 7 render and master (melt)" L export "$DEMO/demo.mp4" --render --loudness -16 &&
+step "DEMO 7 verify" L verify "$DEMO/demo.mp4" &&
+step "DEMO 7 frames" L frames "$DEMO/demo.mp4"
 
-# DEMO.md § 7: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". A person reads these.
+# DEMO.md § 9: at ~3s the frame should read "BLUE 3s", at ~10s "RUST 0s". A person reads these.
 if [ -f "$DEMO/demo.mp4" ]; then
     ffmpeg -v error -y -ss 3 -i "$DEMO/demo.mp4" -frames:v 1 "$W/frame-3s.png"
     ffmpeg -v error -y -ss 10 -i "$DEMO/demo.mp4" -frames:v 1 "$W/frame-10s.png"
