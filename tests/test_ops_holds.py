@@ -604,6 +604,31 @@ def test_gate_music_lane_splits_the_bed_entry_around_one_span(project: Project) 
 
 
 @needs_ffmpeg
+def test_a_hold_that_cuts_a_piece_off_inside_its_crossfade_shortens_the_fade(project: Project) -> None:
+    """The Lambs/Longlegs native rebuild's render refused here: a hold opened
+    2.5 s after one bed piece started crossfading in, leaving a 60-frame
+    segment carrying the 60-frame crossfade *and* the gate's ramp out. The
+    hold is what ends that segment, so its ramp takes the fade over — the
+    fade at the real edge shrinks to what the segment can hold, rather than
+    the whole bed being unbuildable next to a hold. Both edges keep their
+    configured fade whenever it fits."""
+    from proofcut import mlt
+
+    ramp = round(ops.HOLD_GATE_RAMP * 24.0)
+    lane = [mlt.Entry("/tmp/bed.wav", 0, 300, has_video=False, fade_in_frames=60, crossfade_in=True)]
+    gated = ops._gate_music_lane(project, lane, "/tmp/bed.wav", [(60, 160)], 24.0)
+
+    before = gated[0]
+    assert before.frames == 60
+    assert before.fade_in_frames + before.fade_out_frames <= before.frames - 1
+    assert before.fade_out_frames == ramp
+    assert before.crossfade_in is True
+    # And the same document now builds: every entry's fades fit.
+    for entry in gated:
+        assert entry.fade_in_frames + entry.fade_out_frames <= max(entry.frames - 1, 0)
+
+
+@needs_ffmpeg
 def test_gate_music_lane_leaves_a_span_outside_the_bed_entry_untouched(project: Project) -> None:
     from proofcut import mlt
 

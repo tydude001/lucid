@@ -11529,18 +11529,24 @@ def _gate_music_lane(
         for index, (lo, hi) in enumerate(cuts):
             if lo > cursor:
                 seg_frames = lo - cursor
+                # The entry's own configured fade only at its real edge; a
+                # gate ramp everywhere a hold cuts it off. When a hold cuts a
+                # piece off inside its own fade, the ramp takes that fade
+                # over: the real-edge fade shrinks to what the segment holds.
+                out_ramp = min(ramp, max(seg_frames - 1, 0))
+                fade_in = (
+                    min(entry.fade_in_frames, max(seg_frames - 1 - out_ramp, 0))
+                    if cursor == entry_start
+                    else min(ramp, max(seg_frames - 1 - out_ramp, 0))
+                )
                 out.append(
                     mlt.Entry(
                         entry.resource,
                         entry.src_in + (cursor - entry_start),
                         seg_frames,
                         has_video=entry.has_video,
-                        # The entry's own configured fade only at its real
-                        # edge; a gate ramp everywhere a hold cuts it off.
-                        fade_in_frames=(
-                            entry.fade_in_frames if cursor == entry_start else min(ramp, seg_frames)
-                        ),
-                        fade_out_frames=min(ramp, seg_frames),
+                        fade_in_frames=fade_in,
+                        fade_out_frames=out_ramp,
                         gain_db=entry.gain_db,
                         crossfade_in=entry.crossfade_in and cursor == entry_start,
                     )
@@ -11550,14 +11556,15 @@ def _gate_music_lane(
             cursor = hi
         if cursor < entry_end:
             seg_frames = entry_end - cursor
+            in_ramp = min(ramp, max(seg_frames - 1, 0))
             out.append(
                 mlt.Entry(
                     entry.resource,
                     entry.src_in + (cursor - entry_start),
                     seg_frames,
                     has_video=entry.has_video,
-                    fade_in_frames=min(ramp, seg_frames),
-                    fade_out_frames=entry.fade_out_frames,
+                    fade_in_frames=in_ramp,
+                    fade_out_frames=min(entry.fade_out_frames, max(seg_frames - 1 - in_ramp, 0)),
                     gain_db=entry.gain_db,
                     crossfade_out=entry.crossfade_out,
                 )
