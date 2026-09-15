@@ -215,80 +215,63 @@ The claim that persuades is a film someone can watch.
 
 ## The rename, considered
 
-**Recommendation: keep `proofcut`.** The question is fair, because a name
-says what a thing is. Five reasons settle it:
+**Judged on the name alone.** Tyler ruled out two considerations on
+2026-09-15: how a second rename looks, and what it costs. A name is better if
+it says what proofcut is more plainly, is more legible to someone outside
+film, and collides with less. Nothing else counts.
 
-1. **The name already covers the film.** In editing, the *cut* is the
-   finished film: rough cut, final cut, director's cut. "proofcut" reads as
-   "a proven film" as readily as "a proven trim".
-2. **Under finding 1 the name is the differentiator.** A whole-film pitch
-   shares the registry with fifteen generators. A name built from *film*,
-   *reel* or *video* would blend into them; *proof* is what they do not say.
-3. **The name is not what gets found.** LAUNCH.md § Step 3 measured that the
-   description and tagline are, and RENAME.md's own premise was a collision,
-   never a description. The whole-film message belongs in steps 1–2, which
-   cost an evening, not in a name.
-4. **The only rename that was ever justified had a mark behind it.** Lucid
-   Software's live LUCID trademark and its same-named MCP server were
-   RENAME.md's whole case. Tyler's USPTO search for `proofcut` on 2026-09-13
-   found no results (HISTORY.md § The rename), so nothing like that exists
-   against it. The two-word `proof cut` was never searched; that is a cheap
-   check to run before Show HN, not a reason to rename.
-5. **Two renames in a week is its own signal**, to the registry, Glama, the
-   awesome-list maintainers and Show HN alike. The first comes across as care;
-   a second looks like a project that doesn't know what it is.
+**Recommendation: keep `proofcut`.** One candidate, `answerprint`, is more
+exact about what proofcut now is, and it is the pick if the name has to say
+"the whole film".
 
-**What it would cost, measured today.** Occurrences of `proofcut` in the tree:
+**What a better name would have to beat:**
+- **`proofcut` says both halves.** In editing the *cut* is the finished film
+  (rough cut, final cut, director's cut), and *proof* is the one thing the
+  registry's fifteen generators never say (finding 1).
+- **It is eight characters**, which matters for a CLI and a variable prefix.
+- **It is clean** on the registry, PyPI, npm, the GitHub user and `.dev`.
+  Tyler's USPTO search found nothing on 2026-09-13; the two-word `proof cut`
+  was never searched. `.com` is registered to someone else.
+- **It already owns its search.** A web search for `"proofcut"` on 2026-09-15
+  returns this repo first.
+- **Its weakness is real:** someone outside film can read *cut* as "trim",
+  and that is the misreading this plan exists to fix. Steps 1–2 fix it in the
+  tagline, the one place LAUNCH.md § Step 3 measured is what gets found.
 
-| Area | Occurrences |
-|---|---|
-| `src/` | 676 |
-| `tests/` | 537 |
-| `docs/` | 709 |
-| `scripts/` | 226 |
-| root docs, pyproject and `server.json` | 169 |
-| `.github/` | 40 |
-| `.claude-plugin/` | 12 |
-| `PROOFCUT_*` variables | 23 |
+**The sweep.** 57 candidates on 2026-09-15 through
+`~/proofcut-work/spikes/name-sweep/sweep2.sh`: the official registry, PyPI,
+npm, the GitHub user and repos, and `.com`/`.dev` by RDAP. sweep.sh's own
+`rdap.org` column answered 302 for everything and is replaced; the new one
+reads `lucid.com` as taken and `marriedprint.com` as free. The front-runners
+were then web-searched. Nearly every real word is registered as a `.com`, so
+that column rarely separates anything.
 
-Off the tree, RENAME.md's whole list again:
-- a second registry deletion
-- the `v0.23.0` release and its clip URL
-- re-recorded launch assets
-- both kits and the pinned tester issues
-- this box's `60-proofcut.conf`, its working copy and memory directory
-- the `~/proofcut-work` gathering from 2026-09-14
+| Name | What it says | Collisions | Verdict |
+|---|---|---|---|
+| `answerprint` | the film lab's first complete print (picture, sound, titles, grade), made to be checked against the cut before release | none on registry, PyPI, npm, GitHub; `.com` taken, `.dev` free; no product found | **the only one more exact than `proofcut`**; it loses on legibility: a web search for it returned printing software, which is the misreading a registry row will get |
+| `provenreel` | a proven film | none, and `.com` free | *reel* now means short-form (Instagram Reels, ReelShort, "True Reels"), wrong for six-minute essays |
+| `truereel` | a true film | GitHub clean; a "True Reels" drama-shorts app | the same short-form problem, plus that app |
+| `cutprint` | "Cut! Print!", the director's call to keep a take | **CutPrint (`cutprint.io`) is film-production software**, and a Cut Print video agency exists | out: a live product in the same trade |
+| `marriedprint` | picture and sound joined on one print | none, `.com` free | twelve characters of jargon that reads as a wedding |
+| `lastcut`, `finalreel` | the finished film | a GitHub user / 1 repo | `lastcut` sits next to Apple's Final Cut Pro mark |
+| `wholefilm`, `fullcut` | the whole film | clean | say nothing about proof, so they blend into the generators |
+| `provecut`, `provencut`, `certcut`, `vouchcut`, `attestcut`, `verireel` | proof, reworded | mostly clean | the same idea as `proofcut`, less natural |
+| `filmproof`, `finalproof`, `cutproof`, `editproof`, `printproof` | proof | mostly clean | read as waterproof, proofreading or "cut-resistant" |
+| `truecut`, `finecut`, `cutlock`, `goodtake`, `trueprint`, `playproof`, `reelcheck`, `filmcheck` | — | a GitHub org or user holds each | out on collisions |
+| `keeper`, `readback`, `rollcredits`, `printcheck`, `proofreel`, `surecut` | — | taken on PyPI, npm or the registry | out |
 
-That last item used `MOVED.tsv` because the first rename moved thirteen
-directories. None of the list is hard, and all of it buys nothing finding 1
-doesn't already give.
-
-**Candidates swept anyway** (`~/proofcut-work/spikes/name-sweep/sweep.sh`,
-2026-09-15). The domain column is left out: `rdap.org` answered 302 for every
-`.dev` and `.com`, including names known to be taken, so it measured nothing.
-
-| Name | Registry | PyPI | npm | GitHub repos | Says more than `proofcut`? |
-|---|---|---|---|---|---|
-| `provecut` | 0 | free | free | 0 | no; the same idea, less natural |
-| `filmproof` | 0 | free | free | 1 | "film" joins the generators' vocabulary |
-| `finalproof` | 0 | free | free | 1 | reads as proofreading |
-| `wholecut` | 0 | free | free | 1 | a cut of meat |
-| `cutproof` | 0 | free | free | 9 | reads as "cut-resistant" |
-| `proofreel` | 0 | free | **taken** | 6 | no |
-
-None is clearer than the current name, and none is a better search term.
-
-**What would reopen it:** a live mark on `proofcut` in classes 9 or 42, or a
-product trading under the word in video, or a launch thread that confuses
-proofcut with something named like it. The same test RENAME.md applied, the
-same way.
+**What would change the recommendation:** a live mark on `proofcut` in
+classes 9 or 42, or Tyler deciding the name itself must carry "the whole
+film", in which case the answer is `answerprint` and RENAME.md is re-read with
+that word.
 
 ## Decisions for Tyler
 
 Grouped by what is actionable today; each carries a recommendation.
 
 **Actionable now:**
-1. **Keep the name** (recommended), or re-open RENAME.md's sweep with a brief.
+1. **Keep the name** (recommended), or `answerprint` if the name itself must
+   say "the whole film" (§ The rename, considered).
 2. **The tagline and the description.** Step 1's and step 2's wording
    (recommended), or a variant. The one constraint is that neither says
    "generate" or "from scratch".
