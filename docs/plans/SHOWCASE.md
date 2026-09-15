@@ -145,8 +145,10 @@ Two drafts follow it too:
   and the Show HN first comment)
 - `~/proofcut-work/spikes/launch-release/NOTES.md`
 
-The awesome-list PR goes in on 2026-09-20 at the latest (wiki `lucid-publish`).
-Its line is copied from the description, so **steps 1–2 land before then**.
+The awesome-list PR is open-able whenever Tyler is ready — Glama listed on
+2026-09-15, so the line carries its badge (wiki `lucid-publish`). Its line is
+copied from the description, and **steps 1–2 landed first**, so the list will
+not carry the front-half wording.
 
 ## Step 3 — the demo makes a whole film
 
@@ -288,9 +290,9 @@ Grouped by what is actionable today; each carries a recommendation.
 2. **The tagline and the description.** Step 1's and step 2's wording
    (recommended), or a variant. The one constraint is that neither says
    "generate" or "from scratch".
-3. **Steps 1–2 before the awesome-list PR on 2026-09-20** (recommended).
-   Otherwise the list carries the front-half line for as long as the list
-   exists.
+3. **Steps 1–2 before the awesome-list PR** (recommended) — met: both shipped
+   2026-09-15 and the drafted line was reworded off them, so the list will not
+   carry the front-half wording for as long as it exists.
 
 **Needs a run first:**
 4. **Step 4 does not gate Show HN** (recommended). It gates only the README

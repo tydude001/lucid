@@ -195,10 +195,11 @@ nothing to think about: clone, one command, attach a zip. What finds the
 stranger is step 4's listings — their audience runs Claude Code, mostly on
 Macs — and, if a week of those produces nobody, one "Mac tester wanted"
 post in a room step 6 does not use, so no launch channel's first
-impression is spent on a request. **That week ends 2026-09-20** (the
-registry listing went live 2026-09-13, and the awesome-list PR's badgeless
-fallback is the same day), so with no report by then the tester post goes
-up on **2026-09-21**. The room is one built for requests — r/alphaandbetausers
+impression is spent on a request. **That week ends 2026-09-20**, a week from
+the registry listing going live on 2026-09-13, so with no report by then the
+tester post goes up on **2026-09-21**. (It used to be the awesome-list PR's
+badgeless deadline too; Glama listed on 2026-09-15, so that half is gone and
+the PR carries its badge whenever it opens.) The room is one built for requests — r/alphaandbetausers
 first, r/SideProject if its rules turn a tester call away; read the rules
 the day of posting. Moving a step 6 channel ahead of Show HN to do this was
 weighed on 2026-09-14 and rejected: self-promotion rules commonly read a
