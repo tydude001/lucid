@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from proofcut import finish, ops
+from proofcut import finish, mlt, ops
 from proofcut import timeline as tl
 from proofcut import transcript as tx
 from proofcut.project import Project, ProjectError
@@ -230,6 +230,54 @@ def test_a_second_call_at_the_same_address_with_matching_fields_updates_in_place
     assert len(stored) == 1
     assert stored[0]["under"] == 3.0
     assert stored[0]["fade_in"] == STORED_HOLD["fade_in"]  # untouched field survives
+
+
+@needs_ffmpeg
+def test_one_undo_takes_back_a_whole_spliced_hold(project: Project) -> None:
+    """A hold is one decision, so it is one undo press — the gap and the
+    record together. Walking back only the manifest half leaves a spliced
+    silence with no hold behind it: a gap in the VO that plays nothing, which
+    reads as a pause in the read, not as a missing hold.
+    """
+    ops.hold_add(project.root, "vo", 3, 2, asset="film", word_index_first=0, word_index_last=4)
+    assert len(_edit(project).segments) > 1
+    assert project.read_manifest()[ops.HOLDS_KEY]
+
+    ops.undo(project.root)
+
+    assert len(_edit(project).segments) == 1
+    assert not project.read_manifest().get(ops.HOLDS_KEY)
+
+
+@needs_ffmpeg
+def test_a_hold_refused_by_the_shot_plan_registers_nothing_and_costs_no_undo(project: Project) -> None:
+    """The splice's shot-plan check runs on the edit *with* the gap in it, so
+    it can refuse a hold whose own algebra fits: here the hold needs film
+    8.95–10.85 of a 27 s asset, but an earlier cue's shot of that asset from
+    20.0 runs the whole 6.0 s timeline — 26.0, fits — and the gap stretches it
+    to 7.9 s, past the asset's end. The refusal used to come after the silence was
+    registered — a manifest write, and so an undo snapshot — leaving an
+    orphaned clip and an undo press that changes nothing. Found on the
+    Lambs/Longlegs native rebuild, where the first undo after a refused hold
+    walked back no edit at all.
+    """
+    manifest = project.read_manifest()
+    for clip in manifest["clips"]:
+        if clip["clip_id"] == "film":
+            clip["duration"] = 27.0
+            clip["source"] = str(project.root / "film.mp4")  # the shot plan resolves the file; its bytes are never read
+    (project.root / "film.mp4").touch()
+    manifest["cues"] = [{"clip_id": "vo", "word_index": 0, "asset": "film", "src_start": 20.0}]
+    project.write_manifest(manifest)
+    clips_before = [c["clip_id"] for c in project.read_manifest()["clips"]]
+    depth_before = len(Project.open(project.root).snapshots())
+
+    with pytest.raises(mlt.MLTError, match="past the asset's 27.0s"):
+        ops.hold_add(project.root, "vo", 3, 2, asset="film", word_index_first=0, word_index_last=4)
+
+    assert [c["clip_id"] for c in project.read_manifest()["clips"]] == clips_before
+    assert len(Project.open(project.root).snapshots()) == depth_before
+    assert len(_edit(project).segments) == 1
 
 
 def test_changing_word_index_first_on_an_already_spliced_hold_is_refused(project: Project) -> None:

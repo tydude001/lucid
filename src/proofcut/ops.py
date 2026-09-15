@@ -10147,15 +10147,13 @@ def _splice_after(
     """
     echo, at, timeline_at, edit = _splice_point(project, clip_id, word_index)
 
-    source_path = source()
-    hold_clip_id = (
-        placeholder
-        if plan
-        else media.import_media(project, source_path, clip_id=register_as)["clip_id"]
-    )
-
+    # The shot-plan check below runs against the placeholder, and only a splice
+    # it lets through renders, registers or saves anything. Registering first
+    # is a manifest write — so an undo snapshot — and a refusal after it left
+    # an orphaned clip and an undo press that changed nothing (HISTORY.md § The
+    # Lambs/Longlegs native rebuild).
     before = edit.duration
-    edit.insert(clip_id, at, hold_clip_id, 0.0, seconds)
+    edit.insert(clip_id, at, placeholder, 0.0, seconds)
 
     rate = _rate(project)
     shots, _ = _picture_plan(project, rate, edit=edit)
@@ -10172,7 +10170,11 @@ def _splice_after(
         if shot["start"] < gap_end and shot["start"] + shot["duration"] > gap_start
     ]
 
+    hold_clip_id = placeholder
     if not plan:
+        hold_clip_id = media.import_media(project, source(), clip_id=register_as)["clip_id"]
+        edit = _load_edit(project)
+        edit.insert(clip_id, at, hold_clip_id, 0.0, seconds)
         _save_edit(project, edit)
 
     return {
