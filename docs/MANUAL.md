@@ -75,6 +75,8 @@ says what it would do first, and the old manifest is kept under
 `cache/history/`). A timeline with a cue table or a second
 clip on it is written as MLT by proofcut and rendered by `melt` — auto-editor never
 sees one, because it degrades a two-source render to 720x576 and exits 0.
+`--loudness` masters a render to a target (§ Music, holds, a cold open and
+the master).
 
 ## The MCP server
 
@@ -427,6 +429,124 @@ proofcut -C myproject tail --reset                          # back to ending on 
 It is project state, so a derivation knows it existed rather than dropping it
 without a word — `reel` reports `tail_dropped`. `Edit` does not grow to
 describe one, so `timeline_duration` still answers for the cut itself.
+
+## Music, holds, a cold open and the master
+
+A cut voiceover with pictures over it is not yet a film. What finishes one is
+sound: a score under the narration, the footage's own lines where the essay
+quotes them, a cold open before the first word, and a master at a platform's
+loudness. Each is project state, so it survives every later cut, and each
+renders through `melt` like the cue table. Both essays in HISTORY.md § The
+Scream native rebuild were built this way and measured against their delivered
+files.
+
+### The music bed
+
+Music is a registered clip like any other, addressed by the word it starts on:
+
+```sh
+proofcut -C myproject import score-a.wav --clip-id score-a
+proofcut -C myproject music --asset score-a --clip-id vo --start-word 0 \
+  --fade-in 2 --under 22 --plan                          # resolve and check, write nothing
+proofcut -C myproject music --asset score-a --clip-id vo --start-word 0 \
+  --fade-in 2 --under 22
+proofcut -C myproject music --passage score-b,412,0,2.5  # from word 412, score-b, crossfading 2.5 s
+proofcut -C myproject music --rotate score-c --crossfade 2.5  # when an asset runs out, the next
+proofcut -C myproject music                              # what is in force
+proofcut -C myproject music --reset
+```
+
+**The bed stores word indices and assets, never a length.** It starts where
+its word lands on the timeline, and with no `--end-word` it runs to the end of
+the edit, so a cut anywhere moves it for free. A stored length was measured
+drifting onto live material. An end card holds over silence, because a tail
+comes after the film. `--phrase-start` and `--phrase-end` resolve a boundary
+by what is said, the same way every word-addressed tool does.
+
+- **`--passage ASSET,START[,SRC_IN[,CROSSFADE]]`** places a later cue. START
+  is a word index or a phrase, SRC_IN is where in its asset it plays from, and
+  the passage before it runs on past that word by the crossfade so the two
+  overlap. It is repeatable, and each call replaces the whole list.
+- **`--rotate`** tiles several assets in turn, overlapping by `--crossfade`,
+  when one runs out before the film does.
+- **`--under N`** levels the whole bed N LU below the voiceover, measured,
+  rather than playing each asset at its own level.
+
+Overlapping passages are crossfaded on an equal-power curve. Two plain fades
+crossing leave a hole in the middle, measured at 26–30 dB under the bed. The
+bed goes out across every hold, and `reel` drops it and says so
+(`music_dropped`), because a bed restarted from its head halfway through a
+film is not the film's score.
+
+### Holds: the film's own lines
+
+A hold opens a gap in the voiceover and plays a clip's own audio across it,
+with the picture pinned to the line:
+
+```sh
+proofcut -C myproject hold add vo --gap-phrase "what she wanted" \
+  --cue-phrase "the scene where" --asset lambs-clarice \
+  --asset-phrase "the lambs are still screaming" --plan
+proofcut -C myproject hold add vo --gap-phrase "what she wanted" \
+  --cue-phrase "the scene where" --asset lambs-clarice \
+  --asset-phrase "the lambs are still screaming"
+proofcut -C myproject hold ls
+proofcut -C myproject hold check final.mp4       # transcribe each hold off the render
+proofcut -C myproject hold rm vo 211             # the record and its cue; the silence stays
+```
+
+- **The gap word** is the last voiceover word before the gap.
+- **The cue word** is where the clip's picture starts.
+- **The asset phrase** is the line that must be heard clean. It resolves
+  against the clip's *own* transcript, so the clip has to be transcribed.
+
+A phrase re-resolves when a transcript changes under it, and four hand-typed
+indices would not.
+
+**`hold check` listens to the render rather than trusting the plan.** It cuts
+each hold's span out of the file, transcribes it, and reports a fault when
+either end of the line is not heard, when a seam jumps in level, or when
+the hold's picture cue has drifted off its line. It reports and never
+refuses, like `verify`.
+
+To play the footage *under* the narration rather than in a gap:
+
+```sh
+proofcut -C myproject hold under vo lambs-fairy-tale \
+  --phrase-start "once upon a time" --phrase-end "happily ever after" --under 13
+proofcut -C myproject hold under-rm vo 318
+```
+
+No in-point is stored. The audio reads from wherever the shot showing that
+clip has got to at the span's first word, so it cannot disagree with the
+picture, and a clip that is not on screen there is refused.
+
+### A cold open
+
+```sh
+proofcut -C myproject head --asset lambs-cellar --src-start 42.5 --seconds 9 --fade-out 0.5
+proofcut -C myproject head --reset
+```
+
+A head plays before the edit's first frame, with its own audio. **It creates a
+second clock:** render time is edit time plus `head_seconds`. `timeline-view`,
+`locate`, `status` and `caption-view` stay edit-relative and report
+`head_seconds` beside their answer. Everything that reads a render offsets for
+it itself: `captions` shifts by it, and `verify` trims the head's words before
+diffing (`head_words_trimmed`).
+
+### The master
+
+```sh
+proofcut -C myproject export final.mp4 --render --loudness -16 --true-peak -1
+```
+
+`--loudness` masters the render proofcut just made with a two-pass `loudnorm`
+and measures it before and after. The reply's `loudness` carries both
+numbers. A master that misses its target by more than 1 LU, or its ceiling by
+more than 0.5 dB, is refused, and the render is left as it was. It masters
+media only, so an NLE export refuses it. `captions --burn` afterwards copies
+the audio through untouched, so the master survives the burn.
 
 ## Saying a line in a cloned voice
 

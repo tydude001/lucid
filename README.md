@@ -1,7 +1,8 @@
 # proofcut
 
-**An AI video editor that proves its cuts.** An agent edits your video by
-editing its transcript. proofcut renders the result on your own machine, then
+**An AI video editor that proves its cuts.** Your recordings in, a finished,
+mastered film out: cut by transcript, with b-roll, cards, music and captions,
+and every step an agent can call. proofcut renders on your own machine, then
 transcribes the render and checks that it says what the edit says.
 
 https://github.com/user-attachments/assets/4153d180-3d7c-4c70-af5f-54d63d0a8bd5
@@ -12,10 +13,49 @@ film the agent cut): [the workspace](https://github.com/tydude001/proofcut/relea
 (2:26) and [Claude Code with the proofcut plugin](https://github.com/tydude001/proofcut/releases/download/v0.23.0/proofcut-v0.23.0-uncut-claude-code-run.mp4)
 (3:09).
 
+That is not a staged run. [TRIAL.md](docs/TRIAL.md) scores two unattended
+ones, each handed a goal and no steps, and each passed all nine of its checks.
+The first was that demo. The second was 96 seconds of real narration with its
+fluffed takes left in, plus four clips of film footage. The agent cut it to 45
+seconds, chose footage by what each line was about, burned captions, and
+checked its own render: all 123 expected words heard back.
+
 > **Have a Mac or a Windows PC and half an hour?** Nobody has run proofcut on
 > a Mac yet, and on Windows only its author has. One script runs the whole
 > test and removes what it installed:
 > [Mac](#help-wanted-the-first-run-on-a-mac) or [Windows](#help-wanted-a-windows-run-by-someone-else).
+
+## From recordings to a finished film
+
+One project, and proofcut's own commands from the first import to the
+delivered file. No NLE finishes the film, and nothing else touches the render.
+Each stage is one command. The [manual](docs/MANUAL.md) walks every one, and
+its [§ Music, holds, a cold open and the master](docs/MANUAL.md#music-holds-a-cold-open-and-the-master)
+covers the sound:
+
+| Stage | Command |
+|---|---|
+| Bring in the voiceover and footage, and transcribe | `import`, `transcribe` |
+| Cut retakes and asides by naming their words | `cut vo 111:114` |
+| Hang b-roll and cards off the lines they belong to | `cue add`, `card new` |
+| Open cold on a scene, end on a card | `head`, `tail` |
+| Play the footage's own lines in a gap, or under the narration | `hold add`, `hold under` |
+| Score it: placed passages, crossfaded, levelled under the voice | `music` |
+| Pull breaths down without cutting them | `attenuate` |
+| Render and master to a loudness target | `export --render --loudness -16` |
+| Burn in captions | `captions --burn` |
+| Check the render says what the edit says | `verify`, `frames`, `hold check` |
+
+Two video essays of five to six minutes have been rebuilt this way and
+measured against their originals, which had been finished outside proofcut.
+One came out the same length to the frame. The other matched its original's
+63 voiceover ranges to the millisecond, with the voice aligned to the sample,
+starting from a retake pass made in Kdenlive. Both master at the original's
+−16 LUFS (HISTORY.md § The Lambs/Longlegs native rebuild, § The Scream native
+rebuild).
+
+proofcut makes no footage and writes no script. It takes what you recorded to
+a film, and proves the film matches the edit.
 
 ## Why proofcut
 
@@ -156,6 +196,22 @@ reasoning behind it.
 - **Multi-mic recordings.** A file with two mics is refused until you say how
   to use it (`--mix` or `--audio-stream k`), and `attribute-speakers` labels
   each word with who said it.
+
+**Sound**
+
+- **A score, placed.** `music` lays a bed under the voiceover from a word,
+  as passages that crossfade into each other or assets that rotate. Its level
+  is measured against the voice, and it moves with every cut because it stores
+  words, not seconds.
+- **The footage's own lines.** `hold add` opens a gap in the narration and
+  plays a clip's line across it, with the picture pinned to it. `hold under`
+  plays it quietly beneath the voice instead, and `hold check` transcribes
+  each one off the render.
+- **A cold open.** `head` plays a scene before the first word, with its own
+  audio.
+- **Breaths and the master.** `attenuate` pulls short noises down rather than
+  cutting holes. `export --loudness` masters the render to a target, measures
+  it before and after, and refuses a master that misses.
 
 **Checking**
 
@@ -322,8 +378,8 @@ proofcut's reasoning is part of what it ships, so the design record is public:
 - [NEXT.md](docs/NEXT.md): the directions after the queues closed, ranked.
 - [TRIAL.md](docs/TRIAL.md): an agent cutting a video end to end, unattended
   and scored.
-- [docs/plans/](docs/plans): the plans. LAUNCH.md, PORTABILITY.md and
-  RENAME.md are in progress. Three are finished and kept because the code
+- [docs/plans/](docs/plans): the plans. LAUNCH.md, PORTABILITY.md, NATIVE.md
+  and SHOWCASE.md are in progress, and RENAME.md is done. Three are finished and kept because the code
   cites their reasoning: [DAYDREAM.md](docs/plans/DAYDREAM.md), the
   feature map from [Daydream](https://www.daydreamvideo.com), the closest
   commercial product; [STUDIO.md](docs/plans/STUDIO.md), the workspace
