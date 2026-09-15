@@ -407,3 +407,7 @@ The bundled typefaces are not proofcut's to relicense. The caption face in
 `src/proofcut/fonts/` and the three browser faces in `src/proofcut/web/` are
 OFL-1.1, each with its licence text beside it and its source in that
 directory's `FONTS.md`.
+
+## Say thanks
+
+If proofcut cut a video for you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/tydude001).

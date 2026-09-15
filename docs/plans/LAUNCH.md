@@ -333,7 +333,12 @@ it does not, the README's first screen is a dead link on launch day.
    is not the open-core call (§ What this plan deliberately does not do):
    it is the cheapest honest answer to "how do I say thanks", and a launch
    thread asks that question within the hour. Wire it before Show HN, since
-   the button is what the thread will find.
+   the button is what the thread will find. **Wired 2026-09-15 as Ko-fi
+   (`ko_fi: tydude001`)**, not Sponsors: GitHub Sponsors approval can take
+   weeks, which would put Show HN up with no button, and Ko-fi has no
+   queue. When Sponsors approves, the line becomes `github: tydude001` —
+   a swap, keeping one platform. Never name `github:` before approval; the
+   button would open a sponsor page that does not exist.
 9. **Open and pin the Mac test issue**, and create the `mac-test` label the
    issue form applies, so reports can be found by it — the repo has only
    GitHub's defaults. Step 2's stranger arrives from here on, so this is the same
