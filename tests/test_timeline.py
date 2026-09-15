@@ -728,3 +728,21 @@ def test_the_index_is_not_shared_between_edits() -> None:
     b = _edit((5.0, 10.0))
     assert a.timeline_span("vo", 6.0, 7.0) == (6.0, 7.0)
     assert b.timeline_span("vo", 6.0, 7.0) == (1.0, 2.0)
+
+
+def test_a_round_tripped_segment_ends_exactly_where_its_neighbour_starts() -> None:
+    """`from_otio` added the float duration to the float start, and 55.9 + 4.3
+    is 60.199999999999996 — so a segment written ending at 60.2 read back one
+    ulp short of the next segment's 60.2 start. `closed_end`'s instant test is
+    `==`, which then missed: a gap word ending on the join of a spliced hold
+    resolved to the far side of the hold's own silence, `_hold_plan` counted
+    the hold into its own `elapsed`, and on the Lambs/Longlegs native rebuild
+    one of eight holds read "no room" for a placement `hold add` had accepted.
+    The rational end is what OTIO stores; read that.
+    """
+    edit = Edit([Segment("vo", 0.0, 55.9), Segment("cam", 0.0, 5.3), Segment("vo", 55.9, 60.2),
+                 Segment("cam", 10.0, 13.35), Segment("vo", 60.2, 60.0 + 14.34)])
+    back = from_otio(to_otio(edit, CLIPS, rate=1000.0))
+
+    assert back.segments[2].end == back.segments[4].start == 60.2
+    assert back.timeline_time("vo", 60.2, closed_end=True) == pytest.approx(55.9 + 5.3 + 4.3)

@@ -764,9 +764,16 @@ def from_otio(timeline: otio.schema.Timeline) -> Edit:
                     "this timeline was not written by proofcut"
                 )
             source_range = item.source_range
-            start = source_range.start_time.to_seconds()
+            # The rational end, never float start + float duration: 55.9 + 4.3
+            # is 60.199999999999996, one ulp short of the next segment's 60.2,
+            # and `timeline_time(closed_end=True)`'s `==` then resolved a word
+            # ending on that join to the far side of whatever was spliced there.
             segments.append(
-                Segment(clip_id=clip_id, start=start, end=start + source_range.duration.to_seconds())
+                Segment(
+                    clip_id=clip_id,
+                    start=source_range.start_time.to_seconds(),
+                    end=source_range.end_time_exclusive().to_seconds(),
+                )
             )
         break  # single-track model; see the module docstring
     return Edit(segments=segments)
